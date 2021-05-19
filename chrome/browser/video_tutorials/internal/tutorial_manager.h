@@ -7,6 +7,7 @@
 
 #include "base/callback.h"
 #include "chrome/browser/video_tutorials/internal/tutorial_group.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace video_tutorials {
 
@@ -15,17 +16,26 @@ namespace video_tutorials {
 class TutorialManager {
  public:
   using SuccessCallback = base::OnceCallback<void(bool)>;
-  using GetTutorialsCallback = base::OnceCallback<void(std::vector<Tutorial>)>;
+  using MultipleItemCallback = base::OnceCallback<void(std::vector<Tutorial>)>;
+  using SingleItemCallback = base::OnceCallback<void(absl::optional<Tutorial>)>;
 
   // Loads video tutorials. Must be called again if the locale was changed by
   // the user.
-  virtual void GetTutorials(GetTutorialsCallback callback) = 0;
+  virtual void GetTutorials(MultipleItemCallback callback) = 0;
+
+  // Called to retrieve the tutorial associated with |feature_type|.
+  virtual void GetTutorial(FeatureType feature_type,
+                           SingleItemCallback callback) = 0;
 
   // Returns a list of languages for which video tutorials are available.
   virtual const std::vector<std::string>& GetSupportedLanguages() = 0;
 
+  // Returns a list of languages in which a given tutorial is available.
+  virtual const std::vector<std::string>& GetAvailableLanguagesForTutorial(
+      FeatureType feature_type) = 0;
+
   // Returns the preferred locale for the video tutorials.
-  virtual base::Optional<std::string> GetPreferredLocale() = 0;
+  virtual absl::optional<std::string> GetPreferredLocale() = 0;
 
   // Sets the user preferred locale for watching the video tutorials. This
   // doesn't update the cached tutorials. GetTutorials must be called for the

@@ -48,6 +48,7 @@ class VideoDecoderConfig;
 class VideoDecoderInit;
 class VideoFrame;
 class V8VideoFrameOutputCallback;
+class ScriptPromise;
 
 class MODULES_EXPORT VideoDecoderTraits {
  public:
@@ -67,6 +68,7 @@ class MODULES_EXPORT VideoDecoderTraits {
       media::GpuVideoAcceleratorFactories* gpu_factories,
       media::MediaLog* media_log);
   static void InitializeDecoder(MediaDecoderType& decoder,
+                                bool low_delay,
                                 const MediaConfigType& media_config,
                                 MediaDecoderType::InitCB init_cb,
                                 MediaDecoderType::OutputCB output_cb);
@@ -74,8 +76,9 @@ class MODULES_EXPORT VideoDecoderTraits {
   static void UpdateDecoderLog(const MediaDecoderType& decoder,
                                const MediaConfigType& media_config,
                                media::MediaLog* media_log);
-  static OutputType* MakeOutput(scoped_refptr<MediaOutputType>,
-                                ExecutionContext*);
+  static media::StatusOr<OutputType*> MakeOutput(scoped_refptr<MediaOutputType>,
+                                                 ExecutionContext*);
+  static const char* GetName();
 };
 
 class MODULES_EXPORT VideoDecoder : public DecoderTemplate<VideoDecoderTraits> {
@@ -85,6 +88,13 @@ class MODULES_EXPORT VideoDecoder : public DecoderTemplate<VideoDecoderTraits> {
   static VideoDecoder* Create(ScriptState*,
                               const VideoDecoderInit*,
                               ExceptionState&);
+
+  static ScriptPromise isConfigSupported(ScriptState*,
+                                         const VideoDecoderConfig*,
+                                         ExceptionState&);
+
+  static HardwarePreference GetHardwareAccelerationPreference(
+      const ConfigType& config);
 
   // For use by MediaSource and by ::MakeMediaConfig.
   static CodecConfigEval MakeMediaVideoDecoderConfig(
@@ -107,10 +117,20 @@ class MODULES_EXPORT VideoDecoder : public DecoderTemplate<VideoDecoderTraits> {
   media::StatusOr<scoped_refptr<media::DecoderBuffer>> MakeDecoderBuffer(
       const InputType& input) override;
 
+  static ScriptPromise IsAcceleratedConfigSupported(ScriptState* script_state,
+                                                    const VideoDecoderConfig*,
+                                                    ExceptionState&);
+
 #if BUILDFLAG(USE_PROPRIETARY_CODECS)
   std::unique_ptr<media::H264ToAnnexBBitstreamConverter> h264_converter_;
   std::unique_ptr<media::mp4::AVCDecoderConfigurationRecord> h264_avcc_;
 #endif  // BUILDFLAG(USE_PROPRIETARY_CODECS)
+
+ private:
+  // DecoderTemplate implementation.
+  HardwarePreference GetHardwarePreference(const ConfigType& config) override;
+  bool GetLowDelayPreference(const ConfigType& config) override;
+  void SetHardwarePreference(HardwarePreference preference) override;
 };
 
 }  // namespace blink

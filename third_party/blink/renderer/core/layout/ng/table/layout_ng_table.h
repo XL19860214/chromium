@@ -5,6 +5,7 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_NG_TABLE_LAYOUT_NG_TABLE_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_NG_TABLE_LAYOUT_NG_TABLE_H_
 
+#include "base/dcheck_is_on.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/layout/layout_block.h"
 #include "third_party/blink/renderer/core/layout/ng/layout_ng_mixin.h"
@@ -119,9 +120,22 @@ class CORE_EXPORT LayoutNGTable : public LayoutNGMixin<LayoutBlock>,
   PhysicalRect OverflowClipRect(const PhysicalOffset&,
                                 OverlayScrollbarClipBehavior) const override;
 
+#if DCHECK_IS_ON()
   void AddVisualEffectOverflow() final;
+#endif
 
   bool VisualRectRespectsVisibility() const override {
+    NOT_DESTROYED();
+    return false;
+  }
+
+  // Whether a table has opaque foreground depends on many factors, e.g. border
+  // spacing, missing cells, etc. For simplicity, just conservatively assume
+  // foreground of all tables are not opaque.
+  // Copied from LayoutTable.
+  bool ForegroundIsKnownToBeOpaqueInRect(
+      const PhysicalRect& local_rect,
+      unsigned max_depth_to_test) const override {
     NOT_DESTROYED();
     return false;
   }
@@ -172,20 +186,14 @@ class CORE_EXPORT LayoutNGTable : public LayoutNGMixin<LayoutBlock>,
     return ShouldCollapseBorders() ? 0 : StyleRef().VerticalBorderSpacing();
   }
 
-  // Legacy had a concept of colspan column compression. This is a legacy
-  // method to map between absolute and compressed columns.
-  // Because NG does not compress columns, absolute and effective are the same.
   unsigned AbsoluteColumnToEffectiveColumn(
-      unsigned absolute_column_index) const final {
-    NOT_DESTROYED();
-    return absolute_column_index;
-  }
+      unsigned absolute_column_index) const final;
 
   // NG does not need this method. Sections are not cached.
   void RecalcSectionsIfNeeded() const final {}
 
-  // Legacy caches sections. Might not be needed by NG.
-  void ForceSectionsRecalc() final { NOTIMPLEMENTED(); }
+  // Not used by NG. Legacy caches sections.
+  void ForceSectionsRecalc() final { NOT_DESTROYED(); }
 
   // Used in paint for printing. Should not be needed by NG.
   LayoutUnit RowOffsetFromRepeatingFooter() const final {

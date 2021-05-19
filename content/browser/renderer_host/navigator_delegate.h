@@ -5,6 +5,7 @@
 #ifndef CONTENT_BROWSER_RENDERER_HOST_NAVIGATOR_DELEGATE_H_
 #define CONTENT_BROWSER_RENDERER_HOST_NAVIGATOR_DELEGATE_H_
 
+#include "content/common/navigation_client.mojom.h"
 #include "content/public/browser/allow_service_worker_result.h"
 #include "content/public/browser/cookie_access_details.h"
 #include "content/public/browser/invalidate_type.h"
@@ -21,7 +22,7 @@ struct UserAgentOverride;
 
 namespace content {
 
-class FrameTreeNode;
+class CommitDeferringCondition;
 class NavigationHandle;
 class NavigationRequest;
 class RenderFrameHostImpl;
@@ -73,8 +74,6 @@ class CONTENT_EXPORT NavigatorDelegate {
       const LoadCommittedDetails& details,
       const mojom::DidCommitProvisionalLoadParams& params) = 0;
 
-  virtual bool CanOverscrollContent() const = 0;
-
   // Notification to the Navigator embedder that navigation state has
   // changed. This method corresponds to
   // WebContents::NotifyNavigationStateChanged.
@@ -95,25 +94,16 @@ class CONTENT_EXPORT NavigatorDelegate {
   // a renderer initiated navigation.
   virtual bool ShouldOverrideUserAgentForRendererInitiatedNavigation() = 0;
 
-  // A RenderFrameHost in the specified |frame_tree_node| started loading a new
-  // document. This corresponds to Blink's notion of the throbber starting.
-  // |to_different_document| will be true unless the load is a fragment
-  // navigation, or triggered by history.pushState/replaceState.
-  virtual void DidStartLoading(FrameTreeNode* frame_tree_node,
-                               bool to_different_document) = 0;
-
-  // A document stopped loading. This corresponds to Blink's notion of the
-  // throbber stopping.
-  virtual void DidStopLoading() = 0;
-
-  // The load progress was changed.
-  virtual void DidChangeLoadProgress() = 0;
-
   // Returns the NavigationThrottles to add to this navigation. Normally these
   // are defined by the content/ embedder, except in the case of interstitials
   // where no NavigationThrottles are added to the navigation.
   virtual std::vector<std::unique_ptr<NavigationThrottle>>
   CreateThrottlesForNavigation(NavigationHandle* navigation_handle) = 0;
+
+  // Returns commit deferring conditions to add to this navigation.
+  virtual std::vector<std::unique_ptr<CommitDeferringCondition>>
+  CreateDeferringConditionsForNavigationCommit(
+      NavigationHandle& navigation_handle) = 0;
 
   // Called at the start of the navigation to get opaque data the embedder
   // wants to see passed to the corresponding URLRequest on the IO thread.

@@ -11,6 +11,7 @@
 #include "components/federated_learning/sim_hash.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
+#include "third_party/blink/public/mojom/federated_learning/floc.mojom.h"
 
 namespace federated_learning {
 
@@ -59,14 +60,23 @@ bool FlocId::operator!=(const FlocId& other) const {
   return !(*this == other);
 }
 
-std::string FlocId::ToStringForJsApi() const {
-  DCHECK(id_.has_value());
-
+blink::mojom::InterestCohortPtr FlocId::ToInterestCohortForJsApi() const {
   // TODO(yaoxia): consider returning the version part even when floc is
   // invalid.
-  return base::StrCat({base::NumberToString(id_.value()), ".",
-                       base::NumberToString(finch_config_version_), ".",
-                       base::NumberToString(sorting_lsh_version_)});
+
+  DCHECK(id_.has_value());
+
+  blink::mojom::InterestCohortPtr result = blink::mojom::InterestCohort::New();
+  result->id = base::NumberToString(id_.value());
+  result->version =
+      base::StrCat({"chrome.", base::NumberToString(finch_config_version_), ".",
+                    base::NumberToString(sorting_lsh_version_)});
+  return result;
+}
+
+uint64_t FlocId::ToUint64() const {
+  DCHECK(id_.has_value());
+  return id_.value();
 }
 
 // static
@@ -98,9 +108,15 @@ void FlocId::InvalidateIdAndSaveToPrefs(PrefService* prefs) {
   prefs->ClearPref(kFlocIdValuePrefKey);
 }
 
+void FlocId::ResetComputeTimeAndSaveToPrefs(base::Time compute_time,
+                                            PrefService* prefs) {
+  compute_time_ = compute_time;
+  prefs->SetTime(kFlocIdComputeTimePrefKey, compute_time_);
+}
+
 // static
 FlocId FlocId::ReadFromPrefs(PrefService* prefs) {
-  base::Optional<uint64_t> id;
+  absl::optional<uint64_t> id;
   if (prefs->HasPrefPath(kFlocIdValuePrefKey))
     id = prefs->GetUint64(kFlocIdValuePrefKey);
 
@@ -111,7 +127,7 @@ FlocId FlocId::ReadFromPrefs(PrefService* prefs) {
                 prefs->GetTime(kFlocIdComputeTimePrefKey));
 }
 
-FlocId::FlocId(base::Optional<uint64_t> id,
+FlocId::FlocId(absl::optional<uint64_t> id,
                base::Time history_begin_time,
                base::Time history_end_time,
                uint32_t finch_config_version,
@@ -122,9 +138,6 @@ FlocId::FlocId(base::Optional<uint64_t> id,
       history_end_time_(history_end_time),
       finch_config_version_(finch_config_version),
       sorting_lsh_version_(sorting_lsh_version),
-      compute_time_(compute_time) {
-  // If the floc is never computed, the id should be invalid.
-  DCHECK(!compute_time.is_null() || !id.has_value());
-}
+      compute_time_(compute_time) {}
 
 }  // namespace federated_learning

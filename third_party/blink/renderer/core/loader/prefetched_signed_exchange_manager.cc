@@ -8,13 +8,14 @@
 
 #include "base/callback.h"
 #include "base/memory/weak_ptr.h"
-#include "base/optional.h"
 #include "mojo/public/cpp/bindings/remote.h"
 #include "services/network/public/mojom/url_loader_factory.mojom-blink.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/mojom/devtools/console_message.mojom-blink.h"
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/public/platform/resource_load_info_notifier_wrapper.h"
 #include "third_party/blink/public/platform/task_type.h"
+#include "third_party/blink/public/platform/web_back_forward_cache_loader_helper.h"
 #include "third_party/blink/public/platform/web_url_loader.h"
 #include "third_party/blink/public/platform/web_url_loader_client.h"
 #include "third_party/blink/public/platform/web_url_loader_factory.h"
@@ -28,7 +29,6 @@
 #include "third_party/blink/renderer/core/loader/alternate_signed_exchange_resource_info.h"
 #include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/loader/link_header.h"
-#include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 #include "third_party/blink/renderer/platform/scheduler/public/frame_scheduler.h"
 #include "third_party/blink/renderer/platform/weborigin/kurl.h"
 #include "third_party/blink/renderer/platform/weborigin/kurl_hash.h"
@@ -75,7 +75,7 @@ class PrefetchedSignedExchangeManager::PrefetchedSignedExchangeLoader
       base::TimeDelta timeout_interval,
       WebURLLoaderClient* client,
       WebURLResponse& response,
-      base::Optional<WebURLError>& error,
+      absl::optional<WebURLError>& error,
       WebData& data,
       int64_t& encoded_data_length,
       int64_t& encoded_body_length,
@@ -236,7 +236,8 @@ PrefetchedSignedExchangeManager::CreateDefaultURLLoader(
       frame_->GetFrameScheduler()->CreateResourceLoadingTaskRunnerHandle(),
       frame_->GetFrameScheduler()
           ->CreateResourceLoadingMaybeUnfreezableTaskRunnerHandle(),
-      /*keep_alive_handle=*/mojo::NullRemote());
+      /*keep_alive_handle=*/mojo::NullRemote(),
+      WebBackForwardCacheLoaderHelper());
 }
 
 std::unique_ptr<WebURLLoader>
@@ -251,7 +252,8 @@ PrefetchedSignedExchangeManager::CreatePrefetchedSignedExchangeURLLoader(
           frame_->GetFrameScheduler()->CreateResourceLoadingTaskRunnerHandle(),
           frame_->GetFrameScheduler()
               ->CreateResourceLoadingMaybeUnfreezableTaskRunnerHandle(),
-          /*keep_alive_handle=*/mojo::NullRemote());
+          /*keep_alive_handle=*/mojo::NullRemote(),
+          WebBackForwardCacheLoaderHelper());
 }
 
 void PrefetchedSignedExchangeManager::TriggerLoad() {

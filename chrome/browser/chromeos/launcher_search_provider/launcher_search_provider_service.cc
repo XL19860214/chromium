@@ -6,8 +6,10 @@
 
 #include <stdint.h>
 
+#include <memory>
 #include <utility>
 
+#include "base/containers/contains.h"
 #include "base/numerics/ranges.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/chromeos/launcher_search_provider/launcher_search_provider_service_factory.h"
@@ -139,7 +141,7 @@ void Service::SetSearchResults(
     // Results with a match score of 0 are discarded. This will also be used to
     // set the title tags (highlighting which parts of the title matched the
     // search query).
-    const base::string16 title = base::UTF8ToUTF16(result.title);
+    const std::u16string title = base::UTF8ToUTF16(result.title);
     TokenizedString tokenized_title(title);
     TokenizedStringMatch match;
     TokenizedString tokenized_query(base::UTF8ToUTF16(query_));
@@ -177,14 +179,14 @@ void Service::CacheListenerExtensionIds() {
   if (cached_listener_extension_ids_)
     return;
 
-  cached_listener_extension_ids_.reset(new std::set<ExtensionId>());
+  cached_listener_extension_ids_ = std::make_unique<std::set<ExtensionId>>();
 
   const ExtensionSet& extension_set = extension_registry_->enabled_extensions();
   for (scoped_refptr<const extensions::Extension> extension : extension_set) {
     const extensions::PermissionsData* permission_data =
         extension->permissions_data();
     const bool has_permission = permission_data->HasAPIPermission(
-        extensions::APIPermission::kLauncherSearchProvider);
+        extensions::mojom::APIPermissionID::kLauncherSearchProvider);
     if (has_permission)
       cached_listener_extension_ids_->insert(extension->id());
   }

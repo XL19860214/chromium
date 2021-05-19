@@ -10,6 +10,7 @@
 #include "base/bind.h"
 #include "base/memory/ref_counted_memory.h"
 #include "base/memory/singleton.h"
+#include "base/metrics/histogram_functions.h"
 #include "base/strings/string_piece.h"
 #include "base/threading/thread.h"
 #include "base/values.h"
@@ -34,6 +35,7 @@
 #include "chrome/grit/generated_resources.h"
 #include "chrome/grit/theme_resources.h"
 #include "components/prefs/pref_service.h"
+#include "components/profile_metrics/browser_profile_type.h"
 #include "content/public/browser/download_manager.h"
 #include "content/public/browser/url_data_source.h"
 #include "content/public/browser/web_contents.h"
@@ -117,7 +119,7 @@ content::WebUIDataSource* CreateDownloadsUIHTMLSource(Profile* profile) {
       {"toastRemovedFromList", IDS_DOWNLOAD_TOAST_REMOVED_FROM_LIST},
       {"undo", IDS_DOWNLOAD_UNDO},
   };
-  AddLocalizedStringsBulk(source, kStrings);
+  source->AddLocalizedStrings(kStrings);
 
   source->AddLocalizedString("dangerDownloadDesc",
                              IDS_BLOCK_REASON_DANGEROUS_DOWNLOAD);
@@ -179,6 +181,10 @@ DownloadsUI::DownloadsUI(content::WebUI* web_ui)
   ManagedUIHandler::Initialize(web_ui, source);
   content::WebUIDataSource::Add(profile, source);
   content::URLDataSource::Add(profile, std::make_unique<ThemeSource>(profile));
+
+  base::UmaHistogramEnumeration(
+      "Download.OpenDownloads.PerProfileType",
+      profile_metrics::GetBrowserProfileType(profile));
 }
 
 WEB_UI_CONTROLLER_TYPE_IMPL(DownloadsUI)
@@ -204,7 +210,7 @@ void DownloadsUI::CreatePageHandler(
     mojo::PendingReceiver<downloads::mojom::PageHandler> receiver) {
   DCHECK(page);
   Profile* profile = Profile::FromWebUI(web_ui());
-  DownloadManager* dlm = BrowserContext::GetDownloadManager(profile);
+  DownloadManager* dlm = profile->GetDownloadManager();
 
   page_handler_ = std::make_unique<DownloadsDOMHandler>(
       std::move(receiver), std::move(page), dlm, web_ui());

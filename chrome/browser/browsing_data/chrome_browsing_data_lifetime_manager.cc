@@ -41,7 +41,8 @@
 
 namespace {
 
-constexpr int kInitialCleanupDelayInMinutes = 2;
+constexpr int kInitialCleanupDelayInSeconds = 15;
+constexpr int kDefaultCleanupPeriodInHours = 1;
 
 using ScheduledRemovalSettings =
     ChromeBrowsingDataLifetimeManager::ScheduledRemovalSettings;
@@ -49,12 +50,6 @@ using ScheduledRemovalSettings =
 // An observer of all the browsing data removal tasks that are started by the
 // ChromeBrowsingDataLifetimeManager that records the the tasks starts and
 // completed states as well as their durations.
-// TODO(crbug.com/88586): While the profile lifetime is tied to the browser's,
-// the profile is kept from being deleted until |OnBrowsingDataRemoverDone| is
-// called and |keep_alive| is not null. Once the profile lifetime is untied from
-// the browser's and could be deleted before the browser's shutdown, it should
-// still be kept from being deleted until |OnBrowsingDataRemoverDone| when
-// |keep_alive| is not null.
 class BrowsingDataRemoverObserver
     : public content::BrowsingDataRemover::Observer {
  public:
@@ -198,6 +193,7 @@ std::vector<ScheduledRemovalSettings> ConvertToScheduledRemovalSettings(
         setting.FindListKey(browsing_data::policy_fields::kDataTypes);
     const auto time_to_live_in_hours =
         setting.FindIntKey(browsing_data::policy_fields::kTimeToLiveInHours);
+
     scheduled_removals_settings.push_back({GetRemoveMask(*data_types),
                                            GetOriginTypeMask(*data_types),
                                            *time_to_live_in_hours});
@@ -266,7 +262,7 @@ ChromeBrowsingDataLifetimeManager::ChromeBrowsingDataLifetimeManager(
           base::BindOnce(&ChromeBrowsingDataLifetimeManager::
                              UpdateScheduledRemovalSettings,
                          weak_ptr_factory_.GetWeakPtr()),
-          base::TimeDelta::FromMinutes(kInitialCleanupDelayInMinutes));
+          base::TimeDelta::FromSeconds(kInitialCleanupDelayInSeconds));
 }
 
 ChromeBrowsingDataLifetimeManager::~ChromeBrowsingDataLifetimeManager() =
@@ -285,7 +281,7 @@ void ChromeBrowsingDataLifetimeManager::ClearBrowsingDataForOnExitPolicy(
       !ProfileSyncServiceFactory::IsSyncAllowed(profile_)) {
     profile_->GetPrefs()->SetBoolean(
         browsing_data::prefs::kClearBrowsingDataOnExitDeletionPending, true);
-    auto* remover = content::BrowserContext::GetBrowsingDataRemover(profile_);
+    auto* remover = profile_->GetBrowsingDataRemover();
     // Add a ScopedKeepAlive to hold the browser shutdown until the browsing
     // data is deleted and the profile is destroyed.
 #if DCHECK_IS_ON()
@@ -320,16 +316,11 @@ void ChromeBrowsingDataLifetimeManager::UpdateScheduledRemovalSettings() {
 }
 
 void ChromeBrowsingDataLifetimeManager::StartScheduledBrowsingDataRemoval() {
-  content::BrowsingDataRemover* remover =
-      content::BrowserContext::GetBrowsingDataRemover(profile_);
+  content::BrowsingDataRemover* remover = profile_->GetBrowsingDataRemover();
 
-  int smallest_time_to_live = std::numeric_limits<int>::max();
-  for (const auto& removal_settings : scheduled_removals_settings_) {
+  for (auto& removal_settings : scheduled_removals_settings_) {
     if (removal_settings.time_to_live_in_hours <= 0)
       continue;
-
-    smallest_time_to_live =
-        std::min(removal_settings.time_to_live_in_hours, smallest_time_to_live);
 
     if (ProfileSyncServiceFactory::IsSyncAllowed(profile_))
       continue;
@@ -368,16 +359,15 @@ void ChromeBrowsingDataLifetimeManager::StartScheduledBrowsingDataRemoval() {
                     remover, /*filterable_deletion=*/false, profile_));
     }
   }
-  if (smallest_time_to_live < std::numeric_limits<int>::max()) {
-    content::GetUIThreadTaskRunner(
-        {
-            base::TaskPriority::BEST_EFFORT,
-            base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN,
-        })
-        ->PostDelayedTask(FROM_HERE,
-                          base::BindOnce(&ChromeBrowsingDataLifetimeManager::
-                                             StartScheduledBrowsingDataRemoval,
-                                         weak_ptr_factory_.GetWeakPtr()),
-                          base::TimeDelta::FromHours(smallest_time_to_live));
-  }
+  content::GetUIThreadTaskRunner(
+      {
+          base::TaskPriority::BEST_EFFORT,
+          base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN,
+      })
+      ->PostDelayedTask(
+          FROM_HERE,
+          base::BindOnce(&ChromeBrowsingDataLifetimeManager::
+                             StartScheduledBrowsingDataRemoval,
+                         weak_ptr_factory_.GetWeakPtr()),
+          base::TimeDelta::FromHours(kDefaultCleanupPeriodInHours));
 }

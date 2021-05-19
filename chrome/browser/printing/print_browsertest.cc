@@ -7,8 +7,8 @@
 
 #include "base/auto_reset.h"
 #include "base/bind.h"
+#include "base/callback_helpers.h"
 #include "base/files/file_path.h"
-#include "base/optional.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
 #include "base/strings/stringprintf.h"
@@ -16,10 +16,9 @@
 #include "build/build_config.h"
 #include "chrome/browser/extensions/extension_browsertest.h"
 #include "chrome/browser/printing/print_job_manager.h"
-#include "chrome/browser/printing/print_view_manager_base.h"
+#include "chrome/browser/printing/print_view_manager.h"
 #include "chrome/browser/printing/print_view_manager_common.h"
 #include "chrome/browser/printing/printer_query.h"
-#include "chrome/browser/printing/printing_message_filter.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
@@ -34,7 +33,6 @@
 #include "components/printing/browser/print_manager_utils.h"
 #include "components/printing/common/print.mojom-test-utils.h"
 #include "components/printing/common/print.mojom.h"
-#include "components/printing/common/print_messages.h"
 #include "content/public/browser/browser_message_filter.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
@@ -50,6 +48,7 @@
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "printing/mojom/print.mojom.h"
 #include "testing/gmock/include/gmock/gmock.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/common/associated_interfaces/associated_interface_provider.h"
 #include "third_party/blink/public/common/scheduler/web_scheduler_tracked_feature.h"
 
@@ -180,7 +179,7 @@ class PrintPreviewObserver : PrintPreviewUI::TestDelegate {
     }
   }
 
-  base::Optional<content::DOMMessageQueue> queue_;
+  absl::optional<content::DOMMessageQueue> queue_;
   uint32_t total_page_count_ = 1;
   uint32_t rendered_page_count_ = 0;
   content::WebContents* preview_dialog_ = nullptr;
@@ -317,10 +316,10 @@ class KillPrintRenderFrame
 
 }  // namespace
 
-class TestPrintViewManager : public PrintViewManagerBase {
+class TestPrintViewManager : public PrintViewManager {
  public:
   explicit TestPrintViewManager(content::WebContents* web_contents)
-      : PrintViewManagerBase(web_contents) {}
+      : PrintViewManager(web_contents) {}
   TestPrintViewManager(const TestPrintViewManager&) = delete;
   TestPrintViewManager& operator=(const TestPrintViewManager&) = delete;
   ~TestPrintViewManager() override = default;
@@ -480,14 +479,14 @@ class BackForwardCachePrintBrowserTest : public PrintBrowserTest {
   ~BackForwardCachePrintBrowserTest() override = default;
 
   void SetUpCommandLine(base::CommandLine* command_line) override {
-    scoped_feature_list_.InitAndEnableFeatureWithParameters(
-        ::features::kBackForwardCache,
-        {
-            // Set a very long TTL before expiration (longer than the test
-            // timeout) so tests that are expecting deletion don't pass when
-            // they shouldn't.
-            {"TimeToLiveInBackForwardCacheInSeconds", "3600"},
-        });
+    scoped_feature_list_.InitWithFeaturesAndParameters(
+        {{features::kBackForwardCache,
+          // Set a very long TTL before expiration (longer than the test
+          // timeout) so tests that are expecting deletion don't pass when
+          // they shouldn't.
+          {{"TimeToLiveInBackForwardCacheInSeconds", "3600"}}}},
+        // Allow BackForwardCache for all devices regardless of their memory.
+        {features::kBackForwardCacheMemoryControls});
 
     PrintBrowserTest::SetUpCommandLine(command_line);
   }
@@ -983,13 +982,14 @@ IN_PROC_BROWSER_TEST_F(IsolateOriginsPrintBrowserTest,
 }
 
 // Printing preview a webpage.
-// Test that we use oopif printing by default.
+// Test that we use oopif printing by default when full site isolation is
+// enabled.
 IN_PROC_BROWSER_TEST_F(PrintBrowserTest, RegularPrinting) {
   ASSERT_TRUE(embedded_test_server()->Started());
   GURL url(embedded_test_server()->GetURL("/printing/test1.html"));
   ui_test_utils::NavigateToURL(browser(), url);
 
-  EXPECT_TRUE(IsOopifEnabled());
+  EXPECT_EQ(content::AreAllSitesIsolatedForTesting(), IsOopifEnabled());
 }
 
 // Printing preview a webpage with isolate-origins enabled.

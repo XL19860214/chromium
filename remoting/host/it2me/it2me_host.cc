@@ -201,7 +201,9 @@ void It2MeHost::ConnectOnNetworkThread(
           std::make_unique<protocol::ChromiumPortAllocatorFactory>(),
           host_context_->url_loader_factory(), network_settings,
           protocol::TransportRole::SERVER);
-  transport_context->set_turn_ice_config(ice_config);
+  if (!ice_config.is_null()) {
+    transport_context->set_turn_ice_config(ice_config);
+  }
 
   std::unique_ptr<protocol::SessionManager> session_manager(
       new protocol::JingleSessionManager(signal_strategy_.get()));
@@ -316,7 +318,7 @@ void It2MeHost::OnPolicyUpdate(
   if (policies->GetList(policy::key::kRemoteAccessHostDomainList,
                         &host_domain_list)) {
     std::vector<std::string> host_domain_list_vector;
-    for (const auto& value : *host_domain_list) {
+    for (const auto& value : host_domain_list->GetList()) {
       host_domain_list_vector.push_back(value.GetString());
     }
     UpdateHostDomainListPolicy(std::move(host_domain_list_vector));
@@ -326,7 +328,7 @@ void It2MeHost::OnPolicyUpdate(
   if (policies->GetList(policy::key::kRemoteAccessHostClientDomainList,
                         &client_domain_list)) {
     std::vector<std::string> client_domain_list_vector;
-    for (const auto& value : *client_domain_list) {
+    for (const auto& value : client_domain_list->GetList()) {
       client_domain_list_vector.push_back(value.GetString());
     }
     UpdateClientDomainListPolicy(std::move(client_domain_list_vector));
@@ -602,7 +604,7 @@ void It2MeHost::ValidateConnectionDetails(
     confirmation_dialog_proxy_->Show(
         client_username,
         base::BindOnce(&It2MeHost::OnConfirmationResult, base::Unretained(this),
-                       base::Passed(std::move(result_callback))));
+                       std::move(result_callback)));
   } else {
     base::ThreadTaskRunnerHandle::Get()->PostTask(
         FROM_HERE,

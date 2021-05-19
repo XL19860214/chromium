@@ -19,8 +19,9 @@ import android.view.animation.Animation.AnimationListener;
 import android.view.animation.ScaleAnimation;
 import android.widget.FrameLayout;
 
+import androidx.annotation.Nullable;
+
 import org.chromium.base.ContextUtils;
-import org.chromium.base.Log;
 import org.chromium.components.browser_ui.widget.animation.Interpolators;
 import org.chromium.ui.widget.AnchoredPopupWindow;
 import org.chromium.ui.widget.RectProvider;
@@ -32,7 +33,6 @@ import org.chromium.ui.widget.RectProvider;
 public class ContextMenuDialog extends AlwaysDismissedDialog {
     public static final int NO_CUSTOM_MARGIN = -1;
 
-    private static final String TAG = "ContextMenuDialog";
     private static final long ENTER_ANIMATION_DURATION_MS = 250;
     // Exit animation duration should be set to 60% of the enter animation duration.
     private static final long EXIT_ANIMATION_DURATION_MS = 150;
@@ -52,6 +52,9 @@ public class ContextMenuDialog extends AlwaysDismissedDialog {
     private int mTopMarginPx;
     private int mBottomMarginPx;
 
+    private Integer mPopupMargin;
+    private Integer mDesiredPopupContentWidth;
+
     /**
      * Creates an instance of the ContextMenuDialog.
      * @param ownerActivity The activity in which the dialog should run
@@ -67,10 +70,13 @@ public class ContextMenuDialog extends AlwaysDismissedDialog {
      * @param layout The context menu layout that will house the menu.
      * @param contentView The context menu view to display on the dialog.
      * @param isPopup Whether the context menu is being shown in a {@link AnchoredPopupWindow}.
+     * @param popupMargin The margin for the context menu.
+     * @param desiredPopupContentWidth The desired width for the content of the context menu.
      */
     public ContextMenuDialog(Activity ownerActivity, int theme, float touchPointXPx,
             float touchPointYPx, float topContentOffsetPx, int topMarginPx, int bottomMarginPx,
-            View layout, View contentView, boolean isPopup) {
+            View layout, View contentView, boolean isPopup, @Nullable Integer popupMargin,
+            @Nullable Integer desiredPopupContentWidth) {
         super(ownerActivity, theme);
         mActivity = ownerActivity;
         mTouchPointXPx = touchPointXPx;
@@ -81,6 +87,8 @@ public class ContextMenuDialog extends AlwaysDismissedDialog {
         mContentView = contentView;
         mLayout = layout;
         mIsPopup = isPopup;
+        mPopupMargin = popupMargin;
+        mDesiredPopupContentWidth = desiredPopupContentWidth;
     }
 
     @Override
@@ -116,6 +124,12 @@ public class ContextMenuDialog extends AlwaysDismissedDialog {
                     mPopupWindow = new AnchoredPopupWindow(mActivity, mLayout,
                             new ColorDrawable(Color.TRANSPARENT), mContentView,
                             new RectProvider(rect));
+                    if (mPopupMargin != null) {
+                        mPopupWindow.setMargin(mPopupMargin);
+                    }
+                    if (mDesiredPopupContentWidth != null) {
+                        mPopupWindow.setDesiredContentWidth(mDesiredPopupContentWidth);
+                    }
                     mPopupWindow.setOutsideTouchable(false);
                     mPopupWindow.show();
                 } else {
@@ -159,9 +173,6 @@ public class ContextMenuDialog extends AlwaysDismissedDialog {
             return;
         }
 
-        Thread.dumpStack();
-        Log.i(TAG, "Dialog " + this + " is being dismissed.");
-
         int[] contextMenuFinalLocationPx = new int[2];
         mContentView.getLocationOnScreen(contextMenuFinalLocationPx);
         // Recalculate mContextMenuDestinationY because the context menu's final location may not be
@@ -180,7 +191,6 @@ public class ContextMenuDialog extends AlwaysDismissedDialog {
 
             @Override
             public void onAnimationEnd(Animation animation) {
-                Log.i(TAG, "Dismiss animation just ended for " + this);
                 ContextMenuDialog.super.dismiss();
             }
         });

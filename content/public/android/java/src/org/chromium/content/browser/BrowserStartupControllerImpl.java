@@ -27,7 +27,6 @@ import org.chromium.content.app.ContentMain;
 import org.chromium.content.browser.ServicificationStartupUma.ServicificationStartup;
 import org.chromium.content_public.browser.BrowserStartupController;
 import org.chromium.content_public.browser.UiThreadTaskTraits;
-import org.chromium.ui.resources.ResourceExtractor;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -58,10 +57,6 @@ public class BrowserStartupControllerImpl implements BrowserStartupController {
     private static BrowserStartupControllerImpl sInstance;
 
     private static boolean sShouldStartGpuProcessOnBrowserStartup;
-
-    private static void setShouldStartGpuProcessOnBrowserStartup(boolean enable) {
-        sShouldStartGpuProcessOnBrowserStartup = enable;
-    }
 
     @VisibleForTesting
     @CalledByNative
@@ -97,8 +92,8 @@ public class BrowserStartupControllerImpl implements BrowserStartupController {
     // Whether the async startup of the browser process has started.
     private boolean mHasStartedInitializingBrowserProcess;
 
-    // Whether tasks that occur after resource extraction have been completed.
-    private boolean mPostResourceExtractionTasksCompleted;
+    // Ensures prepareToStartBrowserProcess() logic happens only once.
+    private boolean mPrepareToStartCompleted;
 
     private boolean mHasCalledContentStart;
 
@@ -208,9 +203,14 @@ public class BrowserStartupControllerImpl implements BrowserStartupController {
             // This is the first time we have been asked to start the browser process. We set the
             // flag that indicates that we have kicked off starting the browser process.
             mHasStartedInitializingBrowserProcess = true;
+            sShouldStartGpuProcessOnBrowserStartup = startGpuProcess;
 
-            setShouldStartGpuProcessOnBrowserStartup(startGpuProcess);
-
+            // Start-up at this point occurs before the first frame of the app is drawn. Although
+            // contentStart() can be called eagerly, deferring it would allow a frame to be drawn,
+            // so that Android reports Chrome to start before our SurfaceView has rendered. Our
+            // metrics have also adapted to this. Therefore we wrap contentStart() into Runnable,
+            // and let prepareToStartBrowserProcess() decide whether to defer it by a frame (in
+            // production) or not (overridden in tests). http://b/181151614#comment6
             prepareToStartBrowserProcess(false, new Runnable() {
                 @Override
                 public void run() {
@@ -225,6 +225,7 @@ public class BrowserStartupControllerImpl implements BrowserStartupController {
                     }
                 }
             });
+
         } else if (mMinimalBrowserStarted && mLaunchFullBrowserAfterMinimalBrowserStart) {
             // If we missed the minimalBrowserStarted() call, launch the full browser now if needed.
             // Otherwise, minimalBrowserStarted() will handle the full browser launch.
@@ -243,24 +244,15 @@ public class BrowserStartupControllerImpl implements BrowserStartupController {
 
         // If already started skip to checking the result
         if (!mFullBrowserStartupDone) {
-            if (!mHasStartedInitializingBrowserProcess || !mPostResourceExtractionTasksCompleted) {
-                try (ScopedSysTraceEvent e2 = ScopedSysTraceEvent.scoped(
-                             "BrowserStartupController.prepareToStartBrowserProcess")) {
-                    prepareToStartBrowserProcess(singleProcess, null);
-                }
-            }
+            // contentStart() need not be deferred, so passing null.
+            prepareToStartBrowserProcess(singleProcess, null /* deferrableTask */);
 
             boolean startedSuccessfully = true;
-            if (!mHasCalledContentStart) {
+            if (!mHasCalledContentStart
+                    || mCurrentBrowserStartType == BrowserStartType.MINIMAL_BROWSER) {
                 mCurrentBrowserStartType = BrowserStartType.FULL_BROWSER;
                 if (contentStart() > 0) {
                     // Failed. The callbacks may not have run, so run them.
-                    enqueueCallbackExecution(STARTUP_FAILURE);
-                    startedSuccessfully = false;
-                }
-            } else if (mCurrentBrowserStartType == BrowserStartType.MINIMAL_BROWSER) {
-                mCurrentBrowserStartType = BrowserStartType.FULL_BROWSER;
-                if (contentStart() > 0) {
                     enqueueCallbackExecution(STARTUP_FAILURE);
                     startedSuccessfully = false;
                 }
@@ -438,46 +430,35 @@ public class BrowserStartupControllerImpl implements BrowserStartupController {
     }
 
     @VisibleForTesting
-    void prepareToStartBrowserProcess(
-            final boolean singleProcess, final Runnable completionCallback) {
+    void prepareToStartBrowserProcess(final boolean singleProcess, final Runnable deferrableTask) {
+        if (mPrepareToStartCompleted) {
+            return;
+        }
         Log.d(TAG, "Initializing chromium process, singleProcess=%b", singleProcess);
+        mPrepareToStartCompleted = true;
+        try (ScopedSysTraceEvent e = ScopedSysTraceEvent.scoped("prepareToStartBrowserProcess")) {
+            // This strictmode exception is to cover the case where the browser process is being
+            // started asynchronously but not in the main browser flow.  The main browser flow will
+            // trigger library loading earlier and this will be a no-op, but in the other cases this
+            // will need to block on loading libraries. This applies to tests and
+            // ManageSpaceActivity, which can be launched from Settings.
+            StrictMode.ThreadPolicy oldPolicy = StrictMode.allowThreadDiskReads();
+            try {
+                // Normally Main.java will have already loaded the library asynchronously, we only
+                // need to load it here if we arrived via another flow, e.g. bookmark access & sync
+                // setup.
+                LibraryLoader.getInstance().ensureInitialized();
+            } finally {
+                StrictMode.setThreadPolicy(oldPolicy);
+            }
 
-        // This strictmode exception is to cover the case where the browser process is being started
-        // asynchronously but not in the main browser flow.  The main browser flow will trigger
-        // library loading earlier and this will be a no-op, but in the other cases this will need
-        // to block on loading libraries.
-        // This applies to tests and ManageSpaceActivity, which can be launched from Settings.
-        StrictMode.ThreadPolicy oldPolicy = StrictMode.allowThreadDiskReads();
-        try {
-            // Normally Main.java will have already loaded the library asynchronously, we only need
-            // to load it here if we arrived via another flow, e.g. bookmark access & sync setup.
-            LibraryLoader.getInstance().ensureInitialized();
-        } finally {
-            StrictMode.setThreadPolicy(oldPolicy);
+            // TODO(yfriedman): Remove dependency on a command line flag for this.
+            DeviceUtilsImpl.addDeviceSpecificUserAgentSwitch();
+            BrowserStartupControllerImplJni.get().setCommandLineFlags(singleProcess);
         }
 
-        Runnable postResourceExtraction = new Runnable() {
-            @Override
-            public void run() {
-                if (!mPostResourceExtractionTasksCompleted) {
-                    // TODO(yfriedman): Remove dependency on a command line flag for this.
-                    DeviceUtilsImpl.addDeviceSpecificUserAgentSwitch();
-                    BrowserStartupControllerImplJni.get().setCommandLineFlags(singleProcess);
-                    mPostResourceExtractionTasksCompleted = true;
-                }
-
-                if (completionCallback != null) completionCallback.run();
-            }
-        };
-
-        ResourceExtractor.get().setResultTraits(UiThreadTaskTraits.BOOTSTRAP);
-        if (completionCallback == null) {
-            // If no continuation callback is specified, then force the resource extraction
-            // to complete.
-            ResourceExtractor.get().waitForCompletion();
-            postResourceExtraction.run();
-        } else {
-            ResourceExtractor.get().addCompletionCallback(postResourceExtraction);
+        if (deferrableTask != null) {
+            PostTask.postTask(UiThreadTaskTraits.USER_BLOCKING, deferrableTask);
         }
     }
 

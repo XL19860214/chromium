@@ -67,7 +67,7 @@ class ServiceWorkerCacheWriter::ReadResponseHeadCallbackAdapter
 
   void DidReadResponseHead(int result,
                            network::mojom::URLResponseHeadPtr response_head,
-                           base::Optional<mojo_base::BigBuffer>) {
+                           absl::optional<mojo_base::BigBuffer>) {
     result_ = result;
     if (!owner_)
       return;
@@ -739,6 +739,13 @@ class ServiceWorkerCacheWriter::DataPipeReader
   }
 
   void OnReadData(mojo::ScopedDataPipeConsumerHandle data) {
+    // An invalid handle can be returned when creating a data pipe fails on the
+    // other side of the endpoint.
+    if (!data) {
+      owner_->AsyncDoLoop(net::ERR_FAILED);
+      return;
+    }
+
     data_ = std::move(data);
     watcher_.Watch(data_.get(),
                    MOJO_HANDLE_SIGNAL_READABLE | MOJO_HANDLE_SIGNAL_PEER_CLOSED,

@@ -9,11 +9,13 @@
 #include <utility>
 
 #include "base/check_op.h"
+#include "base/containers/contains.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/json/json_file_value_serializer.h"
 #include "extensions/browser/api/declarative_net_request/file_backed_ruleset_source.h"
 #include "extensions/browser/api/declarative_net_request/indexed_rule.h"
+#include "extensions/browser/api/declarative_net_request/rules_count_pair.h"
 #include "extensions/browser/api/declarative_net_request/ruleset_matcher.h"
 #include "extensions/browser/api/web_request/web_request_info.h"
 #include "extensions/browser/extension_prefs.h"
@@ -151,7 +153,7 @@ std::ostream& operator<<(std::ostream& output, const RequestAction& action) {
 }
 
 std::ostream& operator<<(std::ostream& output,
-                         const base::Optional<RequestAction>& action) {
+                         const absl::optional<RequestAction>& action) {
   if (!action)
     return output << "empty Optional<RequestAction>";
   return output << *action;
@@ -164,6 +166,9 @@ std::ostream& operator<<(std::ostream& output, const ParseResult& result) {
       break;
     case ParseResult::SUCCESS:
       output << "SUCCESS";
+      break;
+    case ParseResult::ERROR_REQUEST_METHOD_DUPLICATED:
+      output << "ERROR_REQUEST_METHOD_DUPLICATED";
       break;
     case ParseResult::ERROR_RESOURCE_TYPE_DUPLICATED:
       output << "ERROR_RESOURCE_TYPE_DUPLICATED";
@@ -182,6 +187,9 @@ std::ostream& operator<<(std::ostream& output, const ParseResult& result) {
       break;
     case ParseResult::ERROR_EMPTY_RESOURCE_TYPES_LIST:
       output << "ERROR_EMPTY_RESOURCE_TYPES_LIST";
+      break;
+    case ParseResult::ERROR_EMPTY_REQUEST_METHODS_LIST:
+      output << "ERROR_EMPTY_REQUEST_METHODS_LIST";
       break;
     case ParseResult::ERROR_EMPTY_URL_FILTER:
       output << "ERROR_EMPTY_URL_FILTER";
@@ -279,6 +287,15 @@ std::ostream& operator<<(std::ostream& output, const ParseResult& result) {
     case ParseResult::ERROR_APPEND_REQUEST_HEADER_UNSUPPORTED:
       output << "ERROR_APPEND_REQUEST_HEADER_UNSUPPORTED";
       break;
+    case ParseResult::ERROR_EMPTY_TAB_IDS_LIST:
+      output << "ERROR_EMPTY_TAB_IDS_LIST";
+      break;
+    case ParseResult::ERROR_TAB_IDS_ON_NON_SESSION_RULE:
+      output << "ERROR_TAB_IDS_ON_NON_SESSION_RULE";
+      break;
+    case ParseResult::ERROR_TAB_ID_DUPLICATED:
+      output << "ERROR_TAB_ID_DUPLICATED";
+      break;
   }
   return output;
 }
@@ -304,6 +321,13 @@ std::ostream& operator<<(std::ostream& output, LoadRulesetResult result) {
       output << "kErrorChecksumNotFound";
       break;
   }
+  return output;
+}
+
+std::ostream& operator<<(std::ostream& output, const RulesCountPair& count) {
+  output << "\nRulesCountPair\n";
+  output << "|rule_count| " << count.rule_count << "\n";
+  output << "|regex_rule_count| " << count.regex_rule_count << "\n";
   return output;
 }
 
@@ -379,7 +403,7 @@ FileBackedRulesetSource CreateTemporarySource(RulesetID id,
 dnr_api::ModifyHeaderInfo CreateModifyHeaderInfo(
     dnr_api::HeaderOperation operation,
     std::string header,
-    base::Optional<std::string> value) {
+    absl::optional<std::string> value) {
   dnr_api::ModifyHeaderInfo header_info;
 
   header_info.operation = operation;
@@ -446,8 +470,8 @@ void RulesetManagerObserver::OnEvaluateRequest(const WebRequestInfo& request,
 
 WarningServiceObserver::WarningServiceObserver(WarningService* warning_service,
                                                const ExtensionId& extension_id)
-    : observer_(this), extension_id_(extension_id) {
-  observer_.Add(warning_service);
+    : extension_id_(extension_id) {
+  observation_.Observe(warning_service);
 }
 
 WarningServiceObserver::~WarningServiceObserver() = default;

@@ -130,8 +130,8 @@ public class TabAttributeCacheUnitTest {
 
     @Test
     public void updateUrl() {
-        String url = "url 1";
-        doReturn(url).when(mTab1).getUrlString();
+        String url = JUnitTestGURLs.EXAMPLE_URL;
+        doReturn(JUnitTestGURLs.getGURL(url)).when(mTab1).getUrl();
 
         Assert.assertNotEquals(url, TabAttributeCache.getUrl(TAB1_ID));
 
@@ -145,8 +145,8 @@ public class TabAttributeCacheUnitTest {
 
     @Test
     public void updateUrl_incognito() {
-        String url = "url 1";
-        doReturn(url).when(mTab1).getUrlString();
+        String url = JUnitTestGURLs.EXAMPLE_URL;
+        doReturn(JUnitTestGURLs.getGURL(url)).when(mTab1).getUrl();
         doReturn(true).when(mTab1).isIncognito();
 
         mTabObserverCaptor.getValue().onUrlUpdated(mTab1);
@@ -201,6 +201,31 @@ public class TabAttributeCacheUnitTest {
 
         mTabObserverCaptor.getValue().onRootIdChanged(mTab1, rootId);
         Assert.assertNotEquals(rootId, TabAttributeCache.getRootId(TAB1_ID));
+    }
+
+    @Test
+    public void updateTimestamp() {
+        long timestamp = 1337;
+        doReturn(timestamp).when(mCriticalPersistedTabData1).getTimestampMillis();
+
+        Assert.assertNotEquals(timestamp, TabAttributeCache.getTimestampMillis(TAB1_ID));
+
+        mTabObserverCaptor.getValue().onTimestampChanged(mTab1, timestamp);
+        Assert.assertEquals(timestamp, TabAttributeCache.getTimestampMillis(TAB1_ID));
+
+        mTabModelSelectorObserverCaptor.getValue().onTabStateInitialized();
+        mTabModelObserverCaptor.getValue().tabClosureCommitted(mTab1);
+        Assert.assertNotEquals(timestamp, TabAttributeCache.getTimestampMillis(TAB1_ID));
+    }
+
+    @Test
+    public void updateTimestamp_incognito() {
+        long timestamp = 1337;
+        doReturn(timestamp).when(mCriticalPersistedTabData1).getTimestampMillis();
+        doReturn(true).when(mTab1).isIncognito();
+
+        mTabObserverCaptor.getValue().onTimestampChanged(mTab1, timestamp);
+        Assert.assertNotEquals(timestamp, TabAttributeCache.getTimestampMillis(TAB1_ID));
     }
 
     @Test
@@ -334,15 +359,17 @@ public class TabAttributeCacheUnitTest {
 
     @Test
     public void onTabStateInitialized() {
-        String url1 = "url 1";
-        doReturn(url1).when(mTab1).getUrlString();
+        String url1 = JUnitTestGURLs.EXAMPLE_URL;
+        doReturn(JUnitTestGURLs.getGURL(url1)).when(mTab1).getUrl();
         String title1 = "title 1";
         doReturn(title1).when(mTab1).getTitle();
         int rootId1 = 1337;
         doReturn(rootId1).when(mCriticalPersistedTabData1).getRootId();
+        long timestamp1 = 123456;
+        doReturn(timestamp1).when(mCriticalPersistedTabData1).getTimestampMillis();
 
-        String url2 = "url 2";
-        doReturn(url2).when(mTab2).getUrlString();
+        String url2 = JUnitTestGURLs.URL_2;
+        doReturn(JUnitTestGURLs.getGURL(url2)).when(mTab2).getUrl();
         String title2 = "title 2";
         doReturn(title2).when(mTab2).getTitle();
         int rootId2 = 42;
@@ -363,6 +390,7 @@ public class TabAttributeCacheUnitTest {
         Assert.assertNotEquals(url1, TabAttributeCache.getUrl(TAB1_ID));
         Assert.assertNotEquals(title1, TabAttributeCache.getTitle(TAB1_ID));
         Assert.assertNotEquals(rootId1, TabAttributeCache.getRootId(TAB1_ID));
+        Assert.assertNotEquals(timestamp1, TabAttributeCache.getTimestampMillis(TAB1_ID));
         Assert.assertNotEquals(searchTerm, TabAttributeCache.getLastSearchTerm(TAB1_ID));
 
         Assert.assertNotEquals(url2, TabAttributeCache.getUrl(TAB2_ID));
@@ -374,6 +402,7 @@ public class TabAttributeCacheUnitTest {
         Assert.assertEquals(url1, TabAttributeCache.getUrl(TAB1_ID));
         Assert.assertEquals(title1, TabAttributeCache.getTitle(TAB1_ID));
         Assert.assertEquals(rootId1, TabAttributeCache.getRootId(TAB1_ID));
+        Assert.assertEquals(timestamp1, TabAttributeCache.getTimestampMillis(TAB1_ID));
         Assert.assertEquals(searchTerm, TabAttributeCache.getLastSearchTerm(TAB1_ID));
 
         Assert.assertEquals(url2, TabAttributeCache.getUrl(TAB2_ID));

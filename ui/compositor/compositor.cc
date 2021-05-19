@@ -5,7 +5,9 @@
 #include "ui/compositor/compositor.h"
 
 #include <stddef.h>
+
 #include <algorithm>
+#include <memory>
 #include <utility>
 #include <vector>
 
@@ -83,7 +85,8 @@ Compositor::Compositor(const viz::FrameSinkId& frame_sink_id,
                        scoped_refptr<base::SingleThreadTaskRunner> task_runner,
                        bool enable_pixel_canvas,
                        bool use_external_begin_frame_control,
-                       bool force_software_compositor)
+                       bool force_software_compositor,
+                       bool enable_compositing_based_throttling)
     : context_factory_(context_factory),
       frame_sink_id_(frame_sink_id),
       task_runner_(task_runner),
@@ -222,6 +225,9 @@ Compositor::Compositor(const viz::FrameSinkId& frame_sink_id,
     settings.percent_based_scrolling = true;
   }
 
+  settings.enable_compositing_based_throttling =
+      enable_compositing_based_throttling;
+
 #if DCHECK_IS_ON()
   if (command_line->HasSwitch(cc::switches::kLogOnUIDoubleBackgroundBlur))
     settings.log_on_ui_double_background_blur = true;
@@ -242,7 +248,8 @@ Compositor::Compositor(const viz::FrameSinkId& frame_sink_id,
   if (base::FeatureList::IsEnabled(features::kUiCompositorScrollWithLayers) &&
       compositor_delegate) {
     input_handler_weak_ = cc::InputHandler::Create(*compositor_delegate);
-    scroll_input_handler_.reset(new ScrollInputHandler(input_handler_weak_));
+    scroll_input_handler_ =
+        std::make_unique<ScrollInputHandler>(input_handler_weak_);
   }
 
   animation_timeline_ =
@@ -576,7 +583,7 @@ bool Compositor::HasObserver(const CompositorObserver* observer) const {
 }
 
 void Compositor::AddAnimationObserver(CompositorAnimationObserver* observer) {
-  if (!animation_observer_list_.has_observers()) {
+  if (animation_observer_list_.empty()) {
     for (auto& obs : observer_list_)
       obs.OnFirstAnimationStarted(this);
   }
@@ -589,7 +596,7 @@ void Compositor::RemoveAnimationObserver(
   if (!animation_observer_list_.HasObserver(observer))
     return;
   animation_observer_list_.RemoveObserver(observer);
-  if (!animation_observer_list_.has_observers()) {
+  if (animation_observer_list_.empty()) {
     for (auto& obs : observer_list_)
       obs.OnLastAnimationEnded(this);
   }
@@ -635,7 +642,7 @@ void Compositor::BeginMainFrame(const viz::BeginFrameArgs& args) {
   DCHECK(!IsLocked());
   for (auto& observer : animation_observer_list_)
     observer.OnAnimationStep(args.frame_time);
-  if (animation_observer_list_.might_have_observers())
+  if (!animation_observer_list_.empty())
     host_->SetNeedsAnimate();
 }
 
@@ -719,33 +726,67 @@ void Compositor::FrameIntervalUpdated(base::TimeDelta interval) {
   refresh_rate_ = interval.ToHz();
 }
 
+void Compositor::FrameSinksToThrottleUpdated(
+    const base::flat_set<viz::FrameSinkId>& ids) {
+  for (auto& observer : observer_list_) {
+    observer.OnFrameSinksToThrottleUpdated(ids);
+  }
+}
+
 void Compositor::OnFirstSurfaceActivation(
     const viz::SurfaceInfo& surface_info) {
   NOTREACHED();
 }
 
-void Compositor::OnFrameTokenChanged(uint32_t frame_token) {
+void Compositor::OnFrameTokenChanged(uint32_t frame_token,
+                                     base::TimeTicks activation_time) {
   // TODO(yiyix, fsamuel): Implement frame token propagation for Compositor.
   NOTREACHED();
 }
+
+Compositor::TrackerState::TrackerState() = default;
+Compositor::TrackerState::TrackerState(TrackerState&&) = default;
+Compositor::TrackerState& Compositor::TrackerState::operator=(TrackerState&&) =
+    default;
+Compositor::TrackerState::~TrackerState() = default;
 
 void Compositor::StartThroughputTracker(
     TrackerId tracker_id,
     ThroughputTrackerHost::ReportCallback callback) {
   DCHECK(!base::Contains(throughput_tracker_map_, tracker_id));
-  throughput_tracker_map_[tracker_id] = std::move(callback);
+
+  auto& tracker_state = throughput_tracker_map_[tracker_id];
+  tracker_state.report_callback = std::move(callback);
+
   animation_host_->StartThroughputTracking(tracker_id);
 }
 
-void Compositor::StopThroughtputTracker(TrackerId tracker_id) {
-  DCHECK(base::Contains(throughput_tracker_map_, tracker_id));
+bool Compositor::StopThroughtputTracker(TrackerId tracker_id) {
+  auto it = throughput_tracker_map_.find(tracker_id);
+  DCHECK(it != throughput_tracker_map_.end());
+
+  // Clean up if report has happened since StopThroughputTracking would
+  // not trigger report in this case.
+  if (it->second.report_attempted) {
+    throughput_tracker_map_.erase(it);
+    return false;
+  }
+
+  it->second.should_report = true;
   animation_host_->StopThroughputTracking(tracker_id);
+  return true;
 }
 
 void Compositor::CancelThroughtputTracker(TrackerId tracker_id) {
-  DCHECK(base::Contains(throughput_tracker_map_, tracker_id));
-  StopThroughtputTracker(tracker_id);
-  throughput_tracker_map_.erase(tracker_id);
+  auto it = throughput_tracker_map_.find(tracker_id);
+  DCHECK(it != throughput_tracker_map_.end());
+
+  const bool should_stop = !it->second.report_attempted;
+
+  throughput_tracker_map_.erase(it);
+
+  if (should_stop)
+    animation_host_->StopThroughputTracking(tracker_id);
 }
 
 // TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
@@ -784,12 +825,22 @@ void Compositor::ReportMetricsForTracker(
   if (it == throughput_tracker_map_.end())
     return;
 
-  std::move(it->second).Run(data);
+  // Set `report_attempted` but not reporting if relevant ThroughputTrackers
+  // are not stopped and waiting for reports.
+  if (!it->second.should_report) {
+    it->second.report_attempted = true;
+    return;
+  }
+
+  // Callback may modify `throughput_tracker_map_` so update the map first.
+  // See https://crbug.com/1193382.
+  auto callback = std::move(it->second.report_callback);
   throughput_tracker_map_.erase(it);
+  std::move(callback).Run(data);
 }
 
 void Compositor::SetDelegatedInkPointRenderer(
-    mojo::PendingReceiver<viz::mojom::DelegatedInkPointRenderer> receiver) {
+    mojo::PendingReceiver<gfx::mojom::DelegatedInkPointRenderer> receiver) {
   if (display_private_)
     display_private_->SetDelegatedInkPointRenderer(std::move(receiver));
 }

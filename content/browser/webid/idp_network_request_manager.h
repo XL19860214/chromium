@@ -7,10 +7,15 @@
 
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "base/callback.h"
+#include "content/common/content_export.h"
+#include "content/public/browser/identity_request_dialog_controller.h"
 #include "services/data_decoder/public/cpp/data_decoder.h"
+#include "services/network/public/cpp/shared_url_loader_factory.h"
 #include "url/gurl.h"
+#include "url/origin.h"
 
 namespace network {
 class SimpleURLLoader;
@@ -48,7 +53,7 @@ class RenderFrameHost;
 // If the IDP returns an id_token, the sequence finishes. If it returns a
 // signin_url, that URL is loaded as a rendered Document into a new window
 // for the user to interact with the IDP.
-class IdpNetworkRequestManager {
+class CONTENT_EXPORT IdpNetworkRequestManager {
  public:
   enum class FetchStatus {
     kSuccess,
@@ -64,16 +69,51 @@ class IdpNetworkRequestManager {
     kInvalidResponseError,
   };
 
+  enum class AccountsResponse {
+    kSuccess,
+    kNetError,
+    kInvalidResponseError,
+  };
+
+  enum class TokenResponse {
+    kSuccess,
+    kNetError,
+    kInvalidRequestError,
+    kInvalidResponseError,
+  };
+
+  enum class LogoutResponse {
+    kSuccess,
+    kError,
+  };
+
+  struct Endpoints {
+    std::string idp;
+    std::string token;
+    std::string accounts;
+  };
+
+  static constexpr char kWellKnownFilePath[] = ".well-known/webid";
+
+  using AccountList = std::vector<content::IdentityRequestAccount>;
   using FetchWellKnownCallback =
-      base::OnceCallback<void(FetchStatus, const std::string&)>;
+      base::OnceCallback<void(FetchStatus, Endpoints)>;
   using SigninRequestCallback =
       base::OnceCallback<void(SigninResponse, const std::string&)>;
+  using AccountsRequestCallback =
+      base::OnceCallback<void(AccountsResponse, const AccountList&)>;
+  using TokenRequestCallback =
+      base::OnceCallback<void(TokenResponse, const std::string&)>;
+  using LogoutCallback = base::OnceCallback<void(LogoutResponse)>;
 
   static std::unique_ptr<IdpNetworkRequestManager> Create(
       const GURL& provider,
       RenderFrameHost* host);
 
-  IdpNetworkRequestManager(const GURL& provider, RenderFrameHost* host);
+  IdpNetworkRequestManager(
+      const GURL& provider,
+      const url::Origin& relying_party,
+      scoped_refptr<network::SharedURLLoaderFactory> loader_factory);
 
   virtual ~IdpNetworkRequestManager();
 
@@ -81,26 +121,49 @@ class IdpNetworkRequestManager {
   IdpNetworkRequestManager& operator=(const IdpNetworkRequestManager&) = delete;
 
   // Attempt to fetch the IDP's WebID parameters from the its .well-known file.
-  void FetchIDPWellKnown(FetchWellKnownCallback);
+  virtual void FetchIdpWellKnown(FetchWellKnownCallback);
 
   // Transmit the OAuth request to the IDP.
-  void SendSigninRequest(const GURL& signin_url,
-                         const std::string& request,
-                         SigninRequestCallback);
+  virtual void SendSigninRequest(const GURL& signin_url,
+                                 const std::string& request,
+                                 SigninRequestCallback);
+
+  // Fetch accounts list for this user from the IDP.
+  virtual void SendAccountsRequest(const GURL& accounts_url,
+                                   AccountsRequestCallback);
+
+  // Request a new token for this user account and RP from the IDP.
+  virtual void SendTokenRequest(const GURL& token_url,
+                                const std::string& account,
+                                const std::string& request,
+                                TokenRequestCallback callback);
+
+  // Send logout request to a single target.
+  virtual void SendLogout(const GURL& logout_url, LogoutCallback);
 
  private:
   void OnWellKnownLoaded(std::unique_ptr<std::string> response_body);
   void OnWellKnownParsed(data_decoder::DataDecoder::ValueOrError result);
   void OnSigninRequestResponse(std::unique_ptr<std::string> response_body);
   void OnSigninRequestParsed(data_decoder::DataDecoder::ValueOrError result);
+  void OnAccountsRequestResponse(std::unique_ptr<std::string> response_body);
+  void OnAccountsRequestParsed(data_decoder::DataDecoder::ValueOrError result);
+  void OnTokenRequestResponse(std::unique_ptr<std::string> response_body);
+  void OnTokenRequestParsed(data_decoder::DataDecoder::ValueOrError result);
+  void OnLogoutCompleted(std::unique_ptr<std::string> response_body);
 
   // URL of the Identity Provider.
   GURL provider_;
 
-  RenderFrameHost* render_frame_host_;
+  url::Origin relying_party_origin_;
+
+  scoped_refptr<network::SharedURLLoaderFactory> loader_factory_;
 
   FetchWellKnownCallback idp_well_known_callback_;
   SigninRequestCallback signin_request_callback_;
+  AccountsRequestCallback accounts_request_callback_;
+  TokenRequestCallback token_request_callback_;
+  LogoutCallback logout_callback_;
 
   std::unique_ptr<network::SimpleURLLoader> url_loader_;
 

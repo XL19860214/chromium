@@ -49,25 +49,10 @@ DocumentStyleSheetCollection::DocumentStyleSheetCollection(
 void DocumentStyleSheetCollection::CollectStyleSheetsFromCandidates(
     StyleEngine& engine,
     DocumentStyleSheetCollector& collector) {
-  CHECK(ThreadState::Current()->IsOnThreadHeap(this));
   for (Node* n : style_sheet_candidate_nodes_) {
-    CHECK(ThreadState::Current()->IsOnThreadHeap(n));
     StyleSheetCandidate candidate(*n);
 
     DCHECK(!candidate.IsXSL());
-    if (candidate.IsImport()) {
-      Document* document = candidate.ImportedDocument();
-      if (!document)
-        continue;
-      if (collector.HasVisited(document))
-        continue;
-      collector.WillVisit(document);
-
-      document->GetStyleEngine().UpdateActiveStyleSheetsInImport(engine,
-                                                                 collector);
-      continue;
-    }
-
     if (candidate.IsEnabledAndLoading())
       continue;
 

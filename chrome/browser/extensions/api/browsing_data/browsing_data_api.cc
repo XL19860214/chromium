@@ -12,6 +12,7 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/strings/stringprintf.h"
 #include "base/task/thread_pool.h"
 #include "base/values.h"
 #include "chrome/browser/browsing_data/chrome_browsing_data_remover_constants.h"
@@ -265,7 +266,7 @@ void BrowsingDataSettingsFunction::SetDetails(
   permitted_dict->SetBoolean(data_type, is_permitted);
 }
 
-BrowsingDataRemoverFunction::BrowsingDataRemoverFunction() : observer_(this) {}
+BrowsingDataRemoverFunction::BrowsingDataRemoverFunction() = default;
 
 void BrowsingDataRemoverFunction::OnBrowsingDataRemoverDone(
     uint64_t failed_data_types) {
@@ -278,7 +279,7 @@ void BrowsingDataRemoverFunction::OnTaskFinished() {
   if (--pending_tasks_ > 0)
     return;
   synced_data_deletion_.reset();
-  observer_.RemoveAll();
+  observation_.Reset();
   Respond(NoArguments());
   Release();  // Balanced in StartRemoving.
 }
@@ -360,8 +361,7 @@ bool BrowsingDataRemoverFunction::IsPauseSyncAllowed() {
 
 void BrowsingDataRemoverFunction::StartRemoving() {
   Profile* profile = Profile::FromBrowserContext(browser_context());
-  content::BrowsingDataRemover* remover =
-      content::BrowserContext::GetBrowsingDataRemover(profile);
+  content::BrowsingDataRemover* remover = profile->GetBrowsingDataRemover();
 
   // Add a ref (Balanced in OnTaskFinished)
   AddRef();
@@ -377,7 +377,7 @@ void BrowsingDataRemoverFunction::StartRemoving() {
   // that we're notified after removal) and call remove() with the arguments
   // we've generated above. We can use a raw pointer here, as the browsing data
   // remover is responsible for deleting itself once data removal is complete.
-  observer_.Add(remover);
+  observation_.Observe(remover);
 
   DCHECK_EQ(pending_tasks_, 0);
   pending_tasks_ = 1;
@@ -503,10 +503,9 @@ bool BrowsingDataRemoveFunction::GetRemovalMask(uint64_t* removal_mask) {
   for (base::DictionaryValue::Iterator i(*data_to_remove);
        !i.IsAtEnd();
        i.Advance()) {
-    bool selected = false;
-    if (!i.value().GetAsBoolean(&selected))
+    if (!i.value().is_bool())
       return false;
-    if (selected)
+    if (i.value().GetBool())
       *removal_mask |= MaskForKey(i.key().c_str());
   }
 

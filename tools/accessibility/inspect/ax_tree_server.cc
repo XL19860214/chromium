@@ -19,6 +19,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/values.h"
+#include "content/public/browser/ax_inspect_factory.h"
 
 using ui::AXTreeFormatter;
 using ui::AXTreeSelector;
@@ -55,12 +56,14 @@ void AXTreeServer::Run(BuildTree build_tree,
       AXInspectFactory::CreatePlatformFormatter());
 
   // Set filters.
-  std::vector<ui::AXPropertyFilter> filters = GetPropertyFilters(filters_path);
-  if (filters.empty()) {
-    LOG(ERROR) << "Failed to parse filters";
+  absl::optional<std::vector<ui::AXPropertyFilter>> filters =
+      GetPropertyFilters(filters_path);
+  if (!filters) {
+    LOG(ERROR) << "Failed to parse filters2";
     return;
   }
-  formatter->SetPropertyFilters(filters);
+  formatter->SetPropertyFilters(*filters,
+                                ui::AXTreeFormatter::kFiltersDefaultSet);
 
   // Get accessibility tree as a nested dictionary.
   base::Value dict = std::move(build_tree).Run(formatter.get());
@@ -73,12 +76,11 @@ void AXTreeServer::Run(BuildTree build_tree,
   printf("%s", formatter->FormatTree(dict).c_str());
 }
 
-std::vector<ui::AXPropertyFilter> AXTreeServer::GetPropertyFilters(
-    const base::FilePath& filters_path) {
+absl::optional<std::vector<ui::AXPropertyFilter>>
+AXTreeServer::GetPropertyFilters(const base::FilePath& filters_path) {
+  std::vector<ui::AXPropertyFilter> filters;
   if (filters_path.empty()) {
-    return {
-      ui::AXPropertyFilter("*", ui::AXPropertyFilter::ALLOW),
-    };
+    return filters;
   }
 
   std::string raw_filters_text;
@@ -87,10 +89,9 @@ std::vector<ui::AXPropertyFilter> AXTreeServer::GetPropertyFilters(
     LOG(ERROR) << "Failed to open filters file " << filters_path
                << ". Note: path traversal components ('..') are not allowed "
                   "for security reasons";
-    return {};
+    return absl::nullopt;
   }
 
-  std::vector<ui::AXPropertyFilter> filters;
   for (const std::string& line :
        base::SplitString(raw_filters_text, "\n", base::TRIM_WHITESPACE,
                          base::SPLIT_WANT_ALL)) {
@@ -108,7 +109,7 @@ std::vector<ui::AXPropertyFilter> AXTreeServer::GetPropertyFilters(
                            ui::AXPropertyFilter::DENY);
     } else if (!line.empty()) {
       LOG(ERROR) << "Unrecognized filter instruction at line: " << line;
-      return {};
+      return absl::nullopt;
     }
   }
   return filters;

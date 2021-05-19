@@ -4,6 +4,7 @@
 
 #include "chrome/browser/media/router/providers/cast/cast_activity.h"
 
+#include "base/containers/contains.h"
 #include "base/logging.h"
 #include "chrome/browser/media/router/providers/cast/cast_internal_message_util.h"
 #include "chrome/browser/media/router/providers/cast/cast_session_client_impl.h"
@@ -69,7 +70,7 @@ void CastActivity::SetOrUpdateSession(const CastSession& session,
            << session_id_.value_or("<missing>")
            << ", new session_id = " << session.session_id();
   DCHECK(sink.is_cast_sink());
-  route_.set_description(session.GetRouteDescription());
+  route_.set_description(GetRouteDescription(session));
   sink_ = sink;
   if (session_id_) {
     DCHECK_EQ(*session_id_, session.session_id());
@@ -101,7 +102,7 @@ void CastActivity::SendMessageToClient(
 }
 
 void CastActivity::SendMediaStatusToClients(const base::Value& media_status,
-                                            base::Optional<int> request_id) {
+                                            absl::optional<int> request_id) {
   for (auto& client : connected_clients_)
     client.second->SendMediaStatusToClient(media_status, request_id);
 }
@@ -117,10 +118,10 @@ void CastActivity::TerminatePresentationConnections() {
     client.second->TerminateConnection();
 }
 
-base::Optional<int> CastActivity::SendMediaRequestToReceiver(
+absl::optional<int> CastActivity::SendMediaRequestToReceiver(
     const CastInternalMessage& cast_message) {
   NOTIMPLEMENTED();
-  return base::nullopt;
+  return absl::nullopt;
 }
 
 cast_channel::Result CastActivity::SendAppMessageToReceiver(
@@ -177,6 +178,11 @@ void CastActivity::HandleLeaveSession(const std::string& client_id) {
 
 void CastActivity::OnSessionUpdated(const CastSession& session,
                                     const std::string& hash_token) {}
+
+std::string CastActivity::GetRouteDescription(
+    const CastSession& session) const {
+  return session.GetRouteDescription();
+}
 
 CastSessionClientFactoryForTest* CastActivity::client_factory_for_test_ =
     nullptr;

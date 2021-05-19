@@ -44,6 +44,7 @@ import org.chromium.chrome.R;
 import org.chromium.chrome.browser.ChromeTabbedActivity;
 import org.chromium.chrome.browser.ShortcutHelper;
 import org.chromium.chrome.browser.app.ChromeActivity;
+import org.chromium.chrome.browser.browserservices.intents.WebDisplayMode;
 import org.chromium.chrome.browser.firstrun.FirstRunStatus;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.tab.Tab;
@@ -51,7 +52,7 @@ import org.chromium.chrome.browser.test.MockCertVerifierRuleAndroid;
 import org.chromium.chrome.test.ChromeActivityTestRule;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.util.ChromeTabUtils;
-import org.chromium.chrome.test.util.browser.contextmenu.RevampedContextMenuUtils;
+import org.chromium.chrome.test.util.browser.contextmenu.ContextMenuUtils;
 import org.chromium.chrome.test.util.browser.webapps.WebappTestPage;
 import org.chromium.components.browser_ui.styles.ChromeColors;
 import org.chromium.content_public.browser.LoadUrlParams;
@@ -265,7 +266,7 @@ public class WebappNavigationTest {
         final ActivityMonitor monitor =
                 InstrumentationRegistry.getInstrumentation().addMonitor(filter, null, true);
 
-        RevampedContextMenuUtils.selectContextMenuItem(InstrumentationRegistry.getInstrumentation(),
+        ContextMenuUtils.selectContextMenuItem(InstrumentationRegistry.getInstrumentation(),
                 null /* activity to check for focus after click */,
                 mActivityTestRule.getActivity().getActivityTab(), "myTestAnchorId",
                 R.id.contextmenu_open_in_chrome);

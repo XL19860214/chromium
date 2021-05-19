@@ -13,8 +13,6 @@
 #include "components/viz/common/surfaces/surface_id.h"
 #include "media/base/renderer_factory_selector.h"
 #include "media/base/routing_token_callback.h"
-#include "media/blink/url_index.h"
-#include "media/blink/webmediaplayer_params.h"
 #include "media/media_buildflags.h"
 #include "media/mojo/buildflags.h"
 #include "media/mojo/clients/mojo_renderer_factory.h"
@@ -52,6 +50,8 @@ class MediaLog;
 class MediaObserver;
 class RemotePlaybackClientWrapper;
 class RendererWebMediaPlayerDelegate;
+class ResourceFetchContext;
+class UrlIndex;
 class WebEncryptedMediaClientImpl;
 }
 
@@ -97,7 +97,9 @@ class MediaFactory {
       blink::WebContentDecryptionModule* initial_cdm,
       const blink::WebString& sink_id,
       viz::FrameSinkId parent_frame_sink_id,
-      const cc::LayerTreeSettings& settings);
+      const cc::LayerTreeSettings& settings,
+      scoped_refptr<base::SingleThreadTaskRunner>
+          main_thread_compositor_task_runner);
 
   // Provides an EncryptedMediaClient to connect blink's EME layer to media's
   // implementation of requestMediaKeySystemAccess. Will always return the same
@@ -132,7 +134,9 @@ class MediaFactory {
       const blink::WebString& sink_id,
       blink::WebLocalFrame* frame,
       viz::FrameSinkId parent_frame_sink_id,
-      const cc::LayerTreeSettings& settings);
+      const cc::LayerTreeSettings& settings,
+      scoped_refptr<base::SingleThreadTaskRunner>
+          main_thread_compositor_task_runner);
 
   // Returns the media delegate for WebMediaPlayer usage.  If
   // |media_player_delegate_| is NULL, one is created.

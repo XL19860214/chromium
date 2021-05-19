@@ -36,6 +36,7 @@ class VIZ_SERVICE_EXPORT OverlayProcessorMac
   bool DisableSplittingQuads() const override;
 
   bool IsOverlaySupported() const override;
+  gfx::Rect GetPreviousFrameOverlaysBoundingRect() const override;
   gfx::Rect GetAndResetOverlayDamage() override;
 
   // Returns true if the platform supports hw overlays and surface occluding
@@ -59,14 +60,17 @@ class VIZ_SERVICE_EXPORT OverlayProcessorMac
 
   // For Mac, if we successfully generated a candidate list for CALayerOverlay,
   // we no longer need the |output_surface_plane|. This function takes a pointer
-  // to the base::Optional instance so the instance can be reset.
+  // to the absl::optional instance so the instance can be reset.
   // TODO(weiliangc): Internalize the |output_surface_plane| inside the overlay
   // processor.
   void AdjustOutputSurfaceOverlay(
-      base::Optional<OutputSurfaceOverlayPlane>* output_surface_plane) override;
+      absl::optional<OutputSurfaceOverlayPlane>* output_surface_plane) override;
 
  private:
   const bool enable_ca_overlay_;
+
+  // The damage that should be added the next frame for drawing to the output
+  // surface.
   gfx::Rect ca_overlay_damage_rect_;
   gfx::Rect previous_frame_full_bounding_rect_;
 

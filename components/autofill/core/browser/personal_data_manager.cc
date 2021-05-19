@@ -24,7 +24,6 @@
 #include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
-#include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
@@ -33,6 +32,7 @@
 #include "components/autofill/core/browser/autofill_experiments.h"
 #include "components/autofill/core/browser/autofill_field.h"
 #include "components/autofill/core/browser/autofill_metrics.h"
+#include "components/autofill/core/browser/autofill_profile_save_strike_database.h"
 #include "components/autofill/core/browser/data_model/autofill_profile_comparator.h"
 #include "components/autofill/core/browser/data_model/phone_number.h"
 #include "components/autofill/core/browser/form_structure.h"
@@ -270,9 +270,11 @@ void PersonalDataManager::Init(
     scoped_refptr<AutofillWebDataService> profile_database,
     scoped_refptr<AutofillWebDataService> account_database,
     PrefService* pref_service,
+    PrefService* local_state,
     signin::IdentityManager* identity_manager,
     AutofillProfileValidator* client_profile_validator,
     history::HistoryService* history_service,
+    StrikeDatabaseBase* strike_database,
     bool is_off_the_record) {
   CountryNames::SetLocaleString(app_locale_);
   database_helper_->Init(profile_database, account_database);
@@ -286,10 +288,14 @@ void PersonalDataManager::Init(
       base::BindRepeating(&PersonalDataManager::ResetProfileValidity,
                           base::Unretained(this)));
 
+  alternative_state_name_map_updater_ =
+      std::make_unique<AlternativeStateNameMapUpdater>(local_state, this);
+  AddObserver(alternative_state_name_map_updater_.get());
+
   // Listen for URL deletions from browsing history.
   history_service_ = history_service;
   if (history_service_)
-    history_service_->AddObserver(this);
+    history_service_observation_.Observe(history_service_);
 
   // Listen for account cookie deletion by the user.
   identity_manager_ = identity_manager;
@@ -308,6 +314,13 @@ void PersonalDataManager::Init(
 
   client_profile_validator_ = client_profile_validator;
 
+  if (strike_database) {
+    profile_save_strike_database_ =
+        std::make_unique<AutofillProfileSaveStrikeDatabase>(strike_database);
+    profile_update_strike_database_ =
+        std::make_unique<AutofillProfileUpdateStrikeDatabase>(strike_database);
+  }
+
   // WebDataService may not be available in tests.
   if (!database_helper_->GetLocalDatabase()) {
     return;
@@ -319,8 +332,8 @@ void PersonalDataManager::Init(
 
   Refresh();
 
-  personal_data_manager_cleaner_ =
-      std::make_unique<PersonalDataManagerCleaner>(this, pref_service);
+  personal_data_manager_cleaner_ = std::make_unique<PersonalDataManagerCleaner>(
+      this, alternative_state_name_map_updater_.get(), pref_service);
 }
 
 PersonalDataManager::~PersonalDataManager() {
@@ -328,6 +341,9 @@ PersonalDataManager::~PersonalDataManager() {
   CancelPendingLocalQuery(&pending_creditcards_query_);
   CancelPendingLocalQuery(&pending_upi_ids_query_);
   CancelPendingServerQueries();
+
+  if (alternative_state_name_map_updater_)
+    RemoveObserver(alternative_state_name_map_updater_.get());
 }
 
 void PersonalDataManager::Shutdown() {
@@ -336,7 +352,7 @@ void PersonalDataManager::Shutdown() {
   sync_service_ = nullptr;
 
   if (history_service_)
-    history_service_->RemoveObserver(this);
+    history_service_observation_.Reset();
   history_service_ = nullptr;
 
   if (identity_manager_)
@@ -384,6 +400,26 @@ void PersonalDataManager::OnURLsDeleted(
     const history::DeletionInfo& deletion_info) {
   if (!deletion_info.is_from_expiration() && deletion_info.IsAllHistory()) {
     AutofillDownloadManager::ClearUploadHistory(pref_service_);
+  }
+
+  if (profile_save_strike_database_) {
+    if (deletion_info.IsAllHistory()) {
+      // If the whole history is deleted, clear all strikes.
+      profile_save_strike_database_->ClearAllStrikes();
+    } else {
+      std::set<std::string> deleted_hosts;
+      for (const auto& url_row : deletion_info.deleted_rows()) {
+        deleted_hosts.insert(url_row.url().host());
+      }
+      if (deletion_info.time_range().IsValid() &&
+          !deletion_info.time_range().IsAllTime()) {
+        profile_save_strike_database_->ClearStrikesByOriginAndTimeInternal(
+            deleted_hosts, deletion_info.time_range().begin(),
+            deletion_info.time_range().end());
+      } else {
+        profile_save_strike_database_->ClearStrikesByOrigin(deleted_hosts);
+      }
+    }
   }
 }
 
@@ -484,10 +520,11 @@ void PersonalDataManager::OnWebDataServiceRequestDone(
     // On initial data load, is_data_loaded_ will be false here.
     if (!is_data_loaded_) {
       is_data_loaded_ = true;
-      personal_data_manager_cleaner_->CleanupData();
+      personal_data_manager_cleaner_
+          ->CleanupDataAndNotifyPersonalDataObservers();
+    } else {
+      NotifyPersonalDataObserver();
     }
-
-    NotifyPersonalDataObserver();
   }
 }
 
@@ -533,7 +570,8 @@ CoreAccountInfo PersonalDataManager::GetAccountInfoForPaymentsServer() const {
   // the user has disabled sync.
   // In both cases, the AccountInfo will be empty if the user is not signed in.
   return sync_service_ ? sync_service_->GetAuthenticatedAccountInfo()
-                       : identity_manager_->GetPrimaryAccountInfo();
+                       : identity_manager_->GetPrimaryAccountInfo(
+                             signin::ConsentLevel::kSync);
 }
 
 // TODO(crbug.com/903914): Clean up this function so that it's more clear what
@@ -551,8 +589,6 @@ void PersonalDataManager::OnAccountsCookieDeletedByUserAction() {
   ::autofill::prefs::ClearSyncTransportOptIns(pref_service_);
 }
 
-// TODO(crbug.com/903896): Generalize this to all the possible states relavant
-// to Autofill.
 AutofillSyncSigninState PersonalDataManager::GetSyncSigninState() const {
   // Check if the user is signed out.
   if (!sync_service_ || !identity_manager_ ||
@@ -594,46 +630,58 @@ void PersonalDataManager::MarkObserversInsufficientFormDataForImport() {
     observer.OnInsufficientFormData();
 }
 
-void PersonalDataManager::RecordUseOf(const AutofillDataModel& data_model) {
+void PersonalDataManager::RecordUseOf(
+    absl::variant<const AutofillProfile*, const CreditCard*>
+        profile_or_credit_card) {
   if (is_off_the_record_)
     return;
 
-  CreditCard* credit_card = GetCreditCardByGUID(data_model.guid());
-  if (credit_card) {
-    credit_card->RecordAndLogUse();
+  if (absl::holds_alternative<const CreditCard*>(profile_or_credit_card)) {
+    CreditCard* credit_card = GetCreditCardByGUID(
+        absl::get<const CreditCard*>(profile_or_credit_card)->guid());
 
-    if (credit_card->record_type() == CreditCard::LOCAL_CARD) {
-      // Fail silently if there's no local database, because we need to support
-      // this for tests.
-      if (database_helper_->GetLocalDatabase()) {
-        database_helper_->GetLocalDatabase()->UpdateCreditCard(*credit_card);
+    if (credit_card) {
+      credit_card->RecordAndLogUse();
+
+      if (credit_card->record_type() == CreditCard::LOCAL_CARD) {
+        // Fail silently if there's no local database, because we need to
+        // support this for tests.
+        if (database_helper_->GetLocalDatabase()) {
+          database_helper_->GetLocalDatabase()->UpdateCreditCard(*credit_card);
+        }
+      } else {
+        DCHECK(database_helper_->GetServerDatabase())
+            << "Recording use of server card without server storage.";
+        database_helper_->GetServerDatabase()->UpdateServerCardMetadata(
+            *credit_card);
       }
-    } else {
-      DCHECK(database_helper_->GetServerDatabase())
-          << "Recording use of server card without server storage.";
-      database_helper_->GetServerDatabase()->UpdateServerCardMetadata(
-          *credit_card);
-    }
 
-    Refresh();
-    return;
+      Refresh();
+      return;
+    }
   }
 
-  AutofillProfile* profile = GetProfileByGUID(data_model.guid());
-  if (profile) {
-    profile->RecordAndLogUse();
+  if (absl::holds_alternative<const AutofillProfile*>(profile_or_credit_card)) {
+    // TODO(crbug.com/941498): Server profiles are not recorded therefore
+    // GetProfileByGUID returns null for them.
+    AutofillProfile* profile = GetProfileByGUID(
+        absl::get<const AutofillProfile*>(profile_or_credit_card)->guid());
 
-    switch (profile->record_type()) {
-      case AutofillProfile::LOCAL_PROFILE:
-        UpdateProfileInDB(*profile, /*enforced=*/true);
-        break;
-      case AutofillProfile::SERVER_PROFILE:
-        DCHECK(database_helper_->GetServerDatabase())
-            << "Recording use of server address without server storage.";
-        database_helper_->GetServerDatabase()->UpdateServerAddressMetadata(
-            *profile);
-        Refresh();
-        break;
+    if (profile) {
+      profile->RecordAndLogUse();
+
+      switch (profile->record_type()) {
+        case AutofillProfile::LOCAL_PROFILE:
+          UpdateProfileInDB(*profile, /*enforced=*/true);
+          break;
+        case AutofillProfile::SERVER_PROFILE:
+          DCHECK(database_helper_->GetServerDatabase())
+              << "Recording use of server address without server storage.";
+          database_helper_->GetServerDatabase()->UpdateServerAddressMetadata(
+              *profile);
+          Refresh();
+          break;
+      }
     }
   }
 }
@@ -915,6 +963,11 @@ void PersonalDataManager::SetSyncServiceForTest(
     sync_service_->AddObserver(this);
 }
 
+void PersonalDataManager::AddOfferDataForTest(
+    std::unique_ptr<AutofillOfferData> offer_data) {
+  autofill_offer_data_.push_back(std::move(offer_data));
+}
+
 void PersonalDataManager::
     RemoveAutofillProfileByGUIDAndBlankCreditCardReference(
         const std::string& guid) {
@@ -967,6 +1020,16 @@ CreditCard* PersonalDataManager::GetCreditCardByNumber(
   for (CreditCard* credit_card : GetCreditCards()) {
     DCHECK(credit_card);
     if (credit_card->HasSameNumberAs(numbered_card))
+      return credit_card;
+  }
+  return nullptr;
+}
+
+CreditCard* PersonalDataManager::GetCreditCardByInstrumentId(
+    int64_t instrument_id) {
+  const std::vector<CreditCard*> credit_cards = GetCreditCards();
+  for (CreditCard* credit_card : credit_cards) {
+    if (credit_card->instrument_id() == instrument_id)
       return credit_card;
   }
   return nullptr;
@@ -1127,8 +1190,7 @@ PersonalDataManager::GetCreditCardCloudTokenData() const {
   return result;
 }
 
-std::vector<AutofillOfferData*> PersonalDataManager::GetCreditCardOffers()
-    const {
+std::vector<AutofillOfferData*> PersonalDataManager::GetAutofillOffers() const {
   if (!IsAutofillWalletImportEnabled())
     return {};
 
@@ -1145,7 +1207,7 @@ void PersonalDataManager::Refresh() {
   LoadCreditCardCloudTokenData();
   LoadPaymentsCustomerData();
   LoadUpiIds();
-  LoadCreditCardOffers();
+  LoadAutofillOffers();
 }
 
 std::vector<AutofillProfile*> PersonalDataManager::GetProfilesToSuggest()
@@ -1176,14 +1238,14 @@ std::vector<AutofillProfile*> PersonalDataManager::GetProfilesToSuggest()
 
 std::vector<Suggestion> PersonalDataManager::GetProfileSuggestions(
     const AutofillType& type,
-    const base::string16& field_contents,
+    const std::u16string& field_contents,
     bool field_is_autofilled,
     const std::vector<ServerFieldType>& field_types) {
   if (IsInAutofillSuggestionsDisabledExperiment())
     return std::vector<Suggestion>();
 
   const AutofillProfileComparator comparator(app_locale_);
-  base::string16 field_contents_canon =
+  std::u16string field_contents_canon =
       comparator.NormalizeForComparison(field_contents);
 
   if (base::FeatureList::IsEnabled(
@@ -1235,7 +1297,7 @@ std::vector<Suggestion> PersonalDataManager::GetProfileSuggestions(
                   : nullptr;
 
   // Generate disambiguating labels based on the list of matches.
-  std::vector<base::string16> labels;
+  std::vector<std::u16string> labels;
   if (formatter) {
     labels = formatter->GetLabels();
   } else {
@@ -1255,8 +1317,6 @@ std::vector<Suggestion> PersonalDataManager::GetProfileSuggestions(
   return unique_suggestions;
 }
 
-// TODO(crbug.com/613187): Investigate if it would be more efficient to dedupe
-// with a vector instead of a list.
 const std::vector<CreditCard*> PersonalDataManager::GetCreditCardsToSuggest(
     bool include_server_cards) const {
   if (!IsAutofillCreditCardEnabled())
@@ -1315,7 +1375,7 @@ void PersonalDataManager::RemoveExpiredCreditCardsNotUsedSinceTimestamp(
 
 std::vector<Suggestion> PersonalDataManager::GetCreditCardSuggestions(
     const AutofillType& type,
-    const base::string16& field_contents,
+    const std::u16string& field_contents,
     bool include_server_cards) {
   if (IsInAutofillSuggestionsDisabledExperiment())
     return std::vector<Suggestion>();
@@ -1563,6 +1623,82 @@ void PersonalDataManager::SetProfiles(std::vector<AutofillProfile>* profiles) {
   }
 }
 
+bool PersonalDataManager::IsNewProfileImportBlockedForDomain(
+    const GURL& url) const {
+  if (!GetProfileSaveStrikeDatabase() || !url.is_valid() || !url.has_host() ||
+      !features::kAutofillAutoBlockSaveAddressProfilePrompt.Get()) {
+    return false;
+  }
+
+  return GetProfileSaveStrikeDatabase()->IsMaxStrikesLimitReached(url.host());
+}
+
+void PersonalDataManager::AddStrikeToBlockNewProfileImportForDomain(
+    const GURL& url) {
+  if (!GetProfileSaveStrikeDatabase() || !url.is_valid() || !url.has_host() ||
+      !features::kAutofillAutoBlockSaveAddressProfilePrompt.Get()) {
+    return;
+  }
+  GetProfileSaveStrikeDatabase()->AddStrike(url.host());
+}
+
+void PersonalDataManager::RemoveStrikesToBlockNewProfileImportForDomain(
+    const GURL& url) {
+  if (!GetProfileSaveStrikeDatabase() || !url.is_valid() || !url.has_host()) {
+    return;
+  }
+  GetProfileSaveStrikeDatabase()->ClearStrikes(url.host());
+}
+
+bool PersonalDataManager::IsProfileUpdateBlocked(
+    const std::string& guid) const {
+  if (!GetProfileUpdateStrikeDatabase() ||
+      !features::kAutofillAutoBlockUpdateAddressProfilePrompt.Get()) {
+    return false;
+  }
+
+  return GetProfileUpdateStrikeDatabase()->IsMaxStrikesLimitReached(guid);
+}
+
+void PersonalDataManager::AddStrikeToBlockProfileUpdate(
+    const std::string& guid) {
+  if (!GetProfileUpdateStrikeDatabase() ||
+      !features::kAutofillAutoBlockUpdateAddressProfilePrompt.Get()) {
+    return;
+  }
+  GetProfileUpdateStrikeDatabase()->AddStrike(guid);
+}
+
+void PersonalDataManager::RemoveStrikesToBlockProfileUpdate(
+    const std::string& guid) {
+  if (!GetProfileUpdateStrikeDatabase()) {
+    return;
+  }
+  GetProfileUpdateStrikeDatabase()->ClearStrikes(guid);
+}
+
+AutofillProfileSaveStrikeDatabase*
+PersonalDataManager::GetProfileSaveStrikeDatabase() {
+  return const_cast<AutofillProfileSaveStrikeDatabase*>(
+      base::as_const(*this).GetProfileSaveStrikeDatabase());
+}
+
+const AutofillProfileSaveStrikeDatabase*
+PersonalDataManager::GetProfileSaveStrikeDatabase() const {
+  return profile_save_strike_database_.get();
+}
+
+AutofillProfileUpdateStrikeDatabase*
+PersonalDataManager::GetProfileUpdateStrikeDatabase() {
+  return const_cast<AutofillProfileUpdateStrikeDatabase*>(
+      base::as_const(*this).GetProfileUpdateStrikeDatabase());
+}
+
+const AutofillProfileUpdateStrikeDatabase*
+PersonalDataManager::GetProfileUpdateStrikeDatabase() const {
+  return profile_update_strike_database_.get();
+}
+
 void PersonalDataManager::SetCreditCards(
     std::vector<CreditCard>* credit_cards) {
   if (is_off_the_record_)
@@ -1659,14 +1795,14 @@ void PersonalDataManager::LoadUpiIds() {
       database_helper_->GetLocalDatabase()->GetAllUpiIds(this);
 }
 
-void PersonalDataManager::LoadCreditCardOffers() {
+void PersonalDataManager::LoadAutofillOffers() {
   if (!database_helper_->GetServerDatabase())
     return;
 
   CancelPendingServerQuery(&pending_offer_data_query_);
 
   pending_offer_data_query_ =
-      database_helper_->GetServerDatabase()->GetCreditCardOffers(this);
+      database_helper_->GetServerDatabase()->GetAutofillOffers(this);
 }
 
 void PersonalDataManager::CancelPendingLocalQuery(
@@ -2016,14 +2152,14 @@ void PersonalDataManager::OnCreditCardSaved(bool is_local_card) {
 
 std::vector<Suggestion> PersonalDataManager::GetSuggestionsForCards(
     const AutofillType& type,
-    const base::string16& field_contents,
+    const std::u16string& field_contents,
     const std::vector<CreditCard*>& cards_to_suggest) const {
   std::vector<Suggestion> suggestions;
-  base::string16 field_contents_lower = base::i18n::ToLower(field_contents);
+  std::u16string field_contents_lower = base::i18n::ToLower(field_contents);
 
   for (const CreditCard* credit_card : cards_to_suggest) {
     // The value of the stored data for this field type in the |credit_card|.
-    base::string16 creditcard_field_value =
+    std::u16string creditcard_field_value =
         credit_card->GetInfo(type, app_locale_);
     if (creditcard_field_value.empty())
       continue;
@@ -2046,7 +2182,7 @@ std::vector<Suggestion> PersonalDataManager::GetSuggestionsForCards(
 
       // Get the nickname for the card suggestion, which may not be the same as
       // the card's nickname if there are duplicates of the card on file.
-      base::string16 suggestion_nickname =
+      std::u16string suggestion_nickname =
           GetDisplayNicknameForCreditCard(*credit_card);
 
       // If the value is the card number, the label is the expiration date.
@@ -2333,13 +2469,8 @@ void PersonalDataManager::MigrateUserOptedInWalletSyncTransportIfNeeded() {
                                            /*opted_in=*/true);
 }
 
-base::string16 PersonalDataManager::GetDisplayNicknameForCreditCard(
+std::u16string PersonalDataManager::GetDisplayNicknameForCreditCard(
     const CreditCard& card) const {
-  if (!base::FeatureList::IsEnabled(
-          features::kAutofillEnableCardNicknameManagement)) {
-    return base::string16();
-  }
-
   // Always prefer a local nickname if available.
   if (card.HasNonEmptyValidNickname() &&
       card.record_type() == CreditCard::LOCAL_CARD)

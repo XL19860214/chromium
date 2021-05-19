@@ -32,6 +32,7 @@ pausable. Some internal task queues are not.
 | Sensor                            | No          | No                      |  Yes       | Yes       | Yes      | Yes          |
 | PerformanceTimeline               | No          | No                      |  Yes       | Yes       | Yes      | Yes          |
 | WebGL                             | No          | No                      |  Yes       | Yes       | Yes      | Yes          |
+| WebGPU                            | No          | No                      |  Yes       | Yes       | Yes      | Yes          |
 | IdleTask                          | No          | No                      |  Yes       | Yes       | Yes      | Yes          |
 | MiscPlatformAPI                   | No          | No                      |  Yes       | Yes       | Yes      | Yes          |
 | WorkerAnimation                   | No          | No                      |  No        | Yes       | Yes      | Yes          |
@@ -41,6 +42,7 @@ pausable. Some internal task queues are not.
 | Permission                        | No          | No                      |  Yes       | Yes       | Yes      | Yes          |
 | ServiceWorkerClientMessage        | No          | No                      |  No        | Yes       | Yes      | Yes          |
 | WebLocks                          | No          | No                      |  No        | No        | No       | Yes          |
+| WakeLock                          | No          | No                      |  Yes       | Yes       | Yes      | Yes          |
 | InternalDefault                   | No          | No                      |  Yes       | Yes       | Yes      | Yes          |
 | InternalLoading                   | No          | No                      |  Yes       | Yes       | Yes      | No           |
 | InternalTest                      | No          | No                      |  No        | No        | No       | Yes          |

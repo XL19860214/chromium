@@ -21,6 +21,7 @@
 #include "content/public/browser/browser_thread.h"
 #include "extensions/common/constants.h"
 #include "pdf/buildflags.h"
+#include "ppapi/buildflags/buildflags.h"
 #include "ui/base/resource/resource_bundle.h"
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
@@ -32,18 +33,16 @@
 #include "ui/file_manager/grit/file_manager_gen_resources_map.h"
 #include "ui/file_manager/grit/file_manager_resources_map.h"
 
-#if BUILDFLAG(ENABLE_USE_MEDIA_APP_INK)
+#if BUILDFLAG(ENABLE_INK)
 #include "chromeos/grit/chromeos_media_app_bundle_resources.h"
-#else
-// TODO(crbug/1150244): Remove when deprecated.
-#include "third_party/ink/grit/ink_resources.h"
-#endif  // BUILDFLAG(ENABLE_USE_MEDIA_APP_INK)
+#endif  // BUILDFLAG(ENABLE_INK)
 
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 #if BUILDFLAG(ENABLE_PDF)
 #include <utility>
 #include "chrome/browser/pdf/pdf_extension_util.h"
+#include "chrome/grit/pdf_resources_map.h"
 #endif  // BUILDFLAG(ENABLE_PDF)
 
 namespace extensions {
@@ -67,7 +66,8 @@ class ChromeComponentExtensionResourceManager::Data {
   }
 
  private:
-  void AddComponentResourceEntries(const GritResourceMap* entries, size_t size);
+  void AddComponentResourceEntries(const webui::ResourcePath* entries,
+                                   size_t size);
 
   // A map from a resource path to the resource ID. Used by
   // ChromeComponentExtensionResourceManager::IsComponentExtensionResource().
@@ -78,7 +78,7 @@ class ChromeComponentExtensionResourceManager::Data {
 };
 
 ChromeComponentExtensionResourceManager::Data::Data() {
-  static const GritResourceMap kExtraComponentExtensionResources[] = {
+  static const webui::ResourcePath kExtraComponentExtensionResources[] = {
 #if BUILDFLAG(IS_CHROMEOS_ASH)
     {"web_store/webstore_icon_128.png", IDR_WEBSTORE_APP_ICON_128},
     {"web_store/webstore_icon_16.png", IDR_WEBSTORE_APP_ICON_16},
@@ -90,20 +90,14 @@ ChromeComponentExtensionResourceManager::Data::Data() {
 #if BUILDFLAG(IS_CHROMEOS_ASH)
     {"chrome_app/chrome_app_icon_32.png", IDR_CHROME_APP_ICON_32},
     {"chrome_app/chrome_app_icon_192.png", IDR_CHROME_APP_ICON_192},
-#if BUILDFLAG(ENABLE_USE_MEDIA_APP_INK)
+#if BUILDFLAG(ENABLE_INK)
     // Built in go/bbsrc/lib/BUILD
     {"pdf/ink/ink_engine_ink.worker.js",
      IDR_MEDIA_APP_INK_ENGINE_INK_WORKER_JS},
     {"pdf/ink/ink_engine_ink.wasm", IDR_MEDIA_APP_INK_ENGINE_INK_WASM},
     {"pdf/ink/ink_lib_binary.js", IDR_MEDIA_APP_EXPORT_CANVAS_BIN_JS},
     {"pdf/ink/ink_loader.js", IDR_MEDIA_APP_INK_JS},
-#else
-    // TODO(crbug/1150244): Remove these when deprecated.
-    {"pdf/ink/ink_lib_binary.js", IDR_INK_LIB_BINARY_JS},
-    {"pdf/ink/wasm_ink.worker.js", IDR_INK_WORKER_JS},
-    {"pdf/ink/wasm_ink.wasm", IDR_INK_WASM},
-    {"pdf/ink/ink_loader.js", IDR_INK_LOADER_JS},
-#endif  // BUILDFLAG(ENABLE_USE_MEDIA_APP_INK)
+#endif  // BUILDFLAG(ENABLE_INK)
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
   };
 
@@ -111,6 +105,7 @@ ChromeComponentExtensionResourceManager::Data::Data() {
                               kComponentExtensionResourcesSize);
   AddComponentResourceEntries(kExtraComponentExtensionResources,
                               base::size(kExtraComponentExtensionResources));
+
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   // Add Files app JS modules resources.
   AddComponentResourceEntries(kFileManagerResources, kFileManagerResourcesSize);
@@ -128,18 +123,20 @@ ChromeComponentExtensionResourceManager::Data::Data() {
   }
 
   size_t keyboard_resource_size;
-  const GritResourceMap* keyboard_resources =
+  const webui::ResourcePath* keyboard_resources =
       keyboard::GetKeyboardExtensionResources(&keyboard_resource_size);
   AddComponentResourceEntries(keyboard_resources, keyboard_resource_size);
 #endif
 
 #if BUILDFLAG(ENABLE_PDF)
+  AddComponentResourceEntries(kPdfResources, kPdfResourcesSize);
+
   // ResourceBundle is not always initialized in unit tests.
   if (ui::ResourceBundle::HasSharedInstance()) {
     base::Value dict(base::Value::Type::DICTIONARY);
     pdf_extension_util::AddStrings(
         pdf_extension_util::PdfViewerContext::kPdfViewer, &dict);
-    pdf_extension_util::AddAdditionalData(&dict);
+    pdf_extension_util::AddAdditionalData(/*enable_annotations=*/true, &dict);
 
     ui::TemplateReplacements pdf_viewer_replacements;
     ui::TemplateReplacementsFromDictionaryValue(
@@ -151,30 +148,15 @@ ChromeComponentExtensionResourceManager::Data::Data() {
 }
 
 void ChromeComponentExtensionResourceManager::Data::AddComponentResourceEntries(
-    const GritResourceMap* entries,
+    const webui::ResourcePath* entries,
     size_t size) {
-  base::FilePath gen_folder_path = base::FilePath().AppendASCII(
-      "@out_folder@/gen/chrome/browser/resources/");
-  gen_folder_path = gen_folder_path.NormalizePathSeparators();
-
   for (size_t i = 0; i < size; ++i) {
     base::FilePath resource_path =
-        base::FilePath().AppendASCII(entries[i].name);
+        base::FilePath().AppendASCII(entries[i].path);
     resource_path = resource_path.NormalizePathSeparators();
 
-    if (!gen_folder_path.IsParent(resource_path)) {
-      DCHECK(!base::Contains(path_to_resource_id_, resource_path));
-      path_to_resource_id_[resource_path] = entries[i].value;
-    } else {
-      // If the resource is a generated file, strip the generated folder's path,
-      // so that it can be served from a normal URL (as if it were not
-      // generated).
-      base::FilePath effective_path =
-          base::FilePath().AppendASCII(resource_path.AsUTF8Unsafe().substr(
-              gen_folder_path.value().length()));
-      DCHECK(!base::Contains(path_to_resource_id_, effective_path));
-      path_to_resource_id_[effective_path] = entries[i].value;
-    }
+    DCHECK(!base::Contains(path_to_resource_id_, resource_path));
+    path_to_resource_id_[resource_path] = entries[i].id;
   }
 }
 

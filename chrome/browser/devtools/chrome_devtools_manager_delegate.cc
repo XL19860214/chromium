@@ -4,6 +4,7 @@
 
 #include "chrome/browser/devtools/chrome_devtools_manager_delegate.h"
 
+#include <memory>
 #include <utility>
 
 #include "base/bind.h"
@@ -45,8 +46,8 @@
 #include "ui/base/resource/resource_bundle.h"
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
+#include "ash/constants/ash_switches.h"
 #include "base/command_line.h"
-#include "chromeos/constants/chromeos_switches.h"
 #endif
 
 using content::DevToolsAgentHost;
@@ -97,6 +98,11 @@ ChromeDevToolsManagerDelegate::ChromeDevToolsManagerDelegate() {
   DCHECK(!g_instance);
   g_instance = this;
 
+#if !BUILDFLAG(IS_CHROMEOS_ASH)
+  // Only create and hold keep alive for automation test for non ChromeOS.
+  // ChromeOS automation test (aka tast) manages chrome instance via session
+  // manager daemon. The extra keep alive is not needed and makes ChromeOS
+  // not able to shutdown chrome properly. See https://crbug.com/1174627.
   base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
   if (command_line->HasSwitch(switches::kNoStartupWindow) &&
       (command_line->HasSwitch(switches::kRemoteDebuggingPipe) ||
@@ -105,9 +111,10 @@ ChromeDevToolsManagerDelegate::ChromeDevToolsManagerDelegate() {
     // we are controlled entirely by the automation process.
     // Keep the application running until explicit close through DevTools
     // protocol.
-    keep_alive_.reset(new ScopedKeepAlive(KeepAliveOrigin::REMOTE_DEBUGGING,
-                                          KeepAliveRestartOption::DISABLED));
+    keep_alive_ = std::make_unique<ScopedKeepAlive>(
+        KeepAliveOrigin::REMOTE_DEBUGGING, KeepAliveRestartOption::DISABLED);
   }
+#endif  // !BUILDFLAG(IS_CHROMEOS_ASH)
 }
 
 ChromeDevToolsManagerDelegate::~ChromeDevToolsManagerDelegate() {
@@ -324,9 +331,10 @@ void ChromeDevToolsManagerDelegate::UpdateDeviceDiscovery() {
     providers.push_back(new TCPDeviceProvider(remote_locations));
     device_manager_->SetDeviceProviders(providers);
 
-    device_discovery_.reset(new DevToolsDeviceDiscovery(device_manager_.get(),
-        base::Bind(&ChromeDevToolsManagerDelegate::DevicesAvailable,
-                   base::Unretained(this))));
+    device_discovery_ = std::make_unique<DevToolsDeviceDiscovery>(
+        device_manager_.get(),
+        base::BindRepeating(&ChromeDevToolsManagerDelegate::DevicesAvailable,
+                            base::Unretained(this)));
   }
   remote_locations_.swap(remote_locations);
 }

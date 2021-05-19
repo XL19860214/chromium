@@ -24,6 +24,7 @@
 #include "components/web_modal/web_contents_modal_dialog_manager.h"
 #include "content/public/browser/web_contents.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/base/models/table_model.h"
 #include "ui/base/models/table_model_observer.h"
 #include "ui/views/controls/button/md_text_button.h"
@@ -33,8 +34,8 @@
 #include "ui/views/widget/widget.h"
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-#include "chrome/browser/chromeos/certificate_provider/certificate_provider_service.h"
-#include "chrome/browser/chromeos/certificate_provider/certificate_provider_service_factory.h"
+#include "chrome/browser/ash/certificate_provider/certificate_provider_service.h"
+#include "chrome/browser/ash/certificate_provider/certificate_provider_service_factory.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/extension_registry_factory.h"
 #endif
@@ -52,15 +53,15 @@ class CertificateSelector::CertificateTableModel : public ui::TableModel {
 
   // ui::TableModel:
   int RowCount() override;
-  base::string16 GetText(int index, int column_id) override;
+  std::u16string GetText(int index, int column_id) override;
   void SetObserver(ui::TableModelObserver* observer) override;
 
  private:
   struct Row {
-    base::string16 subject;
-    base::string16 issuer;
-    base::string16 provider;
-    base::string16 serial;
+    std::u16string subject;
+    std::u16string issuer;
+    std::u16string provider;
+    std::u16string serial;
   };
   std::vector<Row> rows_;
 
@@ -89,7 +90,7 @@ int CertificateSelector::CertificateTableModel::RowCount() {
   return rows_.size();
 }
 
-base::string16 CertificateSelector::CertificateTableModel::GetText(
+std::u16string CertificateSelector::CertificateTableModel::GetText(
     int index,
     int column_id) {
   DCHECK_GE(index, 0);
@@ -108,7 +109,7 @@ base::string16 CertificateSelector::CertificateTableModel::GetText(
     default:
       NOTREACHED();
   }
-  return base::string16();
+  return std::u16string();
 }
 
 void CertificateSelector::CertificateTableModel::SetObserver(
@@ -118,6 +119,7 @@ CertificateSelector::CertificateSelector(net::ClientCertIdentityList identities,
                                          content::WebContents* web_contents)
     : web_contents_(web_contents) {
   SetCanResize(true);
+  SetModalType(ui::MODAL_TYPE_CHILD);
   CHECK(web_contents_);
 
   view_cert_button_ = SetExtraView(std::make_unique<views::MdTextButton>(
@@ -126,7 +128,7 @@ CertificateSelector::CertificateSelector(net::ClientCertIdentityList identities,
       l10n_util::GetStringUTF16(IDS_PAGE_INFO_CERT_INFO_BUTTON)));
 
   set_margins(ChromeLayoutProvider::Get()->GetDialogInsetsForContentType(
-      views::TEXT, views::CONTROL));
+      views::DialogContentType::kText, views::DialogContentType::kControl));
 
   // |provider_names| and |identities_| are parallel arrays.
   // The entry at index |i| is the provider name for |identities_[i]|.
@@ -269,7 +271,7 @@ bool CertificateSelector::Accept() {
   return true;
 }
 
-base::string16 CertificateSelector::GetWindowTitle() const {
+std::u16string CertificateSelector::GetWindowTitle() const {
   return l10n_util::GetStringUTF16(IDS_CLIENT_CERT_DIALOG_TITLE);
 }
 
@@ -280,10 +282,6 @@ bool CertificateSelector::IsDialogButtonEnabled(ui::DialogButton button) const {
 views::View* CertificateSelector::GetInitiallyFocusedView() {
   DCHECK(table_);
   return table_;
-}
-
-ui::ModalType CertificateSelector::GetModalType() const {
-  return ui::MODAL_TYPE_CHILD;
 }
 
 void CertificateSelector::ViewCertButtonPressed() {
@@ -302,5 +300,8 @@ void CertificateSelector::OnDoubleClick() {
   if (GetSelectedCert())
     AcceptDialog();
 }
+
+BEGIN_METADATA(CertificateSelector, views::DialogDelegateView)
+END_METADATA
 
 }  // namespace chrome

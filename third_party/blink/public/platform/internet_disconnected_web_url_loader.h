@@ -28,7 +28,9 @@ class BLINK_PLATFORM_EXPORT InternetDisconnectedWebURLLoaderFactory final
       std::unique_ptr<scheduler::WebResourceLoadingTaskRunnerHandle>
           unfreezable_task_runner_handle,
       CrossVariantMojoRemote<blink::mojom::KeepAliveHandleInterfaceBase>
-          keep_alive_handle) override;
+          keep_alive_handle,
+      WebBackForwardCacheLoaderHelper back_forward_cache_loader_helper)
+      override;
 };
 
 // WebURLLoader which always returns an internet disconnected error. At present,
@@ -50,7 +52,7 @@ class InternetDisconnectedWebURLLoader final : public WebURLLoader {
       base::TimeDelta timeout_interval,
       WebURLLoaderClient*,
       WebURLResponse&,
-      base::Optional<WebURLError>&,
+      absl::optional<WebURLError>&,
       WebData&,
       int64_t& encoded_data_length,
       int64_t& encoded_body_length,

@@ -83,6 +83,14 @@ namespace policy {
 
 namespace em = enterprise_management;
 
+std::string GetDeviceManufacturer() {
+#if defined(OS_IOS)
+  return "Apple Inc.";
+#else
+  return std::string();
+#endif
+}
+
 std::string GetDeviceModel() {
 #if defined(OS_IOS)
   // Obtains the Apple internal device name (e.g. "iPad6,11").
@@ -103,7 +111,7 @@ std::string GetMachineName() {
 #elif defined(OS_IOS)
   // Use the Vendor ID as the machine name.
   return ios::device_util::GetVendorId();
-#elif defined(OS_APPLE)
+#elif defined(OS_MAC)
   // Do not use NSHost currentHost, as it's very slow. http://crbug.com/138570
   SCDynamicStoreContext context = {0, NULL, NULL, NULL};
   base::ScopedCFTypeRef<SCDynamicStoreRef> store(SCDynamicStoreCreate(
@@ -141,6 +149,8 @@ std::string GetMachineName() {
     return result;
   }
   return std::string();
+#elif defined(OS_ANDROID)
+  return std::string();
 #else
   NOTREACHED();
   return std::string();
@@ -156,6 +166,8 @@ std::string GetOSVersion() {
   return base::StringPrintf("%d.%d.%d.%d", version_number.major,
                             version_number.minor, version_number.build,
                             version_number.patch);
+#elif defined(OS_ANDROID)
+  return std::string();
 #else
   NOTREACHED();
   return std::string();
@@ -197,6 +209,8 @@ std::string GetOSUsername() {
   if (!user)
     return std::string();
   return user->GetAccountId().GetUserEmail();
+#elif defined(OS_ANDROID)
+  return std::string();
 #else
   NOTREACHED();
   return std::string();
@@ -232,7 +246,7 @@ std::unique_ptr<em::BrowserDeviceIdentifier> GetBrowserDeviceIdentifier() {
       std::make_unique<em::BrowserDeviceIdentifier>();
   device_identifier->set_computer_name(GetMachineName());
 #if defined(OS_WIN)
-  device_identifier->set_serial_number(base::UTF16ToUTF8(
+  device_identifier->set_serial_number(base::WideToUTF8(
       base::win::WmiComputerSystemInfo::Get().serial_number()));
 #else
   device_identifier->set_serial_number("");

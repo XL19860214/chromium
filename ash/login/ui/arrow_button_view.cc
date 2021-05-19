@@ -10,11 +10,11 @@
 #include "ash/style/ash_color_provider.h"
 #include "base/time/time.h"
 #include "cc/paint/paint_flags.h"
-#include "ui/accessibility/ax_node_data.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
+#include "ui/compositor/layer.h"
 #include "ui/gfx/animation/multi_animation.h"
 #include "ui/gfx/animation/tween.h"
 #include "ui/gfx/canvas.h"
-#include "ui/gfx/color_palette.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/gfx/skia_util.h"
@@ -67,14 +67,9 @@ ArrowButtonView::ArrowButtonView(PressedCallback callback, int size)
   SetPaintToLayer();
   layer()->SetFillsBoundsOpaquely(false);
 
-  AshColorProvider::Get()->DecorateIconButton(
-      this, kLockScreenArrowIcon, /*toggled_=*/false, kArrowIconSizeDp);
   focus_ring()->SetPathGenerator(
       std::make_unique<views::FixedSizeCircleHighlightPathGenerator>(
           kArrowIconBackroundRadius));
-
-  SetBackgroundColor(AshColorProvider::Get()->GetControlsLayerColor(
-      AshColorProvider::ControlsLayerType::kControlBackgroundColorInactive));
 }
 
 ArrowButtonView::~ArrowButtonView() = default;
@@ -85,7 +80,8 @@ void ArrowButtonView::PaintButtonContents(gfx::Canvas* canvas) {
   // Draw background.
   cc::PaintFlags flags;
   flags.setAntiAlias(true);
-  flags.setColor(background_color_);
+  flags.setColor(AshColorProvider::Get()->GetControlsLayerColor(
+      AshColorProvider::ControlsLayerType::kControlBackgroundColorInactive));
   flags.setStyle(cc::PaintFlags::kFill_Style);
   canvas->DrawCircle(gfx::PointF(rect.CenterPoint()), rect.width() / 2, flags);
 
@@ -95,22 +91,6 @@ void ArrowButtonView::PaintButtonContents(gfx::Canvas* canvas) {
   // Draw the arc of the loading animation.
   if (loading_animation_)
     PaintLoadingArc(canvas, rect, loading_animation_->GetCurrentValue());
-}
-
-void ArrowButtonView::GetAccessibleNodeData(ui::AXNodeData* node_data) {
-  LoginButton::GetAccessibleNodeData(node_data);
-  // TODO(tbarzic): Fix this - https://crbug.com/961930.
-  if (GetAccessibleName().empty())
-    node_data->SetNameExplicitlyEmpty();
-}
-
-const char* ArrowButtonView::GetClassName() const {
-  return "ArrowButtonView";
-}
-
-void ArrowButtonView::SetBackgroundColor(SkColor color) {
-  background_color_ = color;
-  SchedulePaint();
 }
 
 void ArrowButtonView::EnableLoadingAnimation(bool enabled) {
@@ -127,14 +107,19 @@ void ArrowButtonView::EnableLoadingAnimation(bool enabled) {
 
   // Use MultiAnimation in order to have a continuously running analog of
   // LinearAnimation.
-  loading_animation_ = std::make_unique<gfx::MultiAnimation>(
-      gfx::MultiAnimation::Parts{
+  loading_animation_ =
+      std::make_unique<gfx::MultiAnimation>(gfx::MultiAnimation::Parts{
           gfx::MultiAnimation::Part(kLoadingAnimationStepDuration,
                                     gfx::Tween::LINEAR),
-      },
-      gfx::MultiAnimation::kDefaultTimerInterval);
+      });
   loading_animation_->set_delegate(&loading_animation_delegate_);
   loading_animation_->Start();
+}
+
+void ArrowButtonView::OnThemeChanged() {
+  views::View::OnThemeChanged();
+  AshColorProvider::Get()->DecorateIconButton(
+      this, kLockScreenArrowIcon, /*toggled_=*/false, kArrowIconSizeDp);
 }
 
 ArrowButtonView::LoadingAnimationDelegate::LoadingAnimationDelegate(
@@ -148,5 +133,8 @@ void ArrowButtonView::LoadingAnimationDelegate::AnimationProgressed(
     const gfx::Animation* /*animation*/) {
   owner_->SchedulePaint();
 }
+
+BEGIN_METADATA(ArrowButtonView, LoginButton)
+END_METADATA
 
 }  // namespace ash

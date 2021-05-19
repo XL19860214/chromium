@@ -4,7 +4,6 @@
 
 #include "chrome/browser/lacros/cert_db_initializer_impl.h"
 
-#include "base/callback_forward.h"
 #include "base/check.h"
 #include "base/files/file_path.h"
 #include "base/memory/weak_ptr.h"
@@ -22,44 +21,7 @@
 #include "crypto/nss_util_internal.h"
 #include "mojo/public/cpp/bindings/remote.h"
 
-// Includes for `IsEnabledForEarlyAccess()`.
-#include "base/containers/flat_set.h"
-#include "base/no_destructor.h"
-#include "chrome/browser/signin/identity_manager_factory.h"
-
 namespace {
-
-// TODO(crbug.com/1145946): Enable certificate database initialization for
-// everyone when the policy stack is ready (expected to happen before Feb 2021).
-bool IsEnabledForEarlyAccess(Profile* profile) {
-  static base::NoDestructor<base::flat_set<std::string>> allowlist{
-      {"bartfab@google.com",       "darin@google.com",
-       "dhaddock@google.com",      "edcourtney@google.com",
-       "erikchen@google.com",      "fangzhoug@google.com",
-       "fukino@google.com",        "gianluca@google.com",
-       "heiserya@google.com",      "hidehiko@google.com",
-       "huangs@google.com",        "huanr@google.com",
-       "igorcov@google.com",       "jamescook@google.com",
-       "jennyz@google.com",        "jorgelo@google.com",
-       "ketakid@google.com",       "lakpamarthy@google.com",
-       "leolai@google.com",        "liaoyuke@google.com",
-       "maguschen@google.com",     "marinakz@google.com",
-       "miersh@google.com",        "mkarkada@google.com",
-       "okalitova@google.com",     "oshima@google.com",
-       "pmarko@google.com",        "pucchakayala@google.com",
-       "rbock@google.com",         "rjkroege@google.com",
-       "rogerta@google.com",       "satorux@google.com",
-       "sinhak@google.com",        "songsuk@google.com",
-       "srinivassista@google.com", "svenzheng@google.com",
-       "willmcleod@google.com",    "ythjkt@google.com",
-       "yusukes@google.com"}};
-  signin::IdentityManager* identity_manager =
-      IdentityManagerFactory::GetForProfile(profile);
-  return base::Contains(*allowlist, identity_manager
-                                        ->GetPrimaryAccountInfo(
-                                            signin::ConsentLevel::kNotRequired)
-                                        .email);
-}
 
 bool InitializeCertDbOnWorkerThread(bool should_load_chaps,
                                     base::FilePath software_nss_db_path) {
@@ -134,7 +96,8 @@ class IdentityManagerObserver : public signin::IdentityManager::Observer {
 
 CertDbInitializerImpl::CertDbInitializerImpl(Profile* profile)
     : profile_(profile) {
-  DCHECK(chromeos::LacrosChromeServiceImpl::Get()->IsCertDbAvailable());
+  DCHECK(chromeos::LacrosChromeServiceImpl::Get()
+             ->IsAvailable<crosapi::mojom::CertDatabase>());
 }
 
 CertDbInitializerImpl::~CertDbInitializerImpl() {
@@ -184,19 +147,13 @@ void CertDbInitializerImpl::OnRefreshTokensLoaded() {
 void CertDbInitializerImpl::WaitForCertDbReady() {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
-  if (!IsEnabledForEarlyAccess(profile_)) {
-    LOG(WARNING) << "Certificate initialization is skipped.";
-    OnCertDbInitializationFinished(false);
-    return;
-  }
-
   if (!profile_->IsMainProfile()) {
     OnCertDbInitializationFinished(false);
     return;
   }
 
   chromeos::LacrosChromeServiceImpl::Get()
-      ->cert_database_remote()
+      ->GetRemote<crosapi::mojom::CertDatabase>()
       ->GetCertDatabaseInfo(
           base::BindOnce(&CertDbInitializerImpl::OnCertDbInfoReceived,
                          weak_factory_.GetWeakPtr()));

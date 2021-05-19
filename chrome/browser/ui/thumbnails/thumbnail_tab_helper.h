@@ -17,6 +17,7 @@
 #include "content/public/browser/web_contents_observer.h"
 #include "content/public/browser/web_contents_user_data.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 class BackgroundThumbnailCapturer;
 class ThumbnailScheduler;
@@ -48,9 +49,15 @@ class ThumbnailTabHelper
   void StartVideoCapture();
   void StopVideoCapture();
   void CaptureThumbnailOnTabHidden();
+
   void StoreThumbnailForTabSwitch(base::TimeTicks start_time,
                                   const SkBitmap& bitmap);
-  void StoreThumbnail(CaptureType type, const SkBitmap& bitmap);
+  void StoreThumbnailForBackgroundCapture(const SkBitmap& bitmap,
+                                          uint64_t frame_id);
+  void StoreThumbnail(CaptureType type,
+                      const SkBitmap& bitmap,
+                      absl::optional<uint64_t> frame_id);
+
   // Clears the data associated to the currently set thumbnail. For when the
   // thumbnail is no longer valid.
   void ClearData();

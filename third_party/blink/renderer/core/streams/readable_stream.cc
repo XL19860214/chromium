@@ -16,6 +16,7 @@
 #include "third_party/blink/renderer/bindings/core/v8/v8_stream_pipe_options.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_throw_dom_exception.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_underlying_source.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_union_readablestreambyobreader_readablestreamdefaultreader.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_writable_stream.h"
 #include "third_party/blink/renderer/core/dom/abort_signal.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
@@ -34,6 +35,7 @@
 #include "third_party/blink/renderer/core/streams/writable_stream.h"
 #include "third_party/blink/renderer/core/streams/writable_stream_default_controller.h"
 #include "third_party/blink/renderer/core/streams/writable_stream_default_writer.h"
+#include "third_party/blink/renderer/core/streams/writable_stream_transferring_optimizer.h"
 #include "third_party/blink/renderer/platform/bindings/exception_code.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/bindings/script_state.h"
@@ -41,10 +43,7 @@
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/heap/heap_allocator.h"
 #include "third_party/blink/renderer/platform/heap/persistent.h"
-#include "third_party/blink/renderer/platform/heap/visitor.h"
 #include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
-#include "third_party/blink/renderer/platform/runtime_enabled_features.h"
-#include "third_party/blink/renderer/platform/wtf/assertions.h"
 #include "third_party/blink/renderer/platform/wtf/deque.h"
 
 namespace blink {
@@ -346,7 +345,7 @@ class ReadableStream::PipeToEngine final
       return Undefined();
     }
 
-    base::Optional<double> desired_size = writer_->GetDesiredSizeInternal();
+    absl::optional<double> desired_size = writer_->GetDesiredSizeInternal();
     if (!desired_size.has_value()) {
       // This can happen if abort() is queued but not yet started when
       // pipeTo() is called. In that case [[storedError]] is not set yet, and
@@ -1105,6 +1104,7 @@ ReadableStream* ReadableStream::CreateWithCountQueueingStrategy(
     size_t high_water_mark) {
   return CreateWithCountQueueingStrategy(script_state, underlying_source,
                                          high_water_mark,
+                                         AllowPerChunkTransferring(false),
                                          /*optimizer=*/nullptr);
 }
 
@@ -1112,6 +1112,7 @@ ReadableStream* ReadableStream::CreateWithCountQueueingStrategy(
     ScriptState* script_state,
     UnderlyingSourceBase* underlying_source,
     size_t high_water_mark,
+    AllowPerChunkTransferring allow_per_chunk_transferring,
     std::unique_ptr<ReadableStreamTransferringOptimizer> optimizer) {
   auto* isolate = script_state->GetIsolate();
 
@@ -1129,19 +1130,18 @@ ReadableStream* ReadableStream::CreateWithCountQueueingStrategy(
       v8::Object::New(isolate, v8::Null(isolate), &high_water_mark_string,
                       &high_water_mark_value, 1);
 
-  ExceptionState exception_state(script_state->GetIsolate(),
-                                 ExceptionState::kConstructionContext,
+  ExceptionState exception_state(isolate, ExceptionState::kConstructionContext,
                                  "ReadableStream");
+  v8::MicrotasksScope microtasks_scope(
+      isolate, v8::MicrotasksScope::kDoNotRunMicrotasks);
 
   v8::Local<v8::Value> underlying_source_v8 =
       ToV8(underlying_source, script_state);
 
   auto* stream = MakeGarbageCollected<ReadableStream>();
-  stream->InitInternal(
-      script_state,
-      ScriptValue(script_state->GetIsolate(), underlying_source_v8),
-      ScriptValue(script_state->GetIsolate(), strategy_object), true,
-      exception_state);
+  stream->InitInternal(script_state, ScriptValue(isolate, underlying_source_v8),
+                       ScriptValue(isolate, strategy_object), true,
+                       exception_state);
 
   if (exception_state.HadException()) {
     exception_state.ClearException();
@@ -1149,6 +1149,7 @@ ReadableStream* ReadableStream::CreateWithCountQueueingStrategy(
         << "Ignoring an exception in CreateWithCountQueuingStrategy().";
   }
 
+  stream->allow_per_chunk_transferring_ = allow_per_chunk_transferring;
   stream->transferring_optimizer_ = std::move(optimizer);
   return stream;
 }
@@ -1228,6 +1229,20 @@ ScriptPromise ReadableStream::cancel(ScriptState* script_state,
   return ScriptPromise(script_state, result);
 }
 
+#if defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
+V8ReadableStreamReader* ReadableStream::getReader(
+    ScriptState* script_state,
+    ExceptionState& exception_state) {
+  // https://streams.spec.whatwg.org/#rs-get-reader
+  // 1. If options["mode"] does not exist, return ?
+  // AcquireReadableStreamDefaultReader(this).
+  ReadableStreamDefaultReader* reader =
+      AcquireDefaultReader(script_state, this, true, exception_state);
+  if (!reader)
+    return nullptr;
+  return MakeGarbageCollected<V8ReadableStreamReader>(reader);
+}
+#else   // defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
 void ReadableStream::getReader(
     ScriptState* script_state,
     ReadableStreamDefaultReaderOrReadableStreamBYOBReader& return_value,
@@ -1238,7 +1253,30 @@ void ReadableStream::getReader(
   return_value.SetReadableStreamDefaultReader(
       AcquireDefaultReader(script_state, this, true, exception_state));
 }
+#endif  // defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
 
+#if defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
+V8ReadableStreamReader* ReadableStream::getReader(
+    ScriptState* script_state,
+    const ReadableStreamGetReaderOptions* options,
+    ExceptionState& exception_state) {
+  // https://streams.spec.whatwg.org/#rs-get-reader
+  if (options->hasMode()) {
+    DCHECK_EQ(options->mode(), "byob");
+
+    UseCounter::Count(ExecutionContext::From(script_state),
+                      WebFeature::kReadableStreamBYOBReader);
+
+    ReadableStreamBYOBReader* reader =
+        AcquireBYOBReader(script_state, this, exception_state);
+    if (!reader)
+      return nullptr;
+    return MakeGarbageCollected<V8ReadableStreamReader>(reader);
+  }
+
+  return getReader(script_state, exception_state);
+}
+#else   // defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
 void ReadableStream::getReader(
     ScriptState* script_state,
     ReadableStreamGetReaderOptions* options,
@@ -1257,13 +1295,21 @@ void ReadableStream::getReader(
     getReader(script_state, return_value, exception_state);
   }
 }
+#endif  // defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
 
 ReadableStreamDefaultReader* ReadableStream::GetDefaultReaderForTesting(
     ScriptState* script_state,
     ExceptionState& exception_state) {
+#if defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
+  auto* result = getReader(script_state, exception_state);
+  if (!result)
+    return nullptr;
+  return result->GetAsReadableStreamDefaultReader();
+#else   // defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
   ReadableStreamDefaultReaderOrReadableStreamBYOBReader return_value;
   getReader(script_state, return_value, exception_state);
   return return_value.GetAsReadableStreamDefaultReader();
+#endif  // defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
 }
 
 ReadableStream* ReadableStream::pipeThrough(ScriptState* script_state,
@@ -1415,12 +1461,7 @@ void ReadableStream::InitInternal(ScriptState* script_state,
     }
 
     // 6. If typeString is "bytes",
-    if (type_string == V8AtomicString(isolate, "bytes")) {
-      if (!RuntimeEnabledFeatures::ReadableByteStreamEnabled()) {
-        exception_state.ThrowRangeError("bytes type is not yet implemented");
-        return;
-      }
-
+    if (type_string->StringEquals(V8AtomicString(isolate, "bytes"))) {
       UseCounter::Count(ExecutionContext::From(script_state),
                         WebFeature::kReadableStreamWithByteSource);
 
@@ -1577,8 +1618,9 @@ void ReadableStream::Serialize(ScriptState* script_state,
 
   // 5. Let writable be a new WritableStream in the current Realm.
   // 6. Perform ! SetUpCrossRealmTransformWritable(writable, port1).
-  auto* writable =
-      CreateCrossRealmTransformWritable(script_state, port, exception_state);
+  auto* writable = CreateCrossRealmTransformWritable(
+      script_state, port, allow_per_chunk_transferring_, /*optimizer=*/nullptr,
+      exception_state);
   if (exception_state.HadException()) {
     return;
   }

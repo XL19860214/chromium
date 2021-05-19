@@ -17,12 +17,13 @@ import org.chromium.chrome.browser.firstrun.FirstRunSignInProcessor;
 import org.chromium.chrome.browser.preferences.ChromePreferenceKeys;
 import org.chromium.chrome.browser.preferences.SharedPreferencesManager;
 import org.chromium.chrome.browser.profiles.Profile;
-import org.chromium.chrome.browser.signin.SigninPromoController;
-import org.chromium.chrome.browser.signin.SigninPromoUtil;
+import org.chromium.chrome.browser.signin.SyncConsentActivityLauncherImpl;
 import org.chromium.chrome.browser.signin.services.IdentityServicesProvider;
 import org.chromium.chrome.browser.signin.services.ProfileDataCache;
 import org.chromium.chrome.browser.signin.services.SigninManager.SignInAllowedObserver;
 import org.chromium.chrome.browser.signin.ui.PersonalizedSigninPromoView;
+import org.chromium.chrome.browser.signin.ui.SigninPromoController;
+import org.chromium.chrome.browser.signin.ui.SigninPromoUtil;
 import org.chromium.chrome.browser.sync.ProfileSyncService;
 import org.chromium.chrome.browser.sync.ProfileSyncService.SyncStateChangedListener;
 import org.chromium.components.signin.AccountManagerFacade;
@@ -63,7 +64,7 @@ public class SyncPromoPreference
         super(context, attrs);
         setLayoutResource(R.layout.personalized_signin_promo_view_settings);
 
-        mProfileDataCache = ProfileDataCache.createProfileDataCache(context);
+        mProfileDataCache = ProfileDataCache.createWithDefaultImageSizeAndNoBadge(context);
         mAccountManagerFacade = AccountManagerFacadeProvider.getInstance();
 
         // State will be updated in onAttached.
@@ -147,7 +148,7 @@ public class SyncPromoPreference
                 && SigninPromoController.hasNotReachedImpressionLimit(SigninAccessPoint.SETTINGS)) {
             IdentityManager identityManager = IdentityServicesProvider.get().getIdentityManager(
                     Profile.getLastUsedRegularProfile());
-            if (identityManager.getPrimaryAccountInfo(ConsentLevel.NOT_REQUIRED) == null) {
+            if (identityManager.getPrimaryAccountInfo(ConsentLevel.SIGNIN) == null) {
                 setupPersonalizedPromo(State.PERSONALIZED_SIGNIN_PROMO);
                 return;
             } else if (identityManager.getPrimaryAccountInfo(ConsentLevel.SYNC) == null) {
@@ -165,7 +166,8 @@ public class SyncPromoPreference
         setVisible(true);
 
         if (mSigninPromoController == null) {
-            mSigninPromoController = new SigninPromoController(SigninAccessPoint.SETTINGS);
+            mSigninPromoController = new SigninPromoController(
+                    SigninAccessPoint.SETTINGS, SyncConsentActivityLauncherImpl.get());
         }
 
         notifyChanged();

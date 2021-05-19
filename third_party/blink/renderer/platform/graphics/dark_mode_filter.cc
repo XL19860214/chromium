@@ -8,7 +8,7 @@
 
 #include "base/check_op.h"
 #include "base/notreached.h"
-#include "base/optional.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/renderer/platform/graphics/dark_mode_color_classifier.h"
 #include "third_party/blink/renderer/platform/graphics/dark_mode_color_filter.h"
 #include "third_party/blink/renderer/platform/graphics/dark_mode_image_classifier.h"
@@ -147,24 +147,29 @@ sk_sp<SkColorFilter> DarkModeFilter::GetImageFilter() const {
   return immutable_.image_filter;
 }
 
-base::Optional<cc::PaintFlags> DarkModeFilter::ApplyToFlagsIfNeeded(
+absl::optional<cc::PaintFlags> DarkModeFilter::ApplyToFlagsIfNeeded(
     const cc::PaintFlags& flags,
     ElementRole role) {
   if (!immutable_.color_filter)
-    return base::nullopt;
+    return absl::nullopt;
 
   if (role_override_.has_value())
     role = role_override_.value();
 
   cc::PaintFlags dark_mode_flags = flags;
   if (flags.HasShader()) {
-    dark_mode_flags.setColorFilter(immutable_.color_filter->ToSkColorFilter());
+    PaintShader::Type shader_type = flags.getShader()->shader_type();
+    if (shader_type != PaintShader::Type::kImage &&
+        shader_type != PaintShader::Type::kPaintRecord) {
+      dark_mode_flags.setColorFilter(
+          immutable_.color_filter->ToSkColorFilter());
+    }
   } else if (ShouldApplyToColor(flags.getColor(), role)) {
     dark_mode_flags.setColor(inverted_color_cache_->GetInvertedColor(
         immutable_.color_filter.get(), flags.getColor()));
   }
 
-  return base::make_optional<cc::PaintFlags>(std::move(dark_mode_flags));
+  return absl::make_optional<cc::PaintFlags>(std::move(dark_mode_flags));
 }
 
 bool DarkModeFilter::ShouldApplyToColor(SkColor color, ElementRole role) {

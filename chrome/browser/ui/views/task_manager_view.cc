@@ -26,6 +26,7 @@
 #include "chrome/grit/generated_resources.h"
 #include "components/prefs/pref_service.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/base/models/table_model_observer.h"
 #include "ui/views/border.h"
 #include "ui/views/controls/label.h"
@@ -38,6 +39,7 @@
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "ash/public/cpp/shelf_item.h"
 #include "ash/public/cpp/window_properties.h"
+#include "chrome/browser/apps/icon_standardizer.h"
 #include "chrome/grit/theme_resources.h"
 #include "ui/aura/window.h"
 #include "ui/base/resource/resource_bundle.h"
@@ -105,6 +107,7 @@ task_manager::TaskManagerTableModel* TaskManagerView::Show(Browser* browser) {
   window->SetProperty(ash::kShelfIDKey, shelf_id.Serialize());
   window->SetProperty(ash::kAppIDKey, shelf_id.app_id);
   window->SetProperty<int>(ash::kShelfItemTypeKey, ash::TYPE_DIALOG);
+  window->SetTitle(l10n_util::GetStringUTF16(IDS_TASK_MANAGER_TITLE));
 #endif
   return g_task_manager_view->table_model_.get();
 }
@@ -148,12 +151,20 @@ void TaskManagerView::SetSortDescriptor(const TableSortDescriptor& descriptor) {
 }
 
 gfx::Size TaskManagerView::CalculatePreferredSize() const {
-  return gfx::Size(460, 270);
+  // The TaskManagerView's preferred size is used to size the hosting Widget
+  // when the Widget does not have `initial_restored_bounds_` set. The minimum
+  // width below ensures that there is sufficient space for the task manager's
+  // columns when the above restored bounds have not been set.
+  return gfx::Size(640, 270);
 }
 
 bool TaskManagerView::AcceleratorPressed(const ui::Accelerator& accelerator) {
+  const bool is_valid_modifier =
+      accelerator.modifiers() == ui::EF_CONTROL_DOWN ||
+      accelerator.modifiers() == (ui::EF_CONTROL_DOWN | ui::EF_SHIFT_DOWN);
+  DCHECK(is_valid_modifier);
   DCHECK_EQ(ui::VKEY_W, accelerator.key_code());
-  DCHECK_EQ(ui::EF_CONTROL_DOWN, accelerator.modifiers());
+
   GetWidget()->Close();
   return true;
 }
@@ -170,8 +181,11 @@ bool TaskManagerView::ExecuteWindowsCommand(int command_id) {
 
 gfx::ImageSkia TaskManagerView::GetWindowIcon() {
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-  return *ui::ResourceBundle::GetSharedInstance().GetImageSkiaNamed(
-      IDR_ASH_SHELF_ICON_TASK_MANAGER);
+  // TODO(crbug.com/1162514): Move apps::CreateStandardIconImage to some
+  // where lower in the stack.
+  return apps::CreateStandardIconImage(
+      *ui::ResourceBundle::GetSharedInstance().GetImageSkiaNamed(
+          IDR_ASH_SHELF_ICON_TASK_MANAGER));
 #else
   return views::DialogDelegateView::GetWindowIcon();
 #endif
@@ -277,7 +291,10 @@ TaskManagerView::TaskManagerView()
   SetButtonLabel(ui::DIALOG_BUTTON_OK,
                  l10n_util::GetStringUTF16(IDS_TASK_MANAGER_KILL));
   SetHasWindowSizeControls(true);
+#if !BUILDFLAG(IS_CHROMEOS_ASH)
+  // On Chrome OS, the widget's frame should not show the window title.
   SetTitle(IDS_TASK_MANAGER_TITLE);
+#endif
 
   // Avoid calling Accept() when closing the dialog, since Accept() here means
   // "kill task" (!).
@@ -337,6 +354,8 @@ void TaskManagerView::Init() {
   table_model_->RetrieveSavedColumnsSettingsAndUpdateTable();
 
   AddAccelerator(ui::Accelerator(ui::VKEY_W, ui::EF_CONTROL_DOWN));
+  AddAccelerator(
+      ui::Accelerator(ui::VKEY_W, ui::EF_CONTROL_DOWN | ui::EF_SHIFT_DOWN));
 }
 
 void TaskManagerView::InitAlwaysOnTopState() {
@@ -370,6 +389,9 @@ void TaskManagerView::RetrieveSavedAlwaysOnTopState() {
   if (dictionary)
     dictionary->GetBoolean("always_on_top", &is_always_on_top_);
 }
+
+BEGIN_METADATA(TaskManagerView, views::DialogDelegateView)
+END_METADATA
 
 }  // namespace task_manager
 

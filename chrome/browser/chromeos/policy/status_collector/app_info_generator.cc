@@ -49,11 +49,12 @@ em::AppInfo::AppType ExtractAppType(const apps::mojom::AppType app_type) {
     case apps::mojom::AppType::kExtension:
       return em::AppInfo::AppType::AppInfo_AppType_TYPE_EXTENSION;
     case apps::mojom::AppType::kWeb:
+    case apps::mojom::AppType::kSystemWeb:
       return em::AppInfo::AppType::AppInfo_AppType_TYPE_WEB;
     case apps::mojom::AppType::kBorealis:
       return em::AppInfo::AppType::AppInfo_AppType_TYPE_BOREALIS;
     case apps::mojom::AppType::kMacOs:
-    case apps::mojom::AppType::kLacros:
+    case apps::mojom::AppType::kStandaloneBrowser:
     case apps::mojom::AppType::kRemote:
     case apps::mojom::AppType::kUnknown:
       return em::AppInfo::AppType::AppInfo_AppType_TYPE_UNKNOWN;
@@ -97,11 +98,11 @@ void AppInfoGenerator::RegisterProfilePrefs(PrefRegistrySimple* registry) {
 const AppInfoGenerator::Result AppInfoGenerator::Generate() const {
   if (!should_report_) {
     VLOG(1) << "App usage reporting is not enabled for this user.";
-    return base::nullopt;
+    return absl::nullopt;
   }
   if (!provider_) {
     VLOG(1) << "No affiliated user session. Returning empty app list.";
-    return base::nullopt;
+    return absl::nullopt;
   }
   auto activity_periods = provider_->activity_storage.GetActivityPeriods();
   auto activity_compare = [](const em::TimePeriod& time_period1,

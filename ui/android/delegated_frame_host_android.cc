@@ -123,7 +123,8 @@ void DelegatedFrameHostAndroid::CopyFromCompositingSurface(
                  std::unique_ptr<ui::WindowAndroidCompositor::ReadbackRef>
                      readback_ref,
                  std::unique_ptr<viz::CopyOutputResult> result) {
-                std::move(callback).Run(result->AsSkBitmap());
+                auto scoped_bitmap = result->ScopedAccessSkBitmap();
+                std::move(callback).Run(scoped_bitmap.GetOutScopedBitmap());
               },
               std::move(callback), std::move(readback_ref)));
 
@@ -273,7 +274,7 @@ void DelegatedFrameHostAndroid::EmbedSurface(
   bool has_fallback_surface =
       (content_layer_->oldest_acceptable_fallback() &&
        content_layer_->oldest_acceptable_fallback()->is_valid());
-  local_surface_id_ = new_local_surface_id;
+  SetLocalSurfaceId(new_local_surface_id);
   // The embedding of a new surface completes the navigation process.
   pre_navigation_local_surface_id_ = viz::LocalSurfaceId();
   // Navigations performed while hidden delay embedding until transitioning to
@@ -342,12 +343,20 @@ void DelegatedFrameHostAndroid::OnFirstSurfaceActivation(
   NOTREACHED();
 }
 
-void DelegatedFrameHostAndroid::OnFrameTokenChanged(uint32_t frame_token) {
-  client_->OnFrameTokenChanged(frame_token);
+void DelegatedFrameHostAndroid::OnFrameTokenChanged(
+    uint32_t frame_token,
+    base::TimeTicks activation_time) {
+  client_->OnFrameTokenChanged(frame_token, activation_time);
 }
 
 viz::SurfaceId DelegatedFrameHostAndroid::SurfaceId() const {
   return viz::SurfaceId(frame_sink_id_, local_surface_id_);
+}
+
+void DelegatedFrameHostAndroid::SetLocalSurfaceId(
+    const viz::LocalSurfaceId& local_surface_id) {
+  local_surface_id_ = local_surface_id;
+  client_->OnSurfaceIdChanged();
 }
 
 bool DelegatedFrameHostAndroid::HasPrimarySurface() const {
@@ -365,7 +374,7 @@ void DelegatedFrameHostAndroid::TakeFallbackContentFrom(
     return;
 
   const viz::SurfaceId& other_primary = other->content_layer_->surface_id();
-  const base::Optional<viz::SurfaceId>& other_fallback =
+  const absl::optional<viz::SurfaceId>& other_fallback =
       other->content_layer_->oldest_acceptable_fallback();
   viz::SurfaceId desired_fallback;
   if (!other->HasFallbackSurface() ||
@@ -391,7 +400,7 @@ void DelegatedFrameHostAndroid::OnNavigateToNewPage() {
   // evict it when transitioning to becoming visible.
   pre_navigation_local_surface_id_ = local_surface_id_;
   first_local_surface_id_after_navigation_ = viz::LocalSurfaceId();
-  local_surface_id_ = viz::LocalSurfaceId();
+  SetLocalSurfaceId(viz::LocalSurfaceId());
 }
 
 void DelegatedFrameHostAndroid::SetTopControlsVisibleHeight(float height) {

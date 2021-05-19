@@ -11,10 +11,10 @@
 #include "base/bind.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/observer_list.h"
-#include "base/optional.h"
-#include "base/scoped_observer.h"
+#include "base/scoped_observation.h"
 #include "base/sequence_checker.h"
 #include "base/strings/stringprintf.h"
+#include "chrome/browser/ash/settings/cros_settings.h"
 #include "chrome/browser/chromeos/printing/automatic_usb_printer_configurer.h"
 #include "chrome/browser/chromeos/printing/cups_printer_status_creator.h"
 #include "chrome/browser/chromeos/printing/enterprise_printers_provider.h"
@@ -33,7 +33,6 @@
 #include "chrome/browser/chromeos/printing/usb_printer_detector.h"
 #include "chrome/browser/chromeos/printing/usb_printer_notification_controller.h"
 #include "chrome/browser/chromeos/printing/zeroconf_printer_detector.h"
-#include "chrome/browser/chromeos/settings/cros_settings.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/pref_names.h"
 #include "chromeos/printing/cups_printer_status.h"
@@ -48,6 +47,7 @@
 #include "mojo/public/cpp/bindings/receiver.h"
 #include "mojo/public/cpp/bindings/remote.h"
 #include "printing/printer_query_result.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace chromeos {
 
@@ -83,7 +83,6 @@ class CupsPrintersManagerImpl
       PrinterEventTracker* event_tracker,
       PrefService* pref_service)
       : synced_printers_manager_(synced_printers_manager),
-        synced_printers_manager_observer_(this),
         usb_detector_(std::move(usb_detector)),
         zeroconf_detector_(std::move(zeroconf_detector)),
         ppd_provider_(std::move(ppd_provider)),
@@ -93,7 +92,6 @@ class CupsPrintersManagerImpl
                                      usb_notification_controller_.get()),
         print_servers_manager_(std::move(print_servers_manager)),
         enterprise_printers_provider_(std::move(enterprise_printers_provider)),
-        enterprise_printers_provider_observer_(this),
         event_tracker_(event_tracker) {
     // Add the |auto_usb_printer_configurer_| as an observer.
     AddObserver(&auto_usb_printer_configurer_);
@@ -107,11 +105,11 @@ class CupsPrintersManagerImpl
     // Prime the printer cache with the saved printers.
     printers_.ReplacePrintersInClass(
         PrinterClass::kSaved, synced_printers_manager_->GetSavedPrinters());
-    synced_printers_manager_observer_.Add(synced_printers_manager_);
+    synced_printers_manager_observation_.Observe(synced_printers_manager_);
 
     // Prime the printer cache with the enterprise printers (observer called
     // immediately).
-    enterprise_printers_provider_observer_.Add(
+    enterprise_printers_provider_observation_.Observe(
         enterprise_printers_provider_.get());
 
     // Callbacks may ensue immediately when the observer proxies are set up, so
@@ -129,8 +127,6 @@ class CupsPrintersManagerImpl
     print_servers_manager_->AddObserver(this);
 
     user_printers_allowed_.Init(prefs::kUserPrintersAllowed, pref_service);
-    send_username_and_filename_.Init(
-        prefs::kPrintingSendUsernameAndFilenameEnabled, pref_service);
   }
 
   ~CupsPrintersManagerImpl() override = default;
@@ -144,12 +140,6 @@ class CupsPrintersManagerImpl
       LOG(WARNING) << "Attempting to retrieve printers when "
                       "UserPrintersAllowed is set to false";
       return {};
-    }
-
-    if (send_username_and_filename_.GetValue()) {
-      // If |send_username_and_filename_| is set, only return printers with a
-      // secure protocol over which we can send username and filename.
-      return printers_.GetSecurePrinters(printer_class);
     }
 
     // Without user data there is not need to filter out non-enterprise or
@@ -229,7 +219,7 @@ class CupsPrintersManagerImpl
   }
 
   // Public API function.
-  base::Optional<Printer> GetPrinter(const std::string& id) const override {
+  absl::optional<Printer> GetPrinter(const std::string& id) const override {
     DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_);
     if (!user_printers_allowed_.GetValue()) {
       LOG(WARNING) << "UserPrintersAllowed is disabled - only searching "
@@ -322,7 +312,7 @@ class CupsPrintersManagerImpl
 
   void FetchPrinterStatus(const std::string& printer_id,
                           PrinterStatusCallback cb) override {
-    base::Optional<Printer> printer = GetPrinter(printer_id);
+    absl::optional<Printer> printer = GetPrinter(printer_id);
     if (!printer) {
       PRINTER_LOG(ERROR) << "Unable to complete printer status request. "
                          << "Printer not found. Printer id: " << printer_id;
@@ -406,8 +396,6 @@ class CupsPrintersManagerImpl
                             PrinterStatusCallback cb,
                             PrinterQueryResult result,
                             const ::printing::PrinterStatus& printer_status,
-                            const std::string& make,
-                            const std::string& model,
                             const std::string& make_and_model,
                             const std::vector<std::string>& document_formats,
                             bool ipp_everywhere) {
@@ -421,6 +409,7 @@ class CupsPrintersManagerImpl
     base::UmaHistogramEnumeration("Printing.CUPS.PrinterStatusQueryResult",
                                   result);
     switch (result) {
+      case PrinterQueryResult::kHostnameResolution:
       case PrinterQueryResult::kUnreachable: {
         PRINTER_LOG(ERROR)
             << "Printer status request failed. Could not reach printer "
@@ -469,7 +458,7 @@ class CupsPrintersManagerImpl
   }
 
  private:
-  base::Optional<Printer> GetEnterprisePrinter(const std::string& id) const {
+  absl::optional<Printer> GetEnterprisePrinter(const std::string& id) const {
     return printers_.Get(PrinterClass::kEnterprise, id);
   }
 
@@ -600,7 +589,7 @@ class CupsPrintersManagerImpl
         // Detected printer does not supports ipp-over-usb, so we cannot set it
         // up automatically. We have to move it to the discovered class.
         if (printer.IsUsbProtocol()) {
-          printer.set_manufacturer(
+          printer.set_usb_printer_manufacturer(
               ppd_resolution_tracker_.GetManufacturer(detected_printer_id));
         }
         printers_.Insert(PrinterClass::kDiscovered, printer);
@@ -726,8 +715,9 @@ class CupsPrintersManagerImpl
 
   // Not owned.
   SyncedPrintersManager* const synced_printers_manager_;
-  ScopedObserver<SyncedPrintersManager, SyncedPrintersManager::Observer>
-      synced_printers_manager_observer_;
+  base::ScopedObservation<SyncedPrintersManager,
+                          SyncedPrintersManager::Observer>
+      synced_printers_manager_observation_{this};
   mojo::Remote<chromeos::network_config::mojom::CrosNetworkConfig>
       remote_cros_network_config_;
   mojo::Receiver<chromeos::network_config::mojom::CrosNetworkConfigObserver>
@@ -747,9 +737,9 @@ class CupsPrintersManagerImpl
   std::unique_ptr<PrintServersManager> print_servers_manager_;
 
   std::unique_ptr<EnterprisePrintersProvider> enterprise_printers_provider_;
-  ScopedObserver<EnterprisePrintersProvider,
-                 EnterprisePrintersProvider::Observer>
-      enterprise_printers_provider_observer_;
+  base::ScopedObservation<EnterprisePrintersProvider,
+                          EnterprisePrintersProvider::Observer>
+      enterprise_printers_provider_observation_{this};
 
   // Not owned
   PrinterEventTracker* const event_tracker_;
@@ -776,10 +766,6 @@ class CupsPrintersManagerImpl
 
   // Holds the current value of the pref |UserPrintersAllowed|.
   BooleanPrefMember user_printers_allowed_;
-
-  // Holds the current value of the pref
-  // |PrintingSendUsernameAndFilenameEnabled|.
-  BooleanPrefMember send_username_and_filename_;
 
   base::WeakPtrFactory<CupsPrintersManagerImpl> weak_ptr_factory_{this};
 };

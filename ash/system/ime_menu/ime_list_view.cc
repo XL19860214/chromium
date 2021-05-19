@@ -19,11 +19,13 @@
 #include "ash/system/tray/tray_detailed_view.h"
 #include "ash/system/tray/tray_popup_utils.h"
 #include "ash/system/tray/tri_view.h"
+#include "base/bind.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/user_metrics.h"
 #include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/accessibility/ax_node_data.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/gfx/color_palette.h"
 #include "ui/gfx/paint_vector_icon.h"
@@ -33,7 +35,6 @@
 #include "ui/views/controls/label.h"
 #include "ui/views/controls/separator.h"
 #include "ui/views/layout/fill_layout.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/painter.h"
 #include "ui/views/view.h"
 #include "ui/views/widget/widget.h"
@@ -50,14 +51,14 @@ class ImeListItemView : public ActionableView {
   METADATA_HEADER(ImeListItemView);
 
   ImeListItemView(ImeListView* list_view,
-                  const base::string16& id,
-                  const base::string16& label,
+                  const std::u16string& id,
+                  const std::u16string& label,
                   bool selected,
                   const SkColor button_color)
       : ActionableView(TrayPopupInkDropStyle::FILL_BOUNDS),
         ime_list_view_(list_view),
         selected_(selected) {
-    SetInkDropMode(InkDropMode::ON);
+    ink_drop()->SetMode(views::InkDropHost::InkDropMode::ON);
 
     TriView* tri_view = TrayPopupUtils::CreateDefaultRowView();
     AddChildView(tri_view);
@@ -285,7 +286,7 @@ void ImeListView::AppendImeListAndProperties(
       // Adds the property items.
       for (size_t i = 0; i < property_list.size(); i++) {
         ImeListItemView* property_view =
-            new ImeListItemView(this, base::string16(), property_list[i].label,
+            new ImeListItemView(this, std::u16string(), property_list[i].label,
                                 property_list[i].checked, icon_color);
         scroll_content()->AddChildView(property_view);
         property_map_[property_view] = property_list[i].key;
@@ -383,6 +384,8 @@ ImeListViewTestApi::ImeListViewTestApi(ImeListView* ime_list_view)
 ImeListViewTestApi::~ImeListViewTestApi() = default;
 
 views::View* ImeListViewTestApi::GetToggleView() const {
+  if (!ime_list_view_->keyboard_status_row_)
+    return nullptr;
   return ime_list_view_->keyboard_status_row_->toggle();
 }
 

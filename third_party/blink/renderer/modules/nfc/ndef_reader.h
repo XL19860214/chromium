@@ -9,6 +9,7 @@
 #include "third_party/blink/public/mojom/permissions/permission.mojom-blink.h"
 #include "third_party/blink/renderer/bindings/core/v8/active_script_wrappable.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_typedefs.h"
 #include "third_party/blink/renderer/core/dom/events/event_target.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context_lifecycle_observer.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
@@ -53,10 +54,17 @@ class MODULES_EXPORT NDEFReader : public EventTargetWithInlineData,
                      ExceptionState& exception_state);
 
   // Write NDEFMessageSource asynchronously to NFC tag.
+#if defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
+  ScriptPromise write(ScriptState* script_state,
+                      const V8NDEFMessageSource* write_message,
+                      const NDEFWriteOptions* options,
+                      ExceptionState& exception_state);
+#else   // defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
   ScriptPromise write(ScriptState* script_state,
                       const NDEFMessageSource& write_message,
                       const NDEFWriteOptions* options,
                       ExceptionState& exception_state);
+#endif  // defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
 
   void Trace(Visitor*) const override;
 
@@ -78,7 +86,7 @@ class MODULES_EXPORT NDEFReader : public EventTargetWithInlineData,
   void ReadAbort();
   void ReadOnRequestCompleted(device::mojom::blink::NDEFErrorPtr error);
 
-  void WriteAbort(ScriptPromiseResolver* resolver);
+  void WriteAbort();
   void WriteOnRequestCompleted(ScriptPromiseResolver* resolver,
                                device::mojom::blink::NDEFErrorPtr error);
 
@@ -97,12 +105,8 @@ class MODULES_EXPORT NDEFReader : public EventTargetWithInlineData,
   // that case the callback passed to Watch() won't be called and
   // mojo::WrapCallbackWithDefaultInvokeIfNotRun() is forbidden in Blink.
   Member<ScriptPromiseResolver> scan_resolver_;
-  // To reject if there is already an ongoing scan.
-  bool has_pending_scan_request_ = false;
 
-  HeapMojoRemote<mojom::blink::PermissionService,
-                 HeapMojoWrapperMode::kWithoutContextObserver>
-      permission_service_;
+  HeapMojoRemote<mojom::blink::PermissionService> permission_service_;
   mojom::blink::PermissionService* GetPermissionService();
 
   // |write_requests_| are kept here to handle Mojo connection failures because

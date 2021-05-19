@@ -47,6 +47,8 @@
 #include "third_party/blink/renderer/bindings/modules/v8/v8_encoded_audio_chunk.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_encoded_video_chunk.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_source_buffer_config.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_union_encodedaudiochunk_encodedaudiochunkorencodedvideochunksequence_encodedvideochunk.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_union_encodedaudiochunk_encodedvideochunk.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_video_decoder_config.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/dom_exception.h"
@@ -613,13 +615,11 @@ void SourceBuffer::appendBuffer(DOMArrayBuffer* data,
 
 void SourceBuffer::appendBuffer(NotShared<DOMArrayBufferView> data,
                                 ExceptionState& exception_state) {
-  DVLOG(3) << __func__ << " this=" << this
-           << " size=" << data.View()->byteLength();
+  DVLOG(3) << __func__ << " this=" << this << " size=" << data->byteLength();
   // Section 3.2 appendBuffer()
   // https://dvcs.w3.org/hg/html-media/raw-file/default/media-source/media-source.html#widl-SourceBuffer-appendBuffer-void-ArrayBufferView-data
-  AppendBufferInternal(
-      static_cast<const unsigned char*>(data.View()->BaseAddress()),
-      data.View()->byteLength(), exception_state);
+  AppendBufferInternal(static_cast<const unsigned char*>(data->BaseAddress()),
+                       data->byteLength(), exception_state);
 }
 
 // Note that |chunks| may be a sequence of mixed audio and video encoded chunks
@@ -633,7 +633,11 @@ void SourceBuffer::appendBuffer(NotShared<DOMArrayBufferView> data,
 // append use-cases.
 ScriptPromise SourceBuffer::appendEncodedChunks(
     ScriptState* script_state,
+#if defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
+    const V8EncodedChunks* chunks,
+#else   // defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
     const EncodedChunks& chunks,
+#endif  // defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
     ExceptionState& exception_state) {
   DVLOG(2) << __func__ << " this=" << this;
 
@@ -657,6 +661,62 @@ ScriptPromise SourceBuffer::appendEncodedChunks(
   auto buffer_queue = std::make_unique<media::StreamParser::BufferQueue>();
   size_t size = 0;
 
+#if defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
+  switch (chunks->GetContentType()) {
+    case V8EncodedChunks::ContentType::kEncodedAudioChunk:
+      buffer_queue->emplace_back(
+          MakeAudioStreamParserBuffer(*(chunks->GetAsEncodedAudioChunk())));
+      size += buffer_queue->back()->data_size() +
+              buffer_queue->back()->side_data_size();
+      break;
+    case V8EncodedChunks::ContentType::kEncodedVideoChunk: {
+      const auto& video_chunk = *(chunks->GetAsEncodedVideoChunk());
+      if (!video_chunk.duration().has_value()) {
+        MediaSource::LogAndThrowTypeError(
+            exception_state,
+            "EncodedVideoChunk is missing duration, required for use with "
+            "SourceBuffer.");
+        return ScriptPromise();
+      }
+      buffer_queue->emplace_back(MakeVideoStreamParserBuffer(video_chunk));
+      size += buffer_queue->back()->data_size() +
+              buffer_queue->back()->side_data_size();
+      break;
+    }
+    case V8EncodedChunks::ContentType::
+        kEncodedAudioChunkOrEncodedVideoChunkSequence:
+      for (const auto& av_chunk :
+           chunks->GetAsEncodedAudioChunkOrEncodedVideoChunkSequence()) {
+        DCHECK(av_chunk);
+        switch (av_chunk->GetContentType()) {
+          case V8UnionEncodedAudioChunkOrEncodedVideoChunk::ContentType::
+              kEncodedAudioChunk:
+            buffer_queue->emplace_back(MakeAudioStreamParserBuffer(
+                *(av_chunk->GetAsEncodedAudioChunk())));
+            size += buffer_queue->back()->data_size() +
+                    buffer_queue->back()->side_data_size();
+            break;
+          case V8UnionEncodedAudioChunkOrEncodedVideoChunk::ContentType::
+              kEncodedVideoChunk: {
+            const auto& video_chunk = *(av_chunk->GetAsEncodedVideoChunk());
+            if (!video_chunk.duration().has_value()) {
+              MediaSource::LogAndThrowTypeError(
+                  exception_state,
+                  "EncodedVideoChunk is missing duration, required for use "
+                  "with SourceBuffer.");
+              return ScriptPromise();
+            }
+            buffer_queue->emplace_back(
+                MakeVideoStreamParserBuffer(video_chunk));
+            size += buffer_queue->back()->data_size() +
+                    buffer_queue->back()->side_data_size();
+            break;
+          }
+        }
+      }
+      break;
+  }
+#else   // defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
   if (chunks.IsEncodedAudioChunk()) {
     buffer_queue->emplace_back(
         MakeAudioStreamParserBuffer(*(chunks.GetAsEncodedAudioChunk())));
@@ -704,6 +764,7 @@ ScriptPromise SourceBuffer::appendEncodedChunks(
       }
     }
   }
+#endif  // defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
 
   DCHECK(!append_encoded_chunks_resolver_);
   append_encoded_chunks_resolver_ =
@@ -1189,7 +1250,17 @@ void SourceBuffer::RemovedFromMediaSource() {
     RemoveMediaTracks();
   }
 
-  web_source_buffer_->RemovedFromMediaSource();
+  // Update the underlying demuxer except in the cross-thread attachment case
+  // where detachment or element context destruction may have already begun.
+  scoped_refptr<MediaSourceAttachmentSupplement> attachment;
+  MediaSourceTracer* tracer;
+  std::tie(attachment, tracer) = source_->AttachmentAndTracer();
+  DCHECK(attachment);
+  if (attachment->FullyAttachedOrSameThread(
+          MediaSourceAttachmentSupplement::SourceBufferPassKey())) {
+    web_source_buffer_->RemovedFromMediaSource();
+  }
+
   web_source_buffer_.reset();
   source_ = nullptr;
   async_event_queue_ = nullptr;
@@ -1807,8 +1878,6 @@ void SourceBuffer::NotifyParseWarning(const ParseWarning warning) {
   switch (warning) {
     case WebSourceBufferClient::kKeyframeTimeGreaterThanDependant:
       // Report this problematic GOP structure to help inform follow-up work.
-      // Media engine also records RAPPOR for these, up to once per track, at
-      // Media.OriginUrl.MSE.KeyframeTimeGreaterThanDependant.
       // TODO(wolenetz): Use the data to scope additional work. See
       // https://crbug.com/739931.
       UseCounter::Count(
@@ -1817,8 +1886,6 @@ void SourceBuffer::NotifyParseWarning(const ParseWarning warning) {
       break;
     case WebSourceBufferClient::kMuxedSequenceMode:
       // Report this problematic API usage to help inform follow-up work.
-      // Media engine also records RAPPOR for these, up to once per
-      // SourceBuffer, at Media.OriginUrl.MSE.MuxedSequenceModeSourceBuffer.
       // TODO(wolenetz): Use the data to scope additional work. See
       // https://crbug.com/737757.
       UseCounter::Count(GetExecutionContext(),

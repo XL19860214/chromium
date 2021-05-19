@@ -32,8 +32,6 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_LOADER_THREADABLE_LOADER_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_LOADER_THREADABLE_LOADER_H_
 
-#include <memory>
-
 #include "base/macros.h"
 #include "services/network/public/mojom/fetch_api.mojom-blink.h"
 #include "third_party/blink/public/mojom/fetch/fetch_api_request.mojom-blink-forward.h"
@@ -163,7 +161,7 @@ class CORE_EXPORT ThreadableLoader final
   // Set via SetTimeout() by a user before Start().
   base::TimeDelta timeout_;
   // Used to detect |timeout_| is over.
-  TaskRunnerTimer<ThreadableLoader> timeout_timer_;
+  HeapTaskRunnerTimer<ThreadableLoader> timeout_timer_;
 
   // Time an asynchronous fetch request is started
   base::TimeTicks request_started_;

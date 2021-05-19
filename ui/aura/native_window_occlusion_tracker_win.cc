@@ -12,6 +12,7 @@
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/memory/scoped_refptr.h"
+#include "base/strings/string_util_win.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/task/post_task.h"
@@ -21,7 +22,9 @@
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/win/scoped_gdi_object.h"
 #include "base/win/windows_version.h"
+#include "ui/aura/window_occlusion_tracker.h"
 #include "ui/aura/window_tree_host.h"
+#include "ui/base/ui_base_features.h"
 #include "ui/gfx/win/hwnd_util.h"
 
 namespace aura {
@@ -167,7 +170,7 @@ bool NativeWindowOcclusionTrackerWin::IsWindowVisibleAndFullyOpaque(
   if (IsIconic(hwnd))
     return false;
 
-  LONG ex_styles = GetWindowLong(hwnd, GWL_EXSTYLE);
+  LONG ex_styles = ::GetWindowLong(hwnd, GWL_EXSTYLE);
   // Filter out "transparent" windows, windows where the mouse clicks fall
   // through them.
   if (ex_styles & WS_EX_TRANSPARENT)
@@ -224,7 +227,17 @@ bool NativeWindowOcclusionTrackerWin::IsWindowVisibleAndFullyOpaque(
     return false;
   if (IsRectEmpty(&win_rect))
     return false;
+
+  // Ignore popup windows since they're transient unless it is a Chrome Widget
+  // Window.
+  if (::GetWindowLong(hwnd, GWL_STYLE) & WS_POPUP) {
+    if (!base::StartsWith(gfx::GetClassName(hwnd), L"Chrome_WidgetWin_")) {
+      return false;
+    }
+  }
+
   *window_rect = gfx::Rect(win_rect);
+
   return true;
 }
 
@@ -232,6 +245,9 @@ void NativeWindowOcclusionTrackerWin::UpdateOcclusionState(
     const base::flat_map<HWND, Window::OcclusionState>&
         root_window_hwnds_occlusion_state,
     bool show_all_windows) {
+  // Pause occlusion until we've updated all root windows, to avoid O(n^3)
+  // calls to recompute occlusion in WindowOcclusionTracker.
+  WindowOcclusionTracker::ScopedPause pause_occlusion_tracking;
   num_visible_root_windows_ = 0;
   for (const auto& root_window_pair : root_window_hwnds_occlusion_state) {
     auto it = hwnd_root_window_map_.find(root_window_pair.first);
@@ -276,14 +292,28 @@ void NativeWindowOcclusionTrackerWin::OnSessionChange(
 }
 
 void NativeWindowOcclusionTrackerWin::OnDisplayStateChanged(bool display_on) {
+  static bool screen_power_listener_enabled = base::FeatureList::IsEnabled(
+      features::kScreenPowerListenerForNativeWinOcclusion);
+  if (!screen_power_listener_enabled)
+    return;
+
   if (display_on == display_on_)
     return;
 
   display_on_ = display_on;
-  // Display changing to on will cause a foreground window change,
-  // which will trigger an occlusion calculation on its own.
-  if (!display_on_)
+  if (display_on_) {
+    // Notify the window occlusion calculator of the display turning on
+    // which will schedule an occlusion calculation. This must be run
+    // on the WindowOcclusionCalculator thread.
+    update_occlusion_task_runner_->PostTask(
+        FROM_HERE,
+        base::BindOnce(
+            &WindowOcclusionCalculator::HandleVisibilityChanged,
+            base::Unretained(WindowOcclusionCalculator::GetInstance()),
+            /*visible=*/true));
+  } else {
     MarkNonIconicWindowsOccluded();
+  }
 }
 
 void NativeWindowOcclusionTrackerWin::MarkNonIconicWindowsOccluded() {
@@ -663,6 +693,15 @@ void NativeWindowOcclusionTrackerWin::WindowOcclusionCalculator::
   if (id_object != OBJID_WINDOW)
     return;
 
+  // We generally ignore events for popup windows, except for when the taskbar
+  // is hidden or when the popup is a Chrome Widget, in which case we
+  // recalculate occlusion.
+  bool calculate_occlusion = true;
+  if (::GetWindowLong(hwnd, GWL_STYLE) & WS_POPUP) {
+    calculate_occlusion =
+        base::StartsWith(gfx::GetClassName(hwnd), L"Chrome_WidgetWin_");
+  }
+
   // Detect if either the alt tab view or the task list thumbnail is being
   // shown. If so, mark all non-hidden windows as occluded, and remember that
   // we're in the showing_thumbnails state. This lasts until we get told that
@@ -672,7 +711,7 @@ void NativeWindowOcclusionTrackerWin::WindowOcclusionCalculator::
     // needed.
     if (showing_thumbnails_)
       return;
-    std::string hwnd_class_name = base::UTF16ToUTF8(gfx::GetClassName(hwnd));
+    std::string hwnd_class_name = base::WideToUTF8(gfx::GetClassName(hwnd));
     if ((hwnd_class_name == "MultitaskingViewFrame" ||
          hwnd_class_name == "TaskListThumbnailWnd")) {
       showing_thumbnails_ = true;
@@ -680,18 +719,22 @@ void NativeWindowOcclusionTrackerWin::WindowOcclusionCalculator::
           FROM_HERE, base::BindOnce(update_occlusion_state_callback_,
                                     root_window_hwnds_occlusion_state_,
                                     showing_thumbnails_));
-      return;
     }
+    return;
   } else if (event == EVENT_OBJECT_HIDE) {
     // Avoid getting the hwnd's class name, and recomputing occlusion, if not
     // needed.
     if (!showing_thumbnails_)
       return;
-    std::string hwnd_class_name = base::UTF16ToUTF8(gfx::GetClassName(hwnd));
+    std::string hwnd_class_name = base::WideToUTF8(gfx::GetClassName(hwnd));
     if (hwnd_class_name == "MultitaskingViewFrame" ||
         hwnd_class_name == "TaskListThumbnailWnd") {
       showing_thumbnails_ = false;
-      // Let occlusion calculation fix occlusion state.
+      // Let occlusion calculation fix occlusion state, even though hwnd might
+      // be a popup window.
+      calculate_occlusion = true;
+    } else {
+      return;
     }
   }
   // Don't continually calculate occlusion while a window is moving (unless it's
@@ -720,6 +763,9 @@ void NativeWindowOcclusionTrackerWin::WindowOcclusionCalculator::
       moving_window_ = 0;
     }
   }
+
+  if (!calculate_occlusion)
+    return;
 
   // ProcessEventHookCallback is called from the task_runner's PeekMessage
   // call, on the task runner's thread, but before the task_tracker thread sets
@@ -753,7 +799,7 @@ bool NativeWindowOcclusionTrackerWin::WindowOcclusionCalculator::
          (IsWindowOnCurrentVirtualDesktop(hwnd) == true);
 }
 
-base::Optional<bool> NativeWindowOcclusionTrackerWin::
+absl::optional<bool> NativeWindowOcclusionTrackerWin::
     WindowOcclusionCalculator::IsWindowOnCurrentVirtualDesktop(HWND hwnd) {
   if (!virtual_desktop_manager_)
     return true;
@@ -763,7 +809,7 @@ base::Optional<bool> NativeWindowOcclusionTrackerWin::
           hwnd, &on_current_desktop))) {
     return on_current_desktop;
   }
-  return base::nullopt;
+  return absl::nullopt;
 }
 
 }  // namespace aura

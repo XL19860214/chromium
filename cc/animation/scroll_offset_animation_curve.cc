@@ -11,7 +11,7 @@
 #include "base/check_op.h"
 #include "base/memory/ptr_util.h"
 #include "base/numerics/ranges.h"
-#include "cc/animation/timing_function.h"
+#include "ui/gfx/animation/keyframe/timing_function.h"
 #include "ui/gfx/animation/tween.h"
 
 const double kConstantDuration = 9.0;
@@ -31,6 +31,10 @@ const double kInverseDeltaSlope =
 
 const double kInverseDeltaOffset =
     kInverseDeltaMaxDuration - kInverseDeltaRampStartPx * kInverseDeltaSlope;
+
+using gfx::CubicBezierTimingFunction;
+using gfx::LinearTimingFunction;
+using gfx::TimingFunction;
 
 namespace cc {
 
@@ -125,13 +129,13 @@ base::TimeDelta VelocityBasedDurationBound(gfx::Vector2dF old_delta,
 
 }  // namespace
 
-base::Optional<double>
+absl::optional<double>
     ScrollOffsetAnimationCurve::animation_duration_for_testing_;
 
 ScrollOffsetAnimationCurve::ScrollOffsetAnimationCurve(
     const gfx::ScrollOffset& target_value,
     AnimationType animation_type,
-    base::Optional<DurationBehavior> duration_behavior)
+    absl::optional<DurationBehavior> duration_behavior)
     : target_value_(target_value),
       animation_type_(animation_type),
       duration_behavior_(duration_behavior),
@@ -157,7 +161,7 @@ ScrollOffsetAnimationCurve::ScrollOffsetAnimationCurve(
     const gfx::ScrollOffset& target_value,
     std::unique_ptr<TimingFunction> timing_function,
     AnimationType animation_type,
-    base::Optional<DurationBehavior> duration_behavior)
+    absl::optional<DurationBehavior> duration_behavior)
     : target_value_(target_value),
       timing_function_(std::move(timing_function)),
       animation_type_(animation_type),
@@ -223,7 +227,7 @@ base::TimeDelta ScrollOffsetAnimationCurve::EaseInOutBoundedSegmentDuration(
 base::TimeDelta ScrollOffsetAnimationCurve::SegmentDuration(
     const gfx::Vector2dF& delta,
     base::TimeDelta delayed_by,
-    base::Optional<double> velocity) {
+    absl::optional<double> velocity) {
   switch (animation_type_) {
     case AnimationType::kEaseInOut:
       DCHECK(duration_behavior_.has_value());
@@ -316,12 +320,25 @@ base::TimeDelta ScrollOffsetAnimationCurve::Duration() const {
   return total_animation_duration_;
 }
 
-AnimationCurve::CurveType ScrollOffsetAnimationCurve::Type() const {
-  return SCROLL_OFFSET;
+int ScrollOffsetAnimationCurve::Type() const {
+  return AnimationCurve::SCROLL_OFFSET;
 }
 
-std::unique_ptr<AnimationCurve> ScrollOffsetAnimationCurve::Clone() const {
+const char* ScrollOffsetAnimationCurve::TypeName() const {
+  return "ScrollOffset";
+}
+
+std::unique_ptr<gfx::AnimationCurve> ScrollOffsetAnimationCurve::Clone() const {
   return CloneToScrollOffsetAnimationCurve();
+}
+
+void ScrollOffsetAnimationCurve::Tick(
+    base::TimeDelta t,
+    int property_id,
+    gfx::KeyframeModel* keyframe_model) const {
+  if (target_) {
+    target_->OnScrollOffsetAnimated(GetValue(t), property_id, keyframe_model);
+  }
 }
 
 std::unique_ptr<ScrollOffsetAnimationCurve>
@@ -360,6 +377,11 @@ void ScrollOffsetAnimationCurve::UpdateTarget(
     const gfx::ScrollOffset& new_target) {
   DCHECK_NE(animation_type_, AnimationType::kLinear)
       << "UpdateTarget is not supported on linear scroll animations.";
+
+  // UpdateTarget is still called for linear animations occasionally. This is
+  // tracked via crbug.com/1164008.
+  if (animation_type_ == AnimationType::kLinear)
+    return;
 
   // If the new UpdateTarget actually happened before the previous one, keep
   // |t| as the most recent, but reduce the duration of any generated
@@ -431,6 +453,19 @@ void ScrollOffsetAnimationCurve::UpdateTarget(
   target_value_ = new_target;
   total_animation_duration_ = t + new_duration;
   last_retarget_ = t;
+}
+
+const ScrollOffsetAnimationCurve*
+ScrollOffsetAnimationCurve::ToScrollOffsetAnimationCurve(
+    const AnimationCurve* c) {
+  DCHECK_EQ(ScrollOffsetAnimationCurve::SCROLL_OFFSET, c->Type());
+  return static_cast<const ScrollOffsetAnimationCurve*>(c);
+}
+
+ScrollOffsetAnimationCurve*
+ScrollOffsetAnimationCurve::ToScrollOffsetAnimationCurve(AnimationCurve* c) {
+  DCHECK_EQ(ScrollOffsetAnimationCurve::SCROLL_OFFSET, c->Type());
+  return static_cast<ScrollOffsetAnimationCurve*>(c);
 }
 
 }  // namespace cc

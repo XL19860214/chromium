@@ -5,6 +5,8 @@
 #include "chrome/browser/ui/views/web_apps/frame_toolbar/web_app_content_settings_container.h"
 
 #include "ui/base/hit_test.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
+#include "ui/compositor/layer.h"
 #include "ui/compositor/scoped_layer_animation_settings.h"
 #include "ui/views/layout/box_layout.h"
 #include "ui/views/window/custom_frame_view.h"
@@ -81,6 +83,5 @@ void WebAppContentSettingsContainer::EnsureVisible() {
     layer()->SetOpacity(1);
 }
 
-const char* WebAppContentSettingsContainer::GetClassName() const {
-  return "WebAppContentSettingsContainer";
-}
+BEGIN_METADATA(WebAppContentSettingsContainer, views::View)
+END_METADATA

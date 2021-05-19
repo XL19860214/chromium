@@ -11,8 +11,8 @@
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/apps/app_service/app_service_proxy.h"
 #include "chrome/browser/apps/app_service/app_service_proxy_factory.h"
-#include "chrome/browser/chromeos/arc/arc_util.h"
-#include "chrome/browser/chromeos/arc/session/arc_session_manager.h"
+#include "chrome/browser/ash/arc/arc_util.h"
+#include "chrome/browser/ash/arc/session/arc_session_manager.h"
 #include "chrome/browser/ui/app_list/arc/arc_app_list_prefs.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_commands.h"
@@ -24,6 +24,7 @@
 #include "chrome/browser/ui/web_applications/app_browser_controller.h"
 #include "chrome/browser/ui/web_applications/test/web_app_browsertest_util.h"
 #include "chrome/browser/web_applications/components/web_application_info.h"
+#include "chrome/browser/web_applications/test/web_app_install_test_utils.h"
 #include "chrome/common/chrome_features.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
@@ -151,7 +152,9 @@ class IntentPickerBubbleViewBrowserTestChromeOS : public InProcessBrowserTest {
     auto intent_filter = apps_util::CreateIntentFilterForUrlScope(url);
     app->intent_filters.push_back(std::move(intent_filter));
     apps.push_back(std::move(app));
-    app_service_proxy_->AppRegistryCache().OnApps(std::move(apps));
+    app_service_proxy_->AppRegistryCache().OnApps(
+        std::move(apps), apps::mojom::AppType::kArc,
+        false /* should_notify_initialized */);
     WaitForAppService();
 
     return app_id;
@@ -163,7 +166,8 @@ class IntentPickerBubbleViewBrowserTestChromeOS : public InProcessBrowserTest {
     web_app_info->start_url = url;
     web_app_info->scope = url;
     web_app_info->open_as_window = true;
-    auto app_id = web_app::InstallWebApp(profile(), std::move(web_app_info));
+    auto app_id =
+        web_app::test::InstallWebApp(profile(), std::move(web_app_info));
     WaitForAppService();
     return app_id;
   }
@@ -214,15 +218,15 @@ class IntentPickerBubbleViewBrowserTestChromeOS : public InProcessBrowserTest {
 
   void ShowBubbleForTesting() {
     std::vector<apps::IntentPickerAppInfo> app_info;
-    app_info.emplace_back(apps::PickerEntryType::kArc, gfx::Image(),
+    app_info.emplace_back(apps::PickerEntryType::kArc, ui::ImageModel(),
                           "package_1", "dank app 1");
-    app_info.emplace_back(apps::PickerEntryType::kArc, gfx::Image(),
+    app_info.emplace_back(apps::PickerEntryType::kArc, ui::ImageModel(),
                           "package_2", "dank_app_2");
 
     browser()->window()->ShowIntentPickerBubble(
         std::move(app_info), /*show_stay_in_chrome=*/true,
         /*show_remember_selection=*/true, PageActionIconType::kIntentPicker,
-        base::nullopt,
+        absl::nullopt,
         base::BindOnce(
             &IntentPickerBubbleViewBrowserTestChromeOS::OnBubbleClosed,
             base::Unretained(this)));
@@ -231,7 +235,7 @@ class IntentPickerBubbleViewBrowserTestChromeOS : public InProcessBrowserTest {
   bool bubble_closed() { return bubble_closed_; }
 
  private:
-  apps::AppServiceProxy* app_service_proxy_ = nullptr;
+  apps::AppServiceProxyChromeOs* app_service_proxy_ = nullptr;
   std::unique_ptr<arc::FakeIntentHelperInstance> intent_helper_instance_;
   std::unique_ptr<arc::FakeAppInstance> app_instance_;
   FakeIconLoader icon_loader_;
@@ -499,8 +503,10 @@ IN_PROC_BROWSER_TEST_F(IntentPickerBubbleViewBrowserTestChromeOS,
 
 // Test that loading a page with pushState() call that changes URL
 // updates the intent picker view.
+//
+// TODO(crbug.com/1201397): fix flakiness and reenable
 IN_PROC_BROWSER_TEST_F(IntentPickerBubbleViewBrowserTestChromeOS,
-                       PushStateURLChangeTest) {
+                       DISABLED_PushStateURLChangeTest) {
   ASSERT_TRUE(embedded_test_server()->Start());
   const GURL test_url =
       embedded_test_server()->GetURL("/intent_picker/push_state_test.html");

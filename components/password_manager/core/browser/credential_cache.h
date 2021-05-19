@@ -7,7 +7,6 @@
 
 #include <vector>
 
-#include "base/strings/string16.h"
 #include "base/types/strong_alias.h"
 #include "url/origin.h"
 

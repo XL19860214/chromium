@@ -105,10 +105,14 @@ class CastWMHelper : public WMHelper, public VSyncTimingManager::Delegate {
 
   // Overridden from aura::client::DragDropDelegate:
   void OnDragEntered(const ui::DropTargetEvent& event) override;
-  int OnDragUpdated(const ui::DropTargetEvent& event) override;
+  aura::client::DragUpdateInfo OnDragUpdated(
+      const ui::DropTargetEvent& event) override;
   void OnDragExited() override;
-  int OnPerformDrop(const ui::DropTargetEvent& event,
-                    std::unique_ptr<ui::OSExchangeData> data) override;
+  ui::mojom::DragOperation OnPerformDrop(
+      const ui::DropTargetEvent& event,
+      std::unique_ptr<ui::OSExchangeData> data) override;
+  WMHelper::DropCallback GetDropCallback(
+      const ui::DropTargetEvent& event) override;
 
   // Overridden from VSyncTimingManager::Delegate:
   void AddVSyncParameterObserver(

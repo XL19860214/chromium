@@ -6,6 +6,7 @@
 
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/metrics/renderer_uptime_tracker.h"
+#include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_finder.h"
 #include "components/crash/content/browser/error_reporting/javascript_error_report.h"
 #include "components/crash/content/browser/error_reporting/js_error_report_processor.h"
@@ -59,6 +60,8 @@ ExtensionFunction::ResponseAction CrashReportPrivateReportErrorFunction::Run() {
   JavaScriptErrorReport error_report;
   error_report.message = std::move(params->info.message);
   error_report.url = std::move(params->info.url);
+  error_report.source_system =
+      JavaScriptErrorReport::SourceSystem::kCrashReportApi;
   if (params->info.product) {
     error_report.product = std::move(*params->info.product);
   }

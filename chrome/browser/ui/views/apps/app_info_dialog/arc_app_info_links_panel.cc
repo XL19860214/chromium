@@ -13,6 +13,7 @@
 #include "components/arc/intent_helper/arc_intent_helper_bridge.h"
 #include "components/arc/mojom/app.mojom.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/display/display.h"
 #include "ui/display/screen.h"
 #include "ui/gfx/geometry/insets.h"
@@ -81,3 +82,6 @@ void ArcAppInfoLinksPanel::LinkClicked() {
     Close();
   }
 }
+
+BEGIN_METADATA(ArcAppInfoLinksPanel, AppInfoPanel)
+END_METADATA

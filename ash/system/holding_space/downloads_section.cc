@@ -15,10 +15,13 @@
 #include "ash/system/holding_space/holding_space_item_chips_container.h"
 #include "ash/system/holding_space/holding_space_util.h"
 #include "base/bind.h"
+#include "base/callback_helpers.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/compositor/layer.h"
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/views/accessibility/view_accessibility.h"
 #include "ui/views/controls/button/button.h"
+#include "ui/views/controls/highlight_path_generator.h"
 #include "ui/views/controls/image_view.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/layout/box_layout.h"
@@ -26,6 +29,26 @@
 namespace ash {
 
 namespace {
+
+// CallbackPathGenerator -------------------------------------------------------
+
+class CallbackPathGenerator : public views::HighlightPathGenerator {
+ public:
+  using Callback = base::RepeatingCallback<gfx::RRectF()>;
+
+  explicit CallbackPathGenerator(Callback callback) : callback_(callback) {}
+  CallbackPathGenerator(const CallbackPathGenerator&) = delete;
+  CallbackPathGenerator& operator=(const CallbackPathGenerator&) = delete;
+  ~CallbackPathGenerator() override = default;
+
+ private:
+  // views::HighlightPathGenerator:
+  absl::optional<gfx::RRectF> GetRoundRect(const gfx::RectF& rect) override {
+    return callback_.Run();
+  }
+
+  Callback callback_;
+};
 
 // Header ----------------------------------------------------------------------
 
@@ -36,11 +59,7 @@ class Header : public views::Button {
         l10n_util::GetStringUTF16(IDS_ASH_HOLDING_SPACE_DOWNLOADS_TITLE));
     SetCallback(
         base::BindRepeating(&Header::OnPressed, base::Unretained(this)));
-
-    // Focus ring.
-    AshColorProvider* const ash_color_provider = AshColorProvider::Get();
-    focus_ring()->SetColor(ash_color_provider->GetControlsLayerColor(
-        AshColorProvider::ControlsLayerType::kFocusRingColor));
+    SetID(kHoldingSpaceDownloadsSectionHeaderId);
 
     auto* layout = SetLayoutManager(std::make_unique<views::BoxLayout>(
         views::BoxLayout::Orientation::kHorizontal, gfx::Insets(),
@@ -54,21 +73,53 @@ class Header : public views::Button {
     layout->SetFlexForView(label, 1);
 
     // Chevron.
-    auto* chevron = AddChildView(std::make_unique<views::ImageView>());
-    chevron->SetFlipCanvasOnPaintForRTLUI(true);
-    chevron->SetImage(gfx::CreateVectorIcon(
-        kChevronRightIcon, kHoldingSpaceDownloadsChevronIconSize,
-        ash_color_provider->GetContentLayerColor(
-            AshColorProvider::ContentLayerType::kIconColorPrimary)));
+    chevron_ = AddChildView(std::make_unique<views::ImageView>());
+    chevron_->SetFlipCanvasOnPaintForRTLUI(true);
+
+    // Focus ring.
+    // Though the entirety of the header is focusable and behaves as a single
+    // button, the focus ring is drawn as a circle around just the `chevron_`.
+    focus_ring()->SetPathGenerator(
+        std::make_unique<CallbackPathGenerator>(base::BindRepeating(
+            [](const views::View* chevron) {
+              const float radius = chevron->width() / 2.f;
+              gfx::RRectF path(gfx::RectF(chevron->bounds()), radius);
+              if (base::i18n::IsRTL()) {
+                // Manually adjust for flipped canvas in RTL.
+                path.Offset(-chevron->parent()->width(), 0.f);
+                path.Scale(-1.f, 1.f);
+              }
+              return path;
+            },
+            base::Unretained(chevron_))));
   }
 
  private:
+  // views::Button:
+  void OnThemeChanged() override {
+    views::Button::OnThemeChanged();
+    AshColorProvider* const ash_color_provider = AshColorProvider::Get();
+
+    // Chevron.
+    chevron_->SetImage(gfx::CreateVectorIcon(
+        kChevronRightIcon, kHoldingSpaceDownloadsChevronIconSize,
+        ash_color_provider->GetContentLayerColor(
+            AshColorProvider::ContentLayerType::kIconColorPrimary)));
+
+    // Focus ring.
+    focus_ring()->SetColor(ash_color_provider->GetControlsLayerColor(
+        AshColorProvider::ControlsLayerType::kFocusRingColor));
+  }
+
   void OnPressed() {
     holding_space_metrics::RecordDownloadsAction(
         holding_space_metrics::DownloadsAction::kClick);
 
     HoldingSpaceController::Get()->client()->OpenDownloads(base::DoNothing());
   }
+
+  // Owned by view hierarchy.
+  views::ImageView* chevron_ = nullptr;
 };
 
 }  // namespace
@@ -78,8 +129,10 @@ class Header : public views::Button {
 DownloadsSection::DownloadsSection(HoldingSpaceItemViewDelegate* delegate)
     : HoldingSpaceItemViewsSection(delegate,
                                    /*supported_types=*/
-                                   {HoldingSpaceItem::Type::kDownload,
-                                    HoldingSpaceItem::Type::kNearbyShare},
+                                   {HoldingSpaceItem::Type::kArcDownload,
+                                    HoldingSpaceItem::Type::kDownload,
+                                    HoldingSpaceItem::Type::kNearbyShare,
+                                    HoldingSpaceItem::Type::kPrintedPdf},
                                    /*max_count=*/kMaxDownloads) {}
 
 DownloadsSection::~DownloadsSection() = default;

@@ -11,10 +11,10 @@
 #include <utility>
 #include <vector>
 
+#include "base/as_const.h"
 #include "base/compiler_specific.h"
 #include "base/functional/not_fn.h"
 #include "base/ranges/algorithm.h"
-#include "base/stl_util.h"
 #include "base/template_util.h"
 
 namespace base {
@@ -33,20 +33,18 @@ namespace internal {
 // sorted_unique are indeed sorted and unique.
 template <typename Range, typename Comp>
 constexpr bool is_sorted_and_unique(const Range& range, Comp comp) {
-  return ranges::is_sorted(range, comp) &&
-         // Being unique implies that there are no adjacent elements that
-         // compare equal.
-         ranges::adjacent_find(range, base::not_fn(comp)) == ranges::end(range);
+  // Being unique implies that there are no adjacent elements that
+  // compare equal. So this checks that each element is strictly less
+  // than the element after it.
+  return ranges::adjacent_find(range, base::not_fn(comp)) == ranges::end(range);
 }
 
-// This is a convenience method returning true if Iterator is at least a
-// ForwardIterator and thus supports multiple passes over a range.
+// This is a convenience trait inheriting from std::true_type if Iterator is at
+// least a ForwardIterator and thus supports multiple passes over a range.
 template <class Iterator>
-constexpr bool is_multipass() {
-  return std::is_base_of<
+using is_multipass = std::is_base_of<
       std::forward_iterator_tag,
-      typename std::iterator_traits<Iterator>::iterator_category>::value;
-}
+      typename std::iterator_traits<Iterator>::iterator_category>;
 
 // Uses SFINAE to detect whether type has is_transparent member.
 template <typename T, typename = void>

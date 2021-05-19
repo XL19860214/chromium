@@ -16,6 +16,11 @@
 #include "components/sessions/core/tab_restore_service.h"
 #include "ui/base/l10n/l10n_util.h"
 
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+#include "ash/public/cpp/move_to_desks_menu_delegate.h"
+#include "chromeos/ui/frame/move_to_desks_menu_model.h"
+#endif
+
 // TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
 // of lacros-chrome is complete.
 #if defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
@@ -45,6 +50,10 @@ bool SystemMenuModelDelegate::IsCommandIdChecked(int command_id) const {
 }
 
 bool SystemMenuModelDelegate::IsCommandIdEnabled(int command_id) const {
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  if (command_id == chromeos::MoveToDesksMenuModel::kMenuCommandId)
+    return ash::MoveToDesksMenuDelegate::ShouldShowMoveToDesksMenu();
+#endif
   return chrome::IsCommandEnabled(browser_, command_id);
 }
 
@@ -60,6 +69,10 @@ bool SystemMenuModelDelegate::IsCommandIdVisible(int command_id) const {
       return is_maximized;
   }
 #endif
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  if (command_id == chromeos::MoveToDesksMenuModel::kMenuCommandId)
+    return ash::MoveToDesksMenuDelegate::ShouldShowMoveToDesksMenu();
+#endif
   return true;
 }
 
@@ -73,7 +86,7 @@ bool SystemMenuModelDelegate::IsItemForCommandIdDynamic(int command_id) const {
   return command_id == IDC_RESTORE_TAB;
 }
 
-base::string16 SystemMenuModelDelegate::GetLabelForCommandId(
+std::u16string SystemMenuModelDelegate::GetLabelForCommandId(
     int command_id) const {
   DCHECK_EQ(command_id, IDC_RESTORE_TAB);
 
@@ -83,9 +96,14 @@ base::string16 SystemMenuModelDelegate::GetLabelForCommandId(
         TabRestoreServiceFactory::GetForProfile(browser_->profile());
     DCHECK(trs);
     trs->LoadTabsFromLastSession();
-    if (!trs->entries().empty() &&
-        trs->entries().front()->type == sessions::TabRestoreService::WINDOW)
-      string_id = IDS_RESTORE_WINDOW;
+    if (!trs->entries().empty()) {
+      if (trs->entries().front()->type == sessions::TabRestoreService::WINDOW) {
+        string_id = IDS_RESTORE_WINDOW;
+      } else if (trs->entries().front()->type ==
+                 sessions::TabRestoreService::GROUP) {
+        string_id = IDS_RESTORE_GROUP;
+      }
+    }
   }
   return l10n_util::GetStringUTF16(string_id);
 }

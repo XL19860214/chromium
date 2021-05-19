@@ -6,12 +6,18 @@
 #define CHROME_BROWSER_UI_ASH_SHARESHEET_SHARESHEET_EXPAND_BUTTON_H_
 
 #include "chrome/browser/sharesheet/sharesheet_types.h"
+#include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/views/controls/button/button.h"
 #include "ui/views/controls/image_view.h"
 #include "ui/views/controls/label.h"
 
+namespace ash {
+namespace sharesheet {
+
 class SharesheetExpandButton : public views::Button {
  public:
+  METADATA_HEADER(SharesheetExpandButton);
+
   explicit SharesheetExpandButton(PressedCallback callback);
   SharesheetExpandButton(const SharesheetExpandButton&) = delete;
   SharesheetExpandButton& operator=(const SharesheetExpandButton&) = delete;
@@ -26,5 +32,8 @@ class SharesheetExpandButton : public views::Button {
   views::ImageView* icon_ = nullptr;
   views::Label* label_ = nullptr;
 };
+
+}  // namespace sharesheet
+}  // namespace ash
 
 #endif  // CHROME_BROWSER_UI_ASH_SHARESHEET_SHARESHEET_EXPAND_BUTTON_H_

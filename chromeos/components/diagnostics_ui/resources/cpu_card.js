@@ -7,6 +7,7 @@ import 'chrome://resources/polymer/v3_0/iron-icon/iron-icon.js';
 import './data_point.js';
 import './diagnostics_card.js';
 import './diagnostics_shared_css.js';
+import './icons.js';
 import './realtime_cpu_chart.js';
 import './routine_section.js';
 import './strings.m.js';
@@ -14,7 +15,7 @@ import './strings.m.js';
 import {I18nBehavior} from 'chrome://resources/js/i18n_behavior.m.js';
 import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
 import {html, Polymer} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
-import {CpuUsage, RoutineType, SystemDataProviderInterface, SystemInfo} from './diagnostics_types.js';
+import {CpuUsage, CpuUsageObserverInterface, CpuUsageObserverReceiver, RoutineType, SystemDataProviderInterface, SystemInfo} from './diagnostics_types.js';
 import {getSystemDataProvider} from './mojo_interface_provider.js';
 
 /**
@@ -35,7 +36,7 @@ Polymer({
 
   /**
    * Receiver responsible for observing CPU usage.
-   * @private {?chromeos.diagnostics.mojom.CpuUsageObserverReceiver}
+   * @private {?CpuUsageObserverReceiver}
    */
   cpuUsageObserverReceiver_: null,
 
@@ -45,10 +46,10 @@ Polymer({
       type: Array,
       value: () => {
         return [
-          chromeos.diagnostics.mojom.RoutineType.kCpuStress,
-          chromeos.diagnostics.mojom.RoutineType.kCpuCache,
-          chromeos.diagnostics.mojom.RoutineType.kCpuFloatingPoint,
-          chromeos.diagnostics.mojom.RoutineType.kCpuPrime,
+          RoutineType.kCpuStress,
+          RoutineType.kCpuCache,
+          RoutineType.kCpuFloatingPoint,
+          RoutineType.kCpuPrime,
         ];
       }
     },
@@ -67,13 +68,9 @@ Polymer({
     /** @type {boolean} */
     isTestRunning: {
       type: Boolean,
+      value: false,
       notify: true,
     },
-
-    /** @type {number} */
-    cpuMaxClockSpeedKhz_: {
-      type: Number,
-    }
   },
 
   /** @override */
@@ -90,12 +87,11 @@ Polymer({
 
   /** @private */
   observeCpuUsage_() {
-    this.cpuUsageObserverReceiver_ =
-        new chromeos.diagnostics.mojom.CpuUsageObserverReceiver(
-            /**
-             * @type {!chromeos.diagnostics.mojom.CpuUsageObserverInterface}
-             */
-            (this));
+    this.cpuUsageObserverReceiver_ = new CpuUsageObserverReceiver(
+        /**
+         * @type {!CpuUsageObserverInterface}
+         */
+        (this));
 
     this.systemDataProvider_.observeCpuUsage(
         this.cpuUsageObserverReceiver_.$.bindNewPipeAndPassRemote());
@@ -130,10 +126,9 @@ Polymer({
    * @private
    */
   onSystemInfoReceived_(systemInfo) {
-    // TODO(michaelcheco): Update when number of cores is added to the api.
     this.cpuChipInfo_ = loadTimeData.getStringF(
-        'cpuChipText', systemInfo.cpuModelName, systemInfo.cpuThreadsCount);
-    this.cpuMaxClockSpeedKhz_ = systemInfo.cpuMaxClockSpeedKhz;
+        'cpuChipText', systemInfo.cpuModelName, systemInfo.cpuThreadsCount,
+        this.convertKhzToGhz_(systemInfo.cpuMaxClockSpeedKhz));
   },
 
   /** @protected */
@@ -144,7 +139,6 @@ Polymer({
 
   /** @protected */
   getCpuUsageTooltipText_() {
-    // TODO(michaelcheco): Update when number of cores is added to the api.
     return loadTimeData.getString('cpuUsageTooltipText');
   },
 
@@ -158,12 +152,15 @@ Polymer({
   },
 
   /** @protected */
-  getCpuSpeed_() {
-    if (this.cpuMaxClockSpeedKhz_) {
-      return loadTimeData.getStringF(
-          'cpuSpeedText',
-          this.convertKhzToGhz_(this.cpuUsage_.scalingCurrentFrequencyKhz),
-          this.convertKhzToGhz_(this.cpuMaxClockSpeedKhz_));
-    }
+  getCurrentCpuSpeed_() {
+    return loadTimeData.getStringF(
+        'currentCpuSpeedText',
+        this.convertKhzToGhz_(this.cpuUsage_.scalingCurrentFrequencyKhz));
+  },
+
+  /** @protected */
+  getEstimateRuntimeInMinutes_() {
+    // Each routine runs for a minute
+    return this.routines_.length;
   },
 });

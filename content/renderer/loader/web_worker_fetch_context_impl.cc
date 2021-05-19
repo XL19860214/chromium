@@ -12,29 +12,29 @@
 #include "base/task/thread_pool.h"
 #include "base/threading/sequenced_task_runner_handle.h"
 #include "content/child/child_thread_impl.h"
-#include "content/common/content_constants_internal.h"
-#include "content/common/frame_messages.h"
 #include "content/public/common/content_client.h"
 #include "content/public/common/origin_util.h"
 #include "content/public/renderer/content_renderer_client.h"
-#include "content/public/renderer/url_loader_throttle_provider.h"
-#include "content/public/renderer/websocket_handshake_throttle_provider.h"
-#include "content/renderer/loader/resource_dispatcher.h"
-#include "content/renderer/loader/web_url_loader_impl.h"
 #include "content/renderer/service_worker/controller_service_worker_connector.h"
-#include "content/renderer/service_worker/service_worker_provider_context.h"
 #include "content/renderer/service_worker/service_worker_subresource_loader.h"
 #include "services/network/public/cpp/wrapper_shared_url_loader_factory.h"
 #include "third_party/blink/public/common/features.h"
+#include "third_party/blink/public/common/loader/loader_constants.h"
 #include "third_party/blink/public/mojom/service_worker/service_worker_object.mojom.h"
 #include "third_party/blink/public/mojom/service_worker/service_worker_provider.mojom.h"
 #include "third_party/blink/public/platform/child_url_loader_factory_bundle.h"
+#include "third_party/blink/public/platform/modules/service_worker/web_service_worker_provider_context.h"
 #include "third_party/blink/public/platform/resource_load_info_notifier_wrapper.h"
+#include "third_party/blink/public/platform/url_loader_throttle_provider.h"
 #include "third_party/blink/public/platform/weak_wrapper_resource_load_info_notifier.h"
+#include "third_party/blink/public/platform/web_back_forward_cache_loader_helper.h"
 #include "third_party/blink/public/platform/web_code_cache_loader.h"
 #include "third_party/blink/public/platform/web_frame_request_blocker.h"
 #include "third_party/blink/public/platform/web_security_origin.h"
+#include "third_party/blink/public/platform/web_url_loader.h"
+#include "third_party/blink/public/platform/web_url_loader_factory.h"
 #include "third_party/blink/public/platform/web_url_request_extra_data.h"
+#include "third_party/blink/public/platform/websocket_handshake_throttle_provider.h"
 
 namespace content {
 
@@ -80,10 +80,12 @@ void WebWorkerFetchContextImpl::InstallRewriteURLFunction(
 // intercepted by the service worker.
 class WebWorkerFetchContextImpl::Factory : public blink::WebURLLoaderFactory {
  public:
-  Factory(base::WeakPtr<ResourceDispatcher> resource_dispatcher,
-          scoped_refptr<network::SharedURLLoaderFactory> loader_factory)
-      : resource_dispatcher_(std::move(resource_dispatcher)),
-        loader_factory_(std::move(loader_factory)) {}
+  Factory(scoped_refptr<network::SharedURLLoaderFactory> loader_factory,
+          const blink::WebVector<blink::WebString>& cors_exempt_header_list,
+          base::WaitableEvent* terminate_sync_load_event)
+      : WebURLLoaderFactory(std::move(loader_factory),
+                            cors_exempt_header_list,
+                            terminate_sync_load_event) {}
   ~Factory() override = default;
 
   std::unique_ptr<blink::WebURLLoader> CreateURLLoader(
@@ -93,24 +95,28 @@ class WebWorkerFetchContextImpl::Factory : public blink::WebURLLoaderFactory {
       std::unique_ptr<blink::scheduler::WebResourceLoadingTaskRunnerHandle>
           unfreezable_task_runner_handle,
       blink::CrossVariantMojoRemote<blink::mojom::KeepAliveHandleInterfaceBase>
-          keep_alive_handle) override {
+          keep_alive_handle,
+      blink::WebBackForwardCacheLoaderHelper back_forward_cache_loader_helper)
+      override {
     DCHECK(freezable_task_runner_handle);
     DCHECK(unfreezable_task_runner_handle);
-    DCHECK(resource_dispatcher_);
 
     if (CanCreateServiceWorkerURLLoader(request)) {
       // Create our own URLLoader to route the request to the controller service
       // worker.
-      return std::make_unique<WebURLLoaderImpl>(
-          resource_dispatcher_.get(), std::move(freezable_task_runner_handle),
+      return std::make_unique<blink::WebURLLoader>(
+          cors_exempt_header_list_, terminate_sync_load_event_,
+          std::move(freezable_task_runner_handle),
           std::move(unfreezable_task_runner_handle),
-          service_worker_loader_factory_, std::move(keep_alive_handle));
+          service_worker_loader_factory_, std::move(keep_alive_handle),
+          back_forward_cache_loader_helper);
     }
 
-    return std::make_unique<WebURLLoaderImpl>(
-        resource_dispatcher_.get(), std::move(freezable_task_runner_handle),
+    return std::make_unique<blink::WebURLLoader>(
+        cors_exempt_header_list_, terminate_sync_load_event_,
+        std::move(freezable_task_runner_handle),
         std::move(unfreezable_task_runner_handle), loader_factory_,
-        std::move(keep_alive_handle));
+        std::move(keep_alive_handle), back_forward_cache_loader_helper);
   }
 
   void SetServiceWorkerURLLoaderFactory(
@@ -156,15 +162,13 @@ class WebWorkerFetchContextImpl::Factory : public blink::WebURLLoaderFactory {
     return true;
   }
 
-  base::WeakPtr<ResourceDispatcher> resource_dispatcher_;
-  scoped_refptr<network::SharedURLLoaderFactory> loader_factory_;
   scoped_refptr<network::SharedURLLoaderFactory> service_worker_loader_factory_;
   base::WeakPtrFactory<Factory> weak_ptr_factory_{this};
   DISALLOW_COPY_AND_ASSIGN(Factory);
 };
 
 scoped_refptr<WebWorkerFetchContextImpl> WebWorkerFetchContextImpl::Create(
-    ServiceWorkerProviderContext* provider_context,
+    blink::WebServiceWorkerProviderContext* provider_context,
     const blink::RendererPreferences& renderer_preferences,
     mojo::PendingReceiver<blink::mojom::RendererPreferenceWatcher>
         watcher_receiver,
@@ -187,13 +191,14 @@ scoped_refptr<WebWorkerFetchContextImpl> WebWorkerFetchContextImpl::Create(
   // Some sandboxed iframes are not allowed to use service worker so don't have
   // a real service worker provider, so the provider context is null.
   if (provider_context) {
-    provider_context->CloneWorkerClientRegistry(
+    provider_context->BindServiceWorkerWorkerClientRegistryReceiver(
         service_worker_worker_client_registry.InitWithNewPipeAndPassReceiver());
 
     mojo::PendingRemote<blink::mojom::ServiceWorkerWorkerClient> worker_client;
     service_worker_client_receiver =
         worker_client.InitWithNewPipeAndPassReceiver();
-    provider_context->RegisterWorkerClient(std::move(worker_client));
+    provider_context->BindServiceWorkerWorkerClientRemote(
+        std::move(worker_client));
 
     service_worker_container_host =
         provider_context->CloneRemoteContainerHost();
@@ -209,7 +214,7 @@ scoped_refptr<WebWorkerFetchContextImpl> WebWorkerFetchContextImpl::Create(
           std::move(pending_fallback_factory),
           std::move(pending_subresource_loader_updater),
           GetContentClient()->renderer()->CreateURLLoaderThrottleProvider(
-              URLLoaderThrottleProviderType::kWorker),
+              blink::URLLoaderThrottleProviderType::kWorker),
           GetContentClient()
               ->renderer()
               ->CreateWebSocketHandshakeThrottleProvider(),
@@ -242,8 +247,8 @@ WebWorkerFetchContextImpl::WebWorkerFetchContextImpl(
         pending_fallback_factory,
     mojo::PendingReceiver<blink::mojom::SubresourceLoaderUpdater>
         pending_subresource_loader_updater,
-    std::unique_ptr<URLLoaderThrottleProvider> throttle_provider,
-    std::unique_ptr<WebSocketHandshakeThrottleProvider>
+    std::unique_ptr<blink::URLLoaderThrottleProvider> throttle_provider,
+    std::unique_ptr<blink::WebSocketHandshakeThrottleProvider>
         websocket_handshake_throttle_provider,
     const std::vector<std::string>& cors_exempt_header_list,
     mojo::PendingRemote<blink::mojom::ResourceLoadInfoNotifier>
@@ -321,7 +326,7 @@ WebWorkerFetchContextImpl::CloneForNestedWorkerDeprecated(
 
 scoped_refptr<WebWorkerFetchContextImpl>
 WebWorkerFetchContextImpl::CloneForNestedWorker(
-    ServiceWorkerProviderContext* service_worker_provider_context,
+    blink::WebServiceWorkerProviderContext* service_worker_provider_context,
     std::unique_ptr<network::PendingSharedURLLoaderFactory>
         pending_loader_factory,
     std::unique_ptr<network::PendingSharedURLLoaderFactory>
@@ -345,14 +350,16 @@ WebWorkerFetchContextImpl::CloneForNestedWorker(
 
   mojo::PendingRemote<blink::mojom::ServiceWorkerWorkerClientRegistry>
       service_worker_worker_client_registry;
-  service_worker_provider_context->CloneWorkerClientRegistry(
-      service_worker_worker_client_registry.InitWithNewPipeAndPassReceiver());
+  service_worker_provider_context
+      ->BindServiceWorkerWorkerClientRegistryReceiver(
+          service_worker_worker_client_registry
+              .InitWithNewPipeAndPassReceiver());
 
   mojo::PendingRemote<blink::mojom::ServiceWorkerWorkerClient> worker_client;
   mojo::PendingReceiver<blink::mojom::ServiceWorkerWorkerClient>
       service_worker_client_receiver =
           worker_client.InitWithNewPipeAndPassReceiver();
-  service_worker_provider_context->RegisterWorkerClient(
+  service_worker_provider_context->BindServiceWorkerWorkerClientRemote(
       std::move(worker_client));
 
   mojo::PendingRemote<blink::mojom::ServiceWorkerContainerHost>
@@ -376,13 +383,8 @@ WebWorkerFetchContextImpl::CloneForNestedWorker(
 
 void WebWorkerFetchContextImpl::InitializeOnWorkerThread(
     blink::AcceptLanguagesWatcher* watcher) {
-  DCHECK(!resource_dispatcher_);
   DCHECK(!receiver_.is_bound());
   DCHECK(!preference_watcher_receiver_.is_bound());
-  resource_dispatcher_ = std::make_unique<ResourceDispatcher>();
-  resource_dispatcher_->SetCorsExemptHeaderList(cors_exempt_header_list_);
-  resource_dispatcher_->set_terminate_sync_load_event(
-      terminate_sync_load_event_);
 
   loader_factory_ = network::SharedURLLoaderFactory::Create(
       std::move(pending_loader_factory_));
@@ -422,7 +424,7 @@ void WebWorkerFetchContextImpl::InitializeOnWorkerThread(
   DCHECK(loader_factory_);
   DCHECK(!web_loader_factory_);
   web_loader_factory_ = std::make_unique<Factory>(
-      resource_dispatcher_->GetWeakPtr(), loader_factory_);
+      loader_factory_, cors_exempt_header_list(), terminate_sync_load_event_);
 
   ResetServiceWorkerURLLoaderFactory();
 }
@@ -435,10 +437,10 @@ std::unique_ptr<blink::WebURLLoaderFactory>
 WebWorkerFetchContextImpl::WrapURLLoaderFactory(
     blink::CrossVariantMojoRemote<network::mojom::URLLoaderFactoryInterfaceBase>
         url_loader_factory) {
-  return std::make_unique<WebURLLoaderFactoryImpl>(
-      resource_dispatcher_->GetWeakPtr(),
+  return std::make_unique<blink::WebURLLoaderFactory>(
       base::MakeRefCounted<network::WrapperSharedURLLoaderFactory>(
-          std::move(url_loader_factory)));
+          std::move(url_loader_factory)),
+      cors_exempt_header_list(), terminate_sync_load_event_);
 }
 
 std::unique_ptr<blink::WebCodeCacheLoader>
@@ -448,13 +450,12 @@ WebWorkerFetchContextImpl::CreateCodeCacheLoader() {
 
 void WebWorkerFetchContextImpl::WillSendRequest(blink::WebURLRequest& request) {
   if (renderer_preferences_.enable_do_not_track) {
-    request.SetHttpHeaderField(blink::WebString::FromUTF8(kDoNotTrackHeader),
-                               "1");
+    request.SetHttpHeaderField(
+        blink::WebString::FromUTF8(blink::kDoNotTrackHeader), "1");
   }
 
   auto url_request_extra_data =
       base::MakeRefCounted<blink::WebURLRequestExtraData>();
-  url_request_extra_data->set_render_frame_id(ancestor_frame_id_);
   url_request_extra_data->set_frame_request_blocker(frame_request_blocker_);
   if (throttle_provider_) {
     url_request_extra_data->set_url_loader_throttles(
@@ -488,7 +489,7 @@ net::SiteForCookies WebWorkerFetchContextImpl::SiteForCookies() const {
   return site_for_cookies_;
 }
 
-base::Optional<blink::WebSecurityOrigin>
+absl::optional<blink::WebSecurityOrigin>
 WebWorkerFetchContextImpl::TopFrameOrigin() const {
   // TODO(jkarlin): set_top_frame_origin is only called for dedicated workers.
   // Determine the top-frame-origin of a shared worker as well. See
@@ -559,8 +560,10 @@ void WebWorkerFetchContextImpl::set_top_frame_origin(
   top_frame_origin_ = top_frame_origin;
 }
 
-void WebWorkerFetchContextImpl::set_client_id(const std::string& client_id) {
-  client_id_ = client_id;
+void WebWorkerFetchContextImpl::set_client_id(
+    const blink::WebString& client_id) {
+  // Make a deep copy because we will visit it on the worker thread.
+  client_id_ = client_id.IsolatedCopy();
 }
 
 void WebWorkerFetchContextImpl::OnControllerChanged(
@@ -642,7 +645,7 @@ void WebWorkerFetchContextImpl::ResetServiceWorkerURLLoaderFactory() {
       FROM_HERE,
       base::BindOnce(
           &CreateServiceWorkerSubresourceLoaderFactory,
-          std::move(service_worker_container_host), client_id_,
+          std::move(service_worker_container_host), client_id_.Utf8(),
           fallback_factory_->Clone(),
           service_worker_url_loader_factory.InitWithNewPipeAndPassReceiver(),
           task_runner, base::SequencedTaskRunnerHandle::Get(),
@@ -665,7 +668,7 @@ void WebWorkerFetchContextImpl::UpdateSubresourceLoaderFactories(
   fallback_factory_ = network::SharedURLLoaderFactory::Create(
       subresource_loader_factory_bundle->CloneWithoutAppCacheFactory());
   web_loader_factory_ = std::make_unique<Factory>(
-      resource_dispatcher_->GetWeakPtr(), loader_factory_);
+      loader_factory_, cors_exempt_header_list(), terminate_sync_load_event_);
   ResetServiceWorkerURLLoaderFactory();
 }
 
@@ -685,6 +688,17 @@ blink::WebString WebWorkerFetchContextImpl::GetAcceptLanguages() const {
 
 void WebWorkerFetchContextImpl::ResetWeakWrapperResourceLoadInfoNotifier() {
   weak_wrapper_resource_load_info_notifier_.reset();
+}
+
+blink::WebVector<blink::WebString>
+WebWorkerFetchContextImpl::cors_exempt_header_list() {
+  blink::WebVector<blink::WebString> web_cors_exempt_header_list(
+      cors_exempt_header_list_.size());
+  std::transform(
+      cors_exempt_header_list_.begin(), cors_exempt_header_list_.end(),
+      web_cors_exempt_header_list.begin(),
+      [](const std::string& h) { return blink::WebString::FromLatin1(h); });
+  return web_cors_exempt_header_list;
 }
 
 void WebWorkerFetchContextImpl::AddPendingWorkerTimingReceiver(

@@ -8,6 +8,7 @@
 
 #include "base/bind.h"
 #include "base/callback.h"
+#include "base/containers/contains.h"
 #include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
 #include "chrome/browser/history/history_service_factory.h"
@@ -120,10 +121,8 @@ void SupervisedUserNavigationObserver::DidFinishNavigation(
   }
 }
 
-void SupervisedUserNavigationObserver::FrameDeleted(
-    content::RenderFrameHost* render_frame_host) {
-  int frame_id = render_frame_host->GetFrameTreeNodeId();
-  supervised_user_interstitials_.erase(frame_id);
+void SupervisedUserNavigationObserver::FrameDeleted(int frame_tree_node_id) {
+  supervised_user_interstitials_.erase(frame_tree_node_id);
 }
 
 void SupervisedUserNavigationObserver::DidFinishLoad(
@@ -163,12 +162,6 @@ void SupervisedUserNavigationObserver::OnURLFilterChanged() {
 
   MaybeUpdateRequestedHosts();
 
-  Profile* profile =
-      Profile::FromBrowserContext(web_contents()->GetBrowserContext());
-  SupervisedUserService* service =
-      SupervisedUserServiceFactory::GetForProfile(profile);
-  if (!service->IsSupervisedUserIframeFilterEnabled())
-    return;
 
   // Iframe filtering has been enabled.
   web_contents()->ForEachFrame(

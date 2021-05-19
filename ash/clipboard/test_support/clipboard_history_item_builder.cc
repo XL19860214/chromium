@@ -28,6 +28,8 @@ ClipboardHistoryItem ClipboardHistoryItemBuilder::Build() const {
     data.set_markup_data(markup_.value());
   if (rtf_.has_value())
     data.SetRTFData(rtf_.value());
+  if (!filenames_.empty())
+    data.set_filenames(filenames_);
   if (bookmark_title_.has_value())
     data.set_bookmark_title(bookmark_title_.value());
   if (bitmap_.has_value())
@@ -40,14 +42,14 @@ ClipboardHistoryItem ClipboardHistoryItemBuilder::Build() const {
 }
 
 ClipboardHistoryItemBuilder& ClipboardHistoryItemBuilder::Clear() {
-  text_ = base::nullopt;
-  markup_ = base::nullopt;
-  rtf_ = base::nullopt;
-  bookmark_title_ = base::nullopt;
-  bitmap_ = base::nullopt;
-  custom_format_ = base::nullopt;
-  custom_data_ = base::nullopt;
-  web_smart_paste_ = base::nullopt;
+  text_ = absl::nullopt;
+  markup_ = absl::nullopt;
+  rtf_ = absl::nullopt;
+  bookmark_title_ = absl::nullopt;
+  bitmap_ = absl::nullopt;
+  custom_format_ = absl::nullopt;
+  custom_data_ = absl::nullopt;
+  web_smart_paste_ = absl::nullopt;
   return *this;
 }
 
@@ -62,6 +64,9 @@ ClipboardHistoryItemBuilder& ClipboardHistoryItemBuilder::SetFormat(
       return SetMarkup("Svg");
     case ui::ClipboardInternalFormat::kRtf:
       return SetRtf("Rtf");
+    case ui::ClipboardInternalFormat::kFilenames:
+      return SetFilenames({ui::FileInfo(base::FilePath("/dir/filename"),
+                                        base::FilePath("filename"))});
     case ui::ClipboardInternalFormat::kBookmark:
       return SetBookmarkTitle("Bookmark Title");
     case ui::ClipboardInternalFormat::kBitmap:
@@ -85,6 +90,8 @@ ClipboardHistoryItemBuilder& ClipboardHistoryItemBuilder::ClearFormat(
       return ClearSvg();
     case ui::ClipboardInternalFormat::kRtf:
       return ClearRtf();
+    case ui::ClipboardInternalFormat::kFilenames:
+      return ClearFilenames();
     case ui::ClipboardInternalFormat::kBookmark:
       return ClearBookmarkTitle();
     case ui::ClipboardInternalFormat::kBitmap:
@@ -105,7 +112,7 @@ ClipboardHistoryItemBuilder& ClipboardHistoryItemBuilder::SetText(
 }
 
 ClipboardHistoryItemBuilder& ClipboardHistoryItemBuilder::ClearText() {
-  text_ = base::nullopt;
+  text_ = absl::nullopt;
   return *this;
 }
 
@@ -116,7 +123,7 @@ ClipboardHistoryItemBuilder& ClipboardHistoryItemBuilder::SetMarkup(
 }
 
 ClipboardHistoryItemBuilder& ClipboardHistoryItemBuilder::ClearMarkup() {
-  markup_ = base::nullopt;
+  markup_ = absl::nullopt;
   return *this;
 }
 
@@ -127,7 +134,7 @@ ClipboardHistoryItemBuilder& ClipboardHistoryItemBuilder::SetSvg(
 }
 
 ClipboardHistoryItemBuilder& ClipboardHistoryItemBuilder::ClearSvg() {
-  svg_ = base::nullopt;
+  svg_ = absl::nullopt;
   return *this;
 }
 
@@ -138,7 +145,18 @@ ClipboardHistoryItemBuilder& ClipboardHistoryItemBuilder::SetRtf(
 }
 
 ClipboardHistoryItemBuilder& ClipboardHistoryItemBuilder::ClearRtf() {
-  rtf_ = base::nullopt;
+  rtf_ = absl::nullopt;
+  return *this;
+}
+
+ClipboardHistoryItemBuilder& ClipboardHistoryItemBuilder::SetFilenames(
+    std::vector<ui::FileInfo> filenames) {
+  filenames_ = std::move(filenames);
+  return *this;
+}
+
+ClipboardHistoryItemBuilder& ClipboardHistoryItemBuilder::ClearFilenames() {
+  filenames_.clear();
   return *this;
 }
 
@@ -149,7 +167,7 @@ ClipboardHistoryItemBuilder& ClipboardHistoryItemBuilder::SetBookmarkTitle(
 }
 
 ClipboardHistoryItemBuilder& ClipboardHistoryItemBuilder::ClearBookmarkTitle() {
-  bookmark_title_ = base::nullopt;
+  bookmark_title_ = absl::nullopt;
   return *this;
 }
 
@@ -160,7 +178,7 @@ ClipboardHistoryItemBuilder& ClipboardHistoryItemBuilder::SetBitmap(
 }
 
 ClipboardHistoryItemBuilder& ClipboardHistoryItemBuilder::ClearBitmap() {
-  bitmap_ = base::nullopt;
+  bitmap_ = absl::nullopt;
   return *this;
 }
 
@@ -173,20 +191,19 @@ ClipboardHistoryItemBuilder& ClipboardHistoryItemBuilder::SetCustomData(
 }
 
 ClipboardHistoryItemBuilder& ClipboardHistoryItemBuilder::ClearCustomData() {
-  custom_format_ = base::nullopt;
-  custom_data_ = base::nullopt;
+  custom_format_ = absl::nullopt;
+  custom_data_ = absl::nullopt;
   return *this;
 }
 
 ClipboardHistoryItemBuilder& ClipboardHistoryItemBuilder::SetFileSystemData(
-    const std::initializer_list<std::string>& source_list) {
-  constexpr char kFileSystemSourcesType[] = "fs/sources";
+    const std::initializer_list<std::u16string>& source_list) {
+  constexpr char16_t kFileSystemSourcesType[] = u"fs/sources";
 
   base::Pickle custom_data;
   ui::WriteCustomDataToPickle(
-      std::unordered_map<base::string16, base::string16>(
-          {{base::UTF8ToUTF16(kFileSystemSourcesType),
-            base::UTF8ToUTF16(base::JoinString(source_list, "\n"))}}),
+      std::unordered_map<std::u16string, std::u16string>(
+          {{kFileSystemSourcesType, base::JoinString(source_list, u"\n")}}),
       &custom_data);
 
   return SetCustomData(
@@ -202,7 +219,7 @@ ClipboardHistoryItemBuilder& ClipboardHistoryItemBuilder::SetWebSmartPaste(
 }
 
 ClipboardHistoryItemBuilder& ClipboardHistoryItemBuilder::ClearWebSmartPaste() {
-  web_smart_paste_ = base::nullopt;
+  web_smart_paste_ = absl::nullopt;
   return *this;
 }
 

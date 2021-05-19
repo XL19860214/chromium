@@ -40,12 +40,25 @@ export let DestinationMessageData;
 
 /**
  * @typedef {{
- *   hasUnsavedChanges: (boolean|undefined),
  *   fileName: string,
  *   dataToSave: !ArrayBuffer
  * }}
  */
 export let RequiredSaveResult;
+
+/**
+ * Determines if the event has the platform-equivalent of the Windows ctrl key
+ * modifier.
+ * @param {!KeyboardEvent} e the event to handle.
+ * @return {boolean} Whether the event has the ctrl key modifier.
+ */
+export function hasCtrlModifier(e) {
+  let hasModifier = e.ctrlKey;
+  // <if expr="is_macosx">
+  hasModifier = e.metaKey;  // AKA Command.
+  // </if>
+  return hasModifier;
+}
 
 /**
  * Whether keydown events should currently be ignored. Events are ignored when

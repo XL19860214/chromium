@@ -36,7 +36,7 @@
 #include "testing/gtest/include/gtest/gtest.h"
 
 #if defined(OS_ANDROID)
-#include "components/signin/internal/identity_manager/child_account_info_fetcher_android.h"
+#include "components/signin/public/identity_manager/identity_test_utils.h"
 #endif
 
 namespace {
@@ -177,7 +177,9 @@ class AccountTrackerServiceTest : public testing::Test {
       : signin_client_(&pref_service_),
         fake_oauth2_token_service_(&pref_service_) {
 #if defined(OS_ANDROID)
-    ChildAccountInfoFetcherAndroid::InitializeForTests();
+    // Mock AccountManagerFacade in java code for tests that require its
+    // initialization.
+    signin::SetUpMockAccountManagerFacade();
 #endif
 
     AccountTrackerService::RegisterPrefs(pref_service_.registry());
@@ -356,15 +358,8 @@ class AccountTrackerServiceTest : public testing::Test {
   }
 
   void DeleteAccountTracker() {
-    if (account_fetcher_) {
-      account_fetcher_->Shutdown();
-      account_fetcher_.reset();
-    }
-
-    if (account_tracker_) {
-      account_tracker_->Shutdown();
-      account_tracker_.reset();
-    }
+    account_fetcher_.reset();
+    account_tracker_.reset();
     // Allow residual |account_tracker_| posted tasks to run.
     task_environment_.RunUntilIdle();
   }
@@ -443,6 +438,7 @@ TEST_F(AccountTrackerServiceTest, TokenAvailable_Revoked) {
 }
 
 TEST_F(AccountTrackerServiceTest, TokenAvailable_UserInfo_ImageSuccess) {
+  base::HistogramTester histogram_tester;
   SimulateTokenAvailable(kAccountKeyAlpha);
   ReturnAccountInfoFetchSuccess(kAccountKeyAlpha);
   EXPECT_TRUE(account_fetcher()->IsAllUserInfoFetched());
@@ -467,9 +463,14 @@ TEST_F(AccountTrackerServiceTest, TokenAvailable_UserInfo_ImageSuccess) {
   EXPECT_FALSE(account_info.account_image.IsEmpty());
   EXPECT_EQ(account_info.last_downloaded_image_url_with_size,
             AccountKeyToPictureURLWithSize(kAccountKeyAlpha));
+  histogram_tester.ExpectTotalCount(
+      "Signin.AccountFetcher.AccountUserInfoFetchTime", 1);
+  histogram_tester.ExpectTotalCount(
+      "Signin.AccountFetcher.AccountAvatarFetchTime", 1);
 }
 
 TEST_F(AccountTrackerServiceTest, TokenAvailable_UserInfo_ImageFailure) {
+  base::HistogramTester histogram_tester;
   SimulateTokenAvailable(kAccountKeyAlpha);
   ReturnAccountInfoFetchSuccess(kAccountKeyAlpha);
   EXPECT_TRUE(account_fetcher()->IsAllUserInfoFetched());
@@ -488,6 +489,10 @@ TEST_F(AccountTrackerServiceTest, TokenAvailable_UserInfo_ImageFailure) {
       AccountKeyToAccountId(kAccountKeyAlpha));
   EXPECT_TRUE(account_info.account_image.IsEmpty());
   EXPECT_TRUE(account_info.last_downloaded_image_url_with_size.empty());
+  histogram_tester.ExpectTotalCount(
+      "Signin.AccountFetcher.AccountUserInfoFetchTime", 1);
+  histogram_tester.ExpectTotalCount(
+      "Signin.AccountFetcher.AccountAvatarFetchTime", 0);
 }
 
 TEST_F(AccountTrackerServiceTest, TokenAvailable_UserInfo_Revoked) {
@@ -508,10 +513,15 @@ TEST_F(AccountTrackerServiceTest, TokenAvailable_UserInfo_Revoked) {
 }
 
 TEST_F(AccountTrackerServiceTest, TokenAvailable_UserInfoFailed) {
+  base::HistogramTester histogram_tester;
   SimulateTokenAvailable(kAccountKeyAlpha);
   ReturnAccountInfoFetchFailure(kAccountKeyAlpha);
   EXPECT_TRUE(account_fetcher()->IsAllUserInfoFetched());
   EXPECT_TRUE(CheckAccountTrackerEvents({}));
+  histogram_tester.ExpectTotalCount(
+      "Signin.AccountFetcher.AccountInfoFetchTime", 0);
+  histogram_tester.ExpectTotalCount(
+      "Signin.AccountFetcher.AccountAvatarFetchTime", 0);
 }
 
 TEST_F(AccountTrackerServiceTest, TokenAvailableTwice_UserInfoOnce) {
@@ -1017,7 +1027,7 @@ TEST_F(AccountTrackerServiceTest, MigrateAccountIdToGaiaId) {
   dict->SetString("gaia", gaia_alpha);
   update->Append(std::move(dict));
 
-  dict.reset(new base::DictionaryValue());
+  dict = std::make_unique<base::DictionaryValue>();
   dict->SetString("account_id", email_beta);
   dict->SetString("email", email_beta);
   dict->SetString("gaia", gaia_beta);
@@ -1065,7 +1075,7 @@ TEST_F(AccountTrackerServiceTest, CanNotMigrateAccountIdToGaiaId) {
   dict->SetString("gaia", gaia_alpha);
   update->Append(std::move(dict));
 
-  dict.reset(new base::DictionaryValue());
+  dict = std::make_unique<base::DictionaryValue>();
   dict->SetString("account_id", email_beta);
   dict->SetString("email", email_beta);
   dict->SetString("gaia", "");
@@ -1114,14 +1124,14 @@ TEST_F(AccountTrackerServiceTest, GaiaIdMigrationCrashInTheMiddle) {
   dict->SetString("gaia", gaia_alpha);
   update->Append(std::move(dict));
 
-  dict.reset(new base::DictionaryValue());
+  dict = std::make_unique<base::DictionaryValue>();
   dict->SetString("account_id", email_beta);
   dict->SetString("email", email_beta);
   dict->SetString("gaia", gaia_beta);
   update->Append(std::move(dict));
 
   // Succeed miggrated account.
-  dict.reset(new base::DictionaryValue());
+  dict = std::make_unique<base::DictionaryValue>();
   dict->SetString("account_id", gaia_alpha);
   dict->SetString("email", email_alpha);
   dict->SetString("gaia", gaia_alpha);
@@ -1413,7 +1423,7 @@ TEST_F(AccountTrackerServiceTest, CountOfLoadedAccounts_TwoAccounts) {
   dict->SetString("gaia", gaia_alpha);
   update->Append(std::move(dict));
 
-  dict.reset(new base::DictionaryValue());
+  dict = std::make_unique<base::DictionaryValue>();
   dict->SetString("account_id", email_beta);
   dict->SetString("email", email_beta);
   dict->SetString("gaia", gaia_beta);
@@ -1443,7 +1453,7 @@ TEST_F(AccountTrackerServiceTest, CountOfLoadedAccounts_TwoAccountsOneInvalid) {
 
   // This account is invalid because the account_id is a non-canonicalized
   // version of the email.
-  dict.reset(new base::DictionaryValue());
+  dict = std::make_unique<base::DictionaryValue>();
   dict->SetString("account_id", email_foobar);
   dict->SetString("email", email_foobar);
   dict->SetString("gaia", gaia_foobar);

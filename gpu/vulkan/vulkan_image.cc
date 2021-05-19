@@ -10,17 +10,18 @@
 
 #include "base/logging.h"
 #include "base/macros.h"
-#include "base/optional.h"
 #include "base/stl_util.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "gpu/vulkan/vulkan_device_queue.h"
 #include "gpu/vulkan/vulkan_function_pointers.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace gpu {
 
 namespace {
 
-base::Optional<uint32_t> FindMemoryTypeIndex(
+absl::optional<uint32_t> FindMemoryTypeIndex(
     VkPhysicalDevice physical_device,
     const VkMemoryRequirements* requirements,
     VkMemoryPropertyFlags flags) {
@@ -35,7 +36,7 @@ base::Optional<uint32_t> FindMemoryTypeIndex(
     return i;
   }
   NOTREACHED();
-  return base::nullopt;
+  return absl::nullopt;
 }
 
 }  // namespace
@@ -107,7 +108,7 @@ std::unique_ptr<VulkanImage> VulkanImage::Create(
     VkImageTiling image_tiling,
     VkDeviceSize device_size,
     uint32_t memory_type_index,
-    base::Optional<VulkanYCbCrInfo>& ycbcr_info,
+    absl::optional<VulkanYCbCrInfo>& ycbcr_info,
     VkImageUsageFlags usage,
     VkImageCreateFlags flags) {
   auto image = std::make_unique<VulkanImage>(base::PassKey<VulkanImage>());
@@ -270,12 +271,14 @@ bool VulkanImage::Initialize(VulkanDeviceQueue* device_queue,
     return false;
   }
 
-  // If the |image_tiling_| is VK_IMAGE_TILING_DRM_FORMAT_MODIFIER_EXT,
-  // The InitializeWithExternalMemoryAndModifiers() will get the layout.
-  if (image_tiling_ == VK_IMAGE_TILING_DRM_FORMAT_MODIFIER_EXT)
+  // Get subresource layout for images with VK_IMAGE_TILING_LINEAR.
+  // For images with VK_IMAGE_TILING_DRM_FORMAT_MODIFIER_EXT, the layout is
+  // initialized in InitializeWithExternalMemoryAndModifiers(). For
+  // VK_IMAGE_TILING_OPTIMAL the layout is not usable and
+  // vkGetImageSubresourceLayout() is illegal.
+  if (image_tiling_ != VK_IMAGE_TILING_LINEAR)
     return true;
 
-  plane_count_ = 1;
   const VkImageSubresource image_subresource = {
       .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
       .mipLevel = 0,
@@ -320,7 +323,9 @@ bool VulkanImage::InitializeWithExternalMemory(
   };
   format_info_2.pNext = &external_info;
 
-#if defined(OS_LINUX)
+// TODO(crbug.com/1052397): Revisit once build flag switch of lacros-chrome is
+// complete.
+#if defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
   VkPhysicalDeviceImageDrmFormatModifierInfoEXT modifier_info = {
       .sType =
           VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_DRM_FORMAT_MODIFIER_INFO_EXT,

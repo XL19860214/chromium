@@ -160,7 +160,7 @@ bool VTVideoEncodeAccelerator::Initialize(const Config& config,
   }
   h264_profile_ = config.output_profile;
 
-  client_ptr_factory_.reset(new base::WeakPtrFactory<Client>(client));
+  client_ptr_factory_ = std::make_unique<base::WeakPtrFactory<Client>>(client);
   client_ = client_ptr_factory_->GetWeakPtr();
   input_visible_size_ = config.input_visible_size;
   frame_rate_ = kMaxFrameRateNumerator / kMaxFrameRateDenominator;
@@ -287,7 +287,7 @@ void VTVideoEncodeAccelerator::EncodeTask(scoped_refptr<VideoFrame> frame,
           force_keyframe ? kCFBooleanTrue : kCFBooleanFalse);
 
   base::TimeTicks ref_time =
-      frame->metadata()->reference_time.value_or(base::TimeTicks::Now());
+      frame->metadata().reference_time.value_or(base::TimeTicks::Now());
   auto timestamp_cm =
       CMTimeMake(frame->timestamp().InMicroseconds(), USEC_PER_SEC);
   // Wrap information we'll need after the frame is encoded in a heap object.

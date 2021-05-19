@@ -36,7 +36,6 @@
 #include "base/allocator/partition_allocator/page_allocator.h"
 #include "build/build_config.h"
 #include "mojo/public/cpp/bindings/binder_map.h"
-#include "third_party/blink/public/common/experiments/memory_ablation_experiment.h"
 #include "third_party/blink/public/common/features.h"
 #include "third_party/blink/public/mojom/optimization_guide/optimization_guide.mojom-blink.h"
 #include "third_party/blink/public/platform/interface_registry.h"
@@ -57,7 +56,6 @@
 #include "third_party/blink/renderer/platform/disk_data_allocator.h"
 #include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/scheduler/public/thread.h"
-#include "third_party/blink/renderer/platform/wtf/assertions.h"
 #include "third_party/blink/renderer/platform/wtf/functional.h"
 #include "third_party/blink/renderer/platform/wtf/wtf.h"
 #include "v8/include/v8.h"
@@ -142,11 +140,6 @@ void InitializeCommon(Platform* platform, mojo::BinderMap* binders) {
   g_end_of_task_runner = new EndOfTaskRunner;
   Thread::Current()->AddTaskObserver(g_end_of_task_runner);
 
-  scoped_refptr<base::SequencedTaskRunner> task_runner =
-      Thread::MainThread()->GetTaskRunner();
-  if (task_runner)
-    MemoryAblationExperiment::MaybeStartForRenderer(task_runner);
-
 #if defined(OS_ANDROID)
   // Initialize CrashMemoryMetricsReporterImpl in order to assure that memory
   // allocation does not happen in OnOOMCallback.
@@ -190,14 +183,21 @@ void CreateMainThreadAndInitialize(Platform* platform,
 // Function defined in third_party/blink/public/web/blink.h.
 void SetIsCrossOriginIsolated(bool value) {
   Agent::SetIsCrossOriginIsolated(value);
-  if (value) {
-    v8::V8::SetIsCrossOriginIsolated();
-  }
 }
 
 // Function defined in third_party/blink/public/web/blink.h.
 bool IsCrossOriginIsolated() {
   return Agent::IsCrossOriginIsolated();
+}
+
+// Function defined in third_party/blink/public/web/blink.h.
+void SetIsDirectSocketEnabled(bool value) {
+  Agent::SetIsDirectSocketEnabled(value);
+}
+
+// Function defined in third_party/blink/public/web/blink.h.
+bool IsDirectSocketEnabled() {
+  return Agent::IsDirectSocketEnabled();
 }
 
 void BlinkInitializer::RegisterInterfaces(mojo::BinderMap& binders) {
@@ -210,7 +210,7 @@ void BlinkInitializer::RegisterInterfaces(mojo::BinderMap& binders) {
 
 #if defined(OS_ANDROID)
   binders.Add(ConvertToBaseRepeatingCallback(
-                  CrossThreadBindRepeating(&OomInterventionImpl::Create)),
+                  CrossThreadBindRepeating(&OomInterventionImpl::Bind)),
               main_thread->GetTaskRunner());
 
   binders.Add(ConvertToBaseRepeatingCallback(CrossThreadBindRepeating(
@@ -225,7 +225,7 @@ void BlinkInitializer::RegisterInterfaces(mojo::BinderMap& binders) {
 #endif
 
   binders.Add(ConvertToBaseRepeatingCallback(
-                  CrossThreadBindRepeating(&BlinkLeakDetector::Create)),
+                  CrossThreadBindRepeating(&BlinkLeakDetector::Bind)),
               main_thread->GetTaskRunner());
 
   binders.Add(ConvertToBaseRepeatingCallback(
@@ -233,7 +233,7 @@ void BlinkInitializer::RegisterInterfaces(mojo::BinderMap& binders) {
               main_thread->GetTaskRunner());
 
   binders.Add(ConvertToBaseRepeatingCallback(CrossThreadBindRepeating(
-                  &V8DetailedMemoryReporterImpl::Create)),
+                  &V8DetailedMemoryReporterImpl::Bind)),
               main_thread->GetTaskRunner());
 }
 

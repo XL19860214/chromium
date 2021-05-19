@@ -69,14 +69,14 @@ class PolicyTest : public InProcessBrowserTest {
   // Sends a mouse click at the given coordinates to the current renderer.
   void PerformClick(int x, int y);
 
-  void SetPolicy(PolicyMap* policies,
-                 const char* key,
-                 base::Optional<base::Value> value);
+  static void SetPolicy(PolicyMap* policies,
+                        const char* key,
+                        absl::optional<base::Value> value);
 
-  void ApplySafeSearchPolicy(base::Optional<base::Value> legacy_safe_search,
-                             base::Optional<base::Value> google_safe_search,
-                             base::Optional<base::Value> legacy_youtube,
-                             base::Optional<base::Value> youtube_restrict);
+  void ApplySafeSearchPolicy(absl::optional<base::Value> legacy_safe_search,
+                             absl::optional<base::Value> google_safe_search,
+                             absl::optional<base::Value> legacy_youtube,
+                             absl::optional<base::Value> youtube_restrict);
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   void TestScreenshotFile(bool enabled);
@@ -105,7 +105,7 @@ class PolicyTest : public InProcessBrowserTest {
 
   void WaitForInterstitial(content::WebContents* tab);
 
-  int IsExtendedReportingCheckboxVisibleOnInterstitial();
+  int IsEnhancedProtectionMessageVisibleOnInterstitial();
 
   void SendInterstitialCommand(
       content::WebContents* tab,

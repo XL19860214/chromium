@@ -6,10 +6,10 @@
 
 #include <utility>
 
+#include "ash/constants/ash_features.h"
 #include "base/feature_list.h"
 #include "chromeos/components/help_app_ui/help_app_ui.h"
 #include "chromeos/components/help_app_ui/help_app_ui_delegate.h"
-#include "chromeos/constants/chromeos_features.h"
 
 HelpAppPageHandler::HelpAppPageHandler(
     chromeos::HelpAppUI* help_app_ui,
@@ -19,6 +19,11 @@ HelpAppPageHandler::HelpAppPageHandler(
       is_lss_enabled_(
           base::FeatureList::IsEnabled(
               chromeos::features::kHelpAppSearchServiceIntegration) &&
+          base::FeatureList::IsEnabled(
+              chromeos::features::kEnableLocalSearchService)),
+      is_launcher_search_enabled_(
+          base::FeatureList::IsEnabled(
+              chromeos::features::kHelpAppLauncherSearch) &&
           base::FeatureList::IsEnabled(
               chromeos::features::kEnableLocalSearchService)) {}
 
@@ -36,4 +41,9 @@ void HelpAppPageHandler::ShowParentalControls() {
 
 void HelpAppPageHandler::IsLssEnabled(IsLssEnabledCallback callback) {
   std::move(callback).Run(is_lss_enabled_);
+}
+
+void HelpAppPageHandler::IsLauncherSearchEnabled(
+    IsLauncherSearchEnabledCallback callback) {
+  std::move(callback).Run(is_launcher_search_enabled_);
 }

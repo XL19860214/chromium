@@ -6,8 +6,9 @@
 
 #include "base/files/file_path.h"
 #include "content/public/test/browser_test.h"
-#include "fuchsia/base/frame_test_util.h"
-#include "fuchsia/base/test_navigation_listener.h"
+#include "fuchsia/base/test/frame_test_util.h"
+#include "fuchsia/base/test/test_navigation_listener.h"
+#include "fuchsia/engine/browser/context_impl.h"
 #include "fuchsia/engine/browser/frame_impl.h"
 #include "fuchsia/engine/test/test_data.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -53,6 +54,7 @@ IN_PROC_BROWSER_TEST_F(
     AutoplayTest,
     UserActivationPolicy_UserActivatedViaSimulatedInteraction) {
   const GURL kUrl(embedded_test_server()->GetURL("/play_vp8.html?autoplay=1"));
+  constexpr const char kPageLoadedTitle[] = "initial title";
 
   fuchsia::web::FramePtr frame =
       CreateFrame(fuchsia::web::AutoplayPolicy::REQUIRE_USER_ACTIVATION);
@@ -60,7 +62,7 @@ IN_PROC_BROWSER_TEST_F(
   fuchsia::web::LoadUrlParams params;
   EXPECT_TRUE(
       cr_fuchsia::LoadUrlAndExpectResponse(controller_.get(), {}, kUrl.spec()));
-  navigation_listener_.RunUntilUrlEquals(kUrl);
+  navigation_listener_.RunUntilUrlAndTitleEquals(kUrl, kPageLoadedTitle);
 
   context_impl()
       ->GetFrameImplForTest(&frame)

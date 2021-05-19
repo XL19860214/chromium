@@ -8,16 +8,14 @@
 #include "base/allocator/partition_allocator/page_allocator.h"
 #include "base/allocator/partition_allocator/page_allocator_constants.h"
 #include "base/allocator/partition_allocator/partition_address_space.h"
-#include "base/allocator/partition_allocator/partition_alloc.h"
 #include "base/allocator/partition_allocator/partition_alloc_check.h"
 #include "base/allocator/partition_allocator/partition_alloc_features.h"
 #include "base/allocator/partition_allocator/partition_alloc_forward.h"
 #include "base/allocator/partition_allocator/partition_direct_map_extent.h"
+#include "base/allocator/partition_allocator/partition_root.h"
 #include "base/bits.h"
-#include "base/check.h"
+#include "base/dcheck_is_on.h"
 #include "base/feature_list.h"
-#include "base/notreached.h"
-#include "build/build_config.h"
 
 namespace base {
 namespace internal {
@@ -55,7 +53,7 @@ PartitionDirectUnmap(SlotSpanMetadata<thread_safe>* slot_span) {
   PA_DCHECK(!(reserved_size & PageAllocationGranularityOffsetMask()));
 
   char* ptr = reinterpret_cast<char*>(
-      SlotSpanMetadata<thread_safe>::ToPointer(slot_span));
+      SlotSpanMetadata<thread_safe>::ToSlotSpanStartPtr(slot_span));
   // Account for the mapping starting a partition page before the actual
   // allocation address.
   ptr -= PartitionPageSize();
@@ -115,6 +113,11 @@ SlotSpanMetadata<thread_safe>::get_sentinel_slot_span() {
 }
 
 template <bool thread_safe>
+SlotSpanMetadata<thread_safe>::SlotSpanMetadata(
+    PartitionBucket<thread_safe>* bucket)
+    : bucket(bucket), can_store_raw_size(bucket->CanStoreRawSize()) {}
+
+template <bool thread_safe>
 DeferredUnmap SlotSpanMetadata<thread_safe>::FreeSlowPath() {
 #if DCHECK_IS_ON()
   auto* root = PartitionRoot<thread_safe>::FromSlotSpan(this);
@@ -126,6 +129,9 @@ DeferredUnmap SlotSpanMetadata<thread_safe>::FreeSlowPath() {
     if (UNLIKELY(bucket->is_direct_mapped())) {
       return PartitionDirectUnmap(this);
     }
+#if DCHECK_IS_ON()
+    freelist_head->CheckFreeList();
+#endif
     // If it's the current active slot span, change it. We bounce the slot span
     // to the empty list as a force towards defragmentation.
     if (LIKELY(this == bucket->active_slot_spans_head))
@@ -168,17 +174,16 @@ void SlotSpanMetadata<thread_safe>::Decommit(PartitionRoot<thread_safe>* root) {
   root->lock_.AssertAcquired();
   PA_DCHECK(is_empty());
   PA_DCHECK(!bucket->is_direct_mapped());
-  void* addr = SlotSpanMetadata::ToPointer(this);
+  void* slot_span_start = SlotSpanMetadata::ToSlotSpanStartPtr(this);
+  // If lazy commit is enabled, only provisioned slots are committed.
   size_t size_to_decommit =
-#if defined(OS_WIN)
-      // Windows uses lazy commit, thus only provisioned slots are committed.
-      bits::Align(GetProvisionedSize(), SystemPageSize());
-#else
-      bucket->get_bytes_per_span();
-#endif
+      root->use_lazy_commit
+          ? bits::AlignUp(GetProvisionedSize(), SystemPageSize())
+          : bucket->get_bytes_per_span();
+
   // Not decommitted slot span must've had at least 1 allocation.
   PA_DCHECK(size_to_decommit > 0);
-  root->DecommitSystemPagesForData(addr, size_to_decommit,
+  root->DecommitSystemPagesForData(slot_span_start, size_to_decommit,
                                    PageKeepPermissionsIfPossible);
 
   // We actually leave the decommitted slot span in the active list. We'll sweep
@@ -206,15 +211,12 @@ void SlotSpanMetadata<thread_safe>::DecommitIfPossible(
 
 void DeferredUnmap::Unmap() {
   PA_DCHECK(ptr && size > 0);
-  // Currently this path is only called for direct-mapped allocations. If this
-  // changes, the if statement below has to be updated.
-  PA_DCHECK(!IsManagedByPartitionAllocNormalBuckets(ptr));
-  if (IsManagedByPartitionAllocDirectMap(ptr)) {
-    internal::AddressPoolManager::GetInstance()->UnreserveAndDecommit(
-        internal::GetDirectMapPool(), ptr, size);
-  } else {
-    FreePages(ptr, size);
-  }
+  // Currently this function is only called for direct-mapped allocations,
+  // which always belong to the non-BRP pool.
+  // TODO(bartekn): Add a !"is in normal buckets" DCHECK.
+  PA_DCHECK(IsManagedByPartitionAllocNonBRPPool(ptr));
+  internal::AddressPoolManager::GetInstance()->UnreserveAndDecommit(
+      internal::GetNonBRPPool(), ptr, size);
 }
 
 template struct SlotSpanMetadata<ThreadSafe>;

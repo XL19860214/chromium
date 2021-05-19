@@ -13,11 +13,12 @@
 #include "base/macros.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
+#include "base/threading/sequence_bound.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
 #include "content/browser/conversions/conversion_manager.h"
 #include "content/browser/conversions/conversion_policy.h"
-#include "content/browser/conversions/conversion_storage_context.h"
+#include "content/browser/conversions/conversion_storage.h"
 #include "storage/browser/quota/special_storage_policy.h"
 
 namespace base {
@@ -111,12 +112,14 @@ class CONTENT_EXPORT ConversionManagerImpl : public ConversionManager {
       const base::FilePath& user_data_directory,
       scoped_refptr<storage::SpecialStoragePolicy> special_storage_policy);
 
-  // Retrieves reports from storage whose |report_time| <= |max_report_time|,
-  // and calls |handler_function| on them.
+  // Retrieves at most |limit| reports from storage whose |report_time| <=
+  // |max_report_time|, and calls |handler_function| on them; use a negative
+  // number for no limit.
   using ReportsHandlerFunc =
       base::OnceCallback<void(std::vector<ConversionReport>)>;
   void GetAndHandleReports(ReportsHandlerFunc handler_function,
-                           base::Time max_report_time);
+                           base::Time max_report_time,
+                           int limit = -1);
 
   // Get the next set of reports from storage that need to be sent before the
   // next call from |get_and_queue_reports_timer_|. Adds the reports to
@@ -140,7 +143,7 @@ class CONTENT_EXPORT ConversionManagerImpl : public ConversionManager {
   void OnReportSentFromWebUI(base::OnceClosure reports_sent_barrier,
                              int64_t conversion_id);
 
-  // Friend to expose the ConversionStorageContext for certain tests.
+  // Friend to expose the ConversionStorage for certain tests.
   friend std::vector<ConversionReport> GetConversionsToReportForTesting(
       ConversionManagerImpl* manager,
       base::Time max_report_time);
@@ -159,10 +162,7 @@ class CONTENT_EXPORT ConversionManagerImpl : public ConversionManager {
   // from |storage_| and added to |reporter_| by |get_reports_timer_|.
   std::unique_ptr<ConversionReporter> reporter_;
 
-  // Cross sequence storage context that is created alongside the manager. The
-  // ref count is held for the entire lifetime of |this|, but may outlive
-  // |this|. Can be accessed at any point in |this|'s lifetime.
-  scoped_refptr<ConversionStorageContext> conversion_storage_context_;
+  base::SequenceBound<ConversionStorage> conversion_storage_;
 
   // Policy used for controlling API configurations such as reporting and
   // attribution models. Unique ptr so it can be overridden for testing.

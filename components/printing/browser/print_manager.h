@@ -19,14 +19,6 @@
 #include "base/callback.h"
 #endif
 
-#if BUILDFLAG(ENABLE_TAGGED_PDF)
-#include "ui/accessibility/ax_tree_update_forward.h"
-#endif
-
-namespace IPC {
-class Message;
-}
-
 namespace printing {
 
 class PrintManager : public content::WebContentsObserver,
@@ -49,27 +41,16 @@ class PrintManager : public content::WebContentsObserver,
   void DidGetDocumentCookie(int32_t cookie) override;
   void DidPrintDocument(mojom::DidPrintDocumentParamsPtr params,
                         DidPrintDocumentCallback callback) override;
-#if BUILDFLAG(ENABLE_TAGGED_PDF)
-  void SetAccessibilityTree(
-      int32_t cookie,
-      const ui::AXTreeUpdate& accessibility_tree) override;
-#endif
-  void UpdatePrintSettings(int32_t cookie,
-                           base::Value job_settings,
-                           UpdatePrintSettingsCallback callback) override;
   void DidShowPrintDialog() override;
   void ShowInvalidPrinterSettingsError() override;
   void PrintingFailed(int32_t cookie) override;
-#if BUILDFLAG(ENABLE_PRINT_PREVIEW)
-  void ShowScriptedPrintPreview(bool source_is_modifiable) override;
-#endif
 
  protected:
   explicit PrintManager(content::WebContents* contents);
 
   // Helper method to determine if PrintRenderFrame associated remote interface
   // is still connected.
-  bool IsPrintRenderFrameConnected(content::RenderFrameHost* rfh);
+  bool IsPrintRenderFrameConnected(content::RenderFrameHost* rfh) const;
 
   // Helper method to fetch the PrintRenderFrame associated remote interface
   // pointer.
@@ -79,18 +60,10 @@ class PrintManager : public content::WebContentsObserver,
   // Terminates or cancels the print job if one was pending.
   void PrintingRenderFrameDeleted();
 
+  bool IsValidCookie(int cookie) const;
+
   // content::WebContentsObserver
-  bool OnMessageReceived(const IPC::Message& message,
-                         content::RenderFrameHost* render_frame_host) override;
   void RenderFrameDeleted(content::RenderFrameHost* render_frame_host) override;
-
-  // IPC handling support
-  struct FrameDispatchHelper;
-
-  // IPC handlers
-  virtual void OnScriptedPrint(content::RenderFrameHost* render_frame_host,
-                               const mojom::ScriptedPrintParams& params,
-                               IPC::Message* reply_msg) = 0;
 
   uint32_t number_pages_ = 0;  // Number of pages to print in the print job.
   int cookie_ = 0;        // The current document cookie.

@@ -27,6 +27,7 @@
 #include "chrome/browser/net/system_network_context_manager.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
+#include "chrome/browser/safe_browsing/chrome_password_protection_service_factory.h"
 #include "chrome/browser/safe_browsing/safe_browsing_metrics_collector.h"
 #include "chrome/browser/safe_browsing/safe_browsing_metrics_collector_factory.h"
 #include "chrome/browser/safe_browsing/safe_browsing_navigation_observer_manager.h"
@@ -38,6 +39,7 @@
 #include "components/prefs/pref_change_registrar.h"
 #include "components/prefs/pref_service.h"
 #include "components/safe_browsing/buildflags.h"
+#include "components/safe_browsing/content/browser/client_side_phishing_model.h"
 #include "components/safe_browsing/content/web_ui/safe_browsing_ui.h"
 #include "components/safe_browsing/core/browser/safe_browsing_network_context.h"
 #include "components/safe_browsing/core/common/safebrowsing_constants.h"
@@ -59,7 +61,6 @@
 #endif
 
 #if BUILDFLAG(SAFE_BROWSING_AVAILABLE)
-#include "chrome/browser/safe_browsing/client_side_detection_service.h"
 #include "components/safe_browsing/content/password_protection/password_protection_service.h"
 #endif
 
@@ -146,7 +147,7 @@ void SafeBrowsingService::ShutDown() {
   // Remove Profile creation/destruction observers.
   if (g_browser_process->profile_manager())
     g_browser_process->profile_manager()->RemoveObserver(this);
-  observed_profiles_.RemoveAll();
+  observed_profiles_.RemoveAllObservations();
 
   // Delete the PrefChangeRegistrars, whose dtors also unregister |this| as an
   // observer of the preferences.
@@ -236,7 +237,7 @@ TriggerManager* SafeBrowsingService::trigger_manager() const {
 PasswordProtectionService* SafeBrowsingService::GetPasswordProtectionService(
     Profile* profile) const {
   if (IsSafeBrowsingEnabled(*profile->GetPrefs()))
-    return services_delegate_->GetPasswordProtectionService(profile);
+    return ChromePasswordProtectionServiceFactory::GetForProfile(profile);
   return nullptr;
 }
 
@@ -398,8 +399,7 @@ void SafeBrowsingService::OnOffTheRecordProfileCreated(
 }
 
 void SafeBrowsingService::OnProfileWillBeDestroyed(Profile* profile) {
-  observed_profiles_.Remove(profile);
-  services_delegate_->RemovePasswordProtectionService(profile);
+  observed_profiles_.RemoveObservation(profile);
   services_delegate_->RemoveTelemetryService(profile);
   services_delegate_->RemoveSafeBrowsingNetworkContext(profile);
 
@@ -410,9 +410,8 @@ void SafeBrowsingService::OnProfileWillBeDestroyed(Profile* profile) {
 
 void SafeBrowsingService::CreateServicesForProfile(Profile* profile) {
   services_delegate_->CreateSafeBrowsingNetworkContext(profile);
-  services_delegate_->CreatePasswordProtectionService(profile);
   services_delegate_->CreateTelemetryService(profile);
-  observed_profiles_.Add(profile);
+  observed_profiles_.AddObservation(profile);
 }
 
 base::CallbackListSubscription SafeBrowsingService::RegisterStateCallback(
@@ -467,6 +466,11 @@ network::mojom::NetworkContextParamsPtr
 SafeBrowsingService::CreateNetworkContextParams() {
   auto params = SystemNetworkContextManager::GetInstance()
                     ->CreateDefaultNetworkContextParams();
+  // |proxy_config_monitor_| should be deleted after shutdown, so don't
+  // re-create it.
+  if (shutdown_) {
+    return params;
+  }
   if (!proxy_config_monitor_) {
     proxy_config_monitor_ =
         std::make_unique<ProxyConfigMonitor>(g_browser_process->local_state());

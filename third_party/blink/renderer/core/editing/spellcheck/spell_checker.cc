@@ -30,6 +30,7 @@
 #include "third_party/blink/public/platform/web_string.h"
 #include "third_party/blink/public/web/web_text_check_client.h"
 #include "third_party/blink/public/web/web_text_decoration_type.h"
+#include "third_party/blink/renderer/core/clipboard/data_transfer.h"
 #include "third_party/blink/renderer/core/clipboard/data_transfer_access_policy.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/element.h"
@@ -538,6 +539,14 @@ void SpellChecker::RespondToChangedSelection() {
 
 void SpellChecker::RespondToChangedContents() {
   idle_spell_check_controller_->SetNeedsInvocation();
+}
+
+void SpellChecker::RespondToChangedEnablement(const HTMLElement& element,
+                                              bool enabled) {
+  if (enabled)
+    idle_spell_check_controller_->SetNeedsInvocation();
+  else
+    RemoveSpellingAndGrammarMarkers(element);
 }
 
 void SpellChecker::RemoveSpellingMarkers() {

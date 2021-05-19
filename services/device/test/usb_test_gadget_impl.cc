@@ -21,7 +21,7 @@
 #include "base/path_service.h"
 #include "base/process/process_handle.h"
 #include "base/run_loop.h"
-#include "base/scoped_observer.h"
+#include "base/scoped_observation.h"
 #include "base/single_thread_task_runner.h"
 #include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
@@ -199,7 +199,7 @@ class UsbGadgetFactory : public UsbService::Observer {
   // TODO(crbug.com/1010491): Remove `io_task_runner` parameter.
   UsbGadgetFactory(UsbService* usb_service,
                    scoped_refptr<base::SingleThreadTaskRunner> io_task_runner)
-      : usb_service_(usb_service), observer_(this) {
+      : usb_service_(usb_service) {
     // Gadget tests shouldn't be enabled without available |usb_service|.
     DCHECK(usb_service_);
 
@@ -208,7 +208,7 @@ class UsbGadgetFactory : public UsbService::Observer {
     session_id_ =
         base::StringPrintf("%" CrPRIdPid "-%d", process_id, next_session_id++);
 
-    observer_.Add(usb_service_);
+    observation_.Observe(usb_service_);
   }
 
   ~UsbGadgetFactory() override = default;
@@ -222,17 +222,15 @@ class UsbGadgetFactory : public UsbService::Observer {
  private:
   void EnumerateDevices() {
     if (!device_) {
-      usb_service_->GetDevices(
-          /*allow_restricted_devices=*/true,
-          base::BindOnce(&UsbGadgetFactory::OnDevicesEnumerated,
-                         weak_factory_.GetWeakPtr()));
+      usb_service_->GetDevices(base::BindOnce(
+          &UsbGadgetFactory::OnDevicesEnumerated, weak_factory_.GetWeakPtr()));
     }
   }
 
   void OnDevicesEnumerated(
       const std::vector<scoped_refptr<UsbDevice>>& devices) {
     for (const scoped_refptr<UsbDevice>& device : devices) {
-      OnDeviceAdded(device, /*is_restricted_device=*/false);
+      OnDeviceAdded(device);
     }
 
     if (!device_) {
@@ -246,8 +244,7 @@ class UsbGadgetFactory : public UsbService::Observer {
     }
   }
 
-  void OnDeviceAdded(scoped_refptr<UsbDevice> device,
-                     bool is_restricted_device) override {
+  void OnDeviceAdded(scoped_refptr<UsbDevice> device) override {
     if (device_.get()) {
       // Already trying to claim a device.
       return;
@@ -412,7 +409,7 @@ class UsbGadgetFactory : public UsbService::Observer {
   bool claimed_ = false;
   std::string version_;
   base::RunLoop run_loop_;
-  ScopedObserver<UsbService, UsbService::Observer> observer_;
+  base::ScopedObservation<UsbService, UsbService::Observer> observation_{this};
   base::WeakPtrFactory<UsbGadgetFactory> weak_factory_{this};
 };
 
@@ -423,17 +420,14 @@ class DeviceAddListener : public UsbService::Observer {
                     int product_id)
       : usb_service_(usb_service),
         serial_number_(serial_number),
-        product_id_(product_id),
-        observer_(this) {
-    observer_.Add(usb_service_);
+        product_id_(product_id) {
+    observation_.Observe(usb_service_);
   }
   ~DeviceAddListener() override = default;
 
   scoped_refptr<UsbDevice> WaitForAdd() {
-    usb_service_->GetDevices(
-        /*allow_restricted_devices=*/true,
-        base::BindOnce(&DeviceAddListener::OnDevicesEnumerated,
-                       weak_factory_.GetWeakPtr()));
+    usb_service_->GetDevices(base::BindOnce(
+        &DeviceAddListener::OnDevicesEnumerated, weak_factory_.GetWeakPtr()));
     run_loop_.Run();
     return device_;
   }
@@ -442,12 +436,11 @@ class DeviceAddListener : public UsbService::Observer {
   void OnDevicesEnumerated(
       const std::vector<scoped_refptr<UsbDevice>>& devices) {
     for (const scoped_refptr<UsbDevice>& device : devices) {
-      OnDeviceAdded(device, /*is_restricted_device=*/false);
+      OnDeviceAdded(device);
     }
   }
 
-  void OnDeviceAdded(scoped_refptr<UsbDevice> device,
-                     bool is_restricted_device) override {
+  void OnDeviceAdded(scoped_refptr<UsbDevice> device) override {
     if (device->vendor_id() == 0x18D1 && !device->serial_number().empty()) {
       const uint16_t product_id = device->product_id();
       if (product_id_ == -1) {
@@ -481,7 +474,7 @@ class DeviceAddListener : public UsbService::Observer {
   const int product_id_;
   base::RunLoop run_loop_;
   scoped_refptr<UsbDevice> device_;
-  ScopedObserver<UsbService, UsbService::Observer> observer_;
+  base::ScopedObservation<UsbService, UsbService::Observer> observation_{this};
   base::WeakPtrFactory<DeviceAddListener> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(DeviceAddListener);
@@ -490,14 +483,13 @@ class DeviceAddListener : public UsbService::Observer {
 class DeviceRemoveListener : public UsbService::Observer {
  public:
   DeviceRemoveListener(UsbService* usb_service, scoped_refptr<UsbDevice> device)
-      : usb_service_(usb_service), device_(device), observer_(this) {
-    observer_.Add(usb_service_);
+      : usb_service_(usb_service), device_(device) {
+    observation_.Observe(usb_service_);
   }
   ~DeviceRemoveListener() override = default;
 
   void WaitForRemove() {
     usb_service_->GetDevices(
-        /*allow_restricted_devices=*/true,
         base::BindOnce(&DeviceRemoveListener::OnDevicesEnumerated,
                        weak_factory_.GetWeakPtr()));
     run_loop_.Run();
@@ -517,8 +509,7 @@ class DeviceRemoveListener : public UsbService::Observer {
     }
   }
 
-  void OnDeviceRemoved(scoped_refptr<UsbDevice> device,
-                       bool is_restricted_device) override {
+  void OnDeviceRemoved(scoped_refptr<UsbDevice> device) override {
     if (device_ == device) {
       run_loop_.Quit();
     }
@@ -527,7 +518,7 @@ class DeviceRemoveListener : public UsbService::Observer {
   UsbService* usb_service_;
   base::RunLoop run_loop_;
   scoped_refptr<UsbDevice> device_;
-  ScopedObserver<UsbService, UsbService::Observer> observer_;
+  base::ScopedObservation<UsbService, UsbService::Observer> observation_{this};
   base::WeakPtrFactory<DeviceRemoveListener> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(DeviceRemoveListener);

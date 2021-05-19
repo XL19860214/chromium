@@ -8,7 +8,6 @@
 #include <string>
 #include <utility>
 
-#include "base/optional.h"
 #include "base/stl_util.h"
 #include "base/test/gtest_util.h"
 #include "components/performance_manager/execution_context/execution_context_registry_impl.h"
@@ -20,6 +19,7 @@
 #include "components/performance_manager/test_support/mock_graphs.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/common/tokens/tokens.h"
 
 namespace performance_manager {
@@ -97,8 +97,8 @@ TEST_F(V8ContextTrackerDeathTest, MissingExecutionContextForMainFrameExplodes) {
       mojom::V8ContextDescription(
           /* token */ kFrameMainWorld,
           /* world_type */ mojom::V8ContextWorldType::kMain,
-          /* world_name */ base::nullopt,
-          /* execution_context_token */ base::nullopt),
+          /* world_name */ absl::nullopt,
+          /* execution_context_token */ absl::nullopt),
       /* iframe_attribution_data */ nullptr));
 }
 
@@ -106,7 +106,7 @@ TEST_F(V8ContextTrackerDeathTest, DoubleCreationExplodes) {
   auto v8_desc = mojom::V8ContextDescription(
       /* token */ kFrameMainWorld,
       /* world_type */ mojom::V8ContextWorldType::kMain,
-      /* world_name */ base::nullopt,
+      /* world_name */ absl::nullopt,
       /* execution_context_token */ mock_graph.frame->frame_token());
 
   tracker->OnV8ContextCreated(ProcessNodeImpl::CreatePassKeyForTesting(),
@@ -153,33 +153,9 @@ TEST_F(V8ContextTrackerDeathTest, IframeAttributionDataForMainFrameExplodes) {
       mojom::V8ContextDescription(
           /* token */ kFrameMainWorld,
           /* world_type */ mojom::V8ContextWorldType::kMain,
-          /* world_name */ base::nullopt,
+          /* world_name */ absl::nullopt,
           /* execution_context_token */ mock_graph.frame->frame_token()),
       GetFakeIframeAttributionDataPtr()));
-}
-
-TEST_F(V8ContextTrackerDeathTest, IframeAttributionDataForInProcessChildFrame) {
-  // Create a child of mock_graph.frame that is in the same process.
-  TestNodeWrapper<FrameNodeImpl> child2_frame(graph()->CreateFrameNodeAutoId(
-      mock_graph.process.get(), mock_graph.page.get(), mock_graph.frame.get(),
-      3));
-
-  // Trying to provide IFrameAttribution data via a RemoteFrameAttached
-  // notification should explode because |child2_frame| is in the same process
-  // as its parent.
-  EXPECT_DCHECK_DEATH(tracker->OnRemoteIframeAttachedForTesting(
-      child2_frame.get(), mock_graph.frame.get(), blink::RemoteFrameToken(),
-      GetFakeIframeAttributionDataPtr()));
-
-  // This should succeed because iframe data is provided.
-  tracker->OnV8ContextCreated(
-      ProcessNodeImpl::CreatePassKeyForTesting(), mock_graph.process.get(),
-      mojom::V8ContextDescription(
-          /* token */ kChildFrameMainWorld,
-          /* world_type */ mojom::V8ContextWorldType::kMain,
-          /* world_name */ base::nullopt,
-          /* execution_context_token */ child2_frame->frame_token()),
-      GetFakeIframeAttributionDataPtr());
 }
 
 TEST_F(V8ContextTrackerDeathTest,
@@ -195,7 +171,7 @@ TEST_F(V8ContextTrackerDeathTest,
       mojom::V8ContextDescription(
           /* token */ kChildFrameMainWorld,
           /* world_type */ mojom::V8ContextWorldType::kMain,
-          /* world_name */ base::nullopt,
+          /* world_name */ absl::nullopt,
           /* execution_context_token */ child2_frame->frame_token()),
       /* iframe_attribution_data */ nullptr));
 }
@@ -207,7 +183,7 @@ TEST_F(V8ContextTrackerDeathTest, MultipleMainContextsForExecutionContext) {
       mojom::V8ContextDescription(
           /* token */ kFrameMainWorld,
           /* world_type */ mojom::V8ContextWorldType::kMain,
-          /* world_name */ base::nullopt,
+          /* world_name */ absl::nullopt,
           /* execution_context_token */ mock_graph.frame->frame_token()),
       /* iframe_attribution_data */ nullptr);
 
@@ -216,7 +192,7 @@ TEST_F(V8ContextTrackerDeathTest, MultipleMainContextsForExecutionContext) {
       mojom::V8ContextDescription(
           /* token */ blink::V8ContextToken(),
           /* world_type */ mojom::V8ContextWorldType::kMain,
-          /* world_name */ base::nullopt,
+          /* world_name */ absl::nullopt,
           /* execution_context_token */ mock_graph.frame->frame_token()),
       /* iframe_attribution_data */ nullptr));
 }
@@ -230,7 +206,7 @@ TEST_F(V8ContextTrackerTest, NormalV8ContextLifecycleWithExecutionContext) {
       mojom::V8ContextDescription(
           /* token */ kFrameMainWorld,
           /* world_type */ mojom::V8ContextWorldType::kMain,
-          /* world_name */ base::nullopt,
+          /* world_name */ absl::nullopt,
           /* execution_context_token */ mock_graph.frame->frame_token()),
       /* iframe_attribution_data */ nullptr);
   EXPECT_THAT(tracker, CountsMatch(1, 1));
@@ -256,8 +232,8 @@ TEST_F(V8ContextTrackerTest, NormalV8ContextLifecycleNoExecutionContext) {
       mojom::V8ContextDescription(
           /* token */ kFrameMainWorld,
           /* world_type */ mojom::V8ContextWorldType::kRegExp,
-          /* world_name */ base::nullopt,
-          /* execution_context_token */ base::nullopt),
+          /* world_name */ absl::nullopt,
+          /* execution_context_token */ absl::nullopt),
       /* iframe_attribution_data */ nullptr);
   EXPECT_THAT(tracker, CountsMatch(1, 0));
   EXPECT_THAT(tracker, DetachedCountsMatch(0, 0));
@@ -285,7 +261,7 @@ TEST_F(V8ContextTrackerTest, MultipleV8ContextsForExecutionContext) {
         mojom::V8ContextDescription(
             /* token */ kFrameMainWorld,
             /* world_type */ mojom::V8ContextWorldType::kMain,
-            /* world_name */ base::nullopt,
+            /* world_name */ absl::nullopt,
             /* execution_context_token */ mock_graph.frame->frame_token()),
         /* iframe_attribution_data */ nullptr);
     EXPECT_THAT(tracker, CountsMatch(1, 1));
@@ -315,7 +291,7 @@ TEST_F(V8ContextTrackerTest, MultipleV8ContextsForExecutionContext) {
         mojom::V8ContextDescription(
             /* token */ kChildFrameMainWorld,
             /* world_type */ mojom::V8ContextWorldType::kMain,
-            /* world_name */ base::nullopt,
+            /* world_name */ absl::nullopt,
             /* execution_context_token */
             mock_graph.child_frame->frame_token()),
         /* iframe_attribution_data */ nullptr);
@@ -434,7 +410,7 @@ TEST_F(V8ContextTrackerTest, AllEventOrders) {
       mojom::V8ContextDescription(
           /* token */ kFrameMainWorld,
           /* world_type */ mojom::V8ContextWorldType::kMain,
-          /* world_name */ base::nullopt,
+          /* world_name */ absl::nullopt,
           /* execution_context_token */ mock_graph.frame->frame_token()),
       /* iframe_attribution_data */ nullptr);
   EXPECT_THAT(tracker, CountsMatch(1, 1));
@@ -452,7 +428,7 @@ TEST_F(V8ContextTrackerTest, AllEventOrders) {
         mojom::V8ContextDescription(
             /* token */ kChildFrameMainWorld,
             /* world_type */ mojom::V8ContextWorldType::kMain,
-            /* world_name */ base::nullopt,
+            /* world_name */ absl::nullopt,
             /* execution_context_token */
             self->mock_graph.child_frame->frame_token()),
         /* iframe_attribution_data */ nullptr);
@@ -702,7 +678,7 @@ TEST_F(V8ContextTrackerTest, PublicApi) {
       mojom::V8ContextDescription(
           /* token */ kFrameMainWorld,
           /* world_type */ mojom::V8ContextWorldType::kMain,
-          /* world_name */ base::nullopt,
+          /* world_name */ absl::nullopt,
           /* execution_context_token */ mock_graph.frame->frame_token()),
       /* iframe_attribution_data */ nullptr);
   EXPECT_THAT(tracker, CountsMatch(1, 1));
@@ -734,7 +710,7 @@ TEST_F(V8ContextTrackerTest, PublicApi) {
       mojom::V8ContextDescription(
           /* token */ kChildFrameMainWorld,
           /* world_type */ mojom::V8ContextWorldType::kMain,
-          /* world_name */ base::nullopt,
+          /* world_name */ absl::nullopt,
           /* execution_context_token */
           mock_graph.child_frame->frame_token()),
       /* iframe_attribution_data */ nullptr);

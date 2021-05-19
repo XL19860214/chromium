@@ -8,10 +8,10 @@
 
 #include "base/command_line.h"
 #include "base/i18n/message_formatter.h"
+#include "base/strings/string_util.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
-#include "chrome/browser/chrome_content_browser_client.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/webui/version/version_handler.h"
 #include "chrome/browser/ui/webui/version/version_util_win.h"
@@ -20,7 +20,9 @@
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
+#include "components/embedder_support/user_agent_utils.h"
 #include "components/grit/components_resources.h"
+#include "components/grit/components_scaled_resources.h"
 #include "components/strings/grit/components_chromium_strings.h"
 #include "components/strings/grit/components_strings.h"
 #include "components/version_info/version_info.h"
@@ -83,7 +85,7 @@ WebUIDataSource* CreateVersionUIDataSource() {
     {version_ui::kGmsName, IDS_VERSION_UI_GMS},
 #endif  // OS_ANDROID
   };
-  AddLocalizedStringsBulk(html_source, kStrings);
+  html_source->AddLocalizedStrings(kStrings);
 
   VersionUI::AddVersionDetailStrings(html_source);
 
@@ -91,6 +93,13 @@ WebUIDataSource* CreateVersionUIDataSource() {
   html_source->AddResourcePath(version_ui::kVersionJS, IDR_VERSION_UI_JS);
   html_source->AddResourcePath(version_ui::kAboutVersionCSS,
                                IDR_VERSION_UI_CSS);
+#if defined(OS_ANDROID)
+  html_source->AddResourcePath(version_ui::kAboutVersionMobileCSS,
+                               IDR_VERSION_UI_MOBILE_CSS);
+  html_source->AddResourcePath("images/product_logo.png", IDR_PRODUCT_LOGO);
+  html_source->AddResourcePath("images/product_logo_white.png",
+                               IDR_PRODUCT_LOGO_WHITE);
+#endif  // defined(OS_ANDROID)
   html_source->SetDefaultResource(IDR_VERSION_UI_HTML);
   return html_source;
 }
@@ -161,8 +170,9 @@ void VersionUI::AddVersionDetailStrings(content::WebUIDataSource* html_source) {
   // Data strings.
   html_source->AddString(version_ui::kVersion,
                          version_info::GetVersionNumber());
-  html_source->AddString(version_ui::kVersionModifier,
-                         chrome::GetChannelName());
+  html_source->AddString(
+      version_ui::kVersionModifier,
+      chrome::GetChannelName(chrome::WithExtendedStable(true)));
   html_source->AddString(version_ui::kJSEngine, "V8");
   html_source->AddString(version_ui::kJSVersion, V8_VERSION_STRING);
   html_source->AddString(
@@ -171,7 +181,8 @@ void VersionUI::AddVersionDetailStrings(content::WebUIDataSource* html_source) {
           l10n_util::GetStringUTF16(IDS_ABOUT_VERSION_COPYRIGHT),
           base::Time::Now()));
   html_source->AddString(version_ui::kCL, version_info::GetLastChange());
-  html_source->AddString(version_ui::kUserAgent, GetUserAgent());
+  html_source->AddString(version_ui::kUserAgent,
+                         embedder_support::GetUserAgent());
   // Note that the executable path and profile path are retrieved asynchronously
   // and returned in VersionHandler::OnGotFilePaths. The area is initially
   // blank.
@@ -194,7 +205,8 @@ void VersionUI::AddVersionDetailStrings(content::WebUIDataSource* html_source) {
 #if defined(OS_WIN)
   html_source->AddString(
       version_ui::kCommandLine,
-      base::CommandLine::ForCurrentProcess()->GetCommandLineString());
+      base::AsString16(
+          base::CommandLine::ForCurrentProcess()->GetCommandLineString()));
 #elif defined(OS_POSIX)
   std::string command_line;
   typedef std::vector<std::string> ArgvList;

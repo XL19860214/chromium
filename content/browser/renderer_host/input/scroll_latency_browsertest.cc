@@ -78,8 +78,11 @@ class ScrollLatencyBrowserTest : public ContentBrowserTest {
   ~ScrollLatencyBrowserTest() override {}
 
   RenderWidgetHostImpl* GetWidgetHost() {
-    return RenderWidgetHostImpl::From(
-        shell()->web_contents()->GetRenderViewHost()->GetWidget());
+    return RenderWidgetHostImpl::From(shell()
+                                          ->web_contents()
+                                          ->GetMainFrame()
+                                          ->GetRenderViewHost()
+                                          ->GetWidget());
   }
 
   // TODO(tdresser): Find a way to avoid sleeping like this. See
@@ -212,7 +215,13 @@ IN_PROC_BROWSER_TEST_F(ScrollLatencyBrowserTest, MultipleWheelScroll) {
   RunMultipleWheelScroll();
 }
 
-IN_PROC_BROWSER_TEST_F(ScrollLatencyBrowserTest, MultipleWheelScrollOnMain) {
+#if !defined(NDEBUG) && defined(OS_LINUX)
+#define MAYBE_MultipleWheelScrollOnMain DISABLED_MultipleWheelScrollOnMain
+#else
+#define MAYBE_MultipleWheelScrollOnMain MultipleWheelScrollOnMain
+#endif
+IN_PROC_BROWSER_TEST_F(ScrollLatencyBrowserTest,
+                       MAYBE_MultipleWheelScrollOnMain) {
   disable_threaded_scrolling_ = true;
   LoadURL();
   RunMultipleWheelScroll();
@@ -229,7 +238,7 @@ IN_PROC_BROWSER_TEST_F(ScrollLatencyBrowserTest,
   // Try to scroll upward, the GSU(s) will get ignored since the scroller is at
   // its extent.
   SyntheticSmoothScrollGestureParams params;
-  params.gesture_source_type = SyntheticGestureParams::TOUCH_INPUT;
+  params.gesture_source_type = content::mojom::GestureSourceType::kTouchInput;
   params.anchor = gfx::PointF(10, 10);
   params.distances.push_back(gfx::Vector2d(0, 60));
 
@@ -279,7 +288,7 @@ IN_PROC_BROWSER_TEST_F(ScrollThroughputBrowserTest,
       GetWidgetHost(), blink::WebInputEvent::Type::kGestureScrollEnd);
 
   SyntheticSmoothScrollGestureParams params;
-  params.gesture_source_type = SyntheticGestureParams::TOUCH_INPUT;
+  params.gesture_source_type = content::mojom::GestureSourceType::kTouchInput;
   params.anchor = gfx::PointF(10, 10);
   params.distances.push_back(gfx::Vector2d(0, -6000));
   params.fling_velocity_x = 0;
@@ -502,8 +511,9 @@ IN_PROC_BROWSER_TEST_F(ScrollLatencyScrollbarBrowserTest,
   RunScrollbarButtonLatencyTest();
 }
 
+// Disabled due to flakes; see https://crbug.com/1188553.
 IN_PROC_BROWSER_TEST_F(ScrollLatencyScrollbarBrowserTest,
-                       ScrollbarThumbDragLatency) {
+                       DISABLED_ScrollbarThumbDragLatency) {
   LoadURL();
 
   RunScrollbarThumbDragLatencyTest();
@@ -528,15 +538,22 @@ class ScrollLatencyCompositedScrollbarBrowserTest
   base::test::ScopedFeatureList scoped_feature_list_;
 };
 
+// Flaky test on all platforms: https://crbug.com/1122371.
 IN_PROC_BROWSER_TEST_F(ScrollLatencyCompositedScrollbarBrowserTest,
-                       ScrollbarButtonLatency) {
+                       DISABLED_ScrollbarButtonLatency) {
   LoadURL();
 
   RunScrollbarButtonLatencyTest();
 }
 
+// Crashes on Mac ASAN.  https://crbug.com/1188553
+#if defined(OS_MAC)
+#define MAYBE_ScrollbarThumbDragLatency DISABLED_ScrollbarThumbDragLatency
+#else
+#define MAYBE_ScrollbarThumbDragLatency ScrollbarThumbDragLatency
+#endif
 IN_PROC_BROWSER_TEST_F(ScrollLatencyCompositedScrollbarBrowserTest,
-                       ScrollbarThumbDragLatency) {
+                       MAYBE_ScrollbarThumbDragLatency) {
   LoadURL();
 
   RunScrollbarThumbDragLatencyTest();

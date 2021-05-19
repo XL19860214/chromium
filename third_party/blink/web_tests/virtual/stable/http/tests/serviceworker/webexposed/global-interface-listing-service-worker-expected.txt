@@ -166,6 +166,7 @@ interface Crypto
     getter subtle
     method constructor
     method getRandomValues
+    method randomUUID
 interface CryptoKey
     attribute @@toStringTag
     getter algorithm
@@ -531,7 +532,6 @@ interface FileSystemHandle
     method requestPermission
 interface FileSystemWritableFileStream : WritableStream
     attribute @@toStringTag
-    method close
     method constructor
     method seek
     method truncate
@@ -545,6 +545,7 @@ interface FontFace
     getter featureSettings
     getter lineGapOverride
     getter loaded
+    getter sizeAdjust
     getter status
     getter stretch
     getter style
@@ -559,6 +560,7 @@ interface FontFace
     setter family
     setter featureSettings
     setter lineGapOverride
+    setter sizeAdjust
     setter stretch
     setter style
     setter unicodeRange
@@ -740,6 +742,7 @@ interface ImageBitmapRenderingContext
     method transferFromImageBitmap
 interface ImageData
     attribute @@toStringTag
+    getter colorSpace
     getter data
     getter height
     getter width
@@ -793,6 +796,12 @@ interface NavigationPreloadManager
     method enable
     method getState
     method setHeaderValue
+interface NavigatorUAData
+    attribute @@toStringTag
+    getter brands
+    getter mobile
+    method constructor
+    method getHighEntropyValues
 interface NetworkInformation : EventTarget
     attribute @@toStringTag
     getter downlink
@@ -2751,6 +2760,7 @@ interface WorkerNavigator
     getter product
     getter storage
     getter userAgent
+    getter userAgentData
     method clearAppBadge
     method constructor
     method setAppBadge

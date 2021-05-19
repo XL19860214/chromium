@@ -9,11 +9,13 @@
 #include "base/bind.h"
 #include "base/memory/shared_memory_mapping.h"
 #include "cc/paint/skia_paint_canvas.h"
+#include "components/viz/common/surfaces/subtree_capture_id.h"
 #include "components/viz/host/host_frame_sink_manager.h"
 #include "content/browser/compositor/surface_utils.h"
 #include "media/base/limits.h"
 #include "media/capture/mojom/video_capture_types.mojom.h"
 #include "media/renderers/paint_canvas_video_renderer.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace content {
 
@@ -84,10 +86,11 @@ void DevToolsVideoConsumer::SetFrameSinkId(
     const viz::FrameSinkId& frame_sink_id) {
   frame_sink_id_ = frame_sink_id;
   if (capturer_) {
-    if (frame_sink_id_.is_valid())
-      capturer_->ChangeTarget(frame_sink_id_);
-    else
-      capturer_->ChangeTarget(base::nullopt);
+    capturer_->ChangeTarget(
+        frame_sink_id_.is_valid()
+            ? absl::make_optional<viz::FrameSinkId>(frame_sink_id_)
+            : absl::nullopt,
+        viz::SubtreeCaptureId());
   }
 }
 
@@ -129,7 +132,7 @@ void DevToolsVideoConsumer::InnerStartCapture(
                                       kDefaultUseFixedAspectRatio);
   capturer_->SetFormat(pixel_format_, color_space_);
   if (frame_sink_id_.is_valid())
-    capturer_->ChangeTarget(frame_sink_id_);
+    capturer_->ChangeTarget(frame_sink_id_, viz::SubtreeCaptureId());
 
   capturer_->Start(this);
 }

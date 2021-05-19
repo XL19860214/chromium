@@ -4,12 +4,13 @@
 
 #include "chrome/browser/download/download_item_model.h"
 
+#include <string>
+
 #include "base/bind.h"
 #include "base/i18n/number_formatting.h"
 #include "base/i18n/rtl.h"
 #include "base/memory/ptr_util.h"
 #include "base/metrics/field_trial.h"
-#include "base/strings/string16.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/supports_user_data.h"
 #include "base/time/time.h"
@@ -35,8 +36,11 @@
 #include "components/download/public/common/download_interrupt_reasons.h"
 #include "components/download/public/common/download_item.h"
 #include "components/safe_browsing/buildflags.h"
+#include "components/safe_browsing/content/web_ui/safe_browsing_ui.h"
 #include "components/safe_browsing/core/file_type_policies.h"
 #include "components/safe_browsing/core/proto/download_file_types.pb.h"
+#include "content/public/browser/browser_task_traits.h"
+#include "content/public/browser/browser_thread.h"
 #include "content/public/browser/download_item_utils.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/l10n/time_format.h"
@@ -157,18 +161,18 @@ Profile* DownloadItemModel::profile() const {
       content::DownloadItemUtils::GetBrowserContext(download_));
 }
 
-base::string16 DownloadItemModel::GetTabProgressStatusText() const {
+std::u16string DownloadItemModel::GetTabProgressStatusText() const {
   int64_t total = GetTotalBytes();
   int64_t size = download_->GetReceivedBytes();
-  base::string16 received_size = ui::FormatBytes(size);
-  base::string16 amount = received_size;
+  std::u16string received_size = ui::FormatBytes(size);
+  std::u16string amount = received_size;
 
   // Adjust both strings for the locale direction since we don't yet know which
   // string we'll end up using for constructing the final progress string.
   base::i18n::AdjustStringForLocaleDirection(&amount);
 
   if (total) {
-    base::string16 total_text = ui::FormatBytes(total);
+    std::u16string total_text = ui::FormatBytes(total);
     base::i18n::AdjustStringForLocaleDirection(&total_text);
 
     base::i18n::AdjustStringForLocaleDirection(&received_size);
@@ -178,11 +182,11 @@ base::string16 DownloadItemModel::GetTabProgressStatusText() const {
     amount.assign(received_size);
   }
   int64_t current_speed = download_->CurrentSpeed();
-  base::string16 speed_text = ui::FormatSpeed(current_speed);
+  std::u16string speed_text = ui::FormatSpeed(current_speed);
   base::i18n::AdjustStringForLocaleDirection(&speed_text);
 
   base::TimeDelta remaining;
-  base::string16 time_remaining;
+  std::u16string time_remaining;
   if (download_->IsPaused()) {
     time_remaining = l10n_util::GetStringUTF16(IDS_DOWNLOAD_PROGRESS_PAUSED);
   } else if (download_->TimeRemaining(&remaining)) {
@@ -199,7 +203,6 @@ base::string16 DownloadItemModel::GetTabProgressStatusText() const {
   return l10n_util::GetStringFUTF16(
       IDS_DOWNLOAD_TAB_PROGRESS_STATUS, speed_text, amount, time_remaining);
 }
-
 
 int64_t DownloadItemModel::GetCompletedBytes() const {
   return download_->GetReceivedBytes();
@@ -649,22 +652,34 @@ void DownloadItemModel::ExecuteCommand(DownloadCommands* download_commands,
         safe_browsing::SafeBrowsingService* sb_service =
             g_browser_process->safe_browsing_service();
         // Compiles the uncommon download warning report.
-        safe_browsing::ClientSafeBrowsingReportRequest report;
-        report.set_type(safe_browsing::ClientSafeBrowsingReportRequest::
-                            DANGEROUS_DOWNLOAD_WARNING);
-        report.set_download_verdict(
+        auto report =
+            std::make_unique<safe_browsing::ClientSafeBrowsingReportRequest>();
+        report->set_type(safe_browsing::ClientSafeBrowsingReportRequest::
+                             DANGEROUS_DOWNLOAD_WARNING);
+        report->set_download_verdict(
             safe_browsing::ClientDownloadResponse::UNCOMMON);
-        report.set_url(GetURL().spec());
-        report.set_did_proceed(true);
+        report->set_url(GetURL().spec());
+        report->set_did_proceed(true);
         std::string token =
             safe_browsing::DownloadProtectionService::GetDownloadPingToken(
                 download_);
         if (!token.empty())
-          report.set_token(token);
+          report->set_token(token);
         std::string serialized_report;
-        if (report.SerializeToString(&serialized_report)) {
+        if (report->SerializeToString(&serialized_report)) {
           sb_service->SendSerializedDownloadReport(profile(),
                                                    serialized_report);
+
+          // The following is to log this ClientSafeBrowsingReportRequest on any
+          // open
+          // chrome://safe-browsing pages.
+          content::GetUIThreadTaskRunner({})->PostTask(
+              FROM_HERE,
+              base::BindOnce(
+                  &safe_browsing::WebUIInfoSingleton::AddToCSBRRsSent,
+                  base::Unretained(
+                      safe_browsing::WebUIInfoSingleton::GetInstance()),
+                  std::move(report)));
         } else {
           DCHECK(false)
               << "Unable to serialize the uncommon download warning report.";

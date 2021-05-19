@@ -10,13 +10,14 @@
 
 #include "base/containers/contains.h"
 #include "base/guid.h"
+#include "base/logging.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/trace_event/trace_event.h"
 #include "components/bookmarks/browser/bookmark_model.h"
 #include "components/bookmarks/browser/bookmark_node.h"
 #include "components/sync/base/hash_util.h"
-#include "components/sync/engine/engine_util.h"
 #include "components/sync_bookmarks/bookmark_specifics_conversions.h"
 #include "components/sync_bookmarks/switches.h"
 #include "components/sync_bookmarks/synced_bookmark_tracker.h"
@@ -83,7 +84,10 @@ enum class BookmarksGUIDDuplicates {
 
 // Used in metrics: "Sync.ProblematicServerSideBookmarksDuringMerge". These
 // values are persisted to logs. Entries should not be renumbered and numeric
-// values should never be reused.
+// values should never be reused. Note the existence of gaps because the
+// metric enum is reused for another UMA metric,
+// Sync.ProblematicServerSideBookmarks, which logs the analogous error cases
+// for non-initial updates.
 enum class RemoteBookmarkUpdateError {
   // Invalid specifics.
   kInvalidSpecifics = 1,
@@ -95,13 +99,20 @@ enum class RemoteBookmarkUpdateError {
   kUnexpectedGuid = 9,
   // Parent is not a folder.
   kParentNotFolder = 10,
+  // Unknown/unsupported permanent folder.
+  kUnsupportedPermanentFolder = 13,
 
-  kMaxValue = kParentNotFolder,
+  kMaxValue = kUnsupportedPermanentFolder,
 };
 
 void LogProblematicBookmark(RemoteBookmarkUpdateError problem) {
   base::UmaHistogramEnumeration(
       "Sync.ProblematicServerSideBookmarksDuringMerge", problem);
+}
+
+void LogBookmarkReuploadNeeded(bool is_reupload_needed) {
+  base::UmaHistogramBoolean("Sync.BookmarkEntityReuploadNeeded.OnInitialMerge",
+                            is_reupload_needed);
 }
 
 // Gets the bookmark node corresponding to a permanent folder identified by
@@ -137,29 +148,30 @@ std::string LegacyCanonicalizedTitleFromSpecifics(
 // title, two bookmarks match by semantics if they have the same title and url.
 // A folder and a bookmark never match.
 bool NodeSemanticsMatch(const bookmarks::BookmarkNode* local_node,
-                        const EntityData& remote_node) {
-  if (local_node->is_folder() != remote_node.is_folder) {
+                        const std::string& remote_canonicalized_title,
+                        const GURL& remote_url,
+                        bool remote_is_folder) {
+  if (local_node->is_folder() != remote_is_folder) {
     return false;
   }
-  const sync_pb::BookmarkSpecifics& specifics =
-      remote_node.specifics.bookmark();
+
+  if (!remote_is_folder && local_node->url() != remote_url) {
+    return false;
+  }
+
   const std::string local_title = base::UTF16ToUTF8(local_node->GetTitle());
-  const std::string remote_title =
-      LegacyCanonicalizedTitleFromSpecifics(specifics);
   // Titles match if they are identical or the remote one is the canonical form
   // of the local one. The latter is the case when a legacy client has
   // canonicalized the same local title before committing it. Modern clients
   // don't canonicalize titles anymore.
   // TODO(rushans): the comment above is off.
-  if (local_title != remote_title &&
+  if (local_title != remote_canonicalized_title &&
       sync_bookmarks::FullTitleToLegacyCanonicalizedTitle(local_title) !=
-          remote_title) {
+          remote_canonicalized_title) {
     return false;
   }
-  if (remote_node.is_folder) {
-    return true;
-  }
-  return local_node->url() == GURL(specifics.url());
+
+  return true;
 }
 
 BookmarksGUIDDuplicates MatchBookmarksGUIDDuplicates(
@@ -265,10 +277,6 @@ void DeduplicateValidUpdatesByGUID(UpdatesPerParentId* updates_per_parent_id) {
           MatchBookmarksGUIDDuplicates(update, duplicate_update);
       base::UmaHistogramEnumeration("Sync.BookmarksGUIDDuplicates",
                                     match_result);
-      if (!base::FeatureList::IsEnabled(
-              switches::kSyncDeduplicateAllBookmarksWithSameGUID)) {
-        continue;
-      }
 
       if (CompareDuplicateUpdates(/*next_update=*/update,
                                   /*previous_update=*/duplicate_update)) {
@@ -314,8 +322,7 @@ bool IsValidUpdate(const UpdateResponseData& update) {
   DCHECK(!update_entity.is_deleted());
   DCHECK(update_entity.server_defined_unique_tag.empty());
 
-  if (!syncer::UniquePosition::FromProto(update_entity.unique_position)
-           .IsValid()) {
+  if (!update_entity.unique_position.IsValid()) {
     // Ignore updates with invalid positions.
     DLOG(ERROR)
         << "Remote update with invalid position: "
@@ -331,6 +338,7 @@ bool IsValidUpdate(const UpdateResponseData& update) {
     return false;
   }
   if (!HasExpectedBookmarkGuid(update_entity.specifics.bookmark(),
+                               update_entity.client_tag_hash,
                                update_entity.originator_cache_guid,
                                update_entity.originator_client_item_id)) {
     // Ignore updates with an unexpected GUID.
@@ -353,21 +361,27 @@ struct GroupedUpdates {
 // are grouped in a dedicated |permanent_node_updates| list in a returned value.
 GroupedUpdates GroupValidUpdates(UpdateResponseDataList updates) {
   GroupedUpdates grouped_updates;
+  int num_valid_updates = 0;
   for (UpdateResponseData& update : updates) {
     const EntityData& update_entity = update.entity;
     if (update_entity.is_deleted()) {
       continue;
     }
     if (!update_entity.server_defined_unique_tag.empty()) {
+      ++num_valid_updates;
       grouped_updates.permanent_node_updates.push_back(std::move(update));
       continue;
     }
     if (!IsValidUpdate(update)) {
       continue;
     }
+    ++num_valid_updates;
     grouped_updates.updates_per_parent_id[update_entity.parent_id].push_back(
         std::move(update));
   }
+
+  base::UmaHistogramCounts100000("Sync.BookmarkModelMerger.ValidInputUpdates",
+                                 num_valid_updates);
 
   return grouped_updates;
 }
@@ -407,11 +421,7 @@ void BookmarkModelMerger::RemoteTreeNode::EmplaceSelfAndDescendantsByGUID(
 bool BookmarkModelMerger::RemoteTreeNode::UniquePositionLessThan(
     const RemoteTreeNode& lhs,
     const RemoteTreeNode& rhs) {
-  const syncer::UniquePosition a_pos =
-      syncer::UniquePosition::FromProto(lhs.entity().unique_position);
-  const syncer::UniquePosition b_pos =
-      syncer::UniquePosition::FromProto(rhs.entity().unique_position);
-  return a_pos.LessThan(b_pos);
+  return lhs.entity().unique_position.LessThan(rhs.entity().unique_position);
 }
 
 // static
@@ -477,11 +487,21 @@ BookmarkModelMerger::BookmarkModelMerger(
           FindGuidMatchesOrReassignLocal(remote_forest_, bookmark_model_)) {
   DCHECK(bookmark_tracker_->IsEmpty());
   DCHECK(favicon_service);
+
+  int num_updates_in_forest = 0;
+  for (const auto& tree_tag_and_root : remote_forest_) {
+    num_updates_in_forest +=
+        1 + CountRemoteTreeNodeDescendantsForUma(tree_tag_and_root.second);
+  }
+  base::UmaHistogramCounts100000(
+      "Sync.BookmarkModelMerger.ReachableInputUpdates", num_updates_in_forest);
 }
 
 BookmarkModelMerger::~BookmarkModelMerger() {}
 
 void BookmarkModelMerger::Merge() {
+  TRACE_EVENT0("sync", "BookmarkModelMerger::Merge");
+
   // Algorithm description:
   // Match up the roots and recursively do the following:
   // * For each remote node for the current remote (sync) parent node, either
@@ -505,6 +525,8 @@ void BookmarkModelMerger::Merge() {
     const bookmarks::BookmarkNode* permanent_folder =
         GetPermanentFolder(bookmark_model_, tree_tag_and_root.first);
     if (!permanent_folder) {
+      LogProblematicBookmark(
+          RemoteBookmarkUpdateError::kUnsupportedPermanentFolder);
       continue;
     }
     MergeSubtree(/*local_subtree_root=*/permanent_folder,
@@ -522,6 +544,8 @@ void BookmarkModelMerger::Merge() {
 // static
 BookmarkModelMerger::RemoteForest BookmarkModelMerger::BuildRemoteForest(
     syncer::UpdateResponseDataList updates) {
+  TRACE_EVENT0("sync", "BookmarkModelMerger::BuildRemoteForest");
+
   // Filter out invalid remote updates and group the valid ones by the server ID
   // of their parent.
   GroupedUpdates grouped_updates = GroupValidUpdates(std::move(updates));
@@ -549,8 +573,7 @@ BookmarkModelMerger::RemoteForest BookmarkModelMerger::BuildRemoteForest(
   for (const auto& parent_id_and_updates :
        grouped_updates.updates_per_parent_id) {
     for (const UpdateResponseData& update : parent_id_and_updates.second) {
-      if (!update.entity.is_deleted() &&
-          update.entity.specifics.has_bookmark()) {
+      if (update.entity.specifics.has_bookmark()) {
         LogProblematicBookmark(RemoteBookmarkUpdateError::kMissingParentEntity);
       }
     }
@@ -560,11 +583,23 @@ BookmarkModelMerger::RemoteForest BookmarkModelMerger::BuildRemoteForest(
 }
 
 // static
+int BookmarkModelMerger::CountRemoteTreeNodeDescendantsForUma(
+    const RemoteTreeNode& node) {
+  int descendants = 0;
+  for (const RemoteTreeNode& child : node.children()) {
+    descendants += 1 + CountRemoteTreeNodeDescendantsForUma(child);
+  }
+  return descendants;
+}
+
+// static
 std::unordered_map<base::GUID, BookmarkModelMerger::GuidMatch, base::GUIDHash>
 BookmarkModelMerger::FindGuidMatchesOrReassignLocal(
     const RemoteForest& remote_forest,
     bookmarks::BookmarkModel* bookmark_model) {
   DCHECK(bookmark_model);
+
+  TRACE_EVENT0("sync", "BookmarkModelMerger::FindGuidMatchesOrReassignLocal");
 
   // Build a temporary lookup table for remote GUIDs.
   std::unordered_map<base::GUID, const RemoteTreeNode*, base::GUIDHash>
@@ -609,8 +644,6 @@ BookmarkModelMerger::FindGuidMatchesOrReassignLocal(
          node->url() != remote_entity.specifics.bookmark().url())) {
       // If local node and its remote node match are conflicting in node type or
       // URL, replace local GUID with a random GUID.
-      // TODO(crbug.com/978430): Local GUIDs should also be reassigned if they
-      // match a remote originator_client_item_id.
       nodes_to_replace_guid.push_back(node);
       continue;
     }
@@ -643,11 +676,13 @@ void BookmarkModelMerger::MergeSubtree(
       local_subtree_root, remote_update_entity.id,
       remote_node.response_version(), remote_update_entity.creation_time,
       remote_update_entity.unique_position, remote_update_entity.specifics);
-  if (!local_subtree_root->is_permanent_node() &&
-      IsBookmarkEntityReuploadNeeded(remote_update_entity)) {
+  const bool is_reupload_needed =
+      !local_subtree_root->is_permanent_node() &&
+      IsBookmarkEntityReuploadNeeded(remote_update_entity);
+  if (is_reupload_needed) {
     bookmark_tracker_->IncrementSequenceNumber(entity);
-    ++valid_updates_without_full_title_;
   }
+  LogBookmarkReuploadNeeded(is_reupload_needed);
 
   // If there are remote child updates, try to match them.
   for (size_t remote_index = 0; remote_index < remote_node.children().size();
@@ -799,10 +834,12 @@ void BookmarkModelMerger::ProcessRemoteCreation(
       bookmark_node, remote_update_entity.id, remote_node.response_version(),
       remote_update_entity.creation_time, remote_update_entity.unique_position,
       specifics);
-  if (IsBookmarkEntityReuploadNeeded(remote_node.entity())) {
+  const bool is_reupload_needed =
+      IsBookmarkEntityReuploadNeeded(remote_node.entity());
+  if (is_reupload_needed) {
     bookmark_tracker_->IncrementSequenceNumber(entity);
-    ++valid_updates_without_full_title_;
   }
+  LogBookmarkReuploadNeeded(is_reupload_needed);
 
   // Recursively, match by GUID or, if not possible, create local node for all
   // child remote nodes.
@@ -852,10 +889,9 @@ void BookmarkModelMerger::ProcessLocalCreation(
   const syncer::UniquePosition pos =
       GenerateUniquePositionForLocalCreation(parent, index, suffix);
   const sync_pb::EntitySpecifics specifics = CreateSpecificsFromBookmarkNode(
-      node, bookmark_model_, /*force_favicon_load=*/true,
-      /*include_guid=*/true);
+      node, bookmark_model_, /*force_favicon_load=*/true);
   const SyncedBookmarkTracker::Entity* entity = bookmark_tracker_->Add(
-      node, sync_id, server_version, creation_time, pos.ToProto(), specifics);
+      node, sync_id, server_version, creation_time, pos, specifics);
   // Mark the entity that it needs to be committed.
   bookmark_tracker_->IncrementSequenceNumber(entity);
   for (size_t i = 0; i < node->children().size(); ++i) {
@@ -877,12 +913,24 @@ size_t BookmarkModelMerger::FindMatchingChildBySemanticsStartingAt(
   const auto& children = local_parent->children();
   DCHECK_LE(starting_child_index, children.size());
   const EntityData& remote_entity = remote_node.entity();
-  const auto it =
-      std::find_if(children.cbegin() + starting_child_index, children.cend(),
-                   [this, &remote_entity](const auto& child) {
-                     return NodeSemanticsMatch(child.get(), remote_entity) &&
-                            !FindMatchingRemoteNodeByGUID(child.get());
-                   });
+
+  // Precompute the remote title and URL before searching for a matching local
+  // node.
+  const std::string remote_canonicalized_title =
+      LegacyCanonicalizedTitleFromSpecifics(remote_entity.specifics.bookmark());
+  const bool remote_is_folder = remote_entity.is_folder;
+  GURL remote_url;
+  if (!remote_entity.is_folder) {
+    remote_url = GURL(remote_entity.specifics.bookmark().url());
+  }
+  const auto it = std::find_if(
+      children.cbegin() + starting_child_index, children.cend(),
+      [this, &remote_canonicalized_title, &remote_url,
+       remote_is_folder](const auto& child) {
+        return !FindMatchingRemoteNodeByGUID(child.get()) &&
+               NodeSemanticsMatch(child.get(), remote_canonicalized_title,
+                                  remote_url, remote_is_folder);
+      });
   return (it == children.cend()) ? kInvalidIndex : (it - children.cbegin());
 }
 

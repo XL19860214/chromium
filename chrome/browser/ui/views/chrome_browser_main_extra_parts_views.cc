@@ -31,8 +31,10 @@
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_thread.h"
 #include "services/viz/public/cpp/gpu/gpu.h"  // nogncheck
+#if !BUILDFLAG(IS_CHROMEOS_ASH)
 #include "ui/display/screen.h"
 #include "ui/views/widget/desktop_aura/desktop_screen.h"
+#endif
 #include "ui/wm/core/wm_state.h"
 #endif  // defined(USE_AURA)
 
@@ -50,6 +52,13 @@
 #include "ui/base/l10n/l10n_util.h"
 #endif  // defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
 
+namespace {
+
+// Owned by ChromeBrowserMainParts.
+ChromeBrowserMainExtraPartsViews* g_main_parts_views = nullptr;
+
+}  // namespace
+
 // This connector is used in ui_devtools's TracingAgent to hook up with the
 // tracing service.
 class UiDevtoolsConnector : public ui_devtools::ConnectorDelegate {
@@ -63,10 +72,20 @@ class UiDevtoolsConnector : public ui_devtools::ConnectorDelegate {
   }
 };
 
-ChromeBrowserMainExtraPartsViews::ChromeBrowserMainExtraPartsViews() {}
+ChromeBrowserMainExtraPartsViews::ChromeBrowserMainExtraPartsViews() {
+  DCHECK(!g_main_parts_views);
+  g_main_parts_views = this;
+}
 
 ChromeBrowserMainExtraPartsViews::~ChromeBrowserMainExtraPartsViews() {
+  DCHECK_EQ(g_main_parts_views, this);
+  g_main_parts_views = nullptr;
   constrained_window::SetConstrainedWindowViewsClient(nullptr);
+}
+
+// static
+ChromeBrowserMainExtraPartsViews* ChromeBrowserMainExtraPartsViews::Get() {
+  return g_main_parts_views;
 }
 
 void ChromeBrowserMainExtraPartsViews::ToolkitInitialized() {
@@ -89,20 +108,16 @@ void ChromeBrowserMainExtraPartsViews::ToolkitInitialized() {
 
 void ChromeBrowserMainExtraPartsViews::PreCreateThreads() {
 #if defined(USE_AURA) && !BUILDFLAG(IS_CHROMEOS_ASH)
-  views::InstallDesktopScreenIfNecessary();
+  // The Screen instance may already be set in tests.
+  if (!display::Screen::GetScreen())
+    screen_ = views::CreateDesktopScreen();
 #endif
 }
 
 void ChromeBrowserMainExtraPartsViews::PreProfileInit() {
   if (ui_devtools::UiDevToolsServer::IsUiDevToolsEnabled(
           ui_devtools::switches::kEnableUiDevTools)) {
-    // Starts the UI Devtools server for browser UI (and Ash UI on Chrome OS).
-    auto connector = std::make_unique<UiDevtoolsConnector>();
-    devtools_server_ = ui_devtools::CreateUiDevToolsServerForViews(
-        g_browser_process->system_network_context_manager()->GetContext(),
-        std::move(connector));
-    devtools_process_observer_ = std::make_unique<DevtoolsProcessObserver>(
-        devtools_server_->tracing_agent());
+    CreateUiDevTools();
   }
 
   media_router::MediaRouterDialogController::SetGetOrCreate(
@@ -139,9 +154,9 @@ void ChromeBrowserMainExtraPartsViews::PreProfileInit() {
   if (command_line.HasSwitch(sandbox::policy::switches::kNoSandbox))
     return;
 
-  base::string16 title = l10n_util::GetStringFUTF16(
+  std::u16string title = l10n_util::GetStringFUTF16(
       IDS_REFUSE_TO_RUN_AS_ROOT, l10n_util::GetStringUTF16(IDS_PRODUCT_NAME));
-  base::string16 message = l10n_util::GetStringFUTF16(
+  std::u16string message = l10n_util::GetStringFUTF16(
       IDS_REFUSE_TO_RUN_AS_ROOT_2, l10n_util::GetStringUTF16(IDS_PRODUCT_NAME));
 
   chrome::ShowWarningMessageBox(NULL, title, message);
@@ -167,4 +182,27 @@ void ChromeBrowserMainExtraPartsViews::PostMainMessageLoopRun() {
   // down explicitly here to avoid a case where such an event arrives during
   // shutdown.
   relaunch_notification_controller_.reset();
+}
+
+void ChromeBrowserMainExtraPartsViews::CreateUiDevTools() {
+  DCHECK(!devtools_server_);
+  DCHECK(!devtools_process_observer_);
+
+  // Starts the UI Devtools server for browser UI (and Ash UI on Chrome OS).
+  auto connector = std::make_unique<UiDevtoolsConnector>();
+  devtools_server_ = ui_devtools::CreateUiDevToolsServerForViews(
+      g_browser_process->system_network_context_manager()->GetContext(),
+      std::move(connector));
+  devtools_process_observer_ = std::make_unique<DevtoolsProcessObserver>(
+      devtools_server_->tracing_agent());
+}
+
+const ui_devtools::UiDevToolsServer*
+ChromeBrowserMainExtraPartsViews::GetUiDevToolsServerInstance() {
+  return devtools_server_.get();
+}
+
+void ChromeBrowserMainExtraPartsViews::DestroyUiDevTools() {
+  devtools_process_observer_.reset();
+  devtools_server_.reset();
 }

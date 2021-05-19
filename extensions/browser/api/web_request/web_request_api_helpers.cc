@@ -14,7 +14,9 @@
 
 #include "base/bind.h"
 #include "base/containers/adapters.h"
+#include "base/containers/contains.h"
 #include "base/containers/fixed_flat_map.h"
+#include "base/containers/fixed_flat_set.h"
 #include "base/macros.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/metrics/histogram_macros.h"
@@ -24,7 +26,6 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
-#include "base/strings/stringprintf.h"
 #include "base/time/time.h"
 #include "base/values.h"
 #include "components/web_cache/browser/web_cache_manager.h"
@@ -50,6 +51,15 @@
 #include "services/network/public/cpp/features.h"
 #include "url/url_constants.h"
 
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+#include "chromeos/login/login_state/login_state.h"
+#endif
+
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+#include "chromeos/crosapi/mojom/crosapi.mojom.h"  // nogncheck
+#include "chromeos/lacros/lacros_chrome_service_impl.h"
+#endif
+
 // TODO(battre): move all static functions into an anonymous namespace at the
 // top of this file.
 
@@ -69,6 +79,7 @@ namespace dnr_api = extensions::api::declarative_net_request;
 using ParsedResponseCookies = std::vector<std::unique_ptr<net::ParsedCookie>>;
 
 void ClearCacheOnNavigationOnUI() {
+  extensions::ExtensionsBrowserClient::Get()->ClearBackForwardCache();
   web_cache::WebCacheManager::GetInstance()->ClearCacheOnNavigation();
 }
 
@@ -850,7 +861,7 @@ EventResponseDelta CalculateOnAuthRequiredDelta(
     const std::string& extension_id,
     const base::Time& extension_install_time,
     bool cancel,
-    base::Optional<net::AuthCredentials> auth_credentials) {
+    absl::optional<net::AuthCredentials> auth_credentials) {
   EventResponseDelta result(extension_id, extension_install_time);
   result.cancel = cancel;
   result.auth_credentials = std::move(auth_credentials);
@@ -859,8 +870,8 @@ EventResponseDelta CalculateOnAuthRequiredDelta(
 
 void MergeCancelOfResponses(
     const EventResponseDeltas& deltas,
-    base::Optional<extensions::ExtensionId>* canceled_by_extension) {
-  *canceled_by_extension = base::nullopt;
+    absl::optional<extensions::ExtensionId>* canceled_by_extension) {
+  *canceled_by_extension = absl::nullopt;
   for (const auto& delta : deltas) {
     if (delta.cancel) {
       *canceled_by_extension = delta.extension_id;
@@ -935,7 +946,7 @@ void MergeOnBeforeRequestResponses(const GURL& url,
 
 static bool DoesRequestCookieMatchFilter(
     const ParsedRequestCookie& cookie,
-    const base::Optional<RequestCookie>& filter) {
+    const absl::optional<RequestCookie>& filter) {
   if (!filter.has_value())
     return true;
   if (filter->name.has_value() && cookie.first != *filter->name)
@@ -1008,7 +1019,7 @@ static bool MergeEditRequestCookieModifications(
         continue;
 
       const std::string& new_value = *mod->modification->value;
-      const base::Optional<RequestCookie>& filter = mod->filter;
+      const absl::optional<RequestCookie>& filter = mod->filter;
       for (auto cookie = cookies->begin(); cookie != cookies->end(); ++cookie) {
         if (!DoesRequestCookieMatchFilter(*cookie, filter))
           continue;
@@ -1040,7 +1051,7 @@ static bool MergeRemoveRequestCookieModifications(
       if (mod->type != REMOVE)
         continue;
 
-      const base::Optional<RequestCookie>& filter = mod->filter;
+      const absl::optional<RequestCookie>& filter = mod->filter;
       auto i = cookies->begin();
       while (i != cookies->end()) {
         if (DoesRequestCookieMatchFilter(*i, filter)) {
@@ -1316,7 +1327,7 @@ static bool ApplyResponseCookieModification(const ResponseCookie& modification,
 
 static bool DoesResponseCookieMatchFilter(
     const net::ParsedCookie& cookie,
-    const base::Optional<FilterResponseCookie>& filter) {
+    const absl::optional<FilterResponseCookie>& filter) {
   if (!cookie.IsValid())
     return false;
   if (!filter.has_value())
@@ -1719,16 +1730,31 @@ std::unique_ptr<base::DictionaryValue> CreateHeaderDictionary(
 bool ShouldHideRequestHeader(content::BrowserContext* browser_context,
                              int extra_info_spec,
                              const std::string& name) {
-  static const std::set<std::string> kRequestHeaders(
-      {"accept-encoding", "accept-language", "cookie", "origin", "referer"});
+  static constexpr auto kRequestHeaders =
+      base::MakeFixedFlatSet<base::StringPiece>({"accept-encoding",
+                                                 "accept-language", "cookie",
+                                                 "origin", "referer"});
   return !(extra_info_spec & ExtraInfoSpec::EXTRA_HEADERS) &&
-         kRequestHeaders.find(base::ToLowerASCII(name)) !=
-             kRequestHeaders.end();
+         base::Contains(kRequestHeaders, base::ToLowerASCII(name));
 }
 
 bool ShouldHideResponseHeader(int extra_info_spec, const std::string& name) {
   return !(extra_info_spec & ExtraInfoSpec::EXTRA_HEADERS) &&
          base::LowerCaseEqualsASCII(name, "set-cookie");
+}
+
+bool ArePublicSessionRestrictionsEnabled() {
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  if (chromeos::LoginState::IsInitialized()) {
+    return chromeos::LoginState::Get()->ArePublicSessionRestrictionsEnabled();
+  }
+#elif BUILDFLAG(IS_CHROMEOS_LACROS)
+  DCHECK(chromeos::LacrosChromeServiceImpl::Get());
+  return chromeos::LacrosChromeServiceImpl::Get()
+             ->init_params()
+             ->session_type == crosapi::mojom::SessionType::kPublicSession;
+#endif
+  return false;
 }
 
 }  // namespace extension_web_request_api_helpers

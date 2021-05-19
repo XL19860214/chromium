@@ -10,7 +10,7 @@
 #include "third_party/blink/public/common/input/web_pointer_event.h"
 #include "third_party/blink/public/platform/web_input_event_result.h"
 #include "third_party/blink/public/resources/grit/inspector_overlay_resources_map.h"
-#include "third_party/blink/renderer/core/css/css_color_value.h"
+#include "third_party/blink/renderer/core/css/css_color.h"
 #include "third_party/blink/renderer/core/css/css_computed_style_declaration.h"
 #include "third_party/blink/renderer/core/display_lock/display_lock_utilities.h"
 #include "third_party/blink/renderer/core/dom/element.h"
@@ -45,12 +45,14 @@ InspectorHighlightContrastInfo FetchContrast(Node* node) {
   Vector<Color> bgcolors;
   String font_size;
   String font_weight;
+  float text_opacity = 1.0f;
   InspectorCSSAgent::GetBackgroundColors(element, &bgcolors, &font_size,
-                                         &font_weight);
+                                         &font_weight, &text_opacity);
   if (bgcolors.size() == 1) {
     result.font_size = font_size;
     result.font_weight = font_weight;
     result.background_color = bgcolors[0];
+    result.text_opacity = text_opacity;
   }
   return result;
 }
@@ -236,6 +238,7 @@ bool SearchingForNodeTool::HandleMouseMove(const WebMouseEvent& event) {
   }
 
   // Store values for the highlight.
+  bool hovered_node_changed = node != hovered_node_;
   hovered_node_ = node;
   event_target_node_ = (event.GetModifiers() & WebInputEvent::kShiftKey)
                            ? HoveredNodeForEvent(frame, event, false)
@@ -246,7 +249,8 @@ bool SearchingForNodeTool::HandleMouseMove(const WebMouseEvent& event) {
                   (WebInputEvent::kControlKey | WebInputEvent::kMetaKey);
 
   contrast_info_ = FetchContrast(node);
-  NodeHighlightRequested(node);
+  if (hovered_node_changed)
+    NodeHighlightRequested(node);
   return true;
 }
 
@@ -429,20 +433,20 @@ String PersistentTool::GetOverlayName() {
 }
 
 bool PersistentTool::IsEmpty() {
-  return !grid_node_highlights_.size() && !flex_container_configs_.size();
+  return !grid_node_highlights_.size() && !flex_container_configs_.size() &&
+         !scroll_snap_configs_.size();
 }
 
-void PersistentTool::SetGridConfigs(
-    Vector<std::pair<Member<Node>,
-                     std::unique_ptr<InspectorGridHighlightConfig>>> configs) {
+void PersistentTool::SetGridConfigs(GridConfigs configs) {
   grid_node_highlights_ = std::move(configs);
 }
 
-void PersistentTool::SetFlexContainerConfigs(
-    Vector<std::pair<Member<Node>,
-                     std::unique_ptr<InspectorFlexContainerHighlightConfig>>>
-        configs) {
+void PersistentTool::SetFlexContainerConfigs(FlexContainerConfigs configs) {
   flex_container_configs_ = std::move(configs);
+}
+
+void PersistentTool::SetScrollSnapConfigs(ScrollSnapConfigs configs) {
+  scroll_snap_configs_ = std::move(configs);
 }
 
 bool PersistentTool::ForwardEventsToOverlay() {
@@ -471,6 +475,14 @@ void PersistentTool::Draw(float scale) {
     if (!highlight)
       continue;
     overlay_->EvaluateInOverlay("drawFlexContainerHighlight",
+                                std::move(highlight));
+  }
+  for (auto& entry : scroll_snap_configs_) {
+    std::unique_ptr<protocol::Value> highlight =
+        InspectorScrollSnapHighlight(entry.first.Get(), *(entry.second));
+    if (!highlight)
+      continue;
+    overlay_->EvaluateInOverlay("drawScrollSnapHighlight",
                                 std::move(highlight));
   }
 }

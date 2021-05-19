@@ -2,15 +2,24 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+from __future__ import print_function
+
 import json
 import os
+import sys
 import tempfile
 import unittest
 
-import mock
+if sys.version_info[0] == 2:
+  import mock
+else:
+  import unittest.mock as mock
+
 from pyfakefs import fake_filesystem_unittest
 
 from unexpected_passes import builders
+from unexpected_passes import multiprocessing_utils
+from unexpected_passes import unittest_utils
 
 
 class GetCiBuildersUnittest(fake_filesystem_unittest.TestCase):
@@ -163,21 +172,15 @@ class GetMirroredBuildersForCiBuilderUnittest(unittest.TestCase):
 
 
 class GetTryBuildersUnittest(unittest.TestCase):
-  class FakePool(object):
-    def map(self, f, inputs):
-      retval = []
-      for i in inputs:
-        retval.append(f(i))
-      return retval
-
   def setUp(self):
     self._get_patcher = mock.patch.object(builders,
                                           '_GetMirroredBuildersForCiBuilder')
     self._get_mock = self._get_patcher.start()
     self.addCleanup(self._get_patcher.stop)
-    self._pool_patcher = mock.patch.object(builders, '_GetPool')
+    self._pool_patcher = mock.patch.object(multiprocessing_utils,
+                                           'GetProcessPool')
     self._pool_mock = self._pool_patcher.start()
-    self._pool_mock.return_value = GetTryBuildersUnittest.FakePool()
+    self._pool_mock.return_value = unittest_utils.FakePool()
     self.addCleanup(self._pool_patcher.stop)
 
   def testNoOutputCausesFailure(self):

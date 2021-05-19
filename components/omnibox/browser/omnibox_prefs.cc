@@ -6,13 +6,13 @@
 
 #include "base/check.h"
 #include "base/metrics/sparse_histogram.h"
-#include "base/optional.h"
 #include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/values.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
 #include "components/prefs/scoped_user_pref_update.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace omnibox {
 
@@ -30,6 +30,10 @@ const char kDocumentSuggestEnabled[] = "documentsuggest.enabled";
 // Values are defined in omnibox::IntranetRedirectorBehavior.
 const char kIntranetRedirectBehavior[] = "browser.intranet_redirect_behavior";
 
+// Boolean that controls whether scoped search mode can be triggered by <space>.
+const char kKeywordSpaceTriggeringEnabled[] =
+    "omnibox.keyword_space_triggering_enabled";
+
 // A dictionary of visibility preferences for suggestion groups. The key is the
 // suggestion group ID serialized as a string, and the value is
 // SuggestionGroupVisibility serialized as an integer.
@@ -43,6 +47,7 @@ const char kZeroSuggestCachedResults[] = "zerosuggest.cachedresults";
 
 void RegisterProfilePrefs(PrefRegistrySimple* registry) {
   registry->RegisterDictionaryPref(kSuggestionGroupVisibility);
+  registry->RegisterBooleanPref(kKeywordSpaceTriggeringEnabled, true);
 }
 
 SuggestionGroupVisibility GetUserPreferenceForSuggestionGroupVisibility(
@@ -54,7 +59,7 @@ SuggestionGroupVisibility GetUserPreferenceForSuggestionGroupVisibility(
       prefs->GetDictionary(kSuggestionGroupVisibility);
   DCHECK(dictionary);
 
-  base::Optional<int> value =
+  absl::optional<int> value =
       dictionary->FindIntKey(base::NumberToString(suggestion_group_id));
 
   if (value == SuggestionGroupVisibility::HIDDEN ||

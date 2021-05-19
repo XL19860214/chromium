@@ -11,13 +11,16 @@
 #import "ios/chrome/browser/ui/incognito_reauth/incognito_reauth_consumer.h"
 #import "ios/chrome/browser/ui/tab_switcher/tab_grid/grid/grid_consumer.h"
 #import "ios/chrome/browser/ui/tab_switcher/tab_grid/grid/grid_theme.h"
+#import "ios/chrome/browser/ui/thumb_strip/thumb_strip_supporting.h"
 
-@protocol IncognitoReauthCommands;
 @protocol GridDragDropHandler;
 @protocol GridEmptyView;
 @protocol GridImageDataSource;
 @class GridTransitionLayout;
 @class GridViewController;
+@protocol IncognitoReauthCommands;
+@protocol ThumbStripCommands;
+@protocol GridContextMenuProvider;
 
 // Protocol used to relay relevant user interactions from a grid UI.
 @protocol GridViewControllerDelegate
@@ -52,11 +55,18 @@
 - (void)gridViewController:(GridViewController*)gridViewController
     contentNeedsAuthenticationChanged:(BOOL)needsAuth;
 
+// Tells the delegate that the grid view controller's scroll view will begin
+// dragging.
+- (void)gridViewControllerWillBeginDragging:
+    (GridViewController*)gridViewController;
+
 @end
 
 // A view controller that contains a grid of items.
-@interface GridViewController
-    : UIViewController <GridConsumer, LayoutSwitcher, IncognitoReauthConsumer>
+@interface GridViewController : UIViewController <GridConsumer,
+                                                  LayoutSwitcher,
+                                                  IncognitoReauthConsumer,
+                                                  ThumbStripSupporting>
 // The gridView is accessible to manage the content inset behavior.
 @property(nonatomic, readonly) UIScrollView* gridView;
 // The view that is shown when there are no items.
@@ -66,7 +76,9 @@
 // The visual look of the grid.
 @property(nonatomic, assign) GridTheme theme;
 // Handler for reauth commands.
-@property(nonatomic, weak) id<IncognitoReauthCommands> handler;
+@property(nonatomic, weak) id<IncognitoReauthCommands> reauthHandler;
+// Handler for thumbstrip commands.
+@property(nonatomic, weak) id<ThumbStripCommands> thumbStripHandler;
 // Delegate is informed of user interactions in the grid UI.
 @property(nonatomic, weak) id<GridViewControllerDelegate> delegate;
 // Handles drag and drop interactions that involved the model layer.
@@ -84,6 +96,9 @@
 // YES when the current contents are hidden from the user before a successful
 // biometric authentication.
 @property(nonatomic, assign) BOOL contentNeedsAuthentication;
+// Provider of context menu configurations for the tabs in the grid.
+@property(nonatomic, weak) id<GridContextMenuProvider> menuProvider
+    API_AVAILABLE(ios(13.0));
 
 // Returns the layout of the grid for use in an animated transition.
 - (GridTransitionLayout*)transitionLayout;

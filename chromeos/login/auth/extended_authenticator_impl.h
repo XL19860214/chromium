@@ -12,9 +12,9 @@
 #include "base/compiler_specific.h"
 #include "base/component_export.h"
 #include "base/macros.h"
-#include "base/optional.h"
-#include "chromeos/dbus/cryptohome/rpc.pb.h"
+#include "chromeos/dbus/cryptohome/UserDataAuth.pb.h"
 #include "chromeos/login/auth/extended_authenticator.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/cros_system_api/dbus/service_constants.h"
 
 namespace chromeos {
@@ -31,8 +31,6 @@ class COMPONENT_EXPORT(CHROMEOS_LOGIN_AUTH) ExtendedAuthenticatorImpl
 
   // ExtendedAuthenticator:
   void SetConsumer(AuthStatusConsumer* consumer) override;
-  void AuthenticateToMount(const UserContext& context,
-                           ResultCallback success_callback) override;
   void AuthenticateToCheck(const UserContext& context,
                            base::OnceClosure success_callback) override;
   void StartFingerprintAuthSession(
@@ -41,7 +39,7 @@ class COMPONENT_EXPORT(CHROMEOS_LOGIN_AUTH) ExtendedAuthenticatorImpl
   void EndFingerprintAuthSession() override;
   void AuthenticateWithFingerprint(
       const UserContext& context,
-      base::OnceCallback<void(cryptohome::CryptohomeErrorCode)> callback)
+      base::OnceCallback<void(user_data_auth::CryptohomeErrorCode)> callback)
       override;
   void AddKey(const UserContext& context,
               const cryptohome::KeyDefinition& key,
@@ -61,8 +59,6 @@ class COMPONENT_EXPORT(CHROMEOS_LOGIN_AUTH) ExtendedAuthenticatorImpl
   void OnSaltObtained(const std::string& system_salt);
 
   // Performs actual operation with fully configured |context|.
-  void DoAuthenticateToMount(ResultCallback success_callback,
-                             const UserContext& context);
   void DoAuthenticateToCheck(base::OnceClosure success_callback,
                              const UserContext& context);
   void DoAddKey(const cryptohome::KeyDefinition& key,
@@ -74,21 +70,18 @@ class COMPONENT_EXPORT(CHROMEOS_LOGIN_AUTH) ExtendedAuthenticatorImpl
                    const UserContext& context);
 
   // Inner operation callbacks.
-  void OnMountComplete(const std::string& time_marker,
-                       const UserContext& context,
-                       ResultCallback success_callback,
-                       base::Optional<cryptohome::BaseReply> reply);
+  template <typename ReplyType>
   void OnOperationComplete(const std::string& time_marker,
                            const UserContext& context,
                            base::OnceClosure success_callback,
-                           bool success,
-                           cryptohome::MountError return_code);
+                           absl::optional<ReplyType> reply);
+
   void OnStartFingerprintAuthSessionComplete(
       base::OnceCallback<void(bool)> callback,
-      base::Optional<cryptohome::BaseReply> reply);
+      absl::optional<user_data_auth::StartFingerprintAuthSessionReply> reply);
   void OnFingerprintScanComplete(
-      base::OnceCallback<void(cryptohome::CryptohomeErrorCode)> callback,
-      base::Optional<cryptohome::BaseReply> reply);
+      base::OnceCallback<void(user_data_auth::CryptohomeErrorCode)> callback,
+      absl::optional<user_data_auth::CheckKeyReply> reply);
 
   bool salt_obtained_;
   std::string system_salt_;

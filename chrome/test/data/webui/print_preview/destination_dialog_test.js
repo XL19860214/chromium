@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {Destination, DestinationConnectionStatus, DestinationOrigin, DestinationStore, DestinationType, InvitationStore, LocalDestinationInfo, makeRecentDestination, NativeLayerImpl, RecentDestination} from 'chrome://print/print_preview.js';
+import {Destination, DestinationConnectionStatus, DestinationOrigin, DestinationStore, DestinationType, LocalDestinationInfo, makeRecentDestination, NativeLayerImpl, RecentDestination} from 'chrome://print/print_preview.js';
 import {assert} from 'chrome://resources/js/assert.m.js';
 import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
 import {keyEventOn} from 'chrome://resources/polymer/v3_0/iron-test-helpers/mock-interactions.js';
@@ -75,7 +75,6 @@ suite(destination_dialog_test.suiteName, function() {
     dialog.activeUser = '';
     dialog.users = [];
     dialog.destinationStore = destinationStore;
-    dialog.invitationStore = new InvitationStore();
   });
 
   function finishSetup() {
@@ -109,11 +108,10 @@ suite(destination_dialog_test.suiteName, function() {
     assertEquals(
         'rgb(32, 33, 36)',
         window.getComputedStyle(printerItems[0].$$('.name')).color);
-    // FooName will be second since it was updated by capabilities fetch.
-    assertEquals('FooName', getDisplayedName(printerItems[1]));
-    Array.from(printerItems).slice(2).forEach((item, index) => {
+    Array.from(printerItems).slice(1, 5).forEach((item, index) => {
       assertEquals(destinations[index].displayName, getDisplayedName(item));
     });
+    assertEquals('FooName', getDisplayedName(printerItems[5]));
   });
 
   // Test that clicking a provisional destination shows the provisional
@@ -212,8 +210,7 @@ suite(destination_dialog_test.suiteName, function() {
     cloudPrintInterface.setPrinter(getGoogleDriveDestination(user2));
     // Override so that privet printers will also be fetched, since we are
     // simulating the case where the enterprise override is enabled.
-    loadTimeData.overrideValues(
-        {'cloudPrintDeprecationWarningsSuppressed': true});
+    loadTimeData.overrideValues({'forceEnablePrivetPrinting': true});
     let userSelect = null;
 
     await finishSetup();

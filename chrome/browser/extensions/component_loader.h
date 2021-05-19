@@ -17,11 +17,11 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
-#include "base/optional.h"
 #include "base/values.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/common/buildflags.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 class Profile;
 
@@ -190,6 +190,7 @@ class ComponentLoader {
   void AddAudioPlayerExtension();
   void AddGalleryExtension();
   void AddImageLoaderExtension();
+  void AddGuestModeTestExtension(const base::FilePath& path);
   void AddKeyboardApp();
   void AddChromeCameraApp();
   void AddZipArchiverExtension();
@@ -208,8 +209,8 @@ class ComponentLoader {
   void FinishAddComponentFromDir(
       const base::FilePath& root_directory,
       const char* extension_id,
-      const base::Optional<std::string>& name_string,
-      const base::Optional<std::string>& description_string,
+      const absl::optional<std::string>& name_string,
+      const absl::optional<std::string>& description_string,
       base::OnceClosure done_cb,
       std::unique_ptr<base::DictionaryValue> manifest);
 
@@ -221,7 +222,7 @@ class ComponentLoader {
 
   ExtensionSystem* extension_system_;
 
-  // List of registered component extensions (see Manifest::Location).
+  // List of registered component extensions (see mojom::ManifestLocation).
   typedef std::vector<ComponentExtensionInfo> RegisteredComponentExtensions;
   RegisteredComponentExtensions component_extensions_;
 

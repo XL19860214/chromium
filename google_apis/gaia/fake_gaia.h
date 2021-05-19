@@ -85,6 +85,18 @@ class FakeGaia {
 
     // The e-mail address returned by /ListAccounts.
     std::string email;
+
+    // List of signed out gaia IDs returned by /ListAccounts.
+    std::vector<std::string> signed_out_gaia_ids;
+  };
+
+  struct SyncTrustedVaultKeys {
+    SyncTrustedVaultKeys();
+    ~SyncTrustedVaultKeys();
+
+    std::vector<uint8_t> encryption_key;
+    int encryption_key_version = 0;
+    std::vector<std::vector<uint8_t>> trusted_public_keys;
   };
 
   FakeGaia();
@@ -104,6 +116,11 @@ class FakeGaia {
   // address when setting GAIA response headers.  If no mapping is given for
   // an email address, a default GAIA Id is used.
   void MapEmailToGaiaId(const std::string& email, const std::string& gaia_id);
+
+  // Adds sync trusted vault keys for |email|.
+  void SetSyncTrustedVaultKeys(
+      const std::string& email,
+      const SyncTrustedVaultKeys& sync_trusted_vault_keys);
 
   // Initializes HTTP request handlers. Should be called after switches
   // for tweaking GaiaUrls are in place.
@@ -180,6 +197,10 @@ class FakeGaia {
   // Returns the is_device_owner param from the reauth URL if any.
   const std::string& is_device_owner() { return is_device_owner_; }
 
+  // Returns the fake server's URL that browser tests can visit to trigger a
+  // RemoveLocalAccount event.
+  GURL GetDummyRemoveLocalAccountURL(const std::string& gaia_id) const;
+
  protected:
   // HTTP handler for /MergeSession.
   virtual void HandleMergeSession(
@@ -191,8 +212,11 @@ class FakeGaia {
   using EmailToGaiaIdMap = std::map<std::string, std::string>;
   using SamlAccountIdpMap = std::map<std::string, GURL>;
   using SamlDomainRedirectUrlMap = std::map<std::string, GURL>;
+  using EmailToSyncTrustedVaultKeysMap =
+      std::map<std::string, SyncTrustedVaultKeys>;
 
   std::string GetGaiaIdOfEmail(const std::string& email) const;
+  std::string GetEmailOfGaiaId(const std::string& email) const;
 
   void AddGoogleAccountsSigninHeader(
       net::test_server::BasicHttpResponse* http_response,
@@ -200,6 +224,10 @@ class FakeGaia {
 
   void SetOAuthCodeCookie(
       net::test_server::BasicHttpResponse* http_response) const;
+
+  void AddSyncTrustedKeysHeader(
+      net::test_server::BasicHttpResponse* http_response,
+      const std::string& email) const;
 
   // Formats a JSON response with the data in |value|, setting the http status
   // to |status|.
@@ -278,6 +306,9 @@ class FakeGaia {
   // HTTP handler for /OAuth/Multilogin.
   void HandleMultilogin(const net::test_server::HttpRequest& request,
                         net::test_server::BasicHttpResponse* http_response);
+  void HandleDummyRemoveLocalAccount(
+      const net::test_server::HttpRequest& request,
+      net::test_server::BasicHttpResponse* http_response);
 
   // Returns the access token associated with |auth_token| that matches the
   // given |client_id| and |scope_string|. If |scope_string| is empty, the first
@@ -306,6 +337,7 @@ class FakeGaia {
   SamlDomainRedirectUrlMap saml_domain_url_map_;
   bool issue_oauth_code_cookie_;
   RefreshTokenToDeviceIdMap refresh_token_to_device_id_map_;
+  EmailToSyncTrustedVaultKeysMap email_to_sync_trusted_vault_keys_map_;
   std::string prefilled_email_;
   std::string is_supervised_;
   std::string is_device_owner_;

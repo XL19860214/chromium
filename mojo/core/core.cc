@@ -7,6 +7,7 @@
 #include <string.h>
 
 #include <algorithm>
+#include <memory>
 #include <utility>
 
 #include "base/bind.h"
@@ -110,7 +111,7 @@ void RunMojoProcessErrorHandler(
 }  // namespace
 
 Core::Core() {
-  handles_.reset(new HandleTable);
+  handles_ = std::make_unique<HandleTable>();
   base::trace_event::MemoryDumpManager::GetInstance()->RegisterDumpProvider(
       handles_.get(), "MojoHandleTable", nullptr);
 }
@@ -137,7 +138,7 @@ void Core::SetIOTaskRunner(
 NodeController* Core::GetNodeController() {
   base::AutoLock lock(node_controller_lock_);
   if (!node_controller_)
-    node_controller_.reset(new NodeController(this));
+    node_controller_ = std::make_unique<NodeController>();
   return node_controller_.get();
 }
 
@@ -1235,7 +1236,7 @@ MojoResult Core::ExtractMessagePipeFromInvitation(
   }
 
   *message_pipe_handle =
-      ExtractMessagePipeFromInvitation(name_string.as_string());
+      ExtractMessagePipeFromInvitation(std::string(name_string));
   if (*message_pipe_handle == MOJO_HANDLE_INVALID)
     return MOJO_RESULT_RESOURCE_EXHAUSTED;
   return MOJO_RESULT_OK;

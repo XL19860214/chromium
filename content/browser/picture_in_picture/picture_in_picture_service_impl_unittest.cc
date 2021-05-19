@@ -10,7 +10,6 @@
 #include "base/test/bind.h"
 #include "build/build_config.h"
 #include "content/browser/picture_in_picture/picture_in_picture_window_controller_impl.h"
-#include "content/common/media/media_player_delegate_messages.h"
 #include "content/public/browser/overlay_window.h"
 #include "content/public/browser/web_contents_delegate.h"
 #include "content/public/common/content_client.h"
@@ -19,6 +18,8 @@
 #include "content/test/test_render_view_host.h"
 #include "content/test/test_web_contents.h"
 #include "media/mojo/mojom/media_player.mojom.h"
+#include "mojo/public/cpp/bindings/associated_receiver.h"
+#include "mojo/public/cpp/bindings/pending_associated_remote.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/bindings/receiver.h"
 #include "mojo/public/cpp/bindings/remote.h"
@@ -80,6 +81,11 @@ class TestOverlayWindow : public OverlayWindow {
   void SetSkipAdButtonVisibility(bool is_visible) override {}
   void SetNextTrackButtonVisibility(bool is_visible) override {}
   void SetPreviousTrackButtonVisibility(bool is_visible) override {}
+  void SetMicrophoneMuted(bool muted) override {}
+  void SetCameraState(bool turned_on) override {}
+  void SetToggleMicrophoneButtonVisibility(bool is_visible) override {}
+  void SetToggleCameraButtonVisibility(bool is_visible) override {}
+  void SetHangUpButtonVisibility(bool is_visible) override {}
   void SetSurfaceId(const viz::SurfaceId& surface_id) override {}
   cc::Layer* GetLayerForTesting() override { return nullptr; }
 
@@ -105,27 +111,33 @@ class PictureInPictureTestBrowserClient : public TestContentBrowserClient {
 // inside the PictureInPictureServiceImplTest unit tests.
 class PictureInPictureMediaPlayerReceiver : public media::mojom::MediaPlayer {
  public:
-  mojo::PendingRemote<media::mojom::MediaPlayer>
+  mojo::PendingAssociatedRemote<media::mojom::MediaPlayer>
   BindMediaPlayerReceiverAndPassRemote() {
     // A tests could potentially call StartSession() multiple times.
     receiver_.reset();
-    return receiver_.BindNewPipeAndPassRemote();
+    return receiver_.BindNewEndpointAndPassDedicatedRemote();
   }
 
-  mojo::Receiver<media::mojom::MediaPlayer>& receiver() { return receiver_; }
+  mojo::AssociatedReceiver<media::mojom::MediaPlayer>& receiver() {
+    return receiver_;
+  }
 
   // media::mojom::MediaPlayer implementation.
-  void AddMediaPlayerObserver(
-      mojo::PendingRemote<media::mojom::MediaPlayerObserver>) override {}
   void RequestPlay() override {}
   void RequestPause(bool triggered_by_user) override {}
   void RequestSeekForward(base::TimeDelta seek_time) override {}
   void RequestSeekBackward(base::TimeDelta seek_time) override {}
+  void RequestSeekTo(base::TimeDelta seek_time) override {}
   void RequestEnterPictureInPicture() override {}
   void RequestExitPictureInPicture() override {}
+  void SetVolumeMultiplier(double multiplier) override {}
+  void SetPersistentState(bool persistent) override {}
+  void SetPowerExperimentState(bool enabled) override {}
+  void SetAudioSinkId(const std::string& sink_id) override {}
+  void SuspendForFrameClosed() override {}
 
  private:
-  mojo::Receiver<media::mojom::MediaPlayer> receiver_{this};
+  mojo::AssociatedReceiver<media::mojom::MediaPlayer> receiver_{this};
 };
 
 class PictureInPictureServiceImplTest : public RenderViewHostImplTestHarness {
@@ -153,7 +165,7 @@ class PictureInPictureServiceImplTest : public RenderViewHostImplTestHarness {
 
   PictureInPictureDelegate& delegate() { return delegate_; }
 
-  mojo::PendingRemote<media::mojom::MediaPlayer>
+  mojo::PendingAssociatedRemote<media::mojom::MediaPlayer>
   BindMediaPlayerReceiverAndPassRemote() {
     return media_player_receiver_.BindMediaPlayerReceiverAndPassRemote();
   }
@@ -295,7 +307,7 @@ TEST_F(PictureInPictureServiceImplTest, EnterPictureInPicture_NoSurfaceId) {
   gfx::Size window_size;
 
   service().StartSession(
-      kPlayerVideoOnlyId, BindMediaPlayerReceiverAndPassRemote(), base::nullopt,
+      kPlayerVideoOnlyId, BindMediaPlayerReceiverAndPassRemote(), absl::nullopt,
       gfx::Size(42, 42), true /* show_play_pause_button */,
       std::move(observer_remote),
       base::BindLambdaForTesting(

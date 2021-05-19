@@ -178,8 +178,9 @@ TEST_P(CredentialsFilterTest, ReportFormLoginSuccess_NewSyncCredentials) {
 
 TEST_P(CredentialsFilterTest, ReportFormLoginSuccess_GAIANotSyncCredentials) {
   const char kOtherUsername[] = "other_user@gmail.com";
+  const char16_t kOtherUsername16[] = u"other_user@gmail.com";
   FakeSigninAs(kOtherUsername);
-  ASSERT_NE(pending_.username_value, base::ASCIIToUTF16(kOtherUsername));
+  ASSERT_NE(pending_.username_value, kOtherUsername16);
   SetSyncingPasswords(true);
 
   base::UserActionTester tester;
@@ -212,7 +213,9 @@ TEST_P(CredentialsFilterTest, ReportFormLoginSuccess_NotSyncing) {
 TEST_P(CredentialsFilterTest, ShouldSave_NotSignedIn) {
   PasswordForm form = SimpleGaiaForm("user@example.org");
 
-  ASSERT_TRUE(identity_manager()->GetPrimaryAccountInfo().IsEmpty());
+  ASSERT_TRUE(identity_manager()
+                  ->GetPrimaryAccountInfo(signin::ConsentLevel::kSync)
+                  .IsEmpty());
   SetSyncingPasswords(false);
   // If kEnablePasswordsAccountStorage is enabled, then Chrome shouldn't offer
   // to save the password for the primary account. If there is no primary

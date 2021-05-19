@@ -196,8 +196,7 @@ void JsonPrefStore::RemoveObserver(PrefStore::Observer* observer) {
 
 bool JsonPrefStore::HasObservers() const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-
-  return observers_.might_have_observers();
+  return !observers_.empty();
 }
 
 bool JsonPrefStore::IsInitializationComplete() const {
@@ -221,7 +220,7 @@ void JsonPrefStore::SetValue(const std::string& key,
   DCHECK(value);
   base::Value* old_value = nullptr;
   prefs_->Get(key, &old_value);
-  if (!old_value || !value->Equals(old_value)) {
+  if (!old_value || *value != *old_value) {
     prefs_->Set(key, std::move(value));
     ReportValueChanged(key, flags);
   }
@@ -235,7 +234,7 @@ void JsonPrefStore::SetValueSilently(const std::string& key,
   DCHECK(value);
   base::Value* old_value = nullptr;
   prefs_->Get(key, &old_value);
-  if (!old_value || !value->Equals(old_value)) {
+  if (!old_value || *value != *old_value) {
     prefs_->Set(key, std::move(value));
     ScheduleWrite(flags);
   }

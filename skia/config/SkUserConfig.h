@@ -200,41 +200,22 @@ SK_API void SkDebugf_FileLine(const char* file,
 // Workaround for poor anisotropic mipmap quality,
 // pending Skia ripmap support.
 // (https://bugs.chromium.org/p/skia/issues/detail?id=4863)
-#ifndef    SK_SUPPORT_LEGACY_ANISOTROPIC_MIPMAP_SCALE
-#   define SK_SUPPORT_LEGACY_ANISOTROPIC_MIPMAP_SCALE
-#endif
-
-#ifndef SK_SUPPORT_LEGACY_ONDRAWIMAGERECT
-#define SK_SUPPORT_LEGACY_ONDRAWIMAGERECT
-#endif
-
-// For now, Chrome should only attempt to reduce opList splitting when recording
-// DDLs
-#ifndef SK_DISABLE_REDUCE_OPLIST_SPLITTING
-#define SK_DISABLE_REDUCE_OPLIST_SPLITTING
-#endif
+#define SK_SUPPORT_LEGACY_ANISOTROPIC_MIPMAP_SCALE
 
 // Max. verb count for paths rendered by the edge-AA tessellating path renderer.
 #define GR_AA_TESSELLATOR_MAX_VERB_COUNT 100
 
-#ifndef SK_SUPPORT_LEGACY_AAA_CHOICE
 #define SK_SUPPORT_LEGACY_AAA_CHOICE
-#endif
 
-#ifndef SK_SUPPORT_LEGACY_SPRITE_IGNORE_HQ
-#define SK_SUPPORT_LEGACY_SPRITE_IGNORE_HQ
-#endif
+#define SK_SUPPORT_LEGACY_DRAWLOOPER
 
-#ifndef GR_OP_ALLOCATE_USE_NEW
-#define GR_OP_ALLOCATE_USE_NEW
-#endif
+#define SK_SUPPORT_LEGACY_RUNTIME_EFFECTS
 
-#ifndef SK_SUPPORT_LEGACY_IMPLICIT_FILTERQUALITY
-#define SK_SUPPORT_LEGACY_IMPLICIT_FILTERQUALITY
-#endif
+#define SK_SUPPORT_LEGACY_DITHER
 
-// Staging for lowp::bilerp_clamp_8888, and for planned misc. others.
-#define SK_DISABLE_LOWP_BILERP_CLAMP_CLAMP_STAGE
+#define SK_LEGACY_FLOAT_RSQRT
+
+#define SK_RASTER_PIPELINE_LEGACY_RCP_RSQRT
 
 ///////////////////////// Imported from BUILD.gn and skia_common.gypi
 
@@ -252,4 +233,4 @@ SK_API void SkDebugf_FileLine(const char* file,
 #define SK_ATTR_DEPRECATED          SK_NOTHING_ARG1
 #define GR_GL_CUSTOM_SETUP_HEADER   "GrGLConfig_chrome.h"
 
-#endif
+#endif  // SKIA_CONFIG_SKUSERCONFIG_H_

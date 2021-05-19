@@ -16,7 +16,8 @@ class GPUComputePipelineDescriptor;
 WGPUComputePipelineDescriptor AsDawnType(
     const GPUComputePipelineDescriptor* webgpu_desc,
     std::string* label,
-    OwnedProgrammableStageDescriptor* computeStageDescriptor);
+    OwnedProgrammableStageDescriptor* computeStageDescriptor,
+    GPUDevice* device);
 
 class GPUComputePipeline : public DawnObject<WGPUComputePipeline> {
   DEFINE_WRAPPERTYPEINFO();
@@ -27,7 +28,6 @@ class GPUComputePipeline : public DawnObject<WGPUComputePipeline> {
       const GPUComputePipelineDescriptor* webgpu_desc);
   explicit GPUComputePipeline(GPUDevice* device,
                               WGPUComputePipeline compute_pipeline);
-  ~GPUComputePipeline() override;
 
   GPUBindGroupLayout* getBindGroupLayout(uint32_t index);
 

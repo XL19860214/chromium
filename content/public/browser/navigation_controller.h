@@ -13,8 +13,6 @@
 #include <vector>
 
 #include "base/memory/ref_counted.h"
-#include "base/optional.h"
-#include "base/strings/string16.h"
 #include "build/build_config.h"
 #include "content/common/content_export.h"
 #include "content/public/browser/global_request_id.h"
@@ -25,11 +23,13 @@
 #include "content/public/browser/session_storage_namespace.h"
 #include "content/public/browser/site_instance.h"
 #include "content/public/common/child_process_host.h"
-#include "content/public/common/impression.h"
 #include "content/public/common/referrer.h"
 #include "content/public/common/was_activated_option.mojom.h"
 #include "services/network/public/cpp/resource_request_body.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
+#include "third_party/blink/public/common/navigation/impression.h"
+#include "third_party/blink/public/common/tokens/tokens.h"
 #include "ui/base/page_transition_types.h"
 #include "url/gurl.h"
 #include "url/origin.h"
@@ -108,7 +108,7 @@ class NavigationController {
   CONTENT_EXPORT static std::unique_ptr<NavigationEntry> CreateNavigationEntry(
       const GURL& url,
       Referrer referrer,
-      base::Optional<url::Origin> initiator_origin,
+      absl::optional<url::Origin> initiator_origin,
       ui::PageTransition transition,
       bool is_renderer_initiated,
       const std::string& extra_headers,
@@ -136,14 +136,14 @@ class NavigationController {
     // was not associated with a frame, or if the initiating frame did not exist
     // by the time navigation started. This parameter is defined if and only if
     // |initiator_process_id| below is.
-    base::Optional<base::UnguessableToken> initiator_frame_token;
+    absl::optional<blink::LocalFrameToken> initiator_frame_token;
 
     // ID of the renderer process of the frame host that initiated the
     // navigation. This is defined if and only if |initiator_frame_token| above
     // is, and it is only valid in conjunction with it.
     int initiator_process_id = ChildProcessHost::kInvalidUniqueID;
 
-    // The origin of the initiator of the navigation or base::nullopt if the
+    // The origin of the initiator of the navigation or absl::nullopt if the
     // navigation was initiated through trusted, non-web-influenced UI
     // (e.g. via omnibox, the bookmarks bar, local NTP, etc.).
     //
@@ -152,7 +152,7 @@ class NavigationController {
     // browser-initiated navigations may also use a non-null |initiator_origin|
     // (if these navigations can be somehow triggered or influenced by web
     // content).
-    base::Optional<url::Origin> initiator_origin;
+    absl::optional<url::Origin> initiator_origin;
 
     // SiteInstance of the frame that initiated the navigation or null if we
     // don't know it.
@@ -182,6 +182,11 @@ class NavigationController {
     // True for renderer-initiated navigations. This is
     // important for tracking whether to display pending URLs.
     bool is_renderer_initiated;
+
+    // Whether a navigation in a new window has the opener suppressed. False if
+    // the navigation is not in a new window. Can only be true when
+    // |is_renderer_initiated| is true.
+    bool was_opener_suppressed = false;
 
     // User agent override for this load. See comments in
     // UserAgentOverrideOption definition.
@@ -265,7 +270,7 @@ class NavigationController {
 
     // Impression info associated with this navigation. Should only be populated
     // for navigations originating from a link click.
-    base::Optional<Impression> impression;
+    absl::optional<blink::Impression> impression;
 
     DISALLOW_COPY_AND_ASSIGN(LoadURLParams);
   };

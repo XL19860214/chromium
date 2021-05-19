@@ -5,7 +5,7 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_LOADER_MODULESCRIPT_MODULE_SCRIPT_CREATION_PARAMS_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_LOADER_MODULESCRIPT_MODULE_SCRIPT_CREATION_PARAMS_H_
 
-#include "base/optional.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/platform/web_url_request.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_source_location_type.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_streamer.h"
@@ -19,21 +19,20 @@
 
 namespace blink {
 
+enum class ModuleType { kInvalid, kJavaScript, kJSON, kCSS };
+
 // ModuleScriptCreationParams contains parameters for creating ModuleScript.
 class ModuleScriptCreationParams {
   DISALLOW_NEW();
-
-  enum class ModuleType { kJavaScriptModule, kJSONModule, kCSSModule };
 
  public:
   ModuleScriptCreationParams(
       const KURL& source_url,
       const KURL& base_url,
       ScriptSourceLocationType source_location_type,
-      const ModuleScriptCreationParams::ModuleType module_type,
+      const ModuleType module_type,
       const ParkableString& source_text,
       SingleCachedMetadataHandler* cache_handler,
-      network::mojom::CredentialsMode credentials_mode,
       ScriptStreamer* script_streamer = nullptr,
       ScriptStreamer::NotStreamingReason not_streaming_reason =
           ScriptStreamer::NotStreamingReason::kStreamingDisabled)
@@ -45,7 +44,6 @@ class ModuleScriptCreationParams {
         source_text_(source_text),
         isolated_source_text_(),
         cache_handler_(cache_handler),
-        credentials_mode_(credentials_mode),
         script_streamer_(script_streamer),
         not_streaming_reason_(not_streaming_reason) {
     DCHECK(source_location_type == ScriptSourceLocationType::kExternalFile ||
@@ -65,14 +63,12 @@ class ModuleScriptCreationParams {
     String isolated_source_text =
         isolated_source_text_ ? isolated_source_text_.IsolatedCopy()
                               : GetSourceText().ToString().IsolatedCopy();
-    return ModuleScriptCreationParams(
-        SourceURL().Copy(), BaseURL().Copy(), source_location_type_,
-        GetModuleType(), isolated_source_text, GetFetchCredentialsMode());
+    return ModuleScriptCreationParams(SourceURL().Copy(), BaseURL().Copy(),
+                                      source_location_type_, GetModuleType(),
+                                      isolated_source_text);
   }
 
-  ModuleScriptCreationParams::ModuleType GetModuleType() const {
-    return module_type_;
-  }
+  ModuleType GetModuleType() const { return module_type_; }
 
   const KURL& SourceURL() const { return source_url_; }
   const KURL& BaseURL() const { return base_url_; }
@@ -93,16 +89,12 @@ class ModuleScriptCreationParams {
   ModuleScriptCreationParams CopyWithClearedSourceText() const {
     return ModuleScriptCreationParams(
         source_url_, base_url_, source_location_type_, module_type_,
-        ParkableString(), /*cache_handler=*/nullptr, credentials_mode_,
+        ParkableString(), /*cache_handler=*/nullptr,
         /*script_streamer=*/nullptr,
         ScriptStreamer::NotStreamingReason::kStreamingDisabled);
   }
 
   SingleCachedMetadataHandler* CacheHandler() const { return cache_handler_; }
-
-  network::mojom::CredentialsMode GetFetchCredentialsMode() const {
-    return credentials_mode_;
-  }
 
   bool IsSafeToSendToAnotherThread() const {
     return source_url_.IsSafeToSendToAnotherThread() &&
@@ -110,16 +102,19 @@ class ModuleScriptCreationParams {
   }
 
   ScriptStreamer* GetScriptStreamer() const { return script_streamer_; }
+  ScriptStreamer::NotStreamingReason NotStreamingReason() const {
+    return not_streaming_reason_;
+  }
+
+  static String ModuleTypeToString(const ModuleType module_type);
 
  private:
   // Creates an isolated copy.
-  ModuleScriptCreationParams(
-      const KURL& source_url,
-      const KURL& base_url,
-      ScriptSourceLocationType source_location_type,
-      const ModuleScriptCreationParams::ModuleType& module_type,
-      const String& isolated_source_text,
-      network::mojom::CredentialsMode credentials_mode)
+  ModuleScriptCreationParams(const KURL& source_url,
+                             const KURL& base_url,
+                             ScriptSourceLocationType source_location_type,
+                             const ModuleType& module_type,
+                             const String& isolated_source_text)
       : source_url_(source_url),
         base_url_(base_url),
         source_location_type_(source_location_type),
@@ -127,7 +122,6 @@ class ModuleScriptCreationParams {
         is_isolated_(true),
         source_text_(),
         isolated_source_text_(isolated_source_text),
-        credentials_mode_(credentials_mode),
         // The ScriptStreamer is intentionally cleared since it cannot be passed
         // across threads. This only disables script streaming on worklet
         // top-level scripts where the ModuleScriptCreationParams is
@@ -149,8 +143,6 @@ class ModuleScriptCreationParams {
 
   // |cache_handler_| is cleared when crossing thread boundaries.
   Persistent<SingleCachedMetadataHandler> cache_handler_;
-
-  const network::mojom::CredentialsMode credentials_mode_;
 
   // |script_streamer_| is cleared when crossing thread boundaries.
   Persistent<ScriptStreamer> script_streamer_;

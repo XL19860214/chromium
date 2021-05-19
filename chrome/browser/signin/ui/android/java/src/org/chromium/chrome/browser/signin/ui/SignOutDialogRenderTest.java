@@ -4,14 +4,9 @@
 
 package org.chromium.chrome.browser.signin.ui;
 
-import static androidx.test.espresso.Espresso.onView;
-import static androidx.test.espresso.action.ViewActions.pressBack;
-import static androidx.test.espresso.matcher.ViewMatchers.isRoot;
-
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
-import static org.mockito.MockitoAnnotations.initMocks;
 
 import android.support.test.InstrumentationRegistry;
 import android.view.View;
@@ -24,6 +19,9 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
+import org.mockito.junit.MockitoJUnit;
+import org.mockito.junit.MockitoRule;
+import org.mockito.quality.Strictness;
 
 import org.chromium.base.test.util.Batch;
 import org.chromium.base.test.util.CommandLineFlags;
@@ -38,6 +36,7 @@ import org.chromium.chrome.browser.signin.services.SigninMetricsUtilsJni;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.util.ChromeRenderTestRule;
 import org.chromium.components.signin.GAIAServiceType;
+import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.ui.test.util.DisableAnimationsTestRule;
 import org.chromium.ui.test.util.DummyUiActivityTestCase;
 
@@ -60,6 +59,9 @@ public class SignOutDialogRenderTest extends DummyUiActivityTestCase {
     @Rule
     public final JniMocker mocker = new JniMocker();
 
+    @Rule
+    public final MockitoRule mMockitoRule = MockitoJUnit.rule().strictness(Strictness.STRICT_STUBS);
+
     @Mock
     private SigninMetricsUtils.Natives mSigninMetricsUtilsNativeMock;
 
@@ -69,9 +71,10 @@ public class SignOutDialogRenderTest extends DummyUiActivityTestCase {
     @Mock
     private Profile mProfile;
 
+    private SignOutDialogFragment mSignOutDialog;
+
     @Before
     public void setUp() {
-        initMocks(this);
         mocker.mock(SigninMetricsUtilsJni.TEST_HOOKS, mSigninMetricsUtilsNativeMock);
         Profile.setLastUsedProfileForTesting(mProfile);
         IdentityServicesProvider.setInstanceForTests(mock(IdentityServicesProvider.class));
@@ -82,7 +85,9 @@ public class SignOutDialogRenderTest extends DummyUiActivityTestCase {
     public void tearDown() {
         // Since the Dialog dismiss calls native method, we need to close the dialog before the
         // Native mock SigninMetricsUtils.Natives gets removed.
-        onView(isRoot()).perform(pressBack());
+        if (mSignOutDialog != null) {
+            TestThreadUtils.runOnUiThreadBlocking(() -> mSignOutDialog.dismiss());
+        }
     }
 
     @Test
@@ -101,10 +106,9 @@ public class SignOutDialogRenderTest extends DummyUiActivityTestCase {
     }
 
     private View showSignOutDialog() {
-        SignOutDialogFragment signOutDialog =
-                SignOutDialogFragment.create(GAIAServiceType.GAIA_SERVICE_TYPE_NONE);
-        signOutDialog.show(getActivity().getSupportFragmentManager(), null);
+        mSignOutDialog = SignOutDialogFragment.create(GAIAServiceType.GAIA_SERVICE_TYPE_NONE);
+        mSignOutDialog.show(getActivity().getSupportFragmentManager(), null);
         InstrumentationRegistry.getInstrumentation().waitForIdleSync();
-        return signOutDialog.getDialog().getWindow().getDecorView();
+        return mSignOutDialog.getDialog().getWindow().getDecorView();
     }
 }

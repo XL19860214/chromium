@@ -18,17 +18,17 @@ namespace {
 const char kDescriberName[] = "FreezingVoteAggregator";
 }
 
-FreezingVoteAggregator::FreezingVoteAggregator()
-    : vote_consumer_default_impl_(this) {}
+FreezingVoteAggregator::FreezingVoteAggregator() = default;
+
 FreezingVoteAggregator::~FreezingVoteAggregator() = default;
 
 FreezingVotingChannel FreezingVoteAggregator::GetVotingChannel() {
-  return vote_consumer_default_impl_.BuildVotingChannel();
+  return freezing_voting_channel_factory_.BuildVotingChannel();
 }
 
 void FreezingVoteAggregator::SetUpstreamVotingChannel(
     FreezingVotingChannel&& channel) {
-  channel_.SetVotingChannel(std::move(channel));
+  channel_ = std::move(channel);
 }
 
 void FreezingVoteAggregator::OnVoteSubmitted(FreezingVoterId voter_id,
@@ -41,7 +41,7 @@ void FreezingVoteAggregator::OnVoteSubmitted(FreezingVoterId voter_id,
 
   // Remember the previous chosen vote before adding the new vote. There
   // could be none if this is the first vote submitted for |page_node|.
-  base::Optional<FreezingVoteValue> old_chosen_vote_value;
+  absl::optional<FreezingVoteValue> old_chosen_vote_value;
   if (!vote_data.IsEmpty())
     old_chosen_vote_value = vote_data.GetChosenVote().value();
 

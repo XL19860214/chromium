@@ -21,6 +21,36 @@ namespace media {
 
 namespace {
 
+namespace av1 {
+// CodecPrivate for AV1. See
+// https://github.com/ietf-wg-cellar/matroska-specification/blob/master/codec/av1.md.
+constexpr int high_bitdepth = 0;
+constexpr int twelve_bit = 0;
+constexpr int monochrome = 0;
+constexpr int initial_presentation_delay_present = 0;
+constexpr int initial_presentation_delay_minus_one = 0;
+constexpr int chroma_sample_position = 0;
+constexpr int seq_profile = 0;      // Main
+constexpr int seq_level_idx_0 = 9;  // level 4.1 ~1920x1080@60fps
+constexpr int seq_tier_0 = 0;
+constexpr int chroma_subsampling_x = 1;
+constexpr int chroma_subsampling_y = 1;
+constexpr uint8_t codec_private[4] = {
+    255,                                         //
+    (seq_profile << 5) | seq_level_idx_0,        //
+    (seq_tier_0 << 7) |                          //
+        (high_bitdepth << 6) |                   //
+        (twelve_bit << 5) |                      //
+        (monochrome << 4) |                      //
+        (chroma_subsampling_x << 3) |            //
+        (chroma_subsampling_y << 2) |            //
+        chroma_sample_position,                  //
+    (initial_presentation_delay_present << 4) |  //
+        initial_presentation_delay_minus_one     //
+};
+
+}  // namespace av1
+
 // Force new clusters at a maximum rate of 10 Hz.
 constexpr base::TimeDelta kMinimumForcedClusterDuration =
     base::TimeDelta::FromMilliseconds(100);
@@ -70,6 +100,8 @@ static const char* MkvCodeIcForMediaVideoCodecId(VideoCodec video_codec) {
       return mkvmuxer::Tracks::kVp8CodecId;
     case kCodecVP9:
       return mkvmuxer::Tracks::kVp9CodecId;
+    case kCodecAV1:
+      return mkvmuxer::Tracks::kAv1CodecId;
     case kCodecH264:
       return kH264CodecId;
     default:
@@ -78,7 +110,7 @@ static const char* MkvCodeIcForMediaVideoCodecId(VideoCodec video_codec) {
   }
 }
 
-base::Optional<mkvmuxer::Colour> ColorFromColorSpace(
+absl::optional<mkvmuxer::Colour> ColorFromColorSpace(
     const gfx::ColorSpace& color) {
   using mkvmuxer::Colour;
   using MatrixID = gfx::ColorSpace::MatrixID;
@@ -95,7 +127,7 @@ base::Optional<mkvmuxer::Colour> ColorFromColorSpace(
       matrix_coefficients = Colour::kBt2020NonConstantLuminance;
       break;
     default:
-      return base::nullopt;
+      return absl::nullopt;
   }
   colour.set_matrix_coefficients(matrix_coefficients);
   int range;
@@ -107,7 +139,7 @@ base::Optional<mkvmuxer::Colour> ColorFromColorSpace(
       range = Colour::kFullRange;
       break;
     default:
-      return base::nullopt;
+      return absl::nullopt;
   }
   colour.set_range(range);
   int transfer_characteristics;
@@ -122,7 +154,7 @@ base::Optional<mkvmuxer::Colour> ColorFromColorSpace(
       transfer_characteristics = Colour::kSmpteSt2084;
       break;
     default:
-      return base::nullopt;
+      return absl::nullopt;
   }
   colour.set_transfer_characteristics(transfer_characteristics);
   int primaries;
@@ -134,7 +166,7 @@ base::Optional<mkvmuxer::Colour> ColorFromColorSpace(
       primaries = Colour::kIturBt2020;
       break;
     default:
-      return base::nullopt;
+      return absl::nullopt;
   }
   colour.set_primaries(primaries);
   return colour;
@@ -145,7 +177,7 @@ base::Optional<mkvmuxer::Colour> ColorFromColorSpace(
 WebmMuxer::VideoParameters::VideoParameters(
     scoped_refptr<media::VideoFrame> frame)
     : visible_rect_size(frame->visible_rect().size()),
-      frame_rate(frame->metadata()->frame_rate.value_or(0.0)),
+      frame_rate(frame->metadata().frame_rate.value_or(0.0)),
       codec(kUnknownVideoCodec),
       color_space(frame->ColorSpace()) {}
 
@@ -153,7 +185,7 @@ WebmMuxer::VideoParameters::VideoParameters(
     gfx::Size visible_rect_size,
     double frame_rate,
     VideoCodec codec,
-    base::Optional<gfx::ColorSpace> color_space)
+    absl::optional<gfx::ColorSpace> color_space)
     : visible_rect_size(visible_rect_size),
       frame_rate(frame_rate),
       codec(codec),
@@ -211,7 +243,7 @@ bool WebmMuxer::OnEncodedVideo(const VideoParameters& params,
   DVLOG(2) << __func__ << " - " << encoded_data.size() << "B";
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(params.codec == kCodecVP8 || params.codec == kCodecVP9 ||
-         params.codec == kCodecH264)
+         params.codec == kCodecH264 || params.codec == kCodecAV1)
       << " Unsupported video codec: " << GetCodecName(params.codec);
   DCHECK(video_codec_ == kUnknownVideoCodec || video_codec_ == params.codec)
       << "Unsupported: codec switched, to: " << GetCodecName(params.codec);
@@ -233,6 +265,11 @@ bool WebmMuxer::OnEncodedVideo(const VideoParameters& params,
       first_frame_timestamp_video_ = timestamp - total_time_in_pause_;
       last_frame_timestamp_video_ = first_frame_timestamp_video_;
     }
+    // Add codec private for AV1.
+    if (params.codec == kCodecAV1 &&
+        !segment_.GetTrackByNumber(video_track_index_)
+             ->SetCodecPrivate(av1::codec_private, sizeof(av1::codec_private)))
+      LOG(ERROR) << __func__ << " failed to set CodecPrivate for AV1.";
   }
 
   // TODO(ajose): Support multiple tracks: http://crbug.com/528523
@@ -312,7 +349,7 @@ bool WebmMuxer::Flush() {
 void WebmMuxer::AddVideoTrack(
     const gfx::Size& frame_size,
     double frame_rate,
-    const base::Optional<gfx::ColorSpace>& color_space) {
+    const absl::optional<gfx::ColorSpace>& color_space) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK_EQ(0u, video_track_index_)
       << "WebmMuxer can only be initialized once.";
@@ -497,6 +534,7 @@ bool WebmMuxer::FlushNextFrame() {
     force_one_libwebm_error_ = false;
     return false;
   }
+
   DCHECK(frame.data.data());
   bool result =
       frame.alpha_data.empty()

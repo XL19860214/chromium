@@ -72,6 +72,11 @@ class WebSecurityPolicy {
   BLINK_EXPORT static void
   RegisterURLSchemeAsFirstPartyWhenTopLevelEmbeddingSecure(const WebString&);
 
+  // Registers a URL scheme as always allowing access to SharedArrayBuffers.
+  // TODO(crbug.com/1184892): Remove once fixed.
+  BLINK_EXPORT static void RegisterURLSchemeAsAllowingSharedArrayBuffers(
+      const WebString&);
+
   // Support for managing allow/block access lists to origins beyond the
   // same-origin policy. The block list takes priority over the allow list.
   // When an origin matches an entry on both the allow list and block list
@@ -100,11 +105,6 @@ class WebSecurityPolicy {
   BLINK_EXPORT static void ClearOriginAccessListForOrigin(
       const WebURL& source_origin);
   BLINK_EXPORT static void ClearOriginAccessList();
-
-  // Adds an origin or hostname pattern that is always considered trustworthy.
-  // This method does not perform canonicalization; the caller is responsible
-  // for canonicalizing the input.
-  BLINK_EXPORT static void AddOriginToTrustworthySafelist(const WebString&);
 
   // Add a scheme that is always considered a secure context. The caller is
   // responsible for canonicalizing the input.
@@ -136,4 +136,4 @@ class WebSecurityPolicy {
 
 }  // namespace blink
 
-#endif
+#endif  // THIRD_PARTY_BLINK_PUBLIC_WEB_WEB_SECURITY_POLICY_H_

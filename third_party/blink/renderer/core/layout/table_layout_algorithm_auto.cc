@@ -241,7 +241,7 @@ static bool ShouldScaleColumnsForParent(LayoutTable* table) {
     const bool is_deprecated_webkit_box =
         cb->StyleRef().IsDeprecatedWebkitBox();
     if ((!is_deprecated_webkit_box && cb->IsFlexibleBoxIncludingNG()) ||
-        cb->IsLayoutGrid()) {
+        cb->IsLayoutGridIncludingNG()) {
       return false;
     }
     cb = cb->ContainingBlock();
@@ -661,7 +661,7 @@ void TableLayoutAlgorithmAuto::InsertSpanCell(LayoutTableCell* cell) {
   if (!size || span_cells_[size - 1] != 0) {
     span_cells_.Grow(size + 10);
     for (unsigned i = 0; i < 10; i++)
-      span_cells_[size + i] = 0;
+      span_cells_[size + i] = nullptr;
     size += 10;
   }
 

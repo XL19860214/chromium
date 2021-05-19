@@ -36,6 +36,7 @@ import org.chromium.chrome.browser.omnibox.UrlBar;
 import org.chromium.chrome.browser.tab.EmptyTabObserver;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tab.TabObserver;
+import org.chromium.chrome.browser.tab.TabUtils;
 import org.chromium.chrome.browser.tabmodel.TabModel;
 import org.chromium.chrome.browser.tabmodel.TabModelUtils;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
@@ -281,7 +282,7 @@ public class NavigateTest {
     // TODO(https://crbug.com/928669) Remove switch when UA-CH-* launched.
     public void testRequestDesktopSiteClientHints() throws Exception {
         String url1 = mTestServer.getURL(
-                "/set-header?Accept-CH: ua-arch,ua-platform,ua-model&Accept-CH-Lifetime: 86400");
+                "/set-header?Accept-CH: sec-ch-ua-arch,sec-ch-ua-platform,sec-ch-ua-model&Accept-CH-Lifetime: 86400");
         String url2 = mTestServer.getURL(
                 "/echoheader?sec-ch-ua-arch&sec-ch-ua-mobile&sec-ch-ua-model&sec-ch-ua-platform");
 
@@ -290,8 +291,8 @@ public class NavigateTest {
         final Tab tab = mActivityTestRule.getActivity().getActivityTab();
         TestThreadUtils.runOnUiThreadBlocking(
                 ()
-                        -> tab.getWebContents().getNavigationController().setUseDesktopUserAgent(
-                                true /* useDesktop */, true /* reloadOnChange */));
+                        -> TabUtils.switchUserAgent(
+                                tab, /* switchToDesktop */ true, /* forcedByUser */ true));
         ChromeTabUtils.waitForTabPageLoaded(tab, url1);
 
         navigateAndObserve(url2, url2);
@@ -323,8 +324,8 @@ public class NavigateTest {
         final Tab tab = mActivityTestRule.getActivity().getActivityTab();
         TestThreadUtils.runOnUiThreadBlocking(
                 ()
-                        -> tab.getWebContents().getNavigationController().setUseDesktopUserAgent(
-                                true /* useDesktop */, true /* reloadOnChange */));
+                        -> TabUtils.switchUserAgent(
+                                tab, /* switchToDesktop */ true, /* forcedByUser */ true));
 
         navigateAndObserve(url, url);
         ChromeTabUtils.waitForTabPageLoaded(tab, url);

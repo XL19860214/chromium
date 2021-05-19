@@ -20,7 +20,6 @@
 #include "base/containers/mru_cache.h"
 #include "base/memory/memory_pressure_listener.h"
 #include "base/memory/shared_memory_mapping.h"
-#include "base/optional.h"
 #include "base/sequenced_task_runner.h"
 #include "base/time/time.h"
 #include "cc/base/synced_property.h"
@@ -63,6 +62,7 @@
 #include "cc/trees/presentation_time_callback_buffer.h"
 #include "cc/trees/render_frame_metadata.h"
 #include "cc/trees/task_runner_provider.h"
+#include "cc/trees/throttle_decider.h"
 #include "cc/trees/ukm_manager.h"
 #include "components/viz/client/client_resource_provider.h"
 #include "components/viz/common/frame_sinks/begin_frame_args.h"
@@ -72,6 +72,7 @@
 #include "components/viz/common/surfaces/local_surface_id.h"
 #include "components/viz/common/surfaces/surface_id.h"
 #include "components/viz/common/surfaces/surface_range.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/events/types/scroll_input_type.h"
 #include "ui/gfx/geometry/rect.h"
 
@@ -162,10 +163,11 @@ class LayerTreeHostImplClient {
   virtual void RequestBeginMainFrameNotExpected(bool new_state) = 0;
 
   // Called when a presentation time is requested. |frame_token| identifies
-  // the frame that was presented.
+  // the frame that was presented. |callbacks| holds both impl side and main
+  // side callbacks to be called.
   virtual void DidPresentCompositorFrameOnImplThread(
       uint32_t frame_token,
-      std::vector<LayerTreeHost::PresentationTimeCallback> callbacks,
+      PresentationTimeCallbackBuffer::PendingCallbacks callbacks,
       const viz::FrameTimingDetails& details) = 0;
 
   // Returns whether the main-thread is expected to receive a BeginMainFrame.
@@ -188,6 +190,9 @@ class LayerTreeHostImplClient {
   // only true in tests, but some behavior needs to be synchronized in non-test
   // code as a result.
   virtual bool IsInSynchronousComposite() const = 0;
+
+  virtual void FrameSinksToThrottleUpdated(
+      const base::flat_set<viz::FrameSinkId>& ids) = 0;
 
  protected:
   virtual ~LayerTreeHostImplClient() = default;
@@ -223,7 +228,7 @@ class CC_EXPORT LayerTreeHostImpl : public TileManagerClient,
     bool has_missing_content = false;
 
     std::vector<viz::SurfaceId> activation_dependencies;
-    base::Optional<uint32_t> deadline_in_frames;
+    absl::optional<uint32_t> deadline_in_frames;
     bool use_default_lower_bound_deadline = false;
     viz::CompositorRenderPassList render_passes;
     const RenderSurfaceList* render_surface_list = nullptr;
@@ -378,6 +383,7 @@ class CC_EXPORT LayerTreeHostImpl : public TileManagerClient,
   LayerTreeHostImpl& GetImplDeprecated() override;
   const LayerTreeHostImpl& GetImplDeprecated() const override;
 
+  bool CanInjectJankOnMain() const;
   FrameSequenceTrackerCollection& frame_trackers() { return frame_trackers_; }
 
   // VisualDeviceViewportSize is the size of the global viewport across all
@@ -388,6 +394,14 @@ class CC_EXPORT LayerTreeHostImpl : public TileManagerClient,
   // because each compositor doesn't know its position relative to other
   // compositors. This is specified in device viewport coordinate space.
   void SetVisualDeviceViewportSize(const gfx::Size&);
+
+  void set_viewport_mobile_optimized(bool viewport_mobile_optimized) {
+    is_viewport_mobile_optimized_ = viewport_mobile_optimized;
+  }
+
+  bool viewport_mobile_optimized() const {
+    return is_viewport_mobile_optimized_;
+  }
 
   // Updates registered ElementIds present in |changed_list|. Call this after
   // changing the property trees for the |changed_list| trees.
@@ -433,10 +447,9 @@ class CC_EXPORT LayerTreeHostImpl : public TileManagerClient,
                                  ElementListType list_type,
                                  const PropertyAnimationState& mask,
                                  const PropertyAnimationState& state) override;
-  void AnimationScalesChanged(ElementId element_id,
-                              ElementListType list_type,
-                              float maximum_scale,
-                              float starting_scale) override;
+  void MaximumScaleChanged(ElementId element_id,
+                           ElementListType list_type,
+                           float maximum_scale) override;
   void OnCustomPropertyMutated(
       PaintWorkletInput::PropertyKey property_key,
       PaintWorkletInput::PropertyValue property_value) override;
@@ -530,20 +543,21 @@ class CC_EXPORT LayerTreeHostImpl : public TileManagerClient,
   void SetExternalTilePriorityConstraints(
       const gfx::Rect& viewport_rect,
       const gfx::Transform& transform) override;
-  base::Optional<viz::HitTestRegionList> BuildHitTestData() override;
+  absl::optional<viz::HitTestRegionList> BuildHitTestData() override;
   void DidLoseLayerTreeFrameSink() override;
   void DidReceiveCompositorFrameAck() override;
   void DidPresentCompositorFrame(
       uint32_t frame_token,
       const viz::FrameTimingDetails& details) override;
-  void ReclaimResources(
-      const std::vector<viz::ReturnedResource>& resources) override;
+  void ReclaimResources(std::vector<viz::ReturnedResource> resources) override;
   void SetMemoryPolicy(const ManagedMemoryPolicy& policy) override;
   void SetTreeActivationCallback(base::RepeatingClosure callback) override;
   void OnDraw(const gfx::Transform& transform,
               const gfx::Rect& viewport,
               bool resourceless_software_draw,
               bool skip_draw) override;
+  void OnCompositorFrameTransitionDirectiveProcessed(
+      uint32_t sequence_id) override;
 
   // Called from LayerTreeImpl.
   void OnCanDrawStateChangedForTree();
@@ -740,7 +754,6 @@ class CC_EXPORT LayerTreeHostImpl : public TileManagerClient,
   // Only valid for synchronous (non-scheduled) single-threaded case.
   void SynchronouslyInitializeAllTiles();
 
-  bool SupportsImplScrolling() const;
   bool CommitToActiveTree() const;
 
   // Virtual so tests can inject their own.
@@ -777,6 +790,9 @@ class CC_EXPORT LayerTreeHostImpl : public TileManagerClient,
   // Returns mutator events to be handled by BeginMainFrame.
   std::unique_ptr<MutatorEvents> TakeMutatorEvents();
 
+  // Returns all of the transition request sequence ids that were finished.
+  std::vector<uint32_t> TakeFinishedTransitionRequestSequenceIds();
+
   void ClearCaches();
 
   void UpdateImageDecodingHints(
@@ -799,6 +815,13 @@ class CC_EXPORT LayerTreeHostImpl : public TileManagerClient,
 
   void SetUkmSmoothnessDestination(
       base::WritableSharedMemoryMapping ukm_smoothness_data);
+
+  // Notifies FrameTrackers, impl side callbacks that the compsitor frame
+  // was presented.
+  void NotifyDidPresentCompositorFrameOnImplThread(
+      uint32_t frame_token,
+      std::vector<LayerTreeHost::PresentationTimeCallback> callbacks,
+      const viz::FrameTimingDetails& details);
 
   CompositorFrameReportingController* compositor_frame_reporting_controller()
       const {
@@ -871,7 +894,7 @@ class CC_EXPORT LayerTreeHostImpl : public TileManagerClient,
   bool ScrollAnimationCreateInternal(const ScrollNode& scroll_node,
                                      const gfx::Vector2dF& delta,
                                      base::TimeDelta delayed_by,
-                                     base::Optional<float> autoscroll_velocity);
+                                     absl::optional<float> autoscroll_velocity);
 
   void CleanUpTileManagerResources();
   void CreateTileManagerResources();
@@ -1127,6 +1150,11 @@ class CC_EXPORT LayerTreeHostImpl : public TileManagerClient,
   std::unique_ptr<Viewport> viewport_;
 
   gfx::Size visual_device_viewport_size_;
+  // Set to true if viewport is mobile optimized by using meta tag
+  // <meta name="viewport" content="width=device-width">
+  // or
+  // <meta name="viewport" content="initial-scale=1.0">
+  bool is_viewport_mobile_optimized_ = false;
 
   std::unique_ptr<PendingTreeRasterDurationHistogramTimer>
       pending_tree_raster_duration_timer_;
@@ -1154,7 +1182,7 @@ class CC_EXPORT LayerTreeHostImpl : public TileManagerClient,
 
   viz::LocalSurfaceId last_draw_local_surface_id_;
   base::flat_set<viz::SurfaceRange> last_draw_referenced_surfaces_;
-  base::Optional<RenderFrameMetadata> last_draw_render_frame_metadata_;
+  absl::optional<RenderFrameMetadata> last_draw_render_frame_metadata_;
   viz::ChildLocalSurfaceIdAllocator child_local_surface_id_allocator_;
 
   // Indicates the direction of the last vertical scroll of the root layer.
@@ -1223,6 +1251,12 @@ class CC_EXPORT LayerTreeHostImpl : public TileManagerClient,
   // multiple times per frame, and incurs a non-trivial cost.
   // mutable because |contains_srgb_cache_| is accessed in a const method.
   mutable base::MRUCache<gfx::ColorSpace, bool> contains_srgb_cache_;
+
+  // When enabled, calculates which frame sinks can be throttled based on
+  // some pre-defined criteria.
+  ThrottleDecider throttle_decider_;
+
+  std::vector<uint32_t> finished_transition_request_sequence_ids_;
 
   // Must be the last member to ensure this is destroyed first in the
   // destruction order and invalidates all weak pointers.

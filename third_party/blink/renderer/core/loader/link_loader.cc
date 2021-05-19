@@ -57,22 +57,22 @@ class WebPrescientNetworking;
 namespace {
 
 // Decide the prerender type based on the link rel attribute. Returns
-// base::nullopt if the attribute doesn't indicate the prerender type.
-base::Optional<mojom::blink::PrerenderRelType> PrerenderRelTypeFromRelAttribute(
-    const LinkRelAttribute& rel_attribute,
-    Document& document) {
-  base::Optional<mojom::blink::PrerenderRelType> rel_type;
+// absl::nullopt if the attribute doesn't indicate the prerender type.
+absl::optional<mojom::blink::PrerenderTriggerType>
+PrerenderTriggerTypeFromRelAttribute(const LinkRelAttribute& rel_attribute,
+                                     Document& document) {
+  absl::optional<mojom::blink::PrerenderTriggerType> trigger_type;
   if (rel_attribute.IsLinkPrerender()) {
     UseCounter::Count(document, WebFeature::kLinkRelPrerender);
-    rel_type = mojom::blink::PrerenderRelType::kPrerender;
+    trigger_type = mojom::blink::PrerenderTriggerType::kLinkRelPrerender;
   }
   if (rel_attribute.IsLinkNext()) {
     UseCounter::Count(document, WebFeature::kLinkRelNext);
-    // Prioritize mojom::blink::PrerenderRelType::kPrerender.
-    if (!rel_type)
-      rel_type = mojom::blink::PrerenderRelType::kNext;
+    // Prioritize mojom::blink::PrerenderTriggerType::kLinkRelPrerender.
+    if (!trigger_type)
+      trigger_type = mojom::blink::PrerenderTriggerType::kLinkRelNext;
   }
-  return rel_type;
+  return trigger_type;
 }
 
 }  // namespace
@@ -180,23 +180,24 @@ bool LinkLoader::LoadLink(const LinkLoadParameters& params,
   PreloadHelper::ModulePreloadIfNeeded(
       params, document, nullptr /* viewport_description */, this);
 
-  base::Optional<mojom::blink::PrerenderRelType> prerender_rel_type =
-      PrerenderRelTypeFromRelAttribute(params.rel, document);
-  if (prerender_rel_type) {
+  absl::optional<mojom::blink::PrerenderTriggerType> trigger_type =
+      PrerenderTriggerTypeFromRelAttribute(params.rel, document);
+  if (trigger_type) {
     // The previous prerender should already be aborted by Abort().
     DCHECK(!prerender_);
-    prerender_ =
-        PrerenderHandle::Create(document, params.href, *prerender_rel_type);
+    prerender_ = PrerenderHandle::Create(document, params.href, *trigger_type);
   }
   return true;
 }
 
-void LinkLoader::LoadStylesheet(const LinkLoadParameters& params,
-                                const AtomicString& local_name,
-                                const WTF::TextEncoding& charset,
-                                FetchParameters::DeferOption defer_option,
-                                Document& document,
-                                ResourceClient* link_client) {
+void LinkLoader::LoadStylesheet(
+    const LinkLoadParameters& params,
+    const AtomicString& local_name,
+    const WTF::TextEncoding& charset,
+    FetchParameters::DeferOption defer_option,
+    Document& document,
+    ResourceClient* link_client,
+    RenderBlockingBehavior render_blocking_behavior) {
   ExecutionContext* context = document.GetExecutionContext();
   ResourceRequest resource_request(context->CompleteURL(params.href));
   resource_request.SetReferrerPolicy(params.referrer_policy);
@@ -209,11 +210,11 @@ void LinkLoader::LoadStylesheet(const LinkLoadParameters& params,
 
   ResourceLoaderOptions options(context->GetCurrentWorld());
   options.initiator_info.name = local_name;
+
   FetchParameters link_fetch_params(std::move(resource_request), options);
   link_fetch_params.SetCharset(charset);
-
   link_fetch_params.SetDefer(defer_option);
-
+  link_fetch_params.SetRenderBlockingBehavior(render_blocking_behavior);
   link_fetch_params.SetContentSecurityPolicyNonce(params.nonce);
 
   CrossOriginAttributeValue cross_origin = params.cross_origin;

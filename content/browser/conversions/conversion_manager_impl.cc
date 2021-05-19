@@ -8,8 +8,11 @@
 
 #include "base/barrier_closure.h"
 #include "base/bind.h"
+#include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/memory/ptr_util.h"
+#include "base/task/lazy_thread_pool_task_runner.h"
+#include "base/threading/sequence_bound.h"
 #include "base/time/default_clock.h"
 #include "content/browser/conversions/conversion_reporter_impl.h"
 #include "content/browser/conversions/conversion_storage_delegate_impl.h"
@@ -23,6 +26,18 @@
 namespace content {
 
 namespace {
+
+// The shared-task runner for all conversion storage operations. Note that
+// different ConversionManagerImpl perform operations on the same task
+// runner. This prevents any potential races when a given context is destroyed
+// and recreated for the same backing storage. This uses
+// BLOCK_SHUTDOWN as some data deletion operations may be running when the
+// browser is closed, and we want to ensure all data is deleted correctly.
+base::LazyThreadPoolSequencedTaskRunner g_storage_task_runner =
+    LAZY_THREAD_POOL_SEQUENCED_TASK_RUNNER_INITIALIZER(
+        base::TaskTraits(base::TaskPriority::BEST_EFFORT,
+                         base::MayBlock(),
+                         base::TaskShutdownBehavior::BLOCK_SHUTDOWN));
 
 bool IsOriginSessionOnly(
     scoped_refptr<storage::SpecialStoragePolicy> storage_policy,
@@ -47,8 +62,7 @@ const constexpr base::TimeDelta kConversionManagerQueueReportsInterval =
 ConversionManager* ConversionManagerProviderImpl::GetManager(
     WebContents* web_contents) const {
   return static_cast<StoragePartitionImpl*>(
-             BrowserContext::GetDefaultStoragePartition(
-                 web_contents->GetBrowserContext()))
+             web_contents->GetBrowserContext()->GetDefaultStoragePartition())
       ->GetConversionManager();
 }
 
@@ -94,11 +108,11 @@ ConversionManagerImpl::ConversionManagerImpl(
           switches::kConversionsDebugMode)),
       clock_(clock),
       reporter_(std::move(reporter)),
-      conversion_storage_context_(
-          base::MakeRefCounted<ConversionStorageContext>(
-              user_data_directory,
-              std::make_unique<ConversionStorageDelegateImpl>(debug_mode_),
-              clock_)),
+      conversion_storage_(base::SequenceBound<ConversionStorageSql>(
+          g_storage_task_runner.Get(),
+          user_data_directory,
+          std::make_unique<ConversionStorageDelegateImpl>(debug_mode_),
+          clock_)),
       conversion_policy_(std::move(policy)),
       special_storage_policy_(std::move(special_storage_policy)),
       weak_factory_(this) {
@@ -129,23 +143,26 @@ ConversionManagerImpl::~ConversionManagerImpl() {
   base::RepeatingCallback<bool(const url::Origin&)>
       session_only_origin_predicate = base::BindRepeating(
           &IsOriginSessionOnly, std::move(special_storage_policy_));
-  conversion_storage_context_->ClearData(base::Time::Min(), base::Time::Max(),
-                                         session_only_origin_predicate,
-                                         base::DoNothing());
+  conversion_storage_.AsyncCall(&ConversionStorage::ClearData)
+      .WithArgs(base::Time::Min(), base::Time::Max(),
+                session_only_origin_predicate);
 }
 
 void ConversionManagerImpl::HandleImpression(
     const StorableImpression& impression) {
   // Add the impression to storage.
-  conversion_storage_context_->StoreImpression(impression);
+  conversion_storage_.AsyncCall(&ConversionStorage::StoreImpression)
+      .WithArgs(impression);
 }
 
 void ConversionManagerImpl::HandleConversion(
     const StorableConversion& conversion) {
   // TODO(https://crbug.com/1043345): Add UMA for the number of conversions we
   // are logging to storage, and the number of new reports logged to storage.
-  conversion_storage_context_->MaybeCreateAndStoreConversionReports(
-      conversion, base::DoNothing::Once<int>());
+  conversion_storage_
+      .AsyncCall(&ConversionStorage::MaybeCreateAndStoreConversionReports)
+      .WithArgs(conversion)
+      .Then(base::DoNothing::Once<int>());
 
   // If we are running in debug mode, we should also schedule a task to
   // gather and send any new reports.
@@ -155,13 +172,17 @@ void ConversionManagerImpl::HandleConversion(
 
 void ConversionManagerImpl::GetActiveImpressionsForWebUI(
     base::OnceCallback<void(std::vector<StorableImpression>)> callback) {
-  conversion_storage_context_->GetActiveImpressions(std::move(callback));
+  const int kMaxImpressions = 1000;
+  conversion_storage_.AsyncCall(&ConversionStorage::GetActiveImpressions)
+      .WithArgs(kMaxImpressions)
+      .Then(std::move(callback));
 }
 
 void ConversionManagerImpl::GetReportsForWebUI(
     base::OnceCallback<void(std::vector<ConversionReport>)> callback,
     base::Time max_report_time) {
-  GetAndHandleReports(std::move(callback), max_report_time);
+  const int kMaxReports = 1000;
+  GetAndHandleReports(std::move(callback), max_report_time, kMaxReports);
 }
 
 void ConversionManagerImpl::SendReportsForWebUI(base::OnceClosure done) {
@@ -180,15 +201,18 @@ void ConversionManagerImpl::ClearData(
     base::Time delete_end,
     base::RepeatingCallback<bool(const url::Origin&)> filter,
     base::OnceClosure done) {
-  conversion_storage_context_->ClearData(delete_begin, delete_end,
-                                         std::move(filter), std::move(done));
+  conversion_storage_.AsyncCall(&ConversionStorage::ClearData)
+      .WithArgs(delete_begin, delete_end, std::move(filter))
+      .Then(std::move(done));
 }
 
 void ConversionManagerImpl::GetAndHandleReports(
     ReportsHandlerFunc handler_function,
-    base::Time max_report_time) {
-  conversion_storage_context_->GetConversionsToReport(
-      max_report_time, std::move(handler_function));
+    base::Time max_report_time,
+    int limit) {
+  conversion_storage_.AsyncCall(&ConversionStorage::GetConversionsToReport)
+      .WithArgs(max_report_time, limit)
+      .Then(std::move(handler_function));
 }
 
 void ConversionManagerImpl::GetAndQueueReportsForNextInterval() {
@@ -257,8 +281,9 @@ void ConversionManagerImpl::HandleReportsSentFromWebUI(
 }
 
 void ConversionManagerImpl::OnReportSent(int64_t conversion_id) {
-  conversion_storage_context_->DeleteConversion(conversion_id,
-                                                base::DoNothing::Once<bool>());
+  conversion_storage_.AsyncCall(&ConversionStorage::DeleteConversion)
+      .WithArgs(conversion_id)
+      .Then(base::DoNothing::Once<bool>());
 }
 
 void ConversionManagerImpl::OnReportSentFromWebUI(
@@ -266,11 +291,11 @@ void ConversionManagerImpl::OnReportSentFromWebUI(
     int64_t conversion_id) {
   // |reports_sent_barrier| is a OnceClosure view of a RepeatingClosure obtained
   // by base::BarrierClosure().
-  conversion_storage_context_->DeleteConversion(
-      conversion_id,
-      base::BindOnce([](base::OnceClosure callback,
-                        bool result) { std::move(callback).Run(); },
-                     std::move(reports_sent_barrier)));
+  conversion_storage_.AsyncCall(&ConversionStorage::DeleteConversion)
+      .WithArgs(conversion_id)
+      .Then(base::BindOnce([](base::OnceClosure callback,
+                              bool result) { std::move(callback).Run(); },
+                           std::move(reports_sent_barrier)));
 }
 
 }  // namespace content

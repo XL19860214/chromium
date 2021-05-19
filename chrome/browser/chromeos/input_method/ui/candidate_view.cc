@@ -10,12 +10,12 @@
 #include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/accessibility/ax_node_data.h"
 #include "ui/base/ime/candidate_window.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/gfx/color_utils.h"
 #include "ui/native_theme/native_theme.h"
 #include "ui/views/background.h"
 #include "ui/views/border.h"
 #include "ui/views/controls/label.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/widget/widget.h"
 
 namespace ui {
@@ -164,9 +164,9 @@ void CandidateView::SetWidths(int shortcut_width, int candidate_width) {
 }
 
 void CandidateView::SetEntry(const ui::CandidateWindow::Entry& entry) {
-  base::string16 label = entry.label;
+  std::u16string label = entry.label;
   if (!label.empty() && orientation_ != ui::CandidateWindow::VERTICAL)
-    label += base::ASCIIToUTF16(".");
+    label += u".";
   shortcut_label_->SetText(label);
   candidate_label_->SetText(entry.value);
   annotation_label_->SetText(entry.annotation);
@@ -225,7 +225,7 @@ bool CandidateView::OnMouseDragged(const ui::MouseEvent& event) {
       gfx::Point location_in_sibling(location_in_widget);
       ConvertPointFromWidget(view, &location_in_sibling);
       if (view->HitTestPoint(location_in_sibling)) {
-        GetWidget()->GetRootView()->SetMouseHandler(view);
+        GetWidget()->GetRootView()->SetMouseAndGestureHandler(view);
         auto* sibling = static_cast<CandidateView*>(view);
         sibling->SetHighlighted(true);
         return view->OnMouseDragged(ui::MouseEvent(event, this, sibling));

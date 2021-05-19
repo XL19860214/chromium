@@ -65,13 +65,13 @@ SkBitmap GetGAIAPictureForNTP(const gfx::Image& image) {
 }
 
 // Puts the |content| into an element with the given CSS class.
-base::string16 CreateElementWithClass(const base::string16& content,
-                                      const std::string& tag_name,
-                                      const std::string& css_class,
-                                      const std::string& extends_tag) {
-  base::string16 start_tag = base::ASCIIToUTF16("<" + tag_name +
-      " class='" + css_class + "' is='" + extends_tag + "'>");
-  base::string16 end_tag = base::ASCIIToUTF16("</" + tag_name + ">");
+std::u16string CreateElementWithClass(const std::u16string& content,
+                                      const std::u16string& tag_name,
+                                      const std::u16string& css_class,
+                                      const std::u16string& extends_tag) {
+  std::u16string start_tag = u"<" + tag_name + u" class='" + css_class +
+                             u"' is='" + extends_tag + u"'>";
+  std::u16string end_tag = u"</" + tag_name + u">";
   return start_tag + net::EscapeForHTML(content) + end_tag;
 }
 
@@ -84,8 +84,8 @@ AppLauncherLoginHandler::~AppLauncherLoginHandler() {}
 void AppLauncherLoginHandler::RegisterMessages() {
   profile_info_watcher_ = std::make_unique<ProfileInfoWatcher>(
       Profile::FromWebUI(web_ui()),
-      base::Bind(&AppLauncherLoginHandler::UpdateLogin,
-                 base::Unretained(this)));
+      base::BindRepeating(&AppLauncherLoginHandler::UpdateLogin,
+                          base::Unretained(this)));
 
   web_ui()->RegisterMessageCallback(
       "initializeSyncLogin",
@@ -111,9 +111,10 @@ void AppLauncherLoginHandler::HandleShowSyncLoginUI(
   if (!signin::ShouldShowPromo(profile))
     return;
 
-  std::string username = IdentityManagerFactory::GetForProfile(profile)
-                             ->GetPrimaryAccountInfo()
-                             .email;
+  std::string username =
+      IdentityManagerFactory::GetForProfile(profile)
+          ->GetPrimaryAccountInfo(signin::ConsentLevel::kSync)
+          .email;
   if (!username.empty())
     return;
 
@@ -141,28 +142,29 @@ void AppLauncherLoginHandler::RecordInHistogram(NTPSignInPromoBuckets type) {
 
 void AppLauncherLoginHandler::UpdateLogin() {
   std::string username = profile_info_watcher_->GetAuthenticatedUsername();
-  base::string16 header, sub_header;
+  std::u16string header, sub_header;
   std::string icon_url;
   Profile* profile = Profile::FromWebUI(web_ui());
   if (!username.empty()) {
     ProfileAttributesStorage& storage =
         g_browser_process->profile_manager()->GetProfileAttributesStorage();
-    ProfileAttributesEntry* entry;
-    if (storage.GetProfileAttributesWithPath(profile->GetPath(), &entry)) {
+    ProfileAttributesEntry* entry =
+        storage.GetProfileAttributesWithPath(profile->GetPath());
+    if (entry) {
       // Only show the profile picture and full name for the single profile
       // case. In the multi-profile case the profile picture is visible in the
       // title bar and the full name can be ambiguous.
       if (storage.GetNumberOfProfiles() == 1) {
-        base::string16 name = entry->GetGAIAName();
+        std::u16string name = entry->GetGAIAName();
         if (!name.empty())
-          header = CreateElementWithClass(name, "span", "profile-name", "");
+          header = CreateElementWithClass(name, u"span", u"profile-name", u"");
         const gfx::Image* image = entry->GetGAIAPicture();
         if (image)
           icon_url = webui::GetBitmapDataUrl(GetGAIAPictureForNTP(*image));
       }
       if (header.empty()) {
-        header = CreateElementWithClass(base::UTF8ToUTF16(username), "span",
-                                        "profile-name", "");
+        header = CreateElementWithClass(base::UTF8ToUTF16(username), u"span",
+                                        u"profile-name", u"");
       }
     }
   } else {
@@ -171,11 +173,11 @@ void AppLauncherLoginHandler::UpdateLogin() {
     bool is_signin_allowed =
         profile->GetOriginalProfile()->GetPrefs()->GetBoolean(
             prefs::kSigninAllowed);
-    if (!profile->IsLegacySupervised() && is_signin_allowed) {
-      base::string16 signed_in_link = l10n_util::GetStringUTF16(
-          IDS_SYNC_PROMO_NOT_SIGNED_IN_STATUS_LINK);
+    if (is_signin_allowed) {
+      std::u16string signed_in_link =
+          l10n_util::GetStringUTF16(IDS_SYNC_PROMO_NOT_SIGNED_IN_STATUS_LINK);
       signed_in_link =
-          CreateElementWithClass(signed_in_link, "a", "", "action-link");
+          CreateElementWithClass(signed_in_link, u"a", u"", u"action-link");
       header = l10n_util::GetStringFUTF16(
           IDS_SYNC_PROMO_NOT_SIGNED_IN_STATUS_HEADER,
           l10n_util::GetStringUTF16(IDS_SHORT_PRODUCT_NAME));

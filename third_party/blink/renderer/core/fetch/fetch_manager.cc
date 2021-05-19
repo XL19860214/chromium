@@ -37,6 +37,7 @@
 #include "third_party/blink/renderer/core/frame/frame.h"
 #include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/inspector/console_message.h"
+#include "third_party/blink/renderer/core/inspector/inspector_audits_issue.h"
 #include "third_party/blink/renderer/core/loader/subresource_integrity_helper.h"
 #include "third_party/blink/renderer/core/loader/threadable_loader.h"
 #include "third_party/blink/renderer/core/loader/threadable_loader_client.h"
@@ -54,6 +55,7 @@
 #include "third_party/blink/renderer/platform/loader/cors/cors.h"
 #include "third_party/blink/renderer/platform/loader/fetch/buffering_bytes_consumer.h"
 #include "third_party/blink/renderer/platform/loader/fetch/bytes_consumer.h"
+#include "third_party/blink/renderer/platform/loader/fetch/cached_metadata.h"
 #include "third_party/blink/renderer/platform/loader/fetch/fetch_initiator_type_names.h"
 #include "third_party/blink/renderer/platform/loader/fetch/fetch_utils.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_error.h"
@@ -61,6 +63,7 @@
 #include "third_party/blink/renderer/platform/loader/fetch/resource_request.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_response.h"
 #include "third_party/blink/renderer/platform/loader/fetch/script_cached_metadata_handler.h"
+#include "third_party/blink/renderer/platform/loader/fetch/unique_identifier.h"
 #include "third_party/blink/renderer/platform/loader/subresource_integrity.h"
 #include "third_party/blink/renderer/platform/network/http_names.h"
 #include "third_party/blink/renderer/platform/network/network_utils.h"
@@ -69,7 +72,6 @@
 #include "third_party/blink/renderer/platform/weborigin/scheme_registry.h"
 #include "third_party/blink/renderer/platform/weborigin/security_origin.h"
 #include "third_party/blink/renderer/platform/weborigin/security_policy.h"
-#include "third_party/blink/renderer/platform/wtf/assertions.h"
 #include "third_party/blink/renderer/platform/wtf/functional.h"
 #include "third_party/blink/renderer/platform/wtf/hash_set.h"
 #include "third_party/blink/renderer/platform/wtf/std_lib_extras.h"
@@ -254,6 +256,8 @@ class FetchManager::Loader final
  private:
   void PerformSchemeFetch();
   void PerformNetworkError(const String& message);
+  void FileIssueAndPerformNetworkError(RendererCorsIssueCode,
+                                       int64_t identifier);
   void PerformHTTPFetch();
   void PerformDataFetch();
   // If |dom_exception| is provided, throws the specified DOMException instead
@@ -383,40 +387,43 @@ void FetchManager::Loader::DidReceiveResponse(
       FetchResponseData::CreateWithBuffer(BodyStreamBuffer::Create(
           script_state, place_holder_body_, signal_, cached_metadata_handler_));
 
-  response_data->InitFromResourceResponse(
-      url_list_, fetch_request_data_->Method(),
-      fetch_request_data_->Credentials(), response);
-
-  FetchResponseData* tainted_response = nullptr;
-
   DCHECK(!(network_utils::IsRedirectResponseCode(response_http_status_code_) &&
            HasNonEmptyLocationHeader(response_data->HeaderList()) &&
            fetch_request_data_->Redirect() != RedirectMode::kManual));
 
+  auto response_type = response.GetType();
   if (network_utils::IsRedirectResponseCode(response_http_status_code_) &&
       fetch_request_data_->Redirect() == RedirectMode::kManual) {
-    tainted_response = response_data->CreateOpaqueRedirectFilteredResponse();
-  } else {
-    switch (response.GetType()) {
-      case FetchResponseType::kBasic:
-      case FetchResponseType::kDefault:
-        tainted_response = response_data->CreateBasicFilteredResponse();
-        break;
-      case FetchResponseType::kCors: {
-        HTTPHeaderSet header_names = cors::ExtractCorsExposedHeaderNamesList(
-            fetch_request_data_->Credentials(), response);
-        tainted_response =
-            response_data->CreateCorsFilteredResponse(header_names);
-        break;
-      }
-      case FetchResponseType::kOpaque:
-        tainted_response = response_data->CreateOpaqueFilteredResponse();
-        break;
-      case FetchResponseType::kOpaqueRedirect:
-      case FetchResponseType::kError:
-        NOTREACHED();
-        break;
+    response_type = network::mojom::FetchResponseType::kOpaqueRedirect;
+  }
+
+  response_data->InitFromResourceResponse(
+      execution_context_, response_type, url_list_,
+      fetch_request_data_->Method(), fetch_request_data_->Credentials(),
+      response);
+
+  FetchResponseData* tainted_response = nullptr;
+  switch (response_type) {
+    case FetchResponseType::kBasic:
+    case FetchResponseType::kDefault:
+      tainted_response = response_data->CreateBasicFilteredResponse();
+      break;
+    case FetchResponseType::kCors: {
+      HTTPHeaderSet header_names = cors::ExtractCorsExposedHeaderNamesList(
+          fetch_request_data_->Credentials(), response);
+      tainted_response =
+          response_data->CreateCorsFilteredResponse(header_names);
+      break;
     }
+    case FetchResponseType::kOpaque:
+      tainted_response = response_data->CreateOpaqueFilteredResponse();
+      break;
+    case FetchResponseType::kOpaqueRedirect:
+      tainted_response = response_data->CreateOpaqueRedirectFilteredResponse();
+      break;
+    case FetchResponseType::kError:
+      NOTREACHED();
+      break;
   }
 
   response_has_no_store_header_ = response.CacheControlContainsNoStore();
@@ -552,12 +559,9 @@ void FetchManager::Loader::Start() {
 
   // "- |request|'s mode is |same-origin|"
   if (fetch_request_data_->Mode() == RequestMode::kSameOrigin) {
-    // "A network error."
-    PerformNetworkError("Fetch API cannot load " +
-                        fetch_request_data_->Url().GetString() +
-                        ". Request mode is \"same-origin\" but the URL\'s "
-                        "origin is not same as the request origin " +
-                        fetch_request_data_->Origin()->ToString() + ".");
+    // This error is so early that there isn't an identifier yet, generate one.
+    FileIssueAndPerformNetworkError(RendererCorsIssueCode::kDisallowedByMode,
+                                    CreateUniqueIdentifier());
     return;
   }
 
@@ -566,10 +570,11 @@ void FetchManager::Loader::Start() {
     // "If |request|'s redirect mode is not |follow|, then return a network
     // error.
     if (fetch_request_data_->Redirect() != RedirectMode::kFollow) {
-      PerformNetworkError("Fetch API cannot load " +
-                          fetch_request_data_->Url().GetString() +
-                          ". Request mode is \"no-cors\" but the redirect mode "
-                          "is not \"follow\".");
+      // This error is so early that there isn't an identifier yet, generate
+      // one.
+      FileIssueAndPerformNetworkError(
+          RendererCorsIssueCode::kNoCorsRedirectModeNotFollow,
+          CreateUniqueIdentifier());
       return;
     }
 
@@ -587,10 +592,9 @@ void FetchManager::Loader::Start() {
   // to SchemeRegistry::registerURLSchemeAsSupportingFetchAPI.
   if (!SchemeRegistry::ShouldTreatURLSchemeAsSupportingFetchAPI(
           fetch_request_data_->Url().Protocol())) {
-    // "A network error."
-    PerformNetworkError(
-        "Fetch API cannot load " + fetch_request_data_->Url().GetString() +
-        ". URL scheme must be \"http\" or \"https\" for CORS request.");
+    // This error is so early that there isn't an identifier yet, generate one.
+    FileIssueAndPerformNetworkError(RendererCorsIssueCode::kCorsDisabledScheme,
+                                    CreateUniqueIdentifier());
     return;
   }
 
@@ -648,10 +652,49 @@ void FetchManager::Loader::PerformSchemeFetch() {
     PerformDataFetch();
   } else {
     // FIXME: implement other protocols.
-    PerformNetworkError(
-        "Fetch API cannot load " + fetch_request_data_->Url().GetString() +
-        ". URL scheme \"" + fetch_request_data_->Url().Protocol() +
-        "\" is not supported.");
+    // This error is so early that there isn't an identifier yet, generate one.
+    FileIssueAndPerformNetworkError(RendererCorsIssueCode::kCorsDisabledScheme,
+                                    CreateUniqueIdentifier());
+  }
+}
+
+void FetchManager::Loader::FileIssueAndPerformNetworkError(
+    RendererCorsIssueCode network_error,
+    int64_t identifier) {
+  switch (network_error) {
+    case RendererCorsIssueCode::kCorsDisabledScheme:
+      AuditsIssue::ReportCorsIssue(GetExecutionContext(), identifier,
+                                   network_error,
+                                   fetch_request_data_->Url().GetString(),
+                                   fetch_request_data_->Origin()->ToString(),
+                                   fetch_request_data_->Url().Protocol());
+      PerformNetworkError(
+          "Fetch API cannot load " + fetch_request_data_->Url().GetString() +
+          ". URL scheme \"" + fetch_request_data_->Url().Protocol() +
+          "\" is not supported.");
+      break;
+    case RendererCorsIssueCode::kDisallowedByMode:
+      AuditsIssue::ReportCorsIssue(
+          GetExecutionContext(), identifier, network_error,
+          fetch_request_data_->Url().GetString(),
+          fetch_request_data_->Origin()->ToString(), WTF::g_empty_string);
+      PerformNetworkError("Fetch API cannot load " +
+                          fetch_request_data_->Url().GetString() +
+                          ". Request mode is \"same-origin\" but the URL\'s "
+                          "origin is not same as the request origin " +
+                          fetch_request_data_->Origin()->ToString() + ".");
+
+      break;
+    case RendererCorsIssueCode::kNoCorsRedirectModeNotFollow:
+      AuditsIssue::ReportCorsIssue(
+          GetExecutionContext(), identifier, network_error,
+          fetch_request_data_->Url().GetString(),
+          fetch_request_data_->Origin()->ToString(), WTF::g_empty_string);
+      PerformNetworkError("Fetch API cannot load " +
+                          fetch_request_data_->Url().GetString() +
+                          ". Request mode is \"no-cors\" but the redirect mode "
+                          "is not \"follow\".");
+      break;
   }
 }
 

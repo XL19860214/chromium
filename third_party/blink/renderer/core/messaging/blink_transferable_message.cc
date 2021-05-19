@@ -21,7 +21,7 @@ namespace blink {
 // static
 BlinkTransferableMessage BlinkTransferableMessage::FromMessageEvent(
     MessageEvent* message_event,
-    base::Optional<base::UnguessableToken> cluster_id) {
+    absl::optional<base::UnguessableToken> cluster_id) {
   BlinkTransferableMessage result;
   SerializedScriptValue* serialized_script_value =
       message_event->DataAsSerializedScriptValue();
@@ -44,6 +44,9 @@ BlinkTransferableMessage BlinkTransferableMessage::FromMessageEvent(
     result.user_activation = mojom::blink::UserActivationSnapshot::New(
         user_activation->hasBeenActive(), user_activation->isActive());
   }
+
+  // Capability delegation
+  result.delegate_payment_request = message_event->delegatePaymentRequest();
 
   // Blobs.
   for (const auto& blob : serialized_script_value->BlobDataHandles()) {
@@ -94,7 +97,7 @@ BlinkTransferableMessage BlinkTransferableMessage::FromMessageEvent(
             source_image_bitmap_contents_array.size()));
 
     for (auto& contents : image_bitmap_contents_array) {
-      base::Optional<SkBitmap> sk_bitmap = ToSkBitmap(contents);
+      absl::optional<SkBitmap> sk_bitmap = ToSkBitmap(contents);
       if (!sk_bitmap)
         continue;
 
@@ -108,9 +111,9 @@ BlinkTransferableMessage BlinkTransferableMessage::FromMessageEvent(
         std::move(image_bitmap_contents_array));
   }
 
-  // Native file system transfer tokens.
-  for (auto& token : serialized_script_value->NativeFileSystemTokens()) {
-    result.message->NativeFileSystemTokens().push_back(std::move(token));
+  // File System Access transfer tokens.
+  for (auto& token : serialized_script_value->FileSystemAccessTokens()) {
+    result.message->FileSystemAccessTokens().push_back(std::move(token));
   }
 
   return result;
@@ -150,6 +153,7 @@ BlinkTransferableMessage BlinkTransferableMessage::FromTransferableMessage(
         message.user_activation->has_been_active,
         message.user_activation->was_active);
   }
+  result.delegate_payment_request = message.delegate_payment_request;
 
   if (!message.array_buffer_contents_array.empty()) {
     SerializedScriptValue::ArrayBufferContentsArray array_buffer_contents_array;
@@ -189,10 +193,10 @@ BlinkTransferableMessage BlinkTransferableMessage::FromTransferableMessage(
         std::move(image_bitmap_contents_array));
   }
 
-  // Convert the PendingRemote<NativeFileSystemTransferToken> from the
+  // Convert the PendingRemote<FileSystemAccessTransferToken> from the
   // blink::mojom namespace to the blink::mojom::blink namespace.
-  for (auto& token : message.native_file_system_tokens) {
-    result.message->NativeFileSystemTokens().push_back(
+  for (auto& token : message.file_system_access_tokens) {
+    result.message->FileSystemAccessTokens().push_back(
         ToCrossVariantMojoType(std::move(token)));
   }
   return result;
@@ -215,7 +219,7 @@ scoped_refptr<StaticBitmapImage> ToStaticBitmapImage(
   return UnacceleratedStaticBitmapImage::Create(std::move(image));
 }
 
-base::Optional<SkBitmap> ToSkBitmap(
+absl::optional<SkBitmap> ToSkBitmap(
     const scoped_refptr<blink::StaticBitmapImage>& static_bitmap_image) {
   const sk_sp<SkImage> image =
       static_bitmap_image->PaintImageForCurrentFrame().GetSwSkImage();
@@ -224,7 +228,7 @@ base::Optional<SkBitmap> ToSkBitmap(
                    &result, SkImage::LegacyBitmapMode::kRO_LegacyBitmapMode)) {
     return result;
   }
-  return base::nullopt;
+  return absl::nullopt;
 }
 
 }  // namespace blink

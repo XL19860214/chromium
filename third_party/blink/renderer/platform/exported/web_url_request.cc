@@ -143,10 +143,10 @@ void WebURLRequest::SetSiteForCookies(
   resource_request_->SetSiteForCookies(site_for_cookies);
 }
 
-base::Optional<WebSecurityOrigin> WebURLRequest::TopFrameOrigin() const {
+absl::optional<WebSecurityOrigin> WebURLRequest::TopFrameOrigin() const {
   const SecurityOrigin* origin = resource_request_->TopFrameOrigin();
-  return origin ? base::Optional<WebSecurityOrigin>(origin)
-                : base::Optional<WebSecurityOrigin>();
+  return origin ? absl::optional<WebSecurityOrigin>(origin)
+                : absl::optional<WebSecurityOrigin>();
 }
 
 void WebURLRequest::SetTopFrameOrigin(const WebSecurityOrigin& origin) {
@@ -347,6 +347,14 @@ void WebURLRequest::SetMode(network::mojom::RequestMode mode) {
   return resource_request_->SetMode(mode);
 }
 
+bool WebURLRequest::GetFavicon() const {
+  return resource_request_->IsFavicon();
+}
+
+void WebURLRequest::SetFavicon(bool) {
+  resource_request_->SetFavicon(true);
+}
+
 network::mojom::CredentialsMode WebURLRequest::GetCredentialsMode() const {
   return resource_request_->GetCredentialsMode();
 }
@@ -419,9 +427,9 @@ network::mojom::CorsPreflightPolicy WebURLRequest::GetCorsPreflightPolicy()
   return resource_request_->CorsPreflightPolicy();
 }
 
-base::Optional<WebString> WebURLRequest::GetSuggestedFilename() const {
+absl::optional<WebString> WebURLRequest::GetSuggestedFilename() const {
   if (!resource_request_->GetSuggestedFilename().has_value())
-    return base::Optional<WebString>();
+    return absl::optional<WebString>();
   return static_cast<WebString>(
       resource_request_->GetSuggestedFilename().value());
 }
@@ -446,7 +454,7 @@ bool WebURLRequest::IsRevalidating() const {
   return resource_request_->IsRevalidating();
 }
 
-const base::Optional<base::UnguessableToken>& WebURLRequest::GetDevToolsToken()
+const absl::optional<base::UnguessableToken>& WebURLRequest::GetDevToolsToken()
     const {
   return resource_request_->GetDevToolsToken();
 }
@@ -527,7 +535,7 @@ const ResourceRequest& WebURLRequest::ToResourceRequest() const {
   return *resource_request_;
 }
 
-base::Optional<WebString> WebURLRequest::GetDevToolsId() const {
+absl::optional<WebString> WebURLRequest::GetDevToolsId() const {
   return resource_request_->GetDevToolsId();
 }
 
@@ -539,7 +547,7 @@ bool WebURLRequest::IsSignedExchangePrefetchCacheEnabled() const {
   return resource_request_->IsSignedExchangePrefetchCacheEnabled();
 }
 
-base::Optional<base::UnguessableToken> WebURLRequest::RecursivePrefetchToken()
+absl::optional<base::UnguessableToken> WebURLRequest::RecursivePrefetchToken()
     const {
   return resource_request_->RecursivePrefetchToken();
 }
@@ -548,11 +556,18 @@ network::OptionalTrustTokenParams WebURLRequest::TrustTokenParams() const {
   return ConvertTrustTokenParams(resource_request_->TrustTokenParams());
 }
 
-base::Optional<base::UnguessableToken> WebURLRequest::WebBundleToken() const {
+absl::optional<WebURL> WebURLRequest::WebBundleUrl() const {
+  if (resource_request_->GetWebBundleTokenParams()) {
+    return resource_request_->GetWebBundleTokenParams()->bundle_url;
+  }
+  return absl::nullopt;
+}
+
+absl::optional<base::UnguessableToken> WebURLRequest::WebBundleToken() const {
   if (resource_request_->GetWebBundleTokenParams()) {
     return resource_request_->GetWebBundleTokenParams()->token;
   }
-  return base::nullopt;
+  return absl::nullopt;
 }
 
 WebURLRequest::WebURLRequest(ResourceRequest& r) : resource_request_(&r) {}

@@ -23,7 +23,7 @@
 #include "ui/base/resource/resource_bundle.h"
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-#include "chromeos/constants/chromeos_paths.h"
+#include "ash/constants/ash_paths.h"
 #include "chromeos/dbus/constants/dbus_paths.h"
 #endif
 
@@ -208,6 +208,10 @@ void ShellMainDelegate::ZygoteForked() {
           switches::kProcessType);
   breakpad::InitCrashReporter(process_type);
 }
+#endif
+
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+void ShellMainDelegate::PostEarlyInitialization(bool is_running_tests) {}
 #endif
 
 // static

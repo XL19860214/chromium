@@ -41,6 +41,7 @@
 #include "third_party/blink/public/common/input/web_gesture_event.h"
 #include "third_party/blink/public/common/input/web_input_event.h"
 #include "third_party/blink/public/common/renderer_preferences/renderer_preferences.h"
+#include "third_party/blink/public/common/tokens/tokens.h"
 #include "third_party/blink/public/mojom/frame/frame.mojom-blink.h"
 #include "third_party/blink/public/mojom/input/focus_type.mojom-blink-forward.h"
 #include "third_party/blink/public/mojom/page/page.mojom-blink.h"
@@ -48,12 +49,12 @@
 #include "third_party/blink/public/mojom/renderer_preference_watcher.mojom-blink.h"
 #include "third_party/blink/public/platform/scheduler/web_agent_group_scheduler.h"
 #include "third_party/blink/public/platform/web_input_event_result.h"
-#include "third_party/blink/public/platform/web_rect.h"
 #include "third_party/blink/public/platform/web_string.h"
 #include "third_party/blink/public/platform/web_vector.h"
 #include "third_party/blink/public/web/web_frame_widget.h"
 #include "third_party/blink/public/web/web_navigation_policy.h"
 #include "third_party/blink/public/web/web_view.h"
+#include "third_party/blink/public/web/web_view_observer.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/exported/web_page_popup_impl.h"
 #include "third_party/blink/renderer/core/frame/resize_viewport_anchor.h"
@@ -115,9 +116,11 @@ class CORE_EXPORT WebViewImpl final : public WebView,
       mojom::blink::PageVisibilityState visibility,
       bool is_inside_portal,
       bool compositing_enabled,
+      bool widgets_never_composited,
       WebViewImpl* opener,
       mojo::PendingAssociatedReceiver<mojom::blink::PageBroadcast> page_handle,
-      scheduler::WebAgentGroupScheduler& agent_group_scheduler);
+      scheduler::WebAgentGroupScheduler& agent_group_scheduler,
+      const SessionStorageNamespaceId& session_storage_namespace_id);
 
   // All calls to Create() should be balanced with a call to Close(). This
   // synchronously destroys the WebViewImpl.
@@ -163,7 +166,7 @@ class CORE_EXPORT WebViewImpl final : public WebView,
   gfx::PointF VisualViewportOffset() const override;
   gfx::SizeF VisualViewportSize() const override;
   void SetScreenOrientationOverrideForTesting(
-      base::Optional<blink::mojom::ScreenOrientation> orientation) override;
+      absl::optional<blink::mojom::ScreenOrientation> orientation) override;
   void UseSynchronousResizeModeForTesting(bool enable) override;
   void SetWindowRectSynchronouslyForTesting(
       const gfx::Rect& new_window_rect) override;
@@ -188,7 +191,6 @@ class CORE_EXPORT WebViewImpl final : public WebView,
   void DidCloseContextMenu() override;
   void CancelPagePopup() override;
   WebPagePopupImpl* GetPagePopup() const override { return page_popup_.get(); }
-  void AcceptLanguagesChanged() override;
   void SetPageFrozen(bool frozen) override;
   WebFrameWidget* MainFrameWidget() override;
   void SetBaseBackgroundColor(SkColor) override;
@@ -202,16 +204,45 @@ class CORE_EXPORT WebViewImpl final : public WebView,
   const RendererPreferences& GetRendererPreferences() override;
   void SetWebPreferences(const web_pref::WebPreferences& preferences) override;
   const web_pref::WebPreferences& GetWebPreferences() override;
+  void SetHistoryListFromNavigation(
+      int32_t history_offset,
+      absl::optional<int32_t> history_length) override;
+  void IncreaseHistoryListFromNavigation() override;
+  int32_t HistoryBackListCount() const override;
+  int32_t HistoryForwardListCount() const override;
+  const SessionStorageNamespaceId& GetSessionStorageNamespaceId() override;
 
-  // Overrides the page's background and base background color. You
-  // can use this to enforce a transparent background, which is useful if you
-  // want to have some custom background rendered behind the widget.
+  // Functions to add and remove observers for this object.
+  void AddObserver(WebViewObserver* observer);
+  void RemoveObserver(WebViewObserver* observer);
+
+  // `BaseBackgroundColor()` affects how the document is rendered.
+  // `BackgroundColor()` is what the document computes as its background color
+  // (with `BaseBackgroundColor()` as an input), or `BaseBackgroundColor()` if
+  // there is no local main frame; it's used as the background color of the
+  // compositor.
   //
-  // These may are only called for composited WebViews.
-  void SetBackgroundColorOverride(SkColor);
-  void ClearBackgroundColorOverride();
-  void SetBaseBackgroundColorOverride(SkColor);
-  void ClearBaseBackgroundColorOverride();
+  // These methods override `BaseBackgroundColor()` or `BackgroundColor()` for
+  // specific use cases. You can use this to set a transparent background,
+  // which is useful if you want to have some custom background rendered behind
+  // the widget.
+  //
+  // These settings only have an effect for composited WebViews
+  // These overrides are listed in order of precedence.
+  // - Overriding the background color for fullscreen ignores all other inputs,
+  //   including `BaseBackgroundColor()`. Note, however, that
+  //   `BaseBackgroundColor()` is passed directly into
+  //   `LocalFrameView::SetBaseBackgroundColor`.
+  // - Overriding base background color transparency takes precedences over
+  //   any base background color that might be specified for inspector--the
+  //   transparency specified in the inspector base background color is
+  //   ignored.
+  //
+  // Add new methods with clear precedence for new use cases.
+  void SetBackgroundColorOverrideForFullscreenController(
+      absl::optional<SkColor>);
+  void SetBaseBackgroundColorOverrideTransparent(bool override_to_transparent);
+  void SetBaseBackgroundColorOverrideForInspector(absl::optional<SkColor>);
 
   // Resize the WebView. You likely should be using
   // MainFrameWidget()->Resize instead.
@@ -232,7 +263,7 @@ class CORE_EXPORT WebViewImpl final : public WebView,
                                  cc::BrowserControlsParams);
 
   // Requests a page-scale animation based on the specified point/rect.
-  void AnimateDoubleTapZoom(const gfx::Point&, const WebRect& block_bounds);
+  void AnimateDoubleTapZoom(const gfx::Point&, const gfx::Rect& block_bounds);
 
   // mojom::blink::PageBroadcast method:
   void SetPageLifecycleState(
@@ -256,9 +287,10 @@ class CORE_EXPORT WebViewImpl final : public WebView,
   float DefaultMaximumPageScaleFactor() const;
   float ClampPageScaleFactorToLimits(float) const;
   void ResetScaleStateImmediately();
-  base::Optional<mojom::blink::ScreenOrientation> ScreenOrientationOverride();
+  absl::optional<mojom::blink::ScreenOrientation> ScreenOrientationOverride();
 
-  void InvalidateRect(const IntRect&);
+  // This is only for non-composited WebViewPlugin.
+  void InvalidateContainer();
 
   void SetZoomFactorOverride(float);
   void SetCompositorDeviceScaleFactorOverride(float);
@@ -271,10 +303,6 @@ class CORE_EXPORT WebViewImpl final : public WebView,
 
   SkColor BackgroundColor() const;
   Color BaseBackgroundColor() const;
-  bool BackgroundColorOverrideEnabled() const {
-    return background_color_override_enabled_;
-  }
-  SkColor BackgroundColorOverride() const { return background_color_override_; }
 
   Frame* FocusedCoreFrame() const;
 
@@ -292,6 +320,16 @@ class CORE_EXPORT WebViewImpl final : public WebView,
   DevToolsEmulator* GetDevToolsEmulator() const {
     return dev_tools_emulator_.Get();
   }
+
+  // When true, a hint to all WebWidgets that they will never be
+  // user-visible and thus never need to produce pixels for display. This is
+  // separate from page visibility, as background pages can be marked visible in
+  // blink even though they are not user-visible. Page visibility controls blink
+  // behaviour for javascript, timers, and such to inform blink it is in the
+  // foreground or background. Whereas this bit refers to user-visibility and
+  // whether the tab needs to produce pixels to put on the screen at some point
+  // or not.
+  bool widgets_never_composited() const { return widgets_never_composited_; }
 
   // Returns the main frame associated with this view. This will be null when
   // the main frame is remote.
@@ -337,7 +375,7 @@ class CORE_EXPORT WebViewImpl final : public WebView,
   // notification unless the view did not need a layout.
   void MainFrameLayoutUpdated();
   void ResizeAfterLayout();
-
+  void DidCommitCompositorFrameForLocalMainFrame();
   void DidChangeContentsSize();
   void PageScaleFactorChanged();
   void MainFrameScrollOffsetChanged();
@@ -380,11 +418,11 @@ class CORE_EXPORT WebViewImpl final : public WebView,
   void FullFramePluginZoomLevelChanged(double zoom_level);
 
   // Requests a page-scale animation based on the specified rect.
-  void ZoomToFindInPageRect(const WebRect&);
+  void ZoomToFindInPageRect(const gfx::Rect&);
 
   void ComputeScaleAndScrollForBlockRect(
       const gfx::Point& hit_point,
-      const WebRect& block_rect,
+      const gfx::Rect& block_rect,
       float padding,
       float default_scale_when_already_legible,
       float& scale,
@@ -500,7 +538,7 @@ class CORE_EXPORT WebViewImpl final : public WebView,
   void TakeFocus(bool reverse);
 
   // Shows a previously created WebView (via window.open()).
-  void Show(const base::UnguessableToken& opener_frame_token,
+  void Show(const LocalFrameToken& opener_frame_token,
             NavigationPolicy policy,
             const gfx::Rect& rect,
             bool opened_by_user_gesture);
@@ -547,6 +585,7 @@ class CORE_EXPORT WebViewImpl final : public WebView,
   friend class WebView;  // So WebView::Create can call our constructor
   friend class WTF::RefCounted<WebViewImpl>;
 
+  void AcceptLanguagesChanged();
   void ThemeChanged();
 
   // Update the target url locally and tell the browser that the target URL has
@@ -588,9 +627,11 @@ class CORE_EXPORT WebViewImpl final : public WebView,
       mojom::blink::PageVisibilityState visibility,
       bool is_inside_portal,
       bool does_composite,
+      bool widgets_never_composite,
       WebViewImpl* opener,
       mojo::PendingAssociatedReceiver<mojom::blink::PageBroadcast> page_handle,
-      scheduler::WebAgentGroupScheduler& agent_group_scheduler);
+      scheduler::WebAgentGroupScheduler& agent_group_scheduler,
+      const SessionStorageNamespaceId& session_storage_namespace_id);
   ~WebViewImpl() override;
 
   void ConfigureAutoResizeMode();
@@ -605,9 +646,9 @@ class CORE_EXPORT WebViewImpl final : public WebView,
   // while keeping it smaller than page width.
   //
   // This method can only be called if the main frame is local.
-  WebRect WidenRectWithinPageBounds(const WebRect& source,
-                                    int target_margin,
-                                    int minimum_margin);
+  gfx::Rect WidenRectWithinPageBounds(const gfx::Rect& source,
+                                      int target_margin,
+                                      int minimum_margin);
 
   void EnablePopupMouseWheelEventListener(WebLocalFrameImpl* local_root);
   void DisablePopupMouseWheelEventListener();
@@ -642,6 +683,16 @@ class CORE_EXPORT WebViewImpl final : public WebView,
   // Callback when this widget window has been displayed by the browser.
   // Corresponds to a Show method call.
   void DidShowCreatedWindow();
+
+  // A value provided by the browser to state that all Widgets in this
+  // WebView's frame tree will never be user-visible and thus never need to
+  // produce pixels for display. This is separate from Page visibility, as
+  // non-user-visible pages can still be marked visible for blink. Page
+  // visibility controls blink behaviour for javascript, timers, and such to
+  // inform blink it is in the foreground or background. Whereas this bit refers
+  // to user-visibility and whether the tab needs to produce pixels to put on
+  // the screen at some point or not.
+  const bool widgets_never_composited_;
 
   // Can be null (e.g. unittests, shared workers, etc).
   WebViewClient* web_view_client_;
@@ -724,6 +775,18 @@ class CORE_EXPORT WebViewImpl final : public WebView,
   float compositor_device_scale_factor_override_ = 0.f;
   TransformationMatrix device_emulation_transform_;
 
+  // The offset of the current item in the history list.
+  // The initial value is -1 since the offset should be lower than
+  // |history_list_length_| to count the back/forward history list.
+  int32_t history_list_offset_ = -1;
+
+  // The RenderView's current impression of the history length.  This includes
+  // any items that have committed in this process, but because of cross-process
+  // navigations, the history may have some entries that were committed in other
+  // processes.  We won't know about them until the next navigation in this
+  // process.
+  int32_t history_list_length_ = 0;
+
   // The popup associated with an input/select element. The popup is owned via
   // closership (self-owned-but-deleted-via-close) by RenderWidget. We also hold
   // a reference here because we can extend the lifetime of the popup while
@@ -753,11 +816,11 @@ class CORE_EXPORT WebViewImpl final : public WebView,
 
   std::unique_ptr<FullscreenController> fullscreen_controller_;
 
+  absl::optional<SkColor> background_color_override_for_fullscreen_controller_;
+  bool override_base_background_color_to_transparent_ = false;
+  absl::optional<SkColor> base_background_color_override_for_inspector_;
   SkColor base_background_color_ = Color::kWhite;
-  bool base_background_color_override_enabled_ = false;
-  SkColor base_background_color_override_ = Color::kTransparent;
-  bool background_color_override_enabled_ = false;
-  SkColor background_color_override_ = Color::kTransparent;
+
   float zoom_factor_override_ = 0.f;
 
   FloatSize elastic_overscroll_;
@@ -808,7 +871,7 @@ class CORE_EXPORT WebViewImpl final : public WebView,
   mojo::AssociatedRemote<mojom::blink::RemoteMainFrameHost>
       remote_main_frame_host_remote_;
 
-  base::Optional<mojom::blink::ScreenOrientation> screen_orientation_override_;
+  absl::optional<mojom::blink::ScreenOrientation> screen_orientation_override_;
 
   mojo::AssociatedReceiver<mojom::blink::PageBroadcast> receiver_;
 
@@ -817,9 +880,17 @@ class CORE_EXPORT WebViewImpl final : public WebView,
   mojo::RemoteSet<mojom::blink::RendererPreferenceWatcher>
       renderer_preference_watchers_;
 
+  // The SessionStorage namespace that we're assigned to has an ID, and that ID
+  // is passed to us upon creation.  WebKit asks for this ID upon first use and
+  // uses it whenever asking the browser process to allocate new storage areas.
+  SessionStorageNamespaceId session_storage_namespace_id_;
+
+  // All the registered observers.
+  base::ObserverList<WebViewObserver> observers_;
+
   base::WeakPtrFactory<WebViewImpl> weak_ptr_factory_{this};
 };
 
 }  // namespace blink
 
-#endif
+#endif  // THIRD_PARTY_BLINK_RENDERER_CORE_EXPORTED_WEB_VIEW_IMPL_H_

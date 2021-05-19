@@ -112,6 +112,11 @@ class PLATFORM_EXPORT CanvasResourceProvider
       bool is_origin_top_left,
       uint32_t shared_image_usage_flags);
 
+  static std::unique_ptr<CanvasResourceProvider> CreateWebGPUImageProvider(
+      const IntSize& size,
+      const CanvasResourceParams& params,
+      bool is_origin_top_left);
+
   static std::unique_ptr<CanvasResourceProvider> CreatePassThroughProvider(
       const IntSize& size,
       SkFilterQuality filter_quality,
@@ -142,6 +147,7 @@ class PLATFORM_EXPORT CanvasResourceProvider
   void OnContextDestroyed() override;
 
   cc::PaintCanvas* Canvas();
+  void ReleaseLockedImages();
   sk_sp<cc::PaintRecord> FlushCanvas();
   const CanvasResourceParams& ColorParams() const { return params_; }
   void SetFilterQuality(SkFilterQuality quality) { filter_quality_ = quality; }
@@ -230,6 +236,9 @@ class PLATFORM_EXPORT CanvasResourceProvider
   // method also calls FlushCanvas() to ensure that all operations are accounted
   // for in the digest.
   const IdentifiabilityPaintOpDigest& GetIdentifiablityPaintOpDigest();
+  virtual void OnAcquireRecyclableCanvasResource() {}
+  virtual void OnDestroyRecyclableCanvasResource(
+      const gpu::SyncToken& sync_token) {}
 
  protected:
   class CanvasImageProvider;
@@ -263,8 +272,17 @@ class PLATFORM_EXPORT CanvasResourceProvider
   // change.
   cc::PaintImage MakeImageSnapshot();
   virtual void RasterRecord(sk_sp<cc::PaintRecord>);
+  void RasterRecordOOP(sk_sp<cc::PaintRecord> last_recording,
+                       bool needs_clear,
+                       gpu::Mailbox mailbox);
+  void RestoreBackBufferOOP(const cc::PaintImage&);
+
   CanvasImageProvider* GetOrCreateCanvasImageProvider();
   void TearDownSkSurface();
+
+  // Will only notify a will draw if its needed. This is initially done for the
+  // CanvasResourceProviderSharedImage use case.
+  virtual void WillDrawIfNeeded() {}
 
   ResourceProviderType type_;
   mutable sk_sp<SkSurface> surface_;  // mutable for lazy init
@@ -339,4 +357,4 @@ class PLATFORM_EXPORT CanvasResourceProvider
 
 }  // namespace blink
 
-#endif
+#endif  // THIRD_PARTY_BLINK_RENDERER_PLATFORM_GRAPHICS_CANVAS_RESOURCE_PROVIDER_H_

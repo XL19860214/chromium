@@ -12,21 +12,21 @@ import {assertEquals, assertFalse, assertTrue} from '../../chai_assert.js';
 import {assertOrderedAlphabetically, createScannerSource} from './scanning_app_test_utils.js';
 
 const FileType = {
-  JPG: chromeos.scanning.mojom.FileType.kJpg,
-  PDF: chromeos.scanning.mojom.FileType.kPdf,
-  PNG: chromeos.scanning.mojom.FileType.kPng,
+  JPG: ash.scanning.mojom.FileType.kJpg,
+  PDF: ash.scanning.mojom.FileType.kPdf,
+  PNG: ash.scanning.mojom.FileType.kPng,
 };
 
 const PageSize = {
-  A4: chromeos.scanning.mojom.PageSize.kIsoA4,
-  Letter: chromeos.scanning.mojom.PageSize.kNaLetter,
-  Max: chromeos.scanning.mojom.PageSize.kMax,
+  A4: ash.scanning.mojom.PageSize.kIsoA4,
+  Letter: ash.scanning.mojom.PageSize.kNaLetter,
+  Max: ash.scanning.mojom.PageSize.kMax,
 };
 
 const SourceType = {
-  FLATBED: chromeos.scanning.mojom.SourceType.kFlatbed,
-  ADF_SIMPLEX: chromeos.scanning.mojom.SourceType.kAdfSimplex,
-  ADF_DUPLEX: chromeos.scanning.mojom.SourceType.kAdfDuplex,
+  FLATBED: ash.scanning.mojom.SourceType.kFlatbed,
+  ADF_SIMPLEX: ash.scanning.mojom.SourceType.kAdfSimplex,
+  ADF_DUPLEX: ash.scanning.mojom.SourceType.kAdfDuplex,
 };
 
 const pageSizes = [PageSize.A4, PageSize.Letter, PageSize.Max];
@@ -47,23 +47,23 @@ export function sourceSelectTest() {
     sourceSelect = null;
   });
 
+  // Verify that adding sources results in the dropdown displaying the correct
+  // options.
   test('initializeSourceSelect', () => {
     // Before options are added, the dropdown should be enabled and empty.
     const select = sourceSelect.$$('select');
     assertTrue(!!select);
     assertFalse(select.disabled);
-    assertEquals(0, select.length);
 
     const firstSource =
         createScannerSource(SourceType.ADF_SIMPLEX, 'adf simplex', pageSizes);
     const secondSource =
         createScannerSource(SourceType.FLATBED, 'platen', pageSizes);
     const sourceArr = [firstSource, secondSource];
-    sourceSelect.sources = sourceArr;
+    sourceSelect.options = sourceArr;
     flush();
 
-    // Verify that adding sources results in the dropdown displaying the correct
-    // options.
+    // The expected options are simplex and flatbed.
     assertEquals(2, select.length);
     assertEquals(
         getSourceTypeString(firstSource.type),
@@ -74,6 +74,7 @@ export function sourceSelectTest() {
     assertEquals(secondSource.name, select.value);
   });
 
+  // Verify the sources are sorted alphabetically.
   test('sourcesSortedAlphabetically', () => {
     const sources = [
       createScannerSource(SourceType.FLATBED, 'C', pageSizes),
@@ -81,32 +82,35 @@ export function sourceSelectTest() {
       createScannerSource(SourceType.FLATBED, 'D', pageSizes),
       createScannerSource(SourceType.ADF_DUPLEX, 'A', pageSizes),
     ];
-    sourceSelect.sources = sources;
+    sourceSelect.options = sources;
     flush();
     assertOrderedAlphabetically(
-        sourceSelect.sources, (source) => getSourceTypeString(source.type));
+        sourceSelect.options, (source) => getSourceTypeString(source.type));
   });
 
+  // Verify the default option is selected when available.
   test('flatbedSelectedByDefaultIfProvided', () => {
     const sources = [
       createScannerSource(SourceType.FLATBED, 'C', pageSizes),
       createScannerSource(SourceType.ADF_SIMPLEX, 'B', pageSizes),
       createScannerSource(SourceType.ADF_DUPLEX, 'A', pageSizes),
     ];
-    sourceSelect.sources = sources;
+    sourceSelect.options = sources;
     flush();
     const flatbedSource =
-        sourceSelect.sources.find(source => source.type === SourceType.FLATBED);
-    assertEquals(sourceSelect.selectedSource, flatbedSource.name);
+        sourceSelect.options.find(source => source.type === SourceType.FLATBED);
+    assertEquals(sourceSelect.selectedOption, flatbedSource.name);
   });
 
+  // Verify the first option is selected when the default option is not
+  // available.
   test('firstSourceUsedWhenFlatbedNotProvided', () => {
     const sources = [
       createScannerSource(SourceType.ADF_SIMPLEX, 'C', pageSizes),
       createScannerSource(SourceType.ADF_DUPLEX, 'B', pageSizes),
     ];
-    sourceSelect.sources = sources;
+    sourceSelect.options = sources;
     flush();
-    assertEquals(sourceSelect.selectedSource, sourceSelect.sources[0].name);
+    assertEquals(sourceSelect.selectedOption, sourceSelect.options[0].name);
   });
 }

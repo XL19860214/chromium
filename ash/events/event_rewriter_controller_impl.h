@@ -45,6 +45,10 @@ class ASH_EXPORT EventRewriterControllerImpl : public EventRewriterController,
   // aura::EnvObserver:
   void OnHostInitialized(aura::WindowTreeHost* host) override;
 
+  // Enable/disable the combination of alt + other key or mouse event
+  // mapping in EventRewriterChromeOS.
+  void SetAltDownRemappingEnabled(bool enabled);
+
  private:
   // The |EventRewriter|s managed by this controller.
   std::vector<std::unique_ptr<ui::EventRewriter>> rewriters_;
@@ -52,6 +56,7 @@ class ASH_EXPORT EventRewriterControllerImpl : public EventRewriterController,
   // Owned by |rewriters_|.
   AccessibilityEventRewriter* accessibility_event_rewriter_ = nullptr;
   KeyboardDrivenEventRewriter* keyboard_driven_event_rewriter_ = nullptr;
+  ui::EventRewriterChromeOS* event_rewriter_chromeos_ = nullptr;
 
   DISALLOW_COPY_AND_ASSIGN(EventRewriterControllerImpl);
 };

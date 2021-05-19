@@ -16,7 +16,6 @@
 #include "content/browser/service_worker/service_worker_context_core_observer.h"
 #include "content/browser/service_worker/service_worker_info.h"
 #include "content/common/content_export.h"
-#include "third_party/blink/public/mojom/service_worker/service_worker_container_type.mojom.h"
 
 namespace content {
 
@@ -128,7 +127,7 @@ class CONTENT_EXPORT ServiceWorkerContextWatcher
   WorkerErrorReportedCallback error_callback_;
   // Should be used on UI thread only.
   bool stop_called_ = false;
-  // Should be used on IO thread only.
+  // Should be used on UI thread only.
   bool is_stopped_ = false;
 };
 

@@ -30,6 +30,7 @@
 #include "base/json/json_reader.h"
 #include "base/time/default_tick_clock.h"
 #include "chromeos/dbus/power_manager/backlight.pb.h"
+#include "ui/compositor/layer.h"
 #include "ui/display/types/display_snapshot.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_observer.h"
@@ -103,8 +104,7 @@ PowerButtonController::PowerButtonController(
     BacklightsForcedOffSetter* backlights_forced_off_setter)
     : backlights_forced_off_setter_(backlights_forced_off_setter),
       lock_state_controller_(Shell::Get()->lock_state_controller()),
-      tick_clock_(base::DefaultTickClock::GetInstance()),
-      backlights_forced_off_observer_(this) {
+      tick_clock_(base::DefaultTickClock::GetInstance()) {
   ProcessCommandLine();
   display_controller_ = std::make_unique<PowerButtonDisplayController>(
       backlights_forced_off_setter_, tick_clock_);
@@ -121,7 +121,7 @@ PowerButtonController::PowerButtonController(
 
   auto* shell = Shell::Get();
   shell->display_configurator()->AddObserver(this);
-  backlights_forced_off_observer_.Add(backlights_forced_off_setter);
+  backlights_forced_off_observation_.Observe(backlights_forced_off_setter);
   shell->tablet_mode_controller()->AddObserver(this);
   shell->lock_state_controller()->AddObserver(this);
   shell->session_controller()->AddObserver(this);
@@ -140,7 +140,10 @@ PowerButtonController::~PowerButtonController() {
 
 void PowerButtonController::OnPreShutdownTimeout() {
   lock_state_controller_->StartShutdownAnimation(ShutdownReason::POWER_BUTTON);
-  DCHECK(menu_widget_);
+  // |menu_widget_| might be reset on login status change while shutting down.
+  if (!menu_widget_)
+    return;
+
   static_cast<PowerButtonMenuScreenView*>(menu_widget_->GetContentsView())
       ->power_button_menu_view()
       ->FocusPowerOffButton();
@@ -379,7 +382,7 @@ void PowerButtonController::OnLoginStatusChanged(LoginStatus status) {
 }
 
 void PowerButtonController::OnGetSwitchStates(
-    base::Optional<chromeos::PowerManagerClient::SwitchStates> result) {
+    absl::optional<chromeos::PowerManagerClient::SwitchStates> result) {
   if (!result.has_value())
     return;
 
@@ -391,7 +394,7 @@ void PowerButtonController::OnGetSwitchStates(
 }
 
 void PowerButtonController::OnAccelerometerUpdated(
-    scoped_refptr<const AccelerometerUpdate> update) {
+    const AccelerometerUpdate& update) {
   DCHECK(base::CommandLine::ForCurrentProcess()->HasSwitch(
       switches::kAshEnableTabletMode));
 
@@ -405,8 +408,9 @@ void PowerButtonController::OnBacklightsForcedOffChanged(bool forced_off) {
   DismissMenu();
 }
 
-void PowerButtonController::OnScreenStateChanged(ScreenState screen_state) {
-  if (screen_state != ScreenState::ON)
+void PowerButtonController::OnScreenBacklightStateChanged(
+    ScreenBacklightState screen_backlight_state) {
+  if (screen_backlight_state != ScreenBacklightState::ON)
     DismissMenu();
 }
 

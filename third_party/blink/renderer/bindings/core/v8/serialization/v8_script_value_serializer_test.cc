@@ -33,6 +33,7 @@
 #include "third_party/blink/renderer/bindings/core/v8/v8_offscreen_canvas.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_readable_stream.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_string_resource.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_union_float32array_uint16array_uint8clampedarray.h"
 #include "third_party/blink/renderer/core/fileapi/blob.h"
 #include "third_party/blink/renderer/core/fileapi/file.h"
 #include "third_party/blink/renderer/core/fileapi/file_list.h"
@@ -759,7 +760,9 @@ TEST(V8ScriptValueSerializerTest, DecodeDOMMatrixReadOnly) {
 TEST(V8ScriptValueSerializerTest, RoundTripImageData) {
   // ImageData objects should serialize and deserialize correctly.
   V8TestingScope scope;
-  ImageData* image_data = ImageData::Create(2, 1, ASSERT_NO_EXCEPTION);
+  ImageData* image_data = ImageData::ValidateAndCreate(
+      2, 1, absl::nullopt, nullptr, ImageData::ValidateAndCreateParams(),
+      ASSERT_NO_EXCEPTION);
   SkPixmap pm = image_data->GetSkPixmap();
   pm.writable_addr32(0, 0)[0] = 200u;
   pm.writable_addr32(1, 0)[0] = 100u;
@@ -775,6 +778,27 @@ TEST(V8ScriptValueSerializerTest, RoundTripImageData) {
   EXPECT_EQ(100u, new_pm.addr32(1, 0)[0]);
 }
 
+TEST(V8ScriptValueSerializerTest, RoundTripDetachedImageData) {
+  // If an ImageData is detached, it can be serialized, but will fail when being
+  // deserialized.
+  V8TestingScope scope;
+  ImageData* image_data = ImageData::ValidateAndCreate(
+      2, 1, absl::nullopt, nullptr, ImageData::ValidateAndCreateParams(),
+      ASSERT_NO_EXCEPTION);
+  SkPixmap pm = image_data->GetSkPixmap();
+  pm.writable_addr32(0, 0)[0] = 200u;
+#if defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
+  image_data->data()->GetAsUint8ClampedArray()->BufferBase()->Detach();
+#else   // defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
+  image_data->data().GetAsUint8ClampedArray()->BufferBase()->Detach();
+#endif  // defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
+
+  v8::Local<v8::Value> wrapper =
+      ToV8(image_data, scope.GetContext()->Global(), scope.GetIsolate());
+  v8::Local<v8::Value> result = RoundTrip(wrapper, scope);
+  EXPECT_FALSE(V8ImageData::HasInstance(result, scope.GetIsolate()));
+}
+
 TEST(V8ScriptValueSerializerTest, RoundTripImageDataWithColorSpaceInfo) {
   // ImageData objects with color space information should serialize and
   // deserialize correctly.
@@ -782,8 +806,9 @@ TEST(V8ScriptValueSerializerTest, RoundTripImageDataWithColorSpaceInfo) {
   ImageDataSettings* image_data_settings = ImageDataSettings::Create();
   image_data_settings->setColorSpace("display-p3");
   image_data_settings->setStorageFormat("float32");
-  ImageData* image_data = ImageData::CreateImageData(2, 1, image_data_settings,
-                                                     ASSERT_NO_EXCEPTION);
+  ImageData* image_data = ImageData::ValidateAndCreate(
+      2, 1, absl::nullopt, image_data_settings,
+      ImageData::ValidateAndCreateParams(), ASSERT_NO_EXCEPTION);
   SkPixmap pm = image_data->GetSkPixmap();
   EXPECT_EQ(kRGBA_F32_SkColorType, pm.info().colorType());
   static_cast<float*>(pm.writable_addr(0, 0))[0] = 200.f;

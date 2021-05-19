@@ -12,6 +12,7 @@
 #include "base/command_line.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
+#include "base/strings/utf_string_conversions.h"
 #include "base/task/current_thread.h"
 #include "base/threading/thread.h"
 #include "base/threading/thread_restrictions.h"
@@ -36,6 +37,7 @@
 #include "net/base/filename_util.h"
 #include "net/base/net_module.h"
 #include "net/grit/net_resources.h"
+#include "ui/base/buildflags.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "url/gurl.h"
 
@@ -66,11 +68,8 @@
 #endif  // #elif (defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS))
 
 #if BUILDFLAG(USE_GTK)
-#include "ui/gtk/gtk_ui.h"
-#include "ui/gtk/gtk_ui_delegate.h"
-#if defined(USE_X11)
-#include "ui/gtk/x/gtk_ui_delegate_x11.h"  // nogncheck
-#endif
+#include "ui/gtk/gtk_ui_factory.h"
+#include "ui/views/linux_ui/linux_ui.h"  // nogncheck
 #endif
 
 namespace content {
@@ -90,7 +89,11 @@ GURL GetStartupURL() {
   if (args.empty())
     return GURL("https://www.google.com/");
 
+#if defined(OS_WIN)
+  GURL url(base::WideToUTF16(args[0]));
+#else
   GURL url(args[0]);
+#endif
   if (url.is_valid() && url.has_scheme())
     return url;
 
@@ -111,15 +114,12 @@ scoped_refptr<base::RefCountedMemory> PlatformResourceProvider(int key) {
 
 ShellBrowserMainParts::ShellBrowserMainParts(
     const MainFunctionParams& parameters)
-    : parameters_(parameters),
-      run_message_loop_(true) {
-}
+    : parameters_(parameters), run_message_loop_(true) {}
 
-ShellBrowserMainParts::~ShellBrowserMainParts() {
-}
+ShellBrowserMainParts::~ShellBrowserMainParts() = default;
 
 #if !defined(OS_MAC)
-void ShellBrowserMainParts::PreMainMessageLoopStart() {
+void ShellBrowserMainParts::PreCreateMainMessageLoop() {
 #if defined(USE_AURA) && defined(USE_X11)
   if (!features::IsUsingOzonePlatform())
     ui::TouchFactory::SetTouchDeviceListFromCommandLine();
@@ -127,7 +127,7 @@ void ShellBrowserMainParts::PreMainMessageLoopStart() {
 }
 #endif
 
-void ShellBrowserMainParts::PostMainMessageLoopStart() {
+void ShellBrowserMainParts::PostCreateMainMessageLoop() {
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   chromeos::DBusThreadManager::Initialize();
   bluez::BluezDBusManager::InitializeFake();
@@ -160,20 +160,13 @@ void ShellBrowserMainParts::InitializeMessageLoopContext() {
 // Copied from ChromeBrowserMainExtraPartsViewsLinux::ToolkitInitialized().
 // See that function for details.
 void ShellBrowserMainParts::ToolkitInitialized() {
-#if BUILDFLAG(USE_GTK) && defined(USE_X11)
+#if BUILDFLAG(USE_GTK)
   if (switches::IsRunWebTestsSwitchPresent())
     return;
-#if defined(USE_OZONE)
-  if (features::IsUsingOzonePlatform())
-    return;
-#endif
-  gtk_ui_delegate_ =
-      std::make_unique<ui::GtkUiDelegateX11>(x11::Connection::Get());
-  ui::GtkUiDelegate::SetInstance(gtk_ui_delegate_.get());
-  views::LinuxUI* linux_ui = BuildGtkUi(gtk_ui_delegate_.get());
-  linux_ui->UpdateDeviceScaleFactor();
-  views::LinuxUI::SetInstance(linux_ui);
+
+  auto linux_ui = BuildGtkUi();
   linux_ui->Initialize();
+  views::LinuxUI::SetInstance(std::move(linux_ui));
 #endif
 }
 
@@ -196,7 +189,7 @@ void ShellBrowserMainParts::PostCreateThreads() {
           performance_manager::Decorators::kMinimal, base::DoNothing());
 }
 
-void ShellBrowserMainParts::PreMainMessageLoopRun() {
+int ShellBrowserMainParts::PreMainMessageLoopRun() {
   InitializeBrowserContexts();
   Shell::Initialize(CreateShellPlatformDelegate());
   net::NetModule::SetResourceProvider(PlatformResourceProvider);
@@ -208,10 +201,16 @@ void ShellBrowserMainParts::PreMainMessageLoopRun() {
     delete parameters_.ui_task;
     run_message_loop_ = false;
   }
+
+  return 0;
 }
 
-bool ShellBrowserMainParts::MainMessageLoopRun(int* result_code)  {
-  return !run_message_loop_;
+void ShellBrowserMainParts::WillRunMainMessageLoop(
+    std::unique_ptr<base::RunLoop>& run_loop) {
+  if (run_message_loop_)
+    Shell::SetMainMessageLoopQuitClosure(run_loop->QuitClosure());
+  else
+    run_loop.reset();
 }
 
 void ShellBrowserMainParts::PostMainMessageLoopRun() {
@@ -222,11 +221,6 @@ void ShellBrowserMainParts::PostMainMessageLoopRun() {
   views::LinuxUI::SetInstance(nullptr);
 #endif
   performance_manager_lifetime_.reset();
-}
-
-void ShellBrowserMainParts::PreDefaultMainMessageLoopRun(
-    base::OnceClosure quit_closure) {
-  Shell::SetMainMessageLoopQuitClosure(std::move(quit_closure));
 }
 
 void ShellBrowserMainParts::PostDestroyThreads() {
@@ -245,4 +239,4 @@ ShellBrowserMainParts::CreateShellPlatformDelegate() {
   return std::make_unique<ShellPlatformDelegate>();
 }
 
-}  // namespace
+}  // namespace content

@@ -17,14 +17,14 @@ namespace blink {
 
 namespace {
 
-base::Optional<float> CalculateSpaceNeeded(const float destination,
+absl::optional<float> CalculateSpaceNeeded(const float destination,
                                            const float source) {
   DCHECK_GT(source, 0);
   DCHECK_GT(destination, 0);
 
   float repeat_tiles_count = floorf(destination / source);
   if (!repeat_tiles_count)
-    return base::nullopt;
+    return absl::nullopt;
 
   float space = destination;
   space -= source * repeat_tiles_count;
@@ -38,7 +38,7 @@ struct TileParameters {
   float spacing;
 };
 
-base::Optional<TileParameters> ComputeTileParameters(
+absl::optional<TileParameters> ComputeTileParameters(
     ENinePieceImageRule tile_rule,
     float dst_pos,
     float dst_extent,
@@ -61,10 +61,10 @@ base::Optional<TileParameters> ComputeTileParameters(
       return TileParameters{in_scale_factor, phase, 0};
     }
     case kSpaceImageRule: {
-      base::Optional<float> spacing =
+      absl::optional<float> spacing =
           CalculateSpaceNeeded(dst_extent, src_extent);
       if (!spacing)
-        return base::nullopt;
+        return absl::nullopt;
       return TileParameters{1, src_pos - *spacing, *spacing};
     }
     case kStretchImageRule:
@@ -72,7 +72,19 @@ base::Optional<TileParameters> ComputeTileParameters(
     default:
       NOTREACHED();
   }
-  return base::nullopt;
+  return absl::nullopt;
+}
+
+bool ShouldTile(const NinePieceImageGrid::NinePieceDrawInfo& draw_info) {
+  // Corner pieces shouldn't be tiled.
+  if (draw_info.is_corner_piece)
+    return false;
+  // If we're supposed to stretch in both dimensions, we can skip tiling
+  // calculations.
+  if (draw_info.tile_rule.horizontal == kStretchImageRule &&
+      draw_info.tile_rule.vertical == kStretchImageRule)
+    return false;
+  return true;
 }
 
 void PaintPieces(GraphicsContext& context,
@@ -93,9 +105,9 @@ void PaintPieces(GraphicsContext& context,
   FloatSize slice_scale(image_size.Width() / unzoomed_image_size.Width(),
                         image_size.Height() / unzoomed_image_size.Height());
 
-  IntRectOutsets border_widths(style.BorderTopWidth(), style.BorderRightWidth(),
-                               style.BorderBottomWidth(),
-                               style.BorderLeftWidth());
+  IntRectOutsets border_widths(
+      style.BorderTopWidth().ToInt(), style.BorderRightWidth().ToInt(),
+      style.BorderBottomWidth().ToInt(), style.BorderLeftWidth().ToInt());
   NinePieceImageGrid grid(
       nine_piece_image, image_size, slice_scale, style.EffectiveZoom(),
       PixelSnappedIntRect(border_image_rect), border_widths, sides_to_include);
@@ -105,49 +117,42 @@ void PaintPieces(GraphicsContext& context,
   for (NinePiece piece = kMinPiece; piece < kMaxPiece; ++piece) {
     NinePieceImageGrid::NinePieceDrawInfo draw_info =
         grid.GetNinePieceDrawInfo(piece);
+    if (!draw_info.is_drawable)
+      continue;
 
-    if (draw_info.is_drawable) {
-      if (draw_info.is_corner_piece) {
-        // Since there is no way for the developer to specify decode behavior,
-        // use kSync by default.
-        context.DrawImage(image, Image::kSyncDecode, draw_info.destination,
-                          &draw_info.source, style.HasFilterInducingProperty());
-      } else if (draw_info.tile_rule.horizontal == kStretchImageRule &&
-                 draw_info.tile_rule.vertical == kStretchImageRule) {
-        // Just do a scale.
-        // Since there is no way for the developer to specify decode behavior,
-        // use kSync by default.
-        context.DrawImage(image, Image::kSyncDecode, draw_info.destination,
-                          &draw_info.source, style.HasFilterInducingProperty());
-      } else {
-        // TODO(cavalcantii): see crbug.com/662513.
-        base::Optional<TileParameters> h_tile = ComputeTileParameters(
-            draw_info.tile_rule.horizontal, draw_info.destination.X(),
-            draw_info.destination.Width(), draw_info.source.X(),
-            draw_info.source.Width(), draw_info.tile_scale.Width());
-        base::Optional<TileParameters> v_tile = ComputeTileParameters(
-            draw_info.tile_rule.vertical, draw_info.destination.Y(),
-            draw_info.destination.Height(), draw_info.source.Y(),
-            draw_info.source.Height(), draw_info.tile_scale.Height());
-        if (!h_tile || !v_tile)
-          continue;
-
-        FloatSize tile_scale_factor(h_tile->scale_factor, v_tile->scale_factor);
-        FloatPoint tile_phase(draw_info.destination.X() - h_tile->phase,
-                              draw_info.destination.Y() - v_tile->phase);
-        FloatSize tile_spacing(h_tile->spacing, v_tile->spacing);
-
-        // TODO(cavalcantii): see crbug.com/662507.
-        base::Optional<ScopedInterpolationQuality>
-            interpolation_quality_override;
-        if (draw_info.tile_rule.horizontal == kRoundImageRule ||
-            draw_info.tile_rule.vertical == kRoundImageRule)
-          interpolation_quality_override.emplace(context, kInterpolationMedium);
-
-        context.DrawImageTiled(image, draw_info.destination, draw_info.source,
-                               tile_scale_factor, tile_phase, tile_spacing);
-      }
+    if (!ShouldTile(draw_info)) {
+      // Since there is no way for the developer to specify decode behavior,
+      // use kSync by default.
+      context.DrawImage(image, Image::kSyncDecode, draw_info.destination,
+                        &draw_info.source, style.HasFilterInducingProperty());
+      continue;
     }
+
+    // TODO(cavalcantii): see crbug.com/662513.
+    absl::optional<TileParameters> h_tile = ComputeTileParameters(
+        draw_info.tile_rule.horizontal, draw_info.destination.X(),
+        draw_info.destination.Width(), draw_info.source.X(),
+        draw_info.source.Width(), draw_info.tile_scale.Width());
+    absl::optional<TileParameters> v_tile = ComputeTileParameters(
+        draw_info.tile_rule.vertical, draw_info.destination.Y(),
+        draw_info.destination.Height(), draw_info.source.Y(),
+        draw_info.source.Height(), draw_info.tile_scale.Height());
+    if (!h_tile || !v_tile)
+      continue;
+
+    FloatSize tile_scale_factor(h_tile->scale_factor, v_tile->scale_factor);
+    FloatPoint tile_phase(draw_info.destination.X() - h_tile->phase,
+                          draw_info.destination.Y() - v_tile->phase);
+    FloatSize tile_spacing(h_tile->spacing, v_tile->spacing);
+
+    // TODO(cavalcantii): see crbug.com/662507.
+    absl::optional<ScopedInterpolationQuality> interpolation_quality_override;
+    if (draw_info.tile_rule.horizontal == kRoundImageRule ||
+        draw_info.tile_rule.vertical == kRoundImageRule)
+      interpolation_quality_override.emplace(context, kInterpolationMedium);
+
+    context.DrawImageTiled(image, draw_info.destination, draw_info.source,
+                           tile_scale_factor, tile_phase, tile_spacing);
   }
 }
 
@@ -199,11 +204,10 @@ bool NinePieceImagePainter::Paint(GraphicsContext& graphics_context,
       document, 1, default_object_size.ScaledBy(1 / style.EffectiveZoom()),
       kRespectImageOrientation);
 
-  TRACE_EVENT1(TRACE_DISABLED_BY_DEFAULT("devtools.timeline"), "PaintImage",
-               "data",
-               inspector_paint_image_event::Data(node, *style_image,
-                                                 FloatRect(image->Rect()),
-                                                 FloatRect(border_image_rect)));
+  DEVTOOLS_TIMELINE_TRACE_EVENT_WITH_CATEGORIES(
+      TRACE_DISABLED_BY_DEFAULT("devtools.timeline"), "PaintImage",
+      inspector_paint_image_event::Data, node, *style_image,
+      FloatRect(image->Rect()), FloatRect(border_image_rect));
   PaintPieces(graphics_context, border_image_rect, style, nine_piece_image,
               image.get(), unzoomed_image_size, sides_to_include);
   return true;

@@ -18,10 +18,6 @@ AXValidationMessage::AXValidationMessage(AXObjectCacheImpl& ax_object_cache)
 
 AXValidationMessage::~AXValidationMessage() {}
 
-AXObject* AXValidationMessage::ComputeParent() const {
-  return AXObjectCache().Root();
-}
-
 bool AXValidationMessage::ComputeAccessibilityIsIgnored(
     IgnoredReasons* ignored_reasons) const {
   return false;
@@ -76,7 +72,7 @@ const AtomicString& AXValidationMessage::LiveRegionRelevant() const {
   return live_region_relevant_additions;
 }
 
-ax::mojom::blink::Role AXValidationMessage::DetermineAccessibilityRole() {
+ax::mojom::blink::Role AXValidationMessage::NativeRoleIgnoringAria() const {
   return ax::mojom::blink::Role::kAlert;
 }
 

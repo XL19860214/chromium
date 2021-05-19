@@ -12,7 +12,9 @@
 #include "chrome/browser/ui/views/frame/system_menu_model_delegate.h"
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-class AssignToDesksMenuModel;
+namespace chromeos {
+class MoveToDesksMenuModel;
+}
 #endif
 class Browser;
 class ZoomMenuModel;
@@ -21,7 +23,7 @@ namespace ui {
 class AcceleratorProvider;
 class MenuModel;
 class SimpleMenuModel;
-}
+}  // namespace ui
 
 // SystemMenuModelBuilder is responsible for building and owning the system menu
 // model.
@@ -48,8 +50,8 @@ class SystemMenuModelBuilder {
   void AddFrameToggleItems(ui::SimpleMenuModel* model);
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-  // Add the submenu for assign to desks.
-  void AppendAssignToDesksMenu(ui::SimpleMenuModel* model);
+  // Add the submenu for move to desks.
+  void AppendMoveToDesksMenu(ui::SimpleMenuModel* model);
 #endif
 
   // Add the items to allow the window to visit the desktop of another user.
@@ -59,7 +61,7 @@ class SystemMenuModelBuilder {
   std::unique_ptr<ui::MenuModel> menu_model_;
   std::unique_ptr<ZoomMenuModel> zoom_menu_contents_;
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-  std::unique_ptr<AssignToDesksMenuModel> assign_to_desks_model_;
+  std::unique_ptr<chromeos::MoveToDesksMenuModel> move_to_desks_model_;
 #endif
 
   DISALLOW_COPY_AND_ASSIGN(SystemMenuModelBuilder);

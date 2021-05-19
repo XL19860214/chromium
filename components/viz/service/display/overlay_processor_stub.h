@@ -20,6 +20,7 @@ class VIZ_SERVICE_EXPORT OverlayProcessorStub
 
   // Overrides OverlayProcessorInterface's pure virtual functions.
   bool IsOverlaySupported() const final;
+  gfx::Rect GetPreviousFrameOverlaysBoundingRect() const final;
   gfx::Rect GetAndResetOverlayDamage() final;
   bool NeedsSurfaceDamageRectList() const final;
   void ProcessForOverlays(
@@ -34,7 +35,7 @@ class VIZ_SERVICE_EXPORT OverlayProcessorStub
       gfx::Rect* damage_rect,
       std::vector<gfx::Rect>* content_bounds) final {}
   void AdjustOutputSurfaceOverlay(
-      base::Optional<OutputSurfaceOverlayPlane>* output_surface_plane) final {}
+      absl::optional<OutputSurfaceOverlayPlane>* output_surface_plane) final {}
   void SetDisplayTransformHint(gfx::OverlayTransform transform) final {}
   void SetViewportSize(const gfx::Size& size) final {}
 

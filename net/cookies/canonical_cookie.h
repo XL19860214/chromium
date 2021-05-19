@@ -11,13 +11,13 @@
 #include <vector>
 
 #include "base/gtest_prod_util.h"
-#include "base/optional.h"
 #include "base/time/time.h"
 #include "net/base/net_export.h"
 #include "net/cookies/cookie_access_result.h"
 #include "net/cookies/cookie_constants.h"
 #include "net/cookies/cookie_inclusion_status.h"
 #include "net/cookies/cookie_options.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "url/third_party/mozilla/url_parse.h"
 
 class GURL;
@@ -38,7 +38,8 @@ using CookieAccessResultList = std::vector<CookieWithAccessResult>;
 struct NET_EXPORT CookieAccessParams {
   CookieAccessParams() = delete;
   CookieAccessParams(CookieAccessSemantics access_semantics,
-                     bool delegate_treats_url_as_trustworthy);
+                     bool delegate_treats_url_as_trustworthy,
+                     CookieSamePartyStatus same_party_status);
 
   // |access_semantics| is the access mode of the cookie access check.
   CookieAccessSemantics access_semantics = CookieAccessSemantics::UNKNOWN;
@@ -46,6 +47,10 @@ struct NET_EXPORT CookieAccessParams {
   // CookieAccessDelegate has authorized access to secure cookies from URLs
   // which might not otherwise be able to do so.
   bool delegate_treats_url_as_trustworthy = false;
+  // |same_party_status| indicates whether, and how, SameParty restrictions
+  // should be enforced.
+  CookieSamePartyStatus same_party_status =
+      CookieSamePartyStatus::kNoSamePartyEnforcement;
 };
 
 class NET_EXPORT CanonicalCookie {
@@ -54,27 +59,6 @@ class NET_EXPORT CanonicalCookie {
 
   CanonicalCookie();
   CanonicalCookie(const CanonicalCookie& other);
-
-  // This constructor does not validate or canonicalize their inputs;
-  // the resulting CanonicalCookies should not be relied on to be canonical
-  // unless the caller has done appropriate validation and canonicalization
-  // themselves.
-  // NOTE: Prefer using CreateSanitizedCookie() over directly using this
-  // constructor.
-  CanonicalCookie(const std::string& name,
-                  const std::string& value,
-                  const std::string& domain,
-                  const std::string& path,
-                  const base::Time& creation,
-                  const base::Time& expiration,
-                  const base::Time& last_access,
-                  bool secure,
-                  bool httponly,
-                  CookieSameSite same_site,
-                  CookiePriority priority,
-                  bool same_party,
-                  CookieSourceScheme scheme_secure = CookieSourceScheme::kUnset,
-                  int source_port = url::PORT_UNSPECIFIED);
 
   ~CanonicalCookie();
 
@@ -100,7 +84,7 @@ class NET_EXPORT CanonicalCookie {
       const GURL& url,
       const std::string& cookie_line,
       const base::Time& creation_time,
-      base::Optional<base::Time> server_time,
+      absl::optional<base::Time> server_time,
       CookieInclusionStatus* status = nullptr);
 
   // Create a canonical cookie based on sanitizing the passed inputs in the
@@ -311,13 +295,8 @@ class NET_EXPORT CanonicalCookie {
   CookieAccessResult IsSetPermittedInContext(
       const GURL& source_url,
       const CookieOptions& options,
-      const CookieAccessParams& params) const;
-
-  // Overload that updates an existing |status| rather than returning a new one.
-  void IsSetPermittedInContext(const GURL& source_url,
-                               const CookieOptions& options,
-                               const CookieAccessParams& params,
-                               CookieAccessResult* access_result) const;
+      const CookieAccessParams& params,
+      const std::vector<std::string>& cookieable_schemes) const;
 
   std::string DebugString() const;
 
@@ -370,6 +349,27 @@ class NET_EXPORT CanonicalCookie {
 
  private:
   FRIEND_TEST_ALL_PREFIXES(CanonicalCookieTest, TestPrefixHistograms);
+
+  // This constructor does not validate or canonicalize their inputs;
+  // the resulting CanonicalCookies should not be relied on to be canonical
+  // unless the caller has done appropriate validation and canonicalization
+  // themselves.
+  // NOTE: Prefer using CreateSanitizedCookie() over directly using this
+  // constructor.
+  CanonicalCookie(const std::string& name,
+                  const std::string& value,
+                  const std::string& domain,
+                  const std::string& path,
+                  const base::Time& creation,
+                  const base::Time& expiration,
+                  const base::Time& last_access,
+                  bool secure,
+                  bool httponly,
+                  CookieSameSite same_site,
+                  CookiePriority priority,
+                  bool same_party,
+                  CookieSourceScheme scheme_secure = CookieSourceScheme::kUnset,
+                  int source_port = url::PORT_UNSPECIFIED);
 
   // The special cookie prefixes as defined in
   // https://tools.ietf.org/html/draft-west-cookie-prefixes
@@ -449,7 +449,7 @@ class NET_EXPORT CanonicalCookie {
 // canonical cookie object may not be available.
 struct NET_EXPORT CookieAndLineWithAccessResult {
   CookieAndLineWithAccessResult();
-  CookieAndLineWithAccessResult(base::Optional<CanonicalCookie> cookie,
+  CookieAndLineWithAccessResult(absl::optional<CanonicalCookie> cookie,
                                 std::string cookie_string,
                                 CookieAccessResult access_result);
   CookieAndLineWithAccessResult(
@@ -463,7 +463,7 @@ struct NET_EXPORT CookieAndLineWithAccessResult {
 
   ~CookieAndLineWithAccessResult();
 
-  base::Optional<CanonicalCookie> cookie;
+  absl::optional<CanonicalCookie> cookie;
   std::string cookie_string;
   CookieAccessResult access_result;
 };
@@ -472,6 +472,19 @@ struct CookieWithAccessResult {
   CanonicalCookie cookie;
   CookieAccessResult access_result;
 };
+
+// Provided to allow gtest to create more helpful error messages, instead of
+// printing hex.
+inline void PrintTo(const CanonicalCookie& cc, std::ostream* os) {
+  *os << "{ name=" << cc.Name() << ", value=" << cc.Value() << " }";
+}
+inline void PrintTo(const CookieWithAccessResult& cwar, std::ostream* os) {
+  *os << "{ ";
+  PrintTo(cwar.cookie, os);
+  *os << ", ";
+  PrintTo(cwar.access_result, os);
+  *os << " }";
+}
 
 }  // namespace net
 

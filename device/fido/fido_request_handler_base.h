@@ -19,19 +19,21 @@
 #include "base/containers/flat_set.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
-#include "base/optional.h"
 #include "base/strings/string_piece_forward.h"
 #include "build/build_config.h"
 #include "device/fido/fido_constants.h"
 #include "device/fido/fido_discovery_base.h"
 #include "device/fido/fido_transport_protocol.h"
 #include "device/fido/pin.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace device {
 
 class BleAdapterManager;
 class FidoAuthenticator;
 class FidoDiscoveryFactory;
+class PublicKeyCredentialUserEntity;
+struct TransportAvailabilityCallbackReadiness;
 
 // Base class that handles authenticator discovery/removal. Its lifetime is
 // equivalent to that of a single WebAuthn request. For each authenticator, the
@@ -43,16 +45,12 @@ class COMPONENT_EXPORT(DEVICE_FIDO) FidoRequestHandlerBase
  public:
   using RequestCallback = base::RepeatingCallback<void(const std::string&)>;
 
-  enum class RequestType { kMakeCredential, kGetAssertion };
-
   using AuthenticatorMap =
       std::map<std::string, FidoAuthenticator*, std::less<>>;
 
   // Encapsulates data required to initiate WebAuthN UX dialog. Once all
   // components of TransportAvailabilityInfo is set,
   // AuthenticatorRequestClientDelegate should be notified.
-  // TODO(hongjunchoi): Add async calls to notify embedder when Bluetooth is
-  // powered on/off.
   struct COMPONENT_EXPORT(DEVICE_FIDO) TransportAvailabilityInfo {
     TransportAvailabilityInfo();
     TransportAvailabilityInfo(const TransportAvailabilityInfo& other);
@@ -60,9 +58,7 @@ class COMPONENT_EXPORT(DEVICE_FIDO) FidoRequestHandlerBase
         const TransportAvailabilityInfo& other);
     ~TransportAvailabilityInfo();
 
-    // TODO(hongjunchoi): Factor |request_type| from TransportAvailabilityInfo.
-    // See: https://crbug.com/875011
-    RequestType request_type = RequestType::kMakeCredential;
+    FidoRequestType request_type = FidoRequestType::kMakeCredential;
 
     // Indicates whether this is a GetAssertion request with an empty allow
     // list.
@@ -72,7 +68,19 @@ class COMPONENT_EXPORT(DEVICE_FIDO) FidoRequestHandlerBase
     // relying party.
     base::flat_set<FidoTransportProtocol> available_transports;
 
-    bool has_recognized_mac_touch_id_credential = false;
+    // Whether the platform authenticator has a matching credential for the
+    // request. This is only set for a GetAssertion request and if a platform
+    // authenticator has been added to the request handler. (The Windows
+    // WebAuthn API does NOT count as a platform authenticator in this case.)
+    absl::optional<bool> has_recognized_platform_authenticator_credential;
+
+    // The set of recognized platform credential user entities that can fulfill
+    // a GetAssertion request. Not all platform authenticators report this, so
+    // the set might be empty even if
+    // |has_recognized_platform_authenticator_credential| is true.
+    std::vector<PublicKeyCredentialUserEntity>
+        recognized_platform_authenticator_credentials;
+
     bool is_ble_powered = false;
     bool can_power_on_ble_adapter = false;
 
@@ -93,6 +101,19 @@ class COMPONENT_EXPORT(DEVICE_FIDO) FidoRequestHandlerBase
     // This allows the observer to distinguish it from other
     // authenticators.
     std::string win_native_api_authenticator_id;
+
+    // Indicates whether the request is occurring in an off-the-record
+    // BrowserContext (e.g. Chrome Incognito mode).
+    bool is_off_the_record_context = false;
+
+    // Indicates the ResidentKeyRequirement of the current request. Only valid
+    // if |request_type| is |RequestType::kMakeCredential|. Requests with a
+    // value of |ResidentKeyRequirement::kPreferred| or
+    // |ResidentKeyRequirement::kRequired| can create a resident credential,
+    // which could be discovered by someone with physical access to the
+    // authenticator and thus have privacy implications.
+    ResidentKeyRequirement resident_key_requirement =
+        ResidentKeyRequirement::kDiscouraged;
   };
 
   class COMPONENT_EXPORT(DEVICE_FIDO) Observer {
@@ -146,7 +167,7 @@ class COMPONENT_EXPORT(DEVICE_FIDO) FidoRequestHandlerBase
     // hard lock.
     virtual void CollectPIN(
         CollectPINOptions options,
-        base::OnceCallback<void(base::string16)> provide_pin_cb) = 0;
+        base::OnceCallback<void(std::u16string)> provide_pin_cb) = 0;
 
     virtual void FinishCollectToken() = 0;
 
@@ -166,14 +187,9 @@ class COMPONENT_EXPORT(DEVICE_FIDO) FidoRequestHandlerBase
     // try again. Receives the number of |attempts| before the device locks
     // internal user verification.
     virtual void OnRetryUserVerification(int attempts) = 0;
-
-    // SetMightCreateResidentCredential indicates whether the activation of an
-    // authenticator may cause a resident credential to be created. A resident
-    // credential may be discovered by someone with physical access to the
-    // authenticator and thus has privacy implications. Initially, this is
-    // assumed to be false.
-    virtual void SetMightCreateResidentCredential(bool v) = 0;
   };
+
+  FidoRequestHandlerBase();
 
   // The |available_transports| should be the intersection of transports
   // supported by the client and allowed by the relying party.
@@ -205,13 +221,7 @@ class COMPONENT_EXPORT(DEVICE_FIDO) FidoRequestHandlerBase
 
   base::WeakPtr<FidoRequestHandlerBase> GetWeakPtr();
 
-  void set_observer(Observer* observer) {
-    DCHECK(!observer_) << "Only one observer is supported.";
-    observer_ = observer;
-
-    DCHECK(notify_observer_callback_);
-    notify_observer_callback_.Run();
-  }
+  void set_observer(Observer* observer);
 
   // Returns whether FidoAuthenticator with id equal to |authenticator_id|
   // exists. Fake FidoRequestHandler objects used in testing overrides this
@@ -245,6 +255,10 @@ class COMPONENT_EXPORT(DEVICE_FIDO) FidoRequestHandlerBase
   // FidoRequestHandler and stored in active_authenticators().
   virtual void DispatchRequest(FidoAuthenticator*) = 0;
 
+  void InitDiscoveries(
+      FidoDiscoveryFactory* fido_discovery_factory,
+      base::flat_set<FidoTransportProtocol> available_transports);
+
   void Start();
 
   AuthenticatorMap& active_authenticators() { return active_authenticators_; }
@@ -263,19 +277,30 @@ class COMPONENT_EXPORT(DEVICE_FIDO) FidoRequestHandlerBase
   void AuthenticatorRemoved(FidoDiscoveryBase* discovery,
                             FidoAuthenticator* authenticator) override;
 
+  // GetPlatformCredentialStatus is called to learn whether a platform
+  // authenticator has credentials responsive to the current request. If this
+  // method is overridden in a subclass then either:
+  //  · The method in this base class must be called immediately, or
+  //  · |OnHavePlatformCredentialStatus| must eventually called.
+  //
+  // This method runs only after the platform discovery has started
+  // successfully. (The Windows API doesn't count as a platform authenticator
+  // for the purposes of this call.)
+  virtual void GetPlatformCredentialStatus(
+      FidoAuthenticator* platform_authenticator);
+
+  // OnHavePlatformCredentialStatus is called by subclasses (after
+  // |GetPlatformCredentialStatus| has been called) to report on whether the
+  // platform authenticator whether it has responsive discoverable credentials
+  // and whether it has responsive credentials at all.
+  void OnHavePlatformCredentialStatus(
+      std::vector<PublicKeyCredentialUserEntity> user_entities,
+      bool have_credential);
+
  private:
   friend class FidoRequestHandlerTest;
 
-  void InitDiscoveries(
-      FidoDiscoveryFactory* fido_discovery_factory,
-      const base::flat_set<FidoTransportProtocol>& available_transports);
-#if defined(OS_WIN)
-  void InitDiscoveriesWin(
-      FidoDiscoveryFactory* fido_discovery_factory,
-      const base::flat_set<FidoTransportProtocol>& available_transports);
-#endif
-
-  void NotifyObserverTransportAvailability();
+  void MaybeSignalTransportsEnumerated();
 
   // Invokes FidoAuthenticator::InitializeAuthenticator(), followed by
   // DispatchRequest(). InitializeAuthenticator() sends a GetInfo command
@@ -289,8 +314,17 @@ class COMPONENT_EXPORT(DEVICE_FIDO) FidoRequestHandlerBase
   std::vector<std::unique_ptr<FidoDiscoveryBase>> discoveries_;
   Observer* observer_ = nullptr;
   TransportAvailabilityInfo transport_availability_info_;
-  base::RepeatingClosure notify_observer_callback_;
   std::unique_ptr<BleAdapterManager> bluetooth_adapter_manager_;
+
+  // transport_availability_callback_readiness_ keeps track of state which
+  // determines whether this object is ready to call
+  // |OnTransportAvailabilityEnumerated| on |observer_|.
+  std::unique_ptr<TransportAvailabilityCallbackReadiness>
+      transport_availability_callback_readiness_;
+
+  // internal_authenticator_found_ is used to check that at most one kInternal
+  // authenticator is discovered.
+  bool internal_authenticator_found_ = false;
 
   base::WeakPtrFactory<FidoRequestHandlerBase> weak_factory_{this};
   DISALLOW_COPY_AND_ASSIGN(FidoRequestHandlerBase);

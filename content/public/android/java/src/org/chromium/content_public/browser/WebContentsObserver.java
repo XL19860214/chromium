@@ -33,20 +33,16 @@ public abstract class WebContentsObserver {
     /**
      * Called when a RenderFrame for renderFrameHost is created in the
      * renderer process.
-     * To avoid creating a RenderFrameHost object without necessity, only process id and frame id
-     * are passed. Call WebContents#getRenderFrameHostFromId() to get the RenderFrameHostImpl object
-     * if needed.
+     * To avoid creating a RenderFrameHost object without necessity, only its id is passed. Call
+     * WebContents#getRenderFrameHostFromId() to get the RenderFrameHost object if needed.
      */
-    public void renderFrameCreated(int renderProcessId, int renderFrameId) {}
+    public void renderFrameCreated(GlobalFrameRoutingId id) {}
 
     /**
      * Called when a RenderFrame for renderFrameHost is deleted in the
      * renderer process.
-     * To avoid creating a RenderFrameHost object without necessity, only process id and frame id
-     * are passed. Call WebContents#getRenderFrameHostFromId() to get the RenderFrameHostImpl object
-     * if needed.
      */
-    public void renderFrameDeleted(int renderProcessId, int renderFrameId) {}
+    public void renderFrameDeleted(GlobalFrameRoutingId id) {}
 
     /**
      * Called when the RenderView of the current RenderViewHost is ready, e.g. because we recreated
@@ -162,8 +158,9 @@ public abstract class WebContentsObserver {
 
     /**
      * Notifies that a navigation entry has been committed.
+     * @param details Details of committed navigation entry.
      */
-    public void navigationEntryCommitted() {}
+    public void navigationEntryCommitted(LoadCommittedDetails details) {}
 
     /**
      * Called when navigation entries were removed.
@@ -181,10 +178,17 @@ public abstract class WebContentsObserver {
     public void didChangeThemeColor() {}
 
     /**
-     * Called when the Web Contents leaves or enters fullscreen mode.
+     * Called when Media in the Web Contents leaves or enters fullscreen mode.
      * @param isFullscreen whether fullscreen is being entered or left.
      */
     public void hasEffectivelyFullscreenVideoChange(boolean isFullscreen) {}
+
+    /**
+     * Called when the Web Contents is toggled into or out of fullscreen mode by the renderer.
+     * @param enteredFullscreen whether fullscreen is being entered or left.
+     * @param willCauseResize whether the change to fullscreen will cause the contents to resize.
+     */
+    public void didToggleFullscreenModeForTab(boolean enteredFullscreen, boolean willCauseResize) {}
 
     /**
      * The Viewport Fit Type passed to viewportFitChanged. This is mirrored

@@ -8,9 +8,11 @@
 #include "base/test/bind.h"
 #include "base/test/scoped_feature_list.h"
 #include "content/browser/site_instance_impl.h"
-#include "content/browser/storage_partition_impl.h"
-#include "content/public/browser/storage_partition.h"
+#include "content/public/browser/back_forward_cache.h"
+#include "content/public/test/back_forward_cache_util.h"
+#include "content/public/test/navigation_simulator.h"
 #include "content/public/test/test_browser_context.h"
+#include "content/public/test/test_utils.h"
 #include "content/test/test_render_view_host.h"
 #include "content/test/test_web_contents.h"
 #include "mojo/public/cpp/system/functions.h"
@@ -21,12 +23,14 @@ namespace {
 
 class PrerenderProcessorTest : public RenderViewHostImplTestHarness {
  public:
+  PrerenderProcessorTest() {
+    scoped_feature_list_.InitAndEnableFeature(blink::features::kPrerender2);
+  }
+
   void SetUp() override {
     RenderViewHostImplTestHarness::SetUp();
 
-    scoped_feature_list_.InitAndEnableFeature(blink::features::kPrerender2);
     browser_context_ = std::make_unique<TestBrowserContext>();
-
     web_contents_ = TestWebContents::Create(
         browser_context_.get(),
         SiteInstanceImpl::Create(browser_context_.get()));
@@ -39,22 +43,30 @@ class PrerenderProcessorTest : public RenderViewHostImplTestHarness {
     RenderViewHostImplTestHarness::TearDown();
   }
 
-  void DestroyPrerenderProcessors() {
-    // Resetting the web contents destroys render frame hosts, which in turn
-    // destroy `RenderFrameHostImpl::prerender_processor_receivers_`.
-    web_contents_.reset();
-  }
-
   RenderFrameHostImpl* GetRenderFrameHost() {
-    DCHECK(web_contents_);
     return web_contents_->GetMainFrame();
   }
 
+  TestWebContents* GetWebContents() { return web_contents_.get(); }
+
+  GURL GetSameOriginUrl(const std::string& path) {
+    return GURL("https://example.com" + path);
+  }
+
+  GURL GetCrossOriginUrl(const std::string& path) {
+    return GURL("https://other.example.com" + path);
+  }
+
+  GURL GetCrossSiteUrl(const std::string& path) {
+    return GURL("https://example.test" + path);
+  }
+
   PrerenderHostRegistry* GetPrerenderHostRegistry() const {
-    return static_cast<StoragePartitionImpl*>(
-               BrowserContext::GetDefaultStoragePartition(
-                   browser_context_.get()))
-        ->GetPrerenderHostRegistry();
+    return web_contents_->GetPrerenderHostRegistry();
+  }
+
+  void NavigateAndCommit(const GURL& url) {
+    web_contents_->NavigateAndCommit(url);
   }
 
  private:
@@ -70,9 +82,9 @@ TEST_F(PrerenderProcessorTest, StartCancel) {
 
   mojo::Remote<blink::mojom::PrerenderProcessor> remote;
   render_frame_host->BindPrerenderProcessor(
-      render_frame_host, remote.BindNewPipeAndPassReceiver());
+      remote.BindNewPipeAndPassReceiver());
 
-  const GURL kPrerenderingUrl("https://example.com/next");
+  const GURL kPrerenderingUrl = GetSameOriginUrl("/next");
   auto attributes = blink::mojom::PrerenderAttributes::New();
   attributes->url = kPrerenderingUrl;
   attributes->referrer = blink::mojom::Referrer::New();
@@ -95,9 +107,9 @@ TEST_F(PrerenderProcessorTest, StartDisconnect) {
 
   mojo::Remote<blink::mojom::PrerenderProcessor> remote;
   render_frame_host->BindPrerenderProcessor(
-      render_frame_host, remote.BindNewPipeAndPassReceiver());
+      remote.BindNewPipeAndPassReceiver());
 
-  const GURL kPrerenderingUrl("https://example.com/next");
+  const GURL kPrerenderingUrl = GetSameOriginUrl("/next");
   auto attributes = blink::mojom::PrerenderAttributes::New();
   attributes->url = kPrerenderingUrl;
   attributes->referrer = blink::mojom::Referrer::New();
@@ -121,9 +133,9 @@ TEST_F(PrerenderProcessorTest, CancelOnDestruction) {
 
   mojo::Remote<blink::mojom::PrerenderProcessor> remote;
   render_frame_host->BindPrerenderProcessor(
-      render_frame_host, remote.BindNewPipeAndPassReceiver());
+      remote.BindNewPipeAndPassReceiver());
 
-  const GURL kPrerenderingUrl("https://example.com/next");
+  const GURL kPrerenderingUrl = GetSameOriginUrl("/next");
   auto attributes = blink::mojom::PrerenderAttributes::New();
   attributes->url = kPrerenderingUrl;
   attributes->referrer = blink::mojom::Referrer::New();
@@ -134,8 +146,21 @@ TEST_F(PrerenderProcessorTest, CancelOnDestruction) {
   remote.FlushForTesting();
   EXPECT_TRUE(registry->FindHostByUrlForTesting(kPrerenderingUrl));
 
-  // The destructor of PrerenderProcessor should abandon the prerender host.
-  DestroyPrerenderProcessors();
+  // The test assumes `render_frame_host` to be deleted. Disable the
+  // back-forward cache to ensure that it doesn't get preserved in the cache.
+  DisableBackForwardCacheForTesting(GetWebContents(),
+                                    BackForwardCache::TEST_ASSUMES_NO_CACHING);
+
+  // Navigate the primary page to a cross-site URL that induces destruction of
+  // the render frame host.
+  RenderFrameDeletedObserver observer(render_frame_host);
+  const GURL kCrossSiteUrl = GetCrossSiteUrl("/cross-site");
+  NavigationSimulator::NavigateAndCommitFromBrowser(GetWebContents(),
+                                                    kCrossSiteUrl);
+  observer.WaitUntilDeleted();
+
+  // The destruction of the render frame host should destroy PrerenderProcessor
+  // and cancel prerendering.
   EXPECT_FALSE(registry->FindHostByUrlForTesting(kPrerenderingUrl));
 }
 
@@ -145,7 +170,7 @@ TEST_F(PrerenderProcessorTest, StartTwice) {
 
   mojo::Remote<blink::mojom::PrerenderProcessor> remote;
   render_frame_host->BindPrerenderProcessor(
-      render_frame_host, remote.BindNewPipeAndPassReceiver());
+      remote.BindNewPipeAndPassReceiver());
 
   // Set up the error handler for bad mojo messages.
   std::string bad_message_error;
@@ -155,7 +180,7 @@ TEST_F(PrerenderProcessorTest, StartTwice) {
         bad_message_error = error;
       }));
 
-  const GURL kPrerenderingUrl("https://example.com/next");
+  const GURL kPrerenderingUrl = GetSameOriginUrl("/next");
   auto attributes1 = blink::mojom::PrerenderAttributes::New();
   attributes1->url = kPrerenderingUrl;
   attributes1->referrer = blink::mojom::Referrer::New();
@@ -182,7 +207,7 @@ TEST_F(PrerenderProcessorTest, CancelBeforeStart) {
 
   mojo::Remote<blink::mojom::PrerenderProcessor> remote;
   render_frame_host->BindPrerenderProcessor(
-      render_frame_host, remote.BindNewPipeAndPassReceiver());
+      remote.BindNewPipeAndPassReceiver());
 
   // Set up the error handler for bad mojo messages.
   std::string bad_message_error;
@@ -192,7 +217,7 @@ TEST_F(PrerenderProcessorTest, CancelBeforeStart) {
         bad_message_error = error;
       }));
 
-  const GURL kPrerenderingUrl("https://example.com/next");
+  const GURL kPrerenderingUrl = GetSameOriginUrl("/next");
   auto attributes1 = blink::mojom::PrerenderAttributes::New();
   attributes1->url = kPrerenderingUrl;
   attributes1->referrer = blink::mojom::Referrer::New();
@@ -203,6 +228,104 @@ TEST_F(PrerenderProcessorTest, CancelBeforeStart) {
   remote->Cancel();
   remote.FlushForTesting();
   EXPECT_EQ(bad_message_error, "PP_CANCEL_BEFORE_START");
+}
+
+// Tests that prerendering a cross-origin URL is aborted. Cross-origin
+// prerendering is not supported for now, but we plan to support it later
+// (https://crbug.com/1176054).
+TEST_F(PrerenderProcessorTest, CrossOrigin) {
+  RenderFrameHostImpl* render_frame_host = GetRenderFrameHost();
+  PrerenderHostRegistry* registry = GetPrerenderHostRegistry();
+
+  mojo::Remote<blink::mojom::PrerenderProcessor> remote;
+  render_frame_host->BindPrerenderProcessor(
+      remote.BindNewPipeAndPassReceiver());
+
+  // Set up the error handler for bad mojo messages.
+  std::string bad_message_error;
+  mojo::SetDefaultProcessErrorHandler(
+      base::BindLambdaForTesting([&](const std::string& error) {
+        EXPECT_FALSE(error.empty());
+        EXPECT_TRUE(bad_message_error.empty());
+        bad_message_error = error;
+      }));
+
+  const GURL kPrerenderingUrl = GetCrossOriginUrl("/next");
+  auto attributes = blink::mojom::PrerenderAttributes::New();
+  attributes->url = kPrerenderingUrl;
+  attributes->referrer = blink::mojom::Referrer::New();
+
+  // Start() call with the cross-origin URL should be reported as a bad message.
+  EXPECT_FALSE(registry->FindHostByUrlForTesting(kPrerenderingUrl));
+  remote->Start(std::move(attributes));
+  remote.FlushForTesting();
+  EXPECT_EQ(bad_message_error, "PP_CROSS_ORIGIN");
+}
+
+// Tests that prerendering triggered by <link rel=next> is aborted. This trigger
+// is not supported for now, but we may want to support it if NoStatePrefetch
+// re-enables it again. See https://crbug.com/1161545.
+TEST_F(PrerenderProcessorTest, RelTypeNext) {
+  RenderFrameHostImpl* render_frame_host = GetRenderFrameHost();
+  PrerenderHostRegistry* registry = GetPrerenderHostRegistry();
+
+  mojo::Remote<blink::mojom::PrerenderProcessor> remote;
+  render_frame_host->BindPrerenderProcessor(
+      remote.BindNewPipeAndPassReceiver());
+
+  // Set up the error handler for bad mojo messages.
+  std::string bad_message_error;
+  mojo::SetDefaultProcessErrorHandler(
+      base::BindLambdaForTesting([&](const std::string& error) {
+        EXPECT_FALSE(error.empty());
+        EXPECT_TRUE(bad_message_error.empty());
+        bad_message_error = error;
+      }));
+
+  const GURL kPrerenderingUrl = GetSameOriginUrl("/next");
+  auto attributes = blink::mojom::PrerenderAttributes::New();
+  attributes->url = kPrerenderingUrl;
+  // Set kLinkRelNext instead of the default kLinkRelPrerender.
+  attributes->trigger_type = blink::mojom::PrerenderTriggerType::kLinkRelNext;
+  attributes->referrer = blink::mojom::Referrer::New();
+
+  // Start() call with kNext should be aborted.
+  EXPECT_FALSE(registry->FindHostByUrlForTesting(kPrerenderingUrl));
+  remote->Start(std::move(attributes));
+  remote.FlushForTesting();
+  EXPECT_FALSE(registry->FindHostByUrlForTesting(kPrerenderingUrl));
+
+  // Start() call with kNext is a valid request, currently it's not supported
+  // though. The request shouldn't result in a bad message failure.
+  EXPECT_TRUE(bad_message_error.empty());
+
+  // Cancel() call should not be reported as a bad mojo message as well.
+  remote->Cancel();
+  remote.FlushForTesting();
+  EXPECT_TRUE(bad_message_error.empty());
+}
+
+TEST_F(PrerenderProcessorTest, StartAfterNavigation) {
+  RenderFrameHostImpl* render_frame_host = GetRenderFrameHost();
+  PrerenderHostRegistry* registry = GetPrerenderHostRegistry();
+
+  mojo::Remote<blink::mojom::PrerenderProcessor> remote;
+  render_frame_host->BindPrerenderProcessor(
+      remote.BindNewPipeAndPassReceiver());
+
+  const GURL kPrerenderingUrl = GetSameOriginUrl("/next");
+  auto attributes = blink::mojom::PrerenderAttributes::New();
+  attributes->url = kPrerenderingUrl;
+  attributes->referrer = blink::mojom::Referrer::New();
+
+  // Navigate to a same-site, but different origin URL.
+  NavigateAndCommit(GetCrossOriginUrl("/navigate"));
+
+  // Start() call should not register a new prerender host.
+  EXPECT_FALSE(registry->FindHostByUrlForTesting(kPrerenderingUrl));
+  remote->Start(std::move(attributes));
+  remote.FlushForTesting();
+  EXPECT_FALSE(registry->FindHostByUrlForTesting(kPrerenderingUrl));
 }
 
 }  // namespace

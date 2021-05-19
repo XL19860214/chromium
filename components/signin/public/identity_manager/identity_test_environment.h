@@ -10,7 +10,7 @@
 #include <vector>
 
 #include "base/callback.h"
-#include "base/optional.h"
+#include "base/scoped_observation.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "components/signin/public/base/account_consistency_method.h"
@@ -18,13 +18,14 @@
 #include "components/signin/public/identity_manager/identity_manager.h"
 #include "components/signin/public/identity_manager/identity_test_utils.h"
 #include "components/signin/public/identity_manager/scope_set.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 class FakeProfileOAuth2TokenService;
 class IdentityTestEnvironmentProfileAdaptor;
 class PrefService;
 class TestSigninClient;
 
-namespace chromeos {
+namespace ash {
 class AccountManagerFactory;
 }
 
@@ -49,7 +50,8 @@ class TestIdentityManagerObserver;
 // task environment. If your test doesn't already have one, use a
 // base::test::TaskEnvironment instance variable to fulfill this
 // requirement.
-class IdentityTestEnvironment : public IdentityManager::DiagnosticsObserver {
+class IdentityTestEnvironment : public IdentityManager::DiagnosticsObserver,
+                                public IdentityManager::Observer {
  public:
   struct PendingRequest {
     PendingRequest(CoreAccountId account_id,
@@ -104,6 +106,10 @@ class IdentityTestEnvironment : public IdentityManager::DiagnosticsObserver {
   // Returns the |TestIdentityManagerObserver| watching the IdentityManager.
   TestIdentityManagerObserver* identity_manager_observer();
 
+  // Blocks until LoadCredentials is complete and OnRefreshTokensLoaded is
+  // invoked.
+  void WaitForRefreshTokensLoaded();
+
   // Sets the primary account for the given email address, generating a GAIA ID
   // that corresponds uniquely to that email address. On non-ChromeOS, results
   // in the firing of the IdentityManager and PrimaryAccountManager callbacks
@@ -157,7 +163,7 @@ class IdentityTestEnvironment : public IdentityManager::DiagnosticsObserver {
                                               const std::string& gaia_id);
 
   // Revokes sync consent from the primary account: the primary account is left
-  // at ConsentLevel::kNotRequired.
+  // at ConsentLevel::kSignin.
   void RevokeSyncConsent();
 
   // Clears the primary account, removes all accounts and revokes the sync
@@ -340,7 +346,7 @@ class IdentityTestEnvironment : public IdentityManager::DiagnosticsObserver {
       kPending,
       kAvailable,
     } state;
-    base::Optional<CoreAccountId> account_id;
+    absl::optional<CoreAccountId> account_id;
     base::OnceClosure on_available;
   };
 
@@ -373,7 +379,7 @@ class IdentityTestEnvironment : public IdentityManager::DiagnosticsObserver {
       SigninClient* signin_client,
       PrefService* pref_service,
       base::FilePath user_data_dir,
-      chromeos::AccountManagerFactory* chromeos_account_manager_factory,
+      ash::AccountManagerFactory* account_manager_factory,
       AccountConsistencyMethod account_consistency =
           AccountConsistencyMethod::kDisabled);
 #else
@@ -400,6 +406,10 @@ class IdentityTestEnvironment : public IdentityManager::DiagnosticsObserver {
                               const std::string& consumer_id,
                               const ScopeSet& scopes) override;
 
+  // IdentityManager::Observer:
+  void OnIdentityManagerShutdown(
+      signin::IdentityManager* identity_manager) override;
+
   // Handles the notification that an access token request was received for
   // |account_id|. Invokes |on_access_token_request_callback_| if the latter
   // is non-null *and* either |*pending_access_token_requester_| equals
@@ -411,7 +421,7 @@ class IdentityTestEnvironment : public IdentityManager::DiagnosticsObserver {
   // Otherwise and runs a nested runloop until a matching access token request
   // is observed.
   void WaitForAccessTokenRequestIfNecessary(
-      base::Optional<CoreAccountId> account_id);
+      absl::optional<CoreAccountId> account_id);
 
   // Returns the FakeProfileOAuth2TokenService owned by IdentityManager.
   FakeProfileOAuth2TokenService* fake_token_service();
@@ -438,6 +448,14 @@ class IdentityTestEnvironment : public IdentityManager::DiagnosticsObserver {
   IdentityManager* raw_identity_manager_ = nullptr;
 
   std::unique_ptr<TestIdentityManagerObserver> test_identity_manager_observer_;
+
+  base::ScopedObservation<IdentityManager,
+                          IdentityManager::DiagnosticsObserver,
+                          &IdentityManager::AddDiagnosticsObserver,
+                          &IdentityManager::RemoveDiagnosticsObserver>
+      diagnostics_observation_{this};
+  base::ScopedObservation<IdentityManager, IdentityManager::Observer>
+      identity_manager_observation_{this};
 
   base::OnceClosure on_access_token_requested_callback_;
   std::vector<AccessTokenRequestState> requesters_;

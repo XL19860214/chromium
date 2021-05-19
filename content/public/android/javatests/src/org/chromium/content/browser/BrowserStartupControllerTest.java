@@ -37,11 +37,12 @@ public class BrowserStartupControllerTest {
         private boolean mMinimalBrowserStarted;
 
         @Override
-        void prepareToStartBrowserProcess(boolean singleProcess, Runnable completionCallback) {
+        void prepareToStartBrowserProcess(boolean singleProcess, final Runnable deferrableTask) {
             if (!mLibraryLoadSucceeds) {
                 throw new ProcessInitException(LoaderErrors.NATIVE_LIBRARY_LOAD_FAILED);
-            } else if (completionCallback != null) {
-                completionCallback.run();
+            }
+            if (deferrableTask != null) {
+                deferrableTask.run();
             }
         }
 

@@ -17,6 +17,13 @@ if (is_mac) {
   import("//third_party/icu/config.gni")
 }
 
+source_set("constants") {
+  sources = [
+    "it2me_constants.cc",
+    "it2me_constants.h",
+  ]
+}
+
 source_set("common") {
   sources = [
     "it2me_confirmation_dialog.h",
@@ -28,7 +35,7 @@ source_set("common") {
     "it2me_native_messaging_host.h",
   ]
 
-  if (is_linux || is_chromeos_lacros) {
+  if (is_linux && !is_chromeos_lacros) {
     sources += [ "it2me_confirmation_dialog_linux.cc" ]
   }
 
@@ -49,6 +56,8 @@ source_set("common") {
     "//remoting/build/config:version",
   ]
 
+  public_deps = [ ":constants" ]
+
   deps = [
     "//base:i18n",
     "//build:chromeos_buildflags",
@@ -60,7 +69,7 @@ source_set("common") {
     "//remoting/resources",
     "//remoting/signaling",
   ]
-  if (is_linux || is_chromeos_lacros) {
+  if (is_linux && !is_chromeos_lacros) {
     deps += [
       "//build/config/linux/gtk",
 
@@ -72,20 +81,38 @@ source_set("common") {
   }
 }
 
-if (is_chromeos_ash) {
+if (is_chromeos_ash || is_chromeos_lacros) {
   source_set("chrome_os_host") {
     sources = [
-      "it2me_native_messaging_host_chromeos.cc",
-      "it2me_native_messaging_host_chromeos.h",
+      "it2me_native_messaging_host_allowed_origins.cc",
+      "it2me_native_messaging_host_allowed_origins.h",
     ]
 
-    deps = [
-      ":common",
-      "//skia",
-    ]
+    if (is_chromeos_lacros) {
+      sources += [
+        "it2me_native_messaging_host_lacros.cc",
+        "it2me_native_messaging_host_lacros.h",
+      ]
+      deps = [
+        "//base",
+        "//extensions/browser/api/messaging:native_messaging",
+      ]
+    } else {
+      sources += [
+        "it2me_native_messaging_host_chromeos.cc",
+        "it2me_native_messaging_host_chromeos.h",
+      ]
 
-    if (use_ozone) {
-      deps += [ "//ui/ozone" ]
+      deps = [
+        ":common",
+        "//skia",
+      ]
+
+      public_deps = [ ":constants" ]
+
+      if (use_ozone) {
+        deps += [ "//ui/ozone" ]
+      }
     }
   }
 }
@@ -236,7 +263,7 @@ if (!is_chromeos_ash && enable_remoting_host) {
         }
       }
 
-      if (is_linux || is_chromeos_lacros) {
+      if (is_linux && !is_chromeos_lacros) {
         deps += [ "//build/config/linux/gtk" ]
       }
     }

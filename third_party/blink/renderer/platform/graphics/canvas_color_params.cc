@@ -7,7 +7,6 @@
 #include "cc/paint/skia_paint_canvas.h"
 #include "components/viz/common/resources/resource_format_utils.h"
 #include "third_party/blink/renderer/platform/graphics/canvas_resource_params.h"
-#include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 #include "third_party/khronos/GLES2/gl2.h"
 #include "third_party/khronos/GLES2/gl2ext.h"
@@ -73,6 +72,18 @@ CanvasColorSpace CanvasColorSpaceFromName(const String& color_space_name) {
   return CanvasColorSpace::kSRGB;
 }
 
+String CanvasColorSpaceToName(CanvasColorSpace color_space) {
+  switch (color_space) {
+    case CanvasColorSpace::kSRGB:
+      return kSRGBCanvasColorSpaceName;
+    case CanvasColorSpace::kRec2020:
+      return kRec2020CanvasColorSpaceName;
+    case CanvasColorSpace::kP3:
+      return kP3CanvasColorSpaceName;
+  };
+  NOTREACHED();
+}
+
 CanvasColorParams::CanvasColorParams() = default;
 
 CanvasColorParams::CanvasColorParams(CanvasColorSpace color_space,
@@ -82,10 +93,40 @@ CanvasColorParams::CanvasColorParams(CanvasColorSpace color_space,
       pixel_format_(pixel_format),
       opacity_mode_(opacity_mode) {}
 
+CanvasColorParams::CanvasColorParams(const WTF::String& color_space,
+                                     const WTF::String& pixel_format,
+                                     bool has_alpha) {
+  if (color_space == kRec2020CanvasColorSpaceName)
+    color_space_ = CanvasColorSpace::kRec2020;
+  else if (color_space == kP3CanvasColorSpaceName)
+    color_space_ = CanvasColorSpace::kP3;
+
+  if (pixel_format == kF16CanvasPixelFormatName)
+    pixel_format_ = CanvasPixelFormat::kF16;
+
+  if (!has_alpha)
+    opacity_mode_ = kOpaque;
+}
+
 CanvasResourceParams CanvasColorParams::GetAsResourceParams() const {
   SkAlphaType alpha_type =
       opacity_mode_ == kOpaque ? kOpaque_SkAlphaType : kPremul_SkAlphaType;
   return CanvasResourceParams(color_space_, GetSkColorType(), alpha_type);
+}
+
+String CanvasColorParams::GetColorSpaceAsString() const {
+  return CanvasColorSpaceToName(color_space_);
+}
+
+const char* CanvasColorParams::GetPixelFormatAsString() const {
+  switch (pixel_format_) {
+    case CanvasPixelFormat::kF16:
+      return kF16CanvasPixelFormatName;
+    case CanvasPixelFormat::kUint8:
+      return kUint8CanvasPixelFormatName;
+  };
+  CHECK(false);
+  return "";
 }
 
 SkColorType CanvasColorParams::GetSkColorType() const {

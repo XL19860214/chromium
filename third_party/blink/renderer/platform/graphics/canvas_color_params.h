@@ -44,6 +44,8 @@ constexpr const char* kF16CanvasPixelFormatName = "float16";
 CanvasColorSpace PLATFORM_EXPORT
 CanvasColorSpaceFromName(const String& color_space_name);
 
+String PLATFORM_EXPORT CanvasColorSpaceToName(CanvasColorSpace color_space);
+
 // Return the SkColorSpace for the specified |color_space|.
 sk_sp<SkColorSpace> PLATFORM_EXPORT
 CanvasColorSpaceToSkColorSpace(CanvasColorSpace color_space);
@@ -59,14 +61,16 @@ class PLATFORM_EXPORT CanvasColorParams {
   // The default constructor will create an output-blended 8-bit surface.
   CanvasColorParams();
   CanvasColorParams(CanvasColorSpace, CanvasPixelFormat, OpacityMode);
+  CanvasColorParams(const WTF::String& color_space,
+                    const WTF::String& pixel_format,
+                    bool has_alpha);
 
   CanvasColorSpace ColorSpace() const { return color_space_; }
   CanvasPixelFormat PixelFormat() const { return pixel_format_; }
   OpacityMode GetOpacityMode() const { return opacity_mode_; }
 
-  void SetCanvasColorSpace(CanvasColorSpace c) { color_space_ = c; }
-  void SetCanvasPixelFormat(CanvasPixelFormat f) { pixel_format_ = f; }
-  void SetOpacityMode(OpacityMode m) { opacity_mode_ = m; }
+  String GetColorSpaceAsString() const;
+  const char* GetPixelFormatAsString() const;
 
   CanvasResourceParams GetAsResourceParams() const;
 

@@ -8,10 +8,13 @@
 
 #include "ash/ambient/ambient_constants.h"
 #include "ash/ambient/ui/ambient_info_view.h"
+#include "ash/ambient/ui/ambient_shield_view.h"
 #include "ash/ambient/ui/ambient_view_ids.h"
 #include "ash/ambient/ui/media_string_view.h"
 #include "ash/ambient/util/ambient_util.h"
 #include "base/rand_util.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
+#include "ui/compositor/layer.h"
 #include "ui/events/event.h"
 #include "ui/gfx/geometry/insets.h"
 #include "ui/gfx/image/image_skia_operations.h"
@@ -20,7 +23,6 @@
 #include "ui/views/layout/fill_layout.h"
 #include "ui/views/layout/flex_layout.h"
 #include "ui/views/layout/flex_layout_types.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/view_class_properties.h"
 
 namespace ash {
@@ -117,11 +119,11 @@ void AmbientBackgroundImageView::UpdateImage(
 }
 
 void AmbientBackgroundImageView::UpdateImageDetails(
-    const base::string16& details) {
+    const std::u16string& details) {
   ambient_info_view_->UpdateImageDetails(details);
 }
 
-const gfx::ImageSkia& AmbientBackgroundImageView::GetCurrentImage() {
+gfx::ImageSkia AmbientBackgroundImageView::GetCurrentImage() {
   return image_view_->GetImage();
 }
 
@@ -159,7 +161,7 @@ void AmbientBackgroundImageView::InitLayout() {
   // Set a place holder size for Flex layout to assign bounds.
   image_view_->SetPreferredSize(gfx::Size(1, 1));
   image_view_->SetProperty(views::kFlexBehaviorKey, kUnboundedScaleToZero);
-  observed_views_.Add(image_view_);
+  observed_views_.AddObservation(image_view_);
 
   related_image_view_ =
       image_container_->AddChildView(std::make_unique<views::ImageView>());
@@ -167,17 +169,19 @@ void AmbientBackgroundImageView::InitLayout() {
   related_image_view_->SetPreferredSize(gfx::Size(1, 1));
   related_image_view_->SetProperty(views::kFlexBehaviorKey,
                                    kUnboundedScaleToZero);
-  observed_views_.Add(related_image_view_);
+  observed_views_.AddObservation(related_image_view_);
 
   // Set spacing between two images.
   related_image_view_->SetProperty(
       views::kMarginsKey, gfx::Insets(0, kMarginLeftOfRelatedImageDip, 0, 0));
 
+  AddChildView(std::make_unique<AmbientShieldView>());
+
   ambient_info_view_ =
       AddChildView(std::make_unique<AmbientInfoView>(delegate_));
 
   gfx::Insets shadow_insets =
-      gfx::ShadowValue::GetMargin(ambient::util::GetTextShadowValues());
+      gfx::ShadowValue::GetMargin(ambient::util::GetTextShadowValues(nullptr));
 
   // Inits the media string view. The media string view is positioned on the
   // right-top corner of the container.

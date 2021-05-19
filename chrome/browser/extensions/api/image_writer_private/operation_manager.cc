@@ -40,17 +40,9 @@ using content::BrowserThread;
 
 OperationManager::OperationManager(content::BrowserContext* context)
     : browser_context_(context) {
-  extension_registry_observer_.Add(ExtensionRegistry::Get(browser_context_));
-  Profile* profile = Profile::FromBrowserContext(browser_context_);
-  registrar_.Add(this,
-                 extensions::NOTIFICATION_EXTENSION_PROCESS_TERMINATED,
-                 content::Source<Profile>(profile));
-  registrar_.Add(this,
-                 extensions::NOTIFICATION_EXTENSION_HOST_VIEW_SHOULD_CLOSE,
-                 content::Source<Profile>(profile));
-  registrar_.Add(this,
-                 extensions::NOTIFICATION_EXTENSION_HOST_DESTROYED,
-                 content::Source<Profile>(profile));
+  extension_registry_observation_.Observe(
+      ExtensionRegistry::Get(browser_context_));
+  process_manager_observation_.Observe(ProcessManager::Get(browser_context_));
 }
 
 OperationManager::~OperationManager() {
@@ -84,7 +76,7 @@ void OperationManager::StartWriteFromUrl(
 
   mojo::PendingRemote<network::mojom::URLLoaderFactory>
       url_loader_factory_remote;
-  content::BrowserContext::GetDefaultStoragePartition(browser_context_)
+  browser_context_->GetDefaultStoragePartition()
       ->GetURLLoaderFactoryForBrowserProcess()
       ->Clone(url_loader_factory_remote.InitWithNewPipeAndPassReceiver());
 
@@ -165,8 +157,7 @@ void OperationManager::OnProgress(const ExtensionId& extension_id,
   info.stage = stage;
   info.percent_complete = progress;
 
-  std::unique_ptr<base::ListValue> args(
-      image_writer_api::OnWriteProgress::Create(info));
+  auto args(image_writer_api::OnWriteProgress::Create(info));
   std::unique_ptr<Event> event(new Event(
       events::IMAGE_WRITER_PRIVATE_ON_WRITE_PROGRESS,
       image_writer_api::OnWriteProgress::kEventName, std::move(args)));
@@ -178,8 +169,7 @@ void OperationManager::OnProgress(const ExtensionId& extension_id,
 void OperationManager::OnComplete(const ExtensionId& extension_id) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
-  std::unique_ptr<base::ListValue> args(
-      image_writer_api::OnWriteComplete::Create());
+  auto args(image_writer_api::OnWriteComplete::Create());
   std::unique_ptr<Event> event(new Event(
       events::IMAGE_WRITER_PRIVATE_ON_WRITE_COMPLETE,
       image_writer_api::OnWriteComplete::kEventName, std::move(args)));
@@ -202,8 +192,7 @@ void OperationManager::OnError(const ExtensionId& extension_id,
   info.stage = stage;
   info.percent_complete = progress;
 
-  std::unique_ptr<base::ListValue> args(
-      image_writer_api::OnWriteError::Create(info, error_message));
+  auto args(image_writer_api::OnWriteError::Create(info, error_message));
   std::unique_ptr<Event> event(
       new Event(events::IMAGE_WRITER_PRIVATE_ON_WRITE_ERROR,
                 image_writer_api::OnWriteError::kEventName, std::move(args)));
@@ -244,27 +233,23 @@ void OperationManager::OnExtensionUnloaded(
   DeleteOperation(extension->id());
 }
 
-void OperationManager::Observe(int type,
-                               const content::NotificationSource& source,
-                               const content::NotificationDetails& details) {
-  switch (type) {
-    case extensions::NOTIFICATION_EXTENSION_PROCESS_TERMINATED: {
-      DeleteOperation(content::Details<const Extension>(details).ptr()->id());
-      break;
-    }
-    case extensions::NOTIFICATION_EXTENSION_HOST_VIEW_SHOULD_CLOSE:
-      // Intentional fall-through.
-    case extensions::NOTIFICATION_EXTENSION_HOST_DESTROYED:
-      // Note: |ExtensionHost::extension()| can be null if the extension was
-      // already unloaded, use ExtensionHost::extension_id() instead.
-      DeleteOperation(
-          content::Details<ExtensionHost>(details)->extension_id());
-      break;
-    default: {
-      NOTREACHED();
-      break;
-    }
-  }
+void OperationManager::OnShutdown(ExtensionRegistry* registry) {
+  DCHECK(extension_registry_observation_.IsObservingSource(registry));
+  extension_registry_observation_.Reset();
+}
+
+void OperationManager::OnBackgroundHostClose(const std::string& extension_id) {
+  DeleteOperation(extension_id);
+}
+
+void OperationManager::OnProcessManagerShutdown(ProcessManager* manager) {
+  DCHECK(process_manager_observation_.IsObservingSource(manager));
+  process_manager_observation_.Reset();
+}
+
+void OperationManager::OnExtensionProcessTerminated(
+    const Extension* extension) {
+  DeleteOperation(extension->id());
 }
 
 OperationManager* OperationManager::Get(content::BrowserContext* context) {

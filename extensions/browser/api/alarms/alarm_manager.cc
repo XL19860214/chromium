@@ -6,6 +6,7 @@
 
 #include <stddef.h>
 
+#include <memory>
 #include <utility>
 
 #include "base/bind.h"
@@ -76,7 +77,7 @@ AlarmManager::AlarmList AlarmsFromValue(const std::string extension_id,
     std::unique_ptr<Alarm> alarm(new Alarm());
     if (list->GetDictionary(i, &alarm_dict) &&
         alarms::Alarm::Populate(*alarm_dict, alarm->js_alarm.get())) {
-      base::Optional<base::TimeDelta> delta =
+      absl::optional<base::TimeDelta> delta =
           util::ValueToTimeDelta(alarm_dict->FindKey(kAlarmGranularity));
       if (delta) {
         alarm->granularity = *delta;
@@ -116,7 +117,8 @@ AlarmManager::AlarmManager(content::BrowserContext* context)
     : browser_context_(context),
       clock_(base::DefaultClock::GetInstance()),
       delegate_(new DefaultAlarmDelegate(context)) {
-  extension_registry_observer_.Add(ExtensionRegistry::Get(browser_context_));
+  extension_registry_observation_.Observe(
+      ExtensionRegistry::Get(browser_context_));
 
   StateStore* storage = ExtensionSystem::Get(browser_context_)->state_store();
   if (storage)
@@ -490,8 +492,8 @@ Alarm::Alarm(const std::string& name,
 
   // Check for repetition.
   if (create_info.period_in_minutes.get()) {
-    js_alarm->period_in_minutes.reset(
-        new double(*create_info.period_in_minutes));
+    js_alarm->period_in_minutes =
+        std::make_unique<double>(*create_info.period_in_minutes);
   }
 }
 

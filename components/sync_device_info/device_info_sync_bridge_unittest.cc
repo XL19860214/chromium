@@ -19,18 +19,22 @@
 #include "components/prefs/testing_pref_service.h"
 #include "components/sync/base/model_type.h"
 #include "components/sync/base/time.h"
+#include "components/sync/engine/entity_data.h"
 #include "components/sync/model/data_batch.h"
 #include "components/sync/model/data_type_activation_request.h"
-#include "components/sync/model/entity_data.h"
 #include "components/sync/model/metadata_batch.h"
 #include "components/sync/protocol/model_type_state.pb.h"
 #include "components/sync/test/model/mock_model_type_change_processor.h"
 #include "components/sync/test/model/model_type_store_test_util.h"
-#include "components/sync/test/test_matchers.h"
+#include "components/sync/test/model/test_matchers.h"
 #include "components/sync_device_info/device_info_prefs.h"
 #include "components/sync_device_info/device_info_util.h"
 #include "components/sync_device_info/local_device_info_util.h"
 #include "testing/gtest/include/gtest/gtest.h"
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+#include "chromeos/system/fake_statistics_provider.h"
+#endif
 
 namespace syncer {
 namespace {
@@ -260,6 +264,7 @@ DeviceInfoSpecifics CreateSpecifics(
   specifics.set_signin_scoped_device_id(SigninScopedDeviceIdForSuffix(suffix));
   specifics.set_model(ModelForSuffix(suffix));
   specifics.set_manufacturer(ManufacturerForSuffix(suffix));
+  specifics.set_full_hardware_class("");
   specifics.set_last_updated_timestamp(TimeToProtoTime(last_updated));
   specifics.mutable_feature_fields()->set_send_tab_to_self_receiving_enabled(
       true);
@@ -336,12 +341,22 @@ class TestLocalDeviceInfoProvider : public MutableLocalDeviceInfoProvider {
   ~TestLocalDeviceInfoProvider() override = default;
 
   // MutableLocalDeviceInfoProvider implementation.
-  void Initialize(const std::string& cache_guid,
-                  const std::string& session_name,
-                  const std::string& manufacturer_name,
-                  const std::string& model_name,
-                  const std::string& last_fcm_registration_token,
-                  const ModelTypeSet& last_interested_data_types) override {
+  void Initialize(
+      const std::string& cache_guid,
+      const std::string& session_name,
+      const std::string& manufacturer_name,
+      const std::string& model_name,
+      const std::string& full_hardware_class,
+      std::unique_ptr<DeviceInfo> device_info_restored_from_store) override {
+    std::string last_fcm_registration_token;
+    ModelTypeSet last_interested_data_types;
+    if (device_info_restored_from_store) {
+      last_fcm_registration_token =
+          device_info_restored_from_store->fcm_registration_token();
+      last_interested_data_types =
+          device_info_restored_from_store->interested_data_types();
+    }
+
     std::set<sync_pb::SharingSpecificFields::EnabledFeatures>
         sharing_enabled_features{SharingEnabledFeaturesForSuffix(kLocalSuffix)};
     local_device_info_ = std::make_unique<DeviceInfo>(
@@ -349,7 +364,8 @@ class TestLocalDeviceInfoProvider : public MutableLocalDeviceInfoProvider {
         SyncUserAgentForSuffix(kLocalSuffix),
         sync_pb::SyncEnums_DeviceType_TYPE_LINUX,
         SigninScopedDeviceIdForSuffix(kLocalSuffix), manufacturer_name,
-        model_name, base::Time(), DeviceInfoUtil::GetPulseInterval(),
+        model_name, full_hardware_class, base::Time(),
+        DeviceInfoUtil::GetPulseInterval(),
         /*send_tab_to_self_receiving_enabled=*/true,
         DeviceInfo::SharingInfo(
             {SharingVapidFcmTokenForSuffix(kLocalSuffix),
@@ -359,7 +375,8 @@ class TestLocalDeviceInfoProvider : public MutableLocalDeviceInfoProvider {
              SharingSenderIdP256dhForSuffix(kLocalSuffix),
              SharingSenderIdAuthSecretForSuffix(kLocalSuffix)},
             sharing_enabled_features),
-        last_fcm_registration_token, last_interested_data_types);
+        /*paask_info=*/absl::nullopt, last_fcm_registration_token,
+        last_interested_data_types);
   }
 
   void Clear() override { local_device_info_.reset(); }
@@ -372,6 +389,8 @@ class TestLocalDeviceInfoProvider : public MutableLocalDeviceInfoProvider {
   version_info::Channel GetChannel() const override {
     return version_info::Channel::UNKNOWN;
   }
+
+  MOCK_METHOD(bool, IsUmaEnabledOnCrOSDevice, (), (const));
 
   const DeviceInfo* GetLocalDeviceInfo() const override {
     if (local_device_info_) {
@@ -402,8 +421,8 @@ class TestLocalDeviceInfoProvider : public MutableLocalDeviceInfoProvider {
 
  private:
   std::unique_ptr<DeviceInfo> local_device_info_;
-  base::Optional<std::string> fcm_registration_token_;
-  base::Optional<ModelTypeSet> interested_data_types_;
+  absl::optional<std::string> fcm_registration_token_;
+  absl::optional<ModelTypeSet> interested_data_types_;
 
   DISALLOW_COPY_AND_ASSIGN(TestLocalDeviceInfoProvider);
 };  // namespace
@@ -412,10 +431,15 @@ class DeviceInfoSyncBridgeTest : public testing::Test,
                                  public DeviceInfoTracker::Observer {
  protected:
   DeviceInfoSyncBridgeTest()
-      : store_(ModelTypeStoreTestUtil::CreateInMemoryStoreForTest()),
-        local_device_name_info_(GetLocalDeviceNameInfoBlocking()) {
+      : store_(ModelTypeStoreTestUtil::CreateInMemoryStoreForTest()) {
     DeviceInfoPrefs::RegisterProfilePrefs(pref_service_.registry());
 
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+    statistics_provider_ =
+        std::make_unique<chromeos::system::ScopedFakeStatisticsProvider>();
+#endif
+
+    local_device_name_info_ = GetLocalDeviceNameInfoBlocking();
     // By default, mimic a real processor's behavior for IsTrackingMetadata().
     ON_CALL(mock_processor_, ModelReadyToSync)
         .WillByDefault([this](std::unique_ptr<MetadataBatch> batch) {
@@ -501,6 +525,13 @@ class DeviceInfoSyncBridgeTest : public testing::Test,
     return local_device_info_provider_;
   }
 
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  chromeos::system::ScopedFakeStatisticsProvider* statistics_provider() {
+    EXPECT_TRUE(statistics_provider_);
+    return statistics_provider_.get();
+  }
+#endif
+
   // Allows access to the bridge after InitializeBridge() is called.
   DeviceInfoSyncBridge* bridge() {
     EXPECT_TRUE(bridge_);
@@ -533,7 +564,7 @@ class DeviceInfoSyncBridgeTest : public testing::Test,
     store()->CommitWriteBatch(
         std::move(batch),
         base::BindOnce(
-            [](base::RunLoop* loop, const base::Optional<ModelError>& result) {
+            [](base::RunLoop* loop, const absl::optional<ModelError>& result) {
               EXPECT_FALSE(result.has_value()) << result->ToString();
               loop->Quit();
             },
@@ -566,7 +597,7 @@ class DeviceInfoSyncBridgeTest : public testing::Test,
     base::RunLoop loop;
     store()->ReadAllData(base::BindOnce(
         [](std::unique_ptr<ModelTypeStore::RecordList>* output_records,
-           base::RunLoop* loop, const base::Optional<syncer::ModelError>& error,
+           base::RunLoop* loop, const absl::optional<syncer::ModelError>& error,
            std::unique_ptr<ModelTypeStore::RecordList> input_records) {
           EXPECT_FALSE(error) << error->ToString();
           EXPECT_THAT(input_records, NotNull());
@@ -640,7 +671,7 @@ class DeviceInfoSyncBridgeTest : public testing::Test,
   const std::unique_ptr<ModelTypeStore> store_;
 
   // Stores the local device's name information.
-  const LocalDeviceNameInfo local_device_name_info_;
+  LocalDeviceNameInfo local_device_name_info_;
 
   TestingPrefServiceSimple pref_service_;
 
@@ -649,6 +680,11 @@ class DeviceInfoSyncBridgeTest : public testing::Test,
   std::unique_ptr<DeviceInfoSyncBridge> bridge_;
 
   TestLocalDeviceInfoProvider* local_device_info_provider_ = nullptr;
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  std::unique_ptr<chromeos::system::ScopedFakeStatisticsProvider>
+      statistics_provider_;
+#endif
 };
 
 TEST_F(DeviceInfoSyncBridgeTest, BeforeSyncEnabled) {
@@ -1480,6 +1516,29 @@ TEST_F(DeviceInfoSyncBridgeTest,
       bridge()->IsRecentLocalCacheGuid(CacheGuidForSuffix(kLocalSuffix)));
   EXPECT_THAT(bridge()->GetLocalDeviceInfoProvider()->GetLocalDeviceInfo(),
               IsNull());
+}
+
+TEST_F(DeviceInfoSyncBridgeTest, ShouldInvokeCallbackOnReadAllMetadata) {
+  const DeviceInfoSpecifics specifics = CreateLocalDeviceSpecifics();
+  const ModelTypeState model_type_state = StateWithEncryption("ekn");
+  WriteToStoreWithMetadata({specifics}, model_type_state);
+
+  InitializeBridge();
+  // Wait until the metadata is loaded.
+  base::RunLoop run_loop;
+  EXPECT_CALL(*processor(), IsTrackingMetadata).WillOnce(Return(true));
+  EXPECT_CALL(*processor(), ModelReadyToSync)
+      .WillOnce([&run_loop](std::unique_ptr<MetadataBatch> batch) {
+        run_loop.Quit();
+      });
+  run_loop.Run();
+
+  // Check that the bridge won't call SendLocalData() during initial merge.
+  EXPECT_CALL(*processor(), Put).Times(0);
+
+  // Check that the bridge has notified observers even if the local data hasn't
+  // been changed.
+  EXPECT_EQ(1, change_count());
 }
 
 }  // namespace

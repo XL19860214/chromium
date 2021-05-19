@@ -54,16 +54,14 @@ class LayoutSVGResourceClipper final : public LayoutSVGResourceContainer {
   SVGUnitTypes::SVGUnitType ClipPathUnits() const;
   AffineTransform CalculateClipTransform(const FloatRect& reference_box) const;
 
-  base::Optional<Path> AsPath();
+  absl::optional<Path> AsPath();
   sk_sp<const PaintRecord> CreatePaintRecord();
 
- protected:
-  void StyleDidChange(StyleDifference, const ComputedStyle* old_style) override;
-  void WillBeDestroyed() override;
-
  private:
+  void StyleDidChange(StyleDifference, const ComputedStyle* old_style) override;
+
   void CalculateLocalClipBounds();
-  bool FindCycleFromSelf(SVGResourcesCycleSolver&) const override;
+  bool FindCycleFromSelf() const override;
 
   // Cache of the clip path when using path clipping.
   enum ClipContentPathValidity {
@@ -106,4 +104,4 @@ inline LayoutSVGResourceClipper* GetSVGResourceAsType(
 
 }  // namespace blink
 
-#endif
+#endif  // THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_SVG_LAYOUT_SVG_RESOURCE_CLIPPER_H_

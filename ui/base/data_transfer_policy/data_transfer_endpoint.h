@@ -5,9 +5,9 @@
 #ifndef UI_BASE_DATA_TRANSFER_POLICY_DATA_TRANSFER_ENDPOINT_H_
 #define UI_BASE_DATA_TRANSFER_POLICY_DATA_TRANSFER_ENDPOINT_H_
 
-#include "base/optional.h"
 #include "base/stl_util.h"
 #include "build/chromeos_buildflags.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "url/origin.h"
 
 namespace ui {
@@ -50,10 +50,13 @@ class COMPONENT_EXPORT(UI_BASE_DATA_TRANSFER_POLICY) DataTransferEndpoint {
   DataTransferEndpoint(const DataTransferEndpoint& other);
   DataTransferEndpoint(DataTransferEndpoint&& other);
 
-  DataTransferEndpoint& operator=(const DataTransferEndpoint& other) = delete;
-  DataTransferEndpoint& operator=(DataTransferEndpoint&& other) = delete;
+  DataTransferEndpoint& operator=(const DataTransferEndpoint& other);
+  DataTransferEndpoint& operator=(DataTransferEndpoint&& other);
 
   bool operator==(const DataTransferEndpoint& other) const;
+  bool operator!=(const DataTransferEndpoint& other) const {
+    return !(*this == other);
+  }
 
   ~DataTransferEndpoint();
 
@@ -65,12 +68,16 @@ class COMPONENT_EXPORT(UI_BASE_DATA_TRANSFER_POLICY) DataTransferEndpoint {
 
   bool notify_if_restricted() const { return notify_if_restricted_; }
 
+  // Returns true if both of the endpoints have the same origin_ and type_ ==
+  // kUrl.
+  bool IsSameOriginWith(const DataTransferEndpoint& other) const;
+
  private:
   // This variable should always have a value representing the object type.
-  const EndpointType type_;
+  EndpointType type_;
   // The url::Origin of the data endpoint. It always has a value if `type_` ==
   // EndpointType::kUrl, otherwise it's empty.
-  const base::Optional<url::Origin> origin_;
+  absl::optional<url::Origin> origin_;
   // This variable should be set to true, if paste is initiated by the user.
   // Otherwise it should be set to false, so the user won't see a notification
   // when the data is restricted by the rules of data leak prevention policy

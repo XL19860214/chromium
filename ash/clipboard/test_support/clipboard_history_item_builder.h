@@ -8,8 +8,9 @@
 #include <string>
 
 #include "ash/ash_export.h"
-#include "base/optional.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/skia/include/core/SkBitmap.h"
+#include "ui/base/clipboard/file_info.h"
 
 namespace ui {
 enum class ClipboardInternalFormat;
@@ -56,6 +57,11 @@ class ASH_EXPORT ClipboardHistoryItemBuilder {
   ClipboardHistoryItemBuilder& SetRtf(const std::string& rtf);
   ClipboardHistoryItemBuilder& ClearRtf();
 
+  // Sets/clears `filenames_` data.
+  ClipboardHistoryItemBuilder& SetFilenames(
+      std::vector<ui::FileInfo> filenames);
+  ClipboardHistoryItemBuilder& ClearFilenames();
+
   // Sets/clears `bookmark_title_` data.
   ClipboardHistoryItemBuilder& SetBookmarkTitle(
       const std::string& bookmark_title);
@@ -73,7 +79,7 @@ class ASH_EXPORT ClipboardHistoryItemBuilder {
   // Sets/clears file system data.
   // NOTE: File system data is a special type of custom data.
   ClipboardHistoryItemBuilder& SetFileSystemData(
-      const std::initializer_list<std::string>& source_list);
+      const std::initializer_list<std::u16string>& source_list);
 
   // Sets/clears `web_smart_paste_` data.
   ClipboardHistoryItemBuilder& SetWebSmartPaste(bool web_smart_paste);
@@ -81,15 +87,16 @@ class ASH_EXPORT ClipboardHistoryItemBuilder {
 
  private:
   // `ui::ClipboardData` formats.
-  base::Optional<std::string> text_;
-  base::Optional<std::string> markup_;
-  base::Optional<std::string> svg_;
-  base::Optional<std::string> rtf_;
-  base::Optional<std::string> bookmark_title_;
-  base::Optional<SkBitmap> bitmap_;
-  base::Optional<std::string> custom_format_;
-  base::Optional<std::string> custom_data_;
-  base::Optional<bool> web_smart_paste_;
+  absl::optional<std::string> text_;
+  absl::optional<std::string> markup_;
+  absl::optional<std::string> svg_;
+  absl::optional<std::string> rtf_;
+  std::vector<ui::FileInfo> filenames_;
+  absl::optional<std::string> bookmark_title_;
+  absl::optional<SkBitmap> bitmap_;
+  absl::optional<std::string> custom_format_;
+  absl::optional<std::string> custom_data_;
+  absl::optional<bool> web_smart_paste_;
 };
 
 }  // namespace ash

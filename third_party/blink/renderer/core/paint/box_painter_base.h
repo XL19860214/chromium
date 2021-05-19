@@ -26,6 +26,7 @@ class GraphicsContext;
 class ImageResourceObserver;
 class IntRect;
 class LayoutBox;
+class Node;
 struct PaintInfo;
 struct PhysicalOffset;
 struct PhysicalRect;
@@ -180,4 +181,4 @@ class BoxPainterBase {
 
 }  // namespace blink
 
-#endif
+#endif  // THIRD_PARTY_BLINK_RENDERER_CORE_PAINT_BOX_PAINTER_BASE_H_

@@ -12,6 +12,7 @@
 #include "ash/clipboard/views/clipboard_history_text_item_view.h"
 #include "ash/clipboard/views/clipboard_history_view_constants.h"
 #include "base/auto_reset.h"
+#include "base/bind.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/utf_string_conversions.h"
 #include "ui/accessibility/ax_node_data.h"
@@ -45,7 +46,7 @@ void ClipboardHistoryItemView::ContentsView::OnHostPseudoFocusUpdated() {
 
   const bool focused =
       (container_->pseudo_focus_ == PseudoFocus::kDeleteButton);
-  delete_button_->GetInkDrop()->SetFocused(focused);
+  delete_button_->ink_drop()->GetInkDrop()->SetFocused(focused);
   if (focused) {
     delete_button_->NotifyAccessibilityEvent(ax::mojom::Event::kHover,
                                              /*send_native_event*/ true);
@@ -233,7 +234,16 @@ bool ClipboardHistoryItemView::ShouldHighlight() const {
   return pseudo_focus_ == PseudoFocus::kMainButton;
 }
 
-void ClipboardHistoryItemView::RecordButtonPressedHistogram() const {
+void ClipboardHistoryItemView::OnMouseClickOnDescendantCanceled() {
+  // When mouse click is canceled, mouse may hover a different menu item from
+  // the one where the click event started. A typical way is to move the mouse
+  // while pressing the mouse left button. Hence, update the menu selection due
+  // to the mouse location change.
+  Activate(ClipboardHistoryUtil::Action::kSelectItemHoveredByMouse,
+           ui::EF_NONE);
+}
+
+void ClipboardHistoryItemView::MaybeRecordButtonPressedHistogram() const {
   switch (action_) {
     case Action::kDelete:
       ClipboardHistoryUtil::RecordClipboardHistoryItemDeleted(
@@ -244,6 +254,7 @@ void ClipboardHistoryItemView::RecordButtonPressedHistogram() const {
           *clipboard_history_item_);
       return;
     case Action::kSelect:
+    case Action::kSelectItemHoveredByMouse:
       return;
     case Action::kEmpty:
       NOTREACHED();
@@ -253,7 +264,7 @@ void ClipboardHistoryItemView::RecordButtonPressedHistogram() const {
 
 gfx::Size ClipboardHistoryItemView::CalculatePreferredSize() const {
   const int preferred_width =
-      views::MenuConfig::instance().touchable_menu_width;
+      views::MenuConfig::instance().touchable_menu_min_width;
   return gfx::Size(preferred_width, GetHeightForWidth(preferred_width));
 }
 
@@ -266,7 +277,7 @@ void ClipboardHistoryItemView::Activate(Action action, int event_flags) {
   DCHECK_NE(action_, action);
 
   base::AutoReset<Action> action_to_take(&action_, action);
-  RecordButtonPressedHistogram();
+  MaybeRecordButtonPressedHistogram();
 
   views::MenuDelegate* delegate = container_->GetDelegate();
   const int command_id = container_->GetCommand();

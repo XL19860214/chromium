@@ -16,6 +16,7 @@ const NearbyVisibilityErrorState = {
   TIMED_OUT: 0,
   NO_CONNECTION_MEDIUM: 1,
   TRANSFER_IN_PROGRESS: 2,
+  SOMETHING_WRONG: 3,
 };
 
 Polymer({
@@ -60,6 +61,22 @@ Polymer({
     },
 
     /**
+     * @type {boolean}
+     */
+    nearbyProcessStopped: {
+      type: Boolean,
+      value: false,
+    },
+
+    /**
+     * @type {boolean}
+     */
+    startAdvertisingFailed: {
+      type: Boolean,
+      value: false,
+    },
+
+    /**
      * A null |setupState_| indicates that the operation has not yet started.
      * @private {?NearbyVisibilityErrorState}
      */
@@ -68,7 +85,7 @@ Polymer({
       value: null,
       computed:
           'computeErrorState_(shutoffTimestamp, remainingTimeInSeconds_,' +
-          'registerResult)'
+          'registerResult, nearbyProcessStopped, startAdvertisingFailed)'
     }
 
   },
@@ -86,7 +103,7 @@ Polymer({
 
   /** @override */
   detached() {
-    if (this.remainingTimeIntervalId_ === -1) {
+    if (this.remainingTimeIntervalId_ !== -1) {
       clearInterval(this.remainingTimeIntervalId_);
       this.remainingTimeIntervalId_ = -1;
     }
@@ -101,7 +118,7 @@ Polymer({
     const now = performance.now();
     const remainingTimeInMs =
         this.shutoffTimestamp > now ? this.shutoffTimestamp - now : 0;
-    this.remainingTimeInSeconds_ = Math.trunc(remainingTimeInMs / 1000);
+    this.remainingTimeInSeconds_ = Math.ceil(remainingTimeInMs / 1000);
   },
 
   /**
@@ -131,6 +148,11 @@ Polymer({
     if (this.highVisibilityTimedOut_()) {
       return NearbyVisibilityErrorState.TIMED_OUT;
     }
+    if (this.registerResult ===
+            nearbyShare.mojom.RegisterReceiveSurfaceResult.kFailure ||
+        this.nearbyProcessStopped || this.startAdvertisingFailed) {
+      return NearbyVisibilityErrorState.SOMETHING_WRONG;
+    }
     return null;
   },
 
@@ -147,6 +169,8 @@ Polymer({
         return this.i18n('nearbyShareErrorNoConnectionMedium');
       case NearbyVisibilityErrorState.TRANSFER_IN_PROGRESS:
         return this.i18n('nearbyShareErrorTransferInProgressTitle');
+      case NearbyVisibilityErrorState.SOMETHING_WRONG:
+        return this.i18n('nearbyShareErrorCantReceive');
       default:
         return '';
     }
@@ -164,6 +188,8 @@ Polymer({
         return this.i18n('nearbyShareErrorNoConnectionMediumDescription');
       case NearbyVisibilityErrorState.TRANSFER_IN_PROGRESS:
         return this.i18n('nearbyShareErrorTransferInProgressDescription');
+      case NearbyVisibilityErrorState.SOMETHING_WRONG:
+        return this.i18n('nearbyShareErrorSomethingWrong');
       default:
         return '';
     }
@@ -188,6 +214,31 @@ Polymer({
           'nearbyShareHighVisibilitySubTitleSeconds',
           this.remainingTimeInSeconds_);
     }
+
+    return this.i18n(
+        'nearbyShareHighVisibilitySubTitle', this.deviceName, timeValue);
+  },
+
+  /**
+   * Announce the remaining time for screen readers. Only announce once per
+   * minute to avoid overwhelming user. Though this gets called once every
+   * second, the value returned only changes each minute.
+   * @return {string} The alternate page subtitle to be used as an aria-live
+   *     announcement for screen readers.
+   * @private
+   */
+  getA11yAnnouncedSubTitle_() {
+    // Skip announcement for 0 seconds left to avoid alerting on time out.
+    // There is a separate time out alert shown in the error section.
+    if (this.remainingTimeInSeconds_ === 0) {
+      return '';
+    }
+    const remainingMinutes = this.remainingTimeInSeconds_ > 0 ?
+        Math.ceil(this.remainingTimeInSeconds_ / 60) :
+        5;
+
+    const timeValue =
+        this.i18n('nearbyShareHighVisibilitySubTitleMinutes', remainingMinutes);
 
     return this.i18n(
         'nearbyShareHighVisibilitySubTitle', this.deviceName, timeValue);

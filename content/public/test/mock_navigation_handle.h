@@ -5,7 +5,12 @@
 #ifndef CONTENT_PUBLIC_TEST_MOCK_NAVIGATION_HANDLE_H_
 #define CONTENT_PUBLIC_TEST_MOCK_NAVIGATION_HANDLE_H_
 
+#include <string>
+#include <vector>
+
 #include "base/memory/ref_counted.h"
+#include "base/no_destructor.h"
+#include "base/stl_util.h"
 #include "content/public/browser/global_request_id.h"
 #include "content/public/browser/global_routing_id.h"
 #include "content/public/browser/navigation_handle.h"
@@ -16,6 +21,7 @@
 #include "services/metrics/public/cpp/ukm_source_id.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "third_party/blink/public/mojom/loader/referrer.mojom.h"
+#include "third_party/perfetto/include/perfetto/tracing/traced_value.h"
 #include "url/gurl.h"
 
 namespace content {
@@ -46,12 +52,19 @@ class MockNavigationHandle : public NavigationHandle {
   bool IsInMainFrame() override {
     return render_frame_host_ ? !render_frame_host_->GetParent() : true;
   }
-  MOCK_METHOD0(IsParentMainFrame, bool());
+  MOCK_METHOD0(IsInPrimaryMainFrame, bool());
+  MOCK_METHOD0(IsPrerenderedPageActivation, bool());
   // By default, MockNavigationHandles are renderer-initiated navigations.
   bool IsRendererInitiated() override { return is_renderer_initiated_; }
+  bool IsSameOrigin() override {
+    NOTIMPLEMENTED();
+    return false;
+  }
   MOCK_METHOD0(GetFrameTreeNodeId, int());
   MOCK_METHOD0(GetPreviousRenderFrameHostId, GlobalFrameRoutingId());
-  bool IsServedFromBackForwardCache() override { return false; }
+  bool IsServedFromBackForwardCache() override {
+    return is_served_from_bfcache_;
+  }
   RenderFrameHost* GetParentFrame() override {
     return render_frame_host_ ? render_frame_host_->GetParent() : nullptr;
   }
@@ -96,10 +109,10 @@ class MockNavigationHandle : public NavigationHandle {
     return response_headers_.get();
   }
   MOCK_METHOD0(GetConnectionInfo, net::HttpResponseInfo::ConnectionInfo());
-  const base::Optional<net::SSLInfo>& GetSSLInfo() override {
+  const absl::optional<net::SSLInfo>& GetSSLInfo() override {
     return ssl_info_;
   }
-  const base::Optional<net::AuthChallengeInfo>& GetAuthChallengeInfo()
+  const absl::optional<net::AuthChallengeInfo>& GetAuthChallengeInfo()
       override {
     return auth_challenge_info_;
   }
@@ -119,16 +132,21 @@ class MockNavigationHandle : public NavigationHandle {
   bool WasResponseCached() override { return was_response_cached_; }
   const net::ProxyServer& GetProxyServer() override { return proxy_server_; }
   const std::string& GetHrefTranslate() override { return href_translate_; }
-  const base::Optional<Impression>& GetImpression() override {
+  const absl::optional<blink::Impression>& GetImpression() override {
     return impression_;
   }
-  const base::Optional<base::UnguessableToken>& GetInitiatorFrameToken()
+  const absl::optional<blink::LocalFrameToken>& GetInitiatorFrameToken()
       override {
     return initiator_frame_token_;
   }
   int GetInitiatorProcessID() override { return initiator_process_id_; }
-  const base::Optional<url::Origin>& GetInitiatorOrigin() override {
+  const absl::optional<url::Origin>& GetInitiatorOrigin() override {
     return initiator_origin_;
+  }
+  const std::vector<std::string>& GetDnsAliases() override {
+    static const base::NoDestructor<std::vector<std::string>>
+        emptyvector_result;
+    return *emptyvector_result;
   }
   MOCK_METHOD(void,
               RegisterThrottleForTesting,
@@ -137,7 +155,6 @@ class MockNavigationHandle : public NavigationHandle {
   MOCK_METHOD(void,
               RegisterSubresourceOverride,
               (blink::mojom::TransferrableURLLoaderPtr));
-  MOCK_METHOD(bool, FromDownloadCrossOriginRedirect, ());
   MOCK_METHOD(bool, IsSameProcess, ());
   MOCK_METHOD(NavigationEntry*, GetNavigationEntry, ());
   MOCK_METHOD(int, GetNavigationEntryOffset, ());
@@ -145,10 +162,13 @@ class MockNavigationHandle : public NavigationHandle {
               ForceEnableOriginTrials,
               (const std::vector<std::string>& trials));
   MOCK_METHOD(void, SetIsOverridingUserAgent, (bool));
-  MOCK_METHOD(bool, GetIsOverridingUserAgent, ());
   MOCK_METHOD(void, SetSilentlyIgnoreErrors, ());
   MOCK_METHOD(network::mojom::WebSandboxFlags, SandboxFlagsToCommit, ());
   MOCK_METHOD(bool, IsWaitingToCommit, ());
+  MOCK_METHOD(bool, WasEarlyHintsPreloadLinkHeaderReceived, ());
+  void WriteIntoTrace(perfetto::TracedValue context) override {
+    auto dict = std::move(context).WriteDictionary();
+  }
 
   void set_url(const GURL& url) { url_ = url; }
   void set_previous_main_frame_url(const GURL& previous_main_frame_url) {
@@ -168,6 +188,9 @@ class MockNavigationHandle : public NavigationHandle {
   }
   void set_is_same_document(bool is_same_document) {
     is_same_document_ = is_same_document;
+  }
+  void set_is_served_from_bfcache(bool is_served_from_bfcache) {
+    is_served_from_bfcache_ = is_served_from_bfcache;
   }
   void set_is_renderer_initiated(bool is_renderer_initiated) {
     is_renderer_initiated_ = is_renderer_initiated;
@@ -197,14 +220,12 @@ class MockNavigationHandle : public NavigationHandle {
   void set_proxy_server(const net::ProxyServer& proxy_server) {
     proxy_server_ = proxy_server;
   }
-  void set_impression(const Impression& impression) {
+  void set_impression(const blink::Impression& impression) {
     impression_ = impression;
   }
   void set_initiator_frame_token(
-      const base::UnguessableToken* initiator_frame_token) {
-    initiator_frame_token_ = initiator_frame_token
-                                 ? base::make_optional(*initiator_frame_token)
-                                 : base::nullopt;
+      const blink::LocalFrameToken* initiator_frame_token) {
+    initiator_frame_token_ = base::OptionalFromPtr(initiator_frame_token);
   }
   void set_initiator_process_id(int process_id) {
     initiator_process_id_ = process_id;
@@ -226,24 +247,25 @@ class MockNavigationHandle : public NavigationHandle {
   net::Error net_error_code_ = net::OK;
   RenderFrameHost* render_frame_host_ = nullptr;
   bool is_same_document_ = false;
+  bool is_served_from_bfcache_ = false;
   bool is_renderer_initiated_ = true;
   std::vector<GURL> redirect_chain_;
   bool has_committed_ = false;
   bool is_error_page_ = false;
   net::HttpRequestHeaders request_headers_;
   scoped_refptr<net::HttpResponseHeaders> response_headers_;
-  base::Optional<net::SSLInfo> ssl_info_;
-  base::Optional<net::AuthChallengeInfo> auth_challenge_info_;
+  absl::optional<net::SSLInfo> ssl_info_;
+  absl::optional<net::AuthChallengeInfo> auth_challenge_info_;
   net::ResolveErrorInfo resolve_error_info_;
   content::GlobalRequestID global_request_id_;
   bool is_form_submission_ = false;
   bool was_response_cached_ = false;
   net::ProxyServer proxy_server_;
-  base::Optional<url::Origin> initiator_origin_;
+  absl::optional<url::Origin> initiator_origin_;
   ReloadType reload_type_ = content::ReloadType::NONE;
   std::string href_translate_;
-  base::Optional<Impression> impression_;
-  base::Optional<base::UnguessableToken> initiator_frame_token_;
+  absl::optional<blink::Impression> impression_;
+  absl::optional<blink::LocalFrameToken> initiator_frame_token_;
   int initiator_process_id_ = ChildProcessHost::kInvalidUniqueID;
 };
 

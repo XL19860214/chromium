@@ -5,7 +5,7 @@
 import {$} from 'chrome://resources/js/util.m.js';
 import {Origin} from 'chrome://resources/mojo/url/mojom/origin.mojom-webui.js';
 
-import {ConversionInternalsHandler, ConversionInternalsHandlerRemote, WebUIImpression} from './conversion_internals.mojom-webui.js';
+import {ConversionInternalsHandler, ConversionInternalsHandlerRemote, SourceType, WebUIImpression} from './conversion_internals.mojom-webui.js';
 
 /**
  * Reference to the backend providing all the data.
@@ -24,6 +24,12 @@ let impressions = null;
  * @type {!Array<!WebUIImpression>}
  */
 let reports = null;
+
+/**
+ * This is used to create TrustedHTML.
+ * @type {!TrustedTypePolicy}
+ */
+let staticHtmlPolicy = null;
 
 /**
  * Remove all rows from the given table.
@@ -53,21 +59,19 @@ function UrlToText(origin) {
 }
 
 /**
- * Creates a single row for the impression table.
- * @param {!WebIUIImpression} impression The info to create the row.
- * @return {!HTMLElement}
+ * Converts a mojo SourceType into a user-readable string.
+ * @param {WebUIImpression_SourceType} sourceType Source type to convert
+ * @return {string}
  */
-function createImpressionRow(impression) {
-  const template = $('impressionrow').cloneNode(true);
-  const td = template.content.querySelectorAll('td');
-
-  td[0].textContent = '0x' + impression.impressionData;
-  td[1].textContent = UrlToText(impression.impressionOrigin);
-  td[2].textContent = UrlToText(impression.conversionDestination);
-  td[3].textContent = UrlToText(impression.reportingOrigin);
-  td[4].textContent = new Date(impression.impressionTime).toLocaleString();
-  td[5].textContent = new Date(impression.expiryTime).toLocaleString();
-  return document.importNode(template.content, true);
+function SourceTypeToText(sourceType) {
+  switch (sourceType) {
+    case SourceType.kNavigation:
+      return 'Navigation';
+    case SourceType.kEvent:
+      return 'Event';
+    default:
+      return sourceType.toString();
+  }
 }
 
 /**
@@ -75,16 +79,36 @@ function createImpressionRow(impression) {
  * @param {!WebUIImpression} impression The info to create the row.
  * @return {!HTMLElement}
  */
+function createImpressionRow(impression) {
+  const template = $('impressionrow').cloneNode(true);
+  const td = template.content.querySelectorAll('td');
+
+  td[0].textContent = impression.impressionData;
+  td[1].textContent = UrlToText(impression.impressionOrigin);
+  td[2].textContent = UrlToText(impression.conversionDestination);
+  td[3].textContent = UrlToText(impression.reportingOrigin);
+  td[4].textContent = new Date(impression.impressionTime).toLocaleString();
+  td[5].textContent = new Date(impression.expiryTime).toLocaleString();
+  td[6].textContent = SourceTypeToText(impression.sourceType);
+  td[7].textContent = impression.priority;
+  return document.importNode(template.content, true);
+}
+
+/**
+ * Creates a single row for the report table.
+ * @param {!WebUIConversionReport} report The info to create the row.
+ * @return {!HTMLElement}
+ */
 function createReportRow(report) {
   const template = $('reportrow').cloneNode(true);
   const td = template.content.querySelectorAll('td');
 
-  td[0].textContent = '0x' + report.impressionData;
-  td[1].textContent = '0x' + report.conversionData;
+  td[0].textContent = report.impressionData;
+  td[1].textContent = report.conversionData;
   td[2].textContent = UrlToText(report.conversionOrigin);
   td[3].textContent = UrlToText(report.reportingOrigin);
   td[4].textContent = new Date(report.reportTime).toLocaleString();
-  td[5].textContent = report.attributionCredit;
+  td[5].textContent = SourceTypeToText(report.sourceType);
   return document.importNode(template.content, true);
 }
 
@@ -135,6 +159,25 @@ function updatePageData() {
   pageHandler.isMeasurementEnabled().then((response) => {
     $('feature-status-content').innerText =
         response.enabled ? 'enabled' : 'disabled';
+    $('feature-status-content').classList.toggle('disabled', !response.enabled);
+
+    const htmlString = 'The #conversion-measurement-debug-mode flag is ' +
+        '<strong>enabled</strong>, ' +
+        'reports are sent immediately and never pending.';
+
+    if (window.trustedTypes) {
+      if (staticHtmlPolicy === null) {
+        staticHtmlPolicy = trustedTypes.createPolicy(
+            'cr-ui-tree-js-static', {createHTML: () => htmlString});
+      }
+      $('debug-mode-content').innerHTML = staticHtmlPolicy.createHTML('');
+    } else {
+      $('debug-mode-content').innerHTML = htmlString;
+    }
+
+    if (!response.debugMode) {
+      $('debug-mode-content').innerText = '';
+    }
   });
 
   pageHandler.getActiveImpressions().then((response) => {

@@ -53,6 +53,7 @@
 
 namespace cc {
 class Layer;
+class LayerTreeDebugState;
 }
 
 namespace blink {
@@ -148,8 +149,13 @@ class CORE_EXPORT InspectorOverlayAgent final
   static std::unique_ptr<InspectorFlexContainerHighlightConfig>
   ToFlexContainerHighlightConfig(
       protocol::Overlay::FlexContainerHighlightConfig*);
-  static base::Optional<LineStyle> ToLineStyle(protocol::Overlay::LineStyle*);
-  static base::Optional<BoxStyle> ToBoxStyle(protocol::Overlay::BoxStyle*);
+  static std::unique_ptr<InspectorScrollSnapContainerHighlightConfig>
+  ToScrollSnapContainerHighlightConfig(
+      protocol::Overlay::ScrollSnapContainerHighlightConfig*);
+  static std::unique_ptr<InspectorFlexItemHighlightConfig>
+  ToFlexItemHighlightConfig(protocol::Overlay::FlexItemHighlightConfig*);
+  static absl::optional<LineStyle> ToLineStyle(protocol::Overlay::LineStyle*);
+  static absl::optional<BoxStyle> ToBoxStyle(protocol::Overlay::BoxStyle*);
   static std::unique_ptr<InspectorHighlightConfig> ToHighlightConfig(
       protocol::Overlay::HighlightConfig*);
   InspectorOverlayAgent(WebLocalFrameImpl*,
@@ -169,6 +175,7 @@ class CORE_EXPORT InspectorOverlayAgent final
   protocol::Response setShowFPSCounter(bool) override;
   protocol::Response setShowScrollBottleneckRects(bool) override;
   protocol::Response setShowHitTestBorders(bool) override;
+  protocol::Response setShowWebVitals(bool) override;
   protocol::Response setShowViewportSizeOnResize(bool) override;
   protocol::Response setPausedInDebuggerMessage(
       protocol::Maybe<String>) override;
@@ -225,6 +232,10 @@ class CORE_EXPORT InspectorOverlayAgent final
       std::unique_ptr<
           protocol::Array<protocol::Overlay::FlexNodeHighlightConfig>>
           flex_node_highlight_configs) override;
+  protocol::Response setShowScrollSnapOverlays(
+      std::unique_ptr<
+          protocol::Array<protocol::Overlay::ScrollSnapHighlightConfig>>
+          scroll_snap_highlight_configs) override;
 
   // InspectorBaseAgent overrides.
   void Restore() override;
@@ -233,8 +244,7 @@ class CORE_EXPORT InspectorOverlayAgent final
   void Inspect(Node*);
   void EnsureAXContext(Node*);
   void DispatchBufferedTouchEvents();
-  void PageScrollStarted();
-  void PageScrollEnded();
+  void SetPageIsScrolling(bool is_scrolling);
   WebInputEventResult HandleInputEvent(const WebInputEvent&);
   WebInputEventResult HandleInputEventInOverlay(const WebInputEvent&);
   void PageLayoutInvalidated(bool resized);
@@ -292,7 +302,7 @@ class CORE_EXPORT InspectorOverlayAgent final
   Member<InspectorOverlayChromeClient> overlay_chrome_client_;
   Member<InspectorOverlayHost> overlay_host_;
   bool resize_timer_active_;
-  TaskRunnerTimer<InspectorOverlayAgent> resize_timer_;
+  HeapTaskRunnerTimer<InspectorOverlayAgent> resize_timer_;
   bool disposed_;
   v8_inspector::V8InspectorSession* v8_session_;
   Member<InspectorDOMAgent> dom_agent_;
@@ -306,6 +316,8 @@ class CORE_EXPORT InspectorOverlayAgent final
       document_to_ax_context_;
   bool swallow_next_mouse_up_;
   bool is_page_scrolling_ = false;
+  std::unique_ptr<cc::LayerTreeDebugState> original_layer_tree_debug_state_;
+
   DOMNodeId backend_node_id_to_inspect_;
   InspectorAgentState::Boolean enabled_;
   InspectorAgentState::Boolean show_ad_highlights_;
@@ -315,6 +327,7 @@ class CORE_EXPORT InspectorOverlayAgent final
   InspectorAgentState::Boolean show_layout_shift_regions_;
   InspectorAgentState::Boolean show_scroll_bottleneck_rects_;
   InspectorAgentState::Boolean show_hit_test_borders_;
+  InspectorAgentState::Boolean show_web_vitals_;
   InspectorAgentState::Boolean show_size_on_resize_;
   InspectorAgentState::String paused_in_debugger_message_;
   InspectorAgentState::String inspect_mode_;

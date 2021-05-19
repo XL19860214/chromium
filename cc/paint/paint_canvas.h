@@ -145,16 +145,24 @@ class CC_PAINT_EXPORT PaintCanvas {
   virtual void drawImage(const PaintImage& image,
                          SkScalar left,
                          SkScalar top,
+                         const SkSamplingOptions&,
                          const PaintFlags* flags) = 0;
   void drawImage(const PaintImage& image, SkScalar left, SkScalar top) {
-    drawImage(image, left, top, nullptr);
+    drawImage(image, left, top, SkSamplingOptions(), nullptr);
   }
 
   virtual void drawImageRect(const PaintImage& image,
                              const SkRect& src,
                              const SkRect& dst,
+                             const SkSamplingOptions&,
                              const PaintFlags* flags,
                              SkCanvas::SrcRectConstraint constraint) = 0;
+  void drawImageRect(const PaintImage& image,
+                     const SkRect& src,
+                     const SkRect& dst,
+                     SkCanvas::SrcRectConstraint constraint) {
+    drawImageRect(image, src, dst, SkSamplingOptions(), nullptr, constraint);
+  }
 
   // Draws the frame of the |skottie| animation specified by the normalized time
   // t [0->first frame..1->last frame] at the destination bounds given by |dst|
@@ -180,6 +188,7 @@ class CC_PAINT_EXPORT PaintCanvas {
 
   virtual bool isClipEmpty() const = 0;
   virtual SkMatrix getTotalMatrix() const = 0;
+  virtual SkM44 getLocalToDevice() const = 0;
 
   // Used for printing
   enum class AnnotationType {

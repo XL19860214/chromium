@@ -29,15 +29,17 @@ namespace {
 // succeeded.
 bool SyncToBookmark(const ReadingListEntry& entry, BookmarkNode* bookmark) {
   DCHECK(bookmark);
-  base::string16 title;
+  std::u16string title;
   if (!base::UTF8ToUTF16(entry.Title().c_str(), entry.Title().size(), &title)) {
-    LOG(ERROR) << "Failed to convert the title to string16.";
+    LOG(ERROR) << "Failed to convert the following title to string16:"
+               << entry.Title();
     return false;
   }
 
   bookmark->set_url(entry.URL());
-  bookmark->set_date_added(base::Time::FromDeltaSinceWindowsEpoch(
-      base::TimeDelta::FromMicroseconds(entry.CreationTime())));
+  bookmark->set_date_added(
+      base::Time::UnixEpoch() +
+      base::TimeDelta::FromMicroseconds(entry.CreationTime()));
   bookmark->SetTitle(title);
   bookmark->SetMetaInfo(kReadStatusKey,
                         entry.IsRead() ? kReadStatusRead : kReadStatusUnread);
@@ -132,13 +134,13 @@ void ReadingListManagerImpl::RemoveObserver(Observer* observer) {
 const BookmarkNode* ReadingListManagerImpl::Add(const GURL& url,
                                                 const std::string& title) {
   DCHECK(reading_list_model_->loaded());
+  if (!reading_list_model_->IsUrlSupported(url))
+    return nullptr;
 
   // Add or swap the reading list entry.
   const auto& new_entry = reading_list_model_->AddEntry(
       url, title, reading_list::ADDED_VIA_CURRENT_APP);
   const auto* node = FindBookmarkByURL(new_entry.URL());
-  DCHECK(node)
-      << "Bookmark node should have been create in ReadingListDidAddEntry().";
   return node;
 }
 

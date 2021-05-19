@@ -17,8 +17,8 @@
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_functions.h"
-#include "base/optional.h"
 #include "base/sequence_checker.h"
+#include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
@@ -59,6 +59,7 @@
 #include "storage/browser/file_system/local_file_stream_writer.h"
 #include "storage/common/database/database_identifier.h"
 #include "storage/common/file_system/file_system_mount_option.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/common/blob/blob_utils.h"
 #include "third_party/blink/public/common/indexeddb/indexeddb_key_range.h"
 #include "third_party/blink/public/common/indexeddb/web_idb_types.h"
@@ -279,7 +280,7 @@ Status MergeDatabaseIntoActiveBlobJournal(
 //     (for Blobs and Files only) size [int64_t as varInt]
 //     (for Files only) fileName [string-with-length]
 //     (for Files only) lastModified [int64_t as varInt, in microseconds]
-//     (for Native File System Handles only) token [binary-with-length]
+//     (for File System Access Handles only) token [binary-with-length]
 //   }
 // There is no length field; just read until you run out of data.
 std::string EncodeExternalObjects(
@@ -300,9 +301,9 @@ std::string EncodeExternalObjects(
               &ret);
         }
         break;
-      case IndexedDBExternalObject::ObjectType::kNativeFileSystemHandle:
-        DCHECK(!info.native_file_system_token().empty());
-        EncodeBinary(info.native_file_system_token(), &ret);
+      case IndexedDBExternalObject::ObjectType::kFileSystemAccessHandle:
+        DCHECK(!info.file_system_access_token().empty());
+        EncodeBinary(info.file_system_access_token(), &ret);
         break;
     }
   }
@@ -317,9 +318,9 @@ bool DecodeV3ExternalObjects(const base::StringPiece& data,
   while (!slice.empty()) {
     bool is_file;
     int64_t blob_number;
-    base::string16 type;
+    std::u16string type;
     int64_t size;
-    base::string16 file_name;
+    std::u16string file_name;
 
     if (!DecodeBool(&slice, &is_file))
       return false;
@@ -362,9 +363,9 @@ bool DecodeExternalObjects(const std::string& data,
       case IndexedDBExternalObject::ObjectType::kBlob:
       case IndexedDBExternalObject::ObjectType::kFile: {
         int64_t blob_number;
-        base::string16 type;
+        std::u16string type;
         int64_t size;
-        base::string16 file_name;
+        std::u16string file_name;
 
         if (!DecodeVarInt(&slice, &blob_number) ||
             !DatabaseMetaDataKey::IsValidBlobNumber(blob_number)) {
@@ -389,7 +390,7 @@ bool DecodeExternalObjects(const std::string& data,
                          size);
         break;
       }
-      case IndexedDBExternalObject::ObjectType::kNativeFileSystemHandle: {
+      case IndexedDBExternalObject::ObjectType::kFileSystemAccessHandle: {
         base::span<const uint8_t> token;
         if (!DecodeBinary(&slice, &token))
           return false;
@@ -405,7 +406,7 @@ bool DecodeExternalObjects(const std::string& data,
 
 bool IsPathTooLong(storage::FilesystemProxy* filesystem,
                    const base::FilePath& leveldb_dir) {
-  base::Optional<int> limit =
+  absl::optional<int> limit =
       filesystem->GetMaximumPathComponentLength(leveldb_dir.DirName());
   if (!limit.has_value()) {
     DLOG(WARNING) << "GetMaximumPathComponentLength returned -1";
@@ -627,7 +628,7 @@ IndexedDBBackingStore::IndexedDBBackingStore(
     const base::FilePath& blob_path,
     std::unique_ptr<TransactionalLevelDBDatabase> db,
     storage::mojom::BlobStorageContext* blob_storage_context,
-    storage::mojom::NativeFileSystemContext* native_file_system_context,
+    storage::mojom::FileSystemAccessContext* file_system_access_context,
     std::unique_ptr<storage::FilesystemProxy> filesystem_proxy,
     BlobFilesCleanedCallback blob_files_cleaned,
     ReportOutstandingBlobsCallback report_outstanding_blobs,
@@ -638,7 +639,7 @@ IndexedDBBackingStore::IndexedDBBackingStore(
       blob_path_(backing_store_mode == Mode::kInMemory ? base::FilePath()
                                                        : blob_path),
       blob_storage_context_(blob_storage_context),
-      native_file_system_context_(native_file_system_context),
+      file_system_access_context_(file_system_access_context),
       filesystem_proxy_(std::move(filesystem_proxy)),
       origin_identifier_(ComputeOriginIdentifier(origin)),
       idb_task_runner_(std::move(idb_task_runner)),
@@ -814,7 +815,7 @@ Status IndexedDBBackingStore::AnyDatabaseContainsBlobs(
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   Status status = leveldb::Status::OK();
-  std::vector<base::string16> names;
+  std::vector<std::u16string> names;
   IndexedDBMetadataCoding metadata_coding;
   status = metadata_coding.ReadDatabaseNames(db, origin_identifier_, &names);
   if (!status.ok())
@@ -870,7 +871,7 @@ Status IndexedDBBackingStore::UpgradeBlobEntriesToV4(
   DCHECK(filesystem_proxy_);
 
   Status status = leveldb::Status::OK();
-  std::vector<base::string16> names;
+  std::vector<std::u16string> names;
   IndexedDBMetadataCoding metadata_coding;
   status = metadata_coding.ReadDatabaseNames(db, origin_identifier_, &names);
   if (!status.ok())
@@ -921,7 +922,7 @@ Status IndexedDBBackingStore::UpgradeBlobEntriesToV4(
           base::FilePath path =
               GetBlobFileName(metadata.id, object.blob_number());
 
-          base::Optional<base::File::Info> info =
+          absl::optional<base::File::Info> info =
               filesystem_proxy_->GetFileInfo(path);
           if (!info.has_value()) {
             return leveldb::Status::Corruption(
@@ -957,7 +958,7 @@ Status IndexedDBBackingStore::ValidateBlobFiles(
   DCHECK(filesystem_proxy_);
 
   Status status = leveldb::Status::OK();
-  std::vector<base::string16> names;
+  std::vector<std::u16string> names;
   IndexedDBMetadataCoding metadata_coding;
   status = metadata_coding.ReadDatabaseNames(db, origin_identifier_, &names);
   if (!status.ok())
@@ -996,7 +997,7 @@ Status IndexedDBBackingStore::ValidateBlobFiles(
                  leveldb_env::MakeSlice(iterator->Key()), max_key) < 0;
            status = iterator->Next()) {
         std::vector<IndexedDBExternalObject> temp_external_objects;
-        DecodeExternalObjects(iterator->Value().as_string(),
+        DecodeExternalObjects(std::string(iterator->Value()),
                               &temp_external_objects);
         for (auto& object : temp_external_objects) {
           if (object.object_type() !=
@@ -1009,7 +1010,7 @@ Status IndexedDBBackingStore::ValidateBlobFiles(
 
           base::FilePath path =
               GetBlobFileName(metadata.id, object.blob_number());
-          base::Optional<base::File::Info> info =
+          absl::optional<base::File::Info> info =
               filesystem_proxy_->GetFileInfo(path);
           if (!info.has_value()) {
             return leveldb::Status::Corruption(
@@ -1097,7 +1098,7 @@ leveldb::Status IndexedDBBackingStore::GetCompleteMetadata(
 
   IndexedDBMetadataCoding metadata_coding;
   leveldb::Status status = leveldb::Status::OK();
-  std::vector<base::string16> names;
+  std::vector<std::u16string> names;
   status =
       metadata_coding.ReadDatabaseNames(db_.get(), origin_identifier_, &names);
   if (!status.ok())
@@ -1140,7 +1141,7 @@ bool IndexedDBBackingStore::RecordCorruptionInfo(
 }
 
 Status IndexedDBBackingStore::DeleteDatabase(
-    const base::string16& name,
+    const std::u16string& name,
     TransactionalLevelDBTransaction* transaction) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 #if DCHECK_IS_ON()
@@ -1261,7 +1262,7 @@ Status IndexedDBBackingStore::GetRecord(
     return InternalInconsistencyStatus();
   }
 
-  record->bits = slice.as_string();
+  record->bits = std::string(slice);
   return transaction->GetExternalObjectsForRecord(database_id, leveldb_key,
                                                   record);
 }
@@ -1878,7 +1879,7 @@ Status IndexedDBBackingStore::Transaction::GetExternalObjectsForRecord(
               backing_store_->active_blob_registry()->GetFinalReleaseCallback(
                   database_id, entry.blob_number()));
           break;
-        case IndexedDBExternalObject::ObjectType::kNativeFileSystemHandle:
+        case IndexedDBExternalObject::ObjectType::kFileSystemAccessHandle:
           break;
       }
     }
@@ -2010,7 +2011,7 @@ Status IndexedDBBackingStore::FindKeyInIndex(
       INTERNAL_READ_ERROR(FIND_KEY_IN_INDEX);
       return InternalInconsistencyStatus();
     }
-    *found_encoded_primary_key = slice.as_string();
+    *found_encoded_primary_key = std::string(slice);
 
     bool exists = false;
     s = indexed_db::VersionExists(leveldb_transaction, database_id,
@@ -2354,13 +2355,13 @@ IndexedDBBackingStore::Cursor::ContinuePrevious(const IndexedDBKey* key,
       // If we've found a new key, remember it and keep going.
       if (!duplicate_key.IsValid()) {
         duplicate_key = *current_key_;
-        earliest_duplicate = iterator_->Key().as_string();
+        earliest_duplicate = std::string(iterator_->Key());
         continue;
       }
 
       // If we're still seeing duplicates, keep going.
       if (duplicate_key.Equals(*current_key_)) {
-        earliest_duplicate = iterator_->Key().as_string();
+        earliest_duplicate = std::string(iterator_->Key());
         continue;
       }
     }
@@ -2597,11 +2598,11 @@ bool ObjectStoreCursorImpl::LoadCurrentRow(Status* s) {
   record_identifier_.Reset(encoded_key, version);
 
   *s = transaction_->GetExternalObjectsForRecord(
-      database_id_, iterator_->Key().as_string(), &current_value_);
+      database_id_, std::string(iterator_->Key()), &current_value_);
   if (!s->ok())
     return false;
 
-  current_value_.bits = value_slice.as_string();
+  current_value_.bits = std::string(value_slice);
   return true;
 }
 
@@ -2883,7 +2884,7 @@ bool IndexCursorImpl::LoadCurrentRow(Status* s) {
     return false;
   }
 
-  current_value_.bits = slice.as_string();
+  current_value_.bits = std::string(slice);
   *s = transaction_->GetExternalObjectsForRecord(
       database_id_, primary_leveldb_key_, &current_value_);
   return s->ok();
@@ -2995,12 +2996,12 @@ IndexedDBBackingStore::OpenIndexCursor(
   if (!IndexCursorOptions(leveldb_transaction, database_id, object_store_id,
                           index_id, range, direction, &cursor_options, s))
     return nullptr;
-  std::unique_ptr<IndexCursorImpl> cursor(new IndexCursorImpl(
-      transaction->AsWeakPtr(), database_id, cursor_options));
+  auto cursor = std::make_unique<IndexCursorImpl>(transaction->AsWeakPtr(),
+                                                  database_id, cursor_options);
   if (!cursor->FirstSeek(s))
     return nullptr;
 
-  return std::move(cursor);
+  return cursor;
 }
 
 bool IndexedDBBackingStore::IsBlobCleanupPending() {
@@ -3242,7 +3243,7 @@ Status IndexedDBBackingStore::Transaction::HandleBlobPreTransaction() {
           if (!result)
             return InternalInconsistencyStatus();
           break;
-        case IndexedDBExternalObject::ObjectType::kNativeFileSystemHandle:
+        case IndexedDBExternalObject::ObjectType::kFileSystemAccessHandle:
           break;
       }
     }
@@ -3516,8 +3517,8 @@ leveldb::Status IndexedDBBackingStore::Transaction::WriteNewBlobs(
           if (entry.size() != 0)
             ++num_objects_to_write;
           break;
-        case IndexedDBExternalObject::ObjectType::kNativeFileSystemHandle:
-          if (entry.native_file_system_token().empty())
+        case IndexedDBExternalObject::ObjectType::kFileSystemAccessHandle:
+          if (entry.file_system_access_token().empty())
             ++num_objects_to_write;
           break;
       }
@@ -3591,11 +3592,11 @@ leveldb::Status IndexedDBBackingStore::Transaction::WriteNewBlobs(
           // Android doesn't seem to consistently be able to set file
           // modification times. The timestamp is not checked during reading
           // on Android either. https://crbug.com/1045488
-          base::Optional<base::Time> last_modified;
+          absl::optional<base::Time> last_modified;
 #if !defined(OS_ANDROID)
           last_modified = entry.last_modified().is_null()
-                              ? base::nullopt
-                              : base::make_optional(entry.last_modified());
+                              ? absl::nullopt
+                              : absl::make_optional(entry.last_modified());
 #endif
           blob_storage_context->WriteBlobToFile(
               std::move(pending_blob),
@@ -3605,18 +3606,18 @@ leveldb::Status IndexedDBBackingStore::Transaction::WriteNewBlobs(
               last_modified, write_result_callback);
           break;
         }
-        case IndexedDBExternalObject::ObjectType::kNativeFileSystemHandle: {
-          if (!entry.native_file_system_token().empty())
+        case IndexedDBExternalObject::ObjectType::kFileSystemAccessHandle: {
+          if (!entry.file_system_access_token().empty())
             continue;
           // TODO(dmurph): Refactor IndexedDBExternalObject to not use a
           // SharedRemote, so this code can just move the remote, instead of
           // cloning.
-          mojo::PendingRemote<blink::mojom::NativeFileSystemTransferToken>
+          mojo::PendingRemote<blink::mojom::FileSystemAccessTransferToken>
               token_clone;
-          entry.native_file_system_token_remote()->Clone(
+          entry.file_system_access_token_remote()->Clone(
               token_clone.InitWithNewPipeAndPassReceiver());
 
-          backing_store_->native_file_system_context_->SerializeHandle(
+          backing_store_->file_system_access_context_->SerializeHandle(
               std::move(token_clone),
               base::BindOnce(
                   [](base::WeakPtr<Transaction> transaction,
@@ -3633,7 +3634,7 @@ leveldb::Status IndexedDBBackingStore::Transaction::WriteNewBlobs(
                           storage::mojom::WriteBlobToFileResult::kError);
                       return;
                     }
-                    object->set_native_file_system_token(serialized_token);
+                    object->set_file_system_access_token(serialized_token);
                     std::move(callback).Run(
                         storage::mojom::WriteBlobToFileResult::kSuccess);
                   },

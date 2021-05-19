@@ -6,6 +6,8 @@
 
 #include <windows.h>
 
+#include <memory>
+
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/credential_provider/extension/extension_utils.h"
@@ -49,7 +51,7 @@ const net::BackoffEntry::Policy kRetryLaterPolicy = {
 // Returns the elapsed time delta since the last time the periodic sync were
 // successfully performed for the given task registry.
 base::TimeDelta GetTimeDeltaSinceLastPeriodicSync(
-    const base::string16& task_reg_name) {
+    const std::wstring& task_reg_name) {
   wchar_t last_sync_millis[512];
   ULONG last_sync_size = base::size(last_sync_millis);
   HRESULT hr = GetGlobalFlag(task_reg_name, last_sync_millis, &last_sync_size);
@@ -122,7 +124,8 @@ void TaskManager::ExecuteTask(
           task_execution_policies_.find(task_name)->second.get();
 
       // Create backoff entry as this is the first failure after a success.
-      task_execution_backoffs_[task_name].reset(new net::BackoffEntry(policy));
+      task_execution_backoffs_[task_name] =
+          std::make_unique<net::BackoffEntry>(policy);
     }
 
     task_execution_backoffs_[task_name]->InformOfRequest(false);
@@ -138,10 +141,10 @@ void TaskManager::ExecuteTask(
 
     LOGFN(INFO) << task_name << " was executed successfully!";
     const base::Time sync_time = base::Time::Now();
-    const base::string16 sync_time_millis = base::NumberToString16(
+    const std::wstring sync_time_millis = base::NumberToWString(
         sync_time.ToDeltaSinceWindowsEpoch().InMilliseconds());
 
-    SetGlobalFlag(GetLastSyncRegNameForTask(base::UTF8ToUTF16(task_name)),
+    SetGlobalFlag(GetLastSyncRegNameForTask(base::UTF8ToWide(task_name)),
                   sync_time_millis);
   }
 
@@ -170,7 +173,7 @@ void TaskManager::RunTasks(
     base::TimeDelta next_run = base::TimeDelta::FromSeconds(10);
     const base::TimeDelta time_since_last_run =
         GetTimeDeltaSinceLastPeriodicSync(
-            GetLastSyncRegNameForTask(base::UTF8ToUTF16(it->first)));
+            GetLastSyncRegNameForTask(base::UTF8ToWide(it->first)));
 
     if (time_since_last_run < task->GetConfig().execution_period)
       next_run = task->GetConfig().execution_period - time_since_last_run;

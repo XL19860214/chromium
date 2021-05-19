@@ -6,8 +6,10 @@
 
 #include "base/bind.h"
 #include "base/memory/weak_ptr.h"
+#include "chromeos/dbus/hermes/constants.h"
 #include "chromeos/dbus/hermes/fake_hermes_profile_client.h"
 #include "chromeos/dbus/hermes/hermes_response_status.h"
+#include "components/device_event_log/device_event_log.h"
 #include "dbus/bus.h"
 #include "dbus/object_manager.h"
 #include "dbus/property.h"
@@ -25,7 +27,8 @@ template <>
 bool Property<hermes::profile::State>::PopValueFromReader(
     MessageReader* reader) {
   int32_t int_value;
-  if (!reader->PopInt32(&int_value)) {
+  if (!reader->PopVariantOfInt32(&int_value)) {
+    NET_LOG(ERROR) << "Unable to pop value for eSIM profile state.";
     return false;
   }
   switch (int_value) {
@@ -42,7 +45,7 @@ bool Property<hermes::profile::State>::PopValueFromReader(
 template <>
 void Property<hermes::profile::State>::AppendSetValueToWriter(
     MessageWriter* writer) {
-  writer->AppendInt32(set_value_);
+  writer->AppendVariantOfInt32(set_value_);
 }
 
 // dbus::Property specialization to read and write
@@ -55,7 +58,8 @@ template <>
 bool Property<hermes::profile::ProfileClass>::PopValueFromReader(
     MessageReader* reader) {
   int32_t int_value;
-  if (!reader->PopInt32(&int_value)) {
+  if (!reader->PopVariantOfInt32(&int_value)) {
+    NET_LOG(ERROR) << "Unable to pop value for eSIM profile class";
     return false;
   }
   switch (int_value) {
@@ -72,7 +76,7 @@ bool Property<hermes::profile::ProfileClass>::PopValueFromReader(
 template <>
 void Property<hermes::profile::ProfileClass>::AppendSetValueToWriter(
     MessageWriter* writer) {
-  writer->AppendInt32(set_value_);
+  writer->AppendVariantOfInt32(set_value_);
 }
 
 }  // namespace dbus
@@ -119,7 +123,7 @@ class HermesProfileClientImpl : public HermesProfileClient {
                                  hermes::profile::kEnable);
     dbus::ObjectProxy* object_proxy = GetObject(carrier_profile_path).first;
     object_proxy->CallMethodWithErrorResponse(
-        &method_call, dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
+        &method_call, hermes_constants::kHermesNetworkOperationTimeoutMs,
         base::BindOnce(&HermesProfileClientImpl::OnHermesStatusResponse,
                        weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
   }
@@ -130,7 +134,7 @@ class HermesProfileClientImpl : public HermesProfileClient {
                                  hermes::profile::kDisable);
     dbus::ObjectProxy* object_proxy = GetObject(carrier_profile_path).first;
     object_proxy->CallMethodWithErrorResponse(
-        &method_call, dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
+        &method_call, hermes_constants::kHermesNetworkOperationTimeoutMs,
         base::BindOnce(&HermesProfileClientImpl::OnHermesStatusResponse,
                        weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
   }
@@ -174,6 +178,8 @@ class HermesProfileClientImpl : public HermesProfileClient {
                               dbus::Response* response,
                               dbus::ErrorResponse* error_response) {
     if (error_response) {
+      NET_LOG(ERROR) << "Hermes Profile operation failed with error: "
+                     << error_response->GetErrorName();
       std::move(callback).Run(
           HermesResponseStatusFromErrorName(error_response->GetErrorName()));
       return;

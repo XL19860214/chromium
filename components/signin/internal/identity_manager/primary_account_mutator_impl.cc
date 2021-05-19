@@ -46,41 +46,41 @@ PrimaryAccountMutatorImpl::PrimaryAccountMutatorImpl(
 PrimaryAccountMutatorImpl::~PrimaryAccountMutatorImpl() {}
 
 bool PrimaryAccountMutatorImpl::SetPrimaryAccount(
-    const CoreAccountId& account_id) {
+    const CoreAccountId& account_id,
+    ConsentLevel consent_level) {
+  DCHECK(!account_id.empty());
   AccountInfo account_info = account_tracker_->GetAccountInfo(account_id);
+  if (account_info.IsEmpty())
+    return false;
+
+  DCHECK_EQ(account_info.account_id, account_id);
+  DCHECK(!account_info.email.empty());
+  DCHECK(!account_info.gaia.empty());
 
 #if !BUILDFLAG(IS_CHROMEOS_ASH)
   if (!pref_service_->GetBoolean(prefs::kSigninAllowed))
     return false;
-
-  if (primary_account_manager_->HasPrimaryAccount(ConsentLevel::kSync))
-    return false;
-
-  if (account_info.account_id != account_id || account_info.email.empty())
-    return false;
-
-  // TODO(crbug.com/889899): should check that the account email is allowed.
 #endif
 
-  primary_account_manager_->SignIn(account_info.email);
-  return true;
-}
-
-void PrimaryAccountMutatorImpl::SetUnconsentedPrimaryAccount(
-    const CoreAccountId& account_id) {
+  switch (consent_level) {
+    case ConsentLevel::kSync:
+#if !BUILDFLAG(IS_CHROMEOS_ASH)
+      if (primary_account_manager_->HasPrimaryAccount(ConsentLevel::kSync))
+        return false;
+#endif
+      primary_account_manager_->SetSyncPrimaryAccountInfo(account_info);
+      return true;
+    case ConsentLevel::kSignin:
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-  // On Chrome OS the UPA can only be set once and never removed or changed.
-  DCHECK(!account_id.empty());
-  DCHECK(
-      !primary_account_manager_->HasPrimaryAccount(ConsentLevel::kNotRequired));
+      // On Chrome OS the UPA can only be set once and never removed or changed.
+      DCHECK(
+          !primary_account_manager_->HasPrimaryAccount(ConsentLevel::kSignin));
 #endif
-  AccountInfo account_info;
-  if (!account_id.empty()) {
-    account_info = account_tracker_->GetAccountInfo(account_id);
-    DCHECK(!account_info.IsEmpty());
+      DCHECK(!primary_account_manager_->HasPrimaryAccount(ConsentLevel::kSync));
+      primary_account_manager_->SetUnconsentedPrimaryAccountInfo(account_info);
+      return true;
   }
-
-  primary_account_manager_->SetUnconsentedPrimaryAccountInfo(account_info);
+  return false;
 }
 
 #if !BUILDFLAG(IS_CHROMEOS_ASH)
@@ -101,7 +101,7 @@ bool PrimaryAccountMutatorImpl::RevokeConsentShouldClearPrimaryAccount() const {
       // TODO(msarda): The logic in this function is platform specific and we
       // should consider moving it to |SigninManager|.
       return token_service_->RefreshTokenHasError(
-          primary_account_manager_->GetAuthenticatedAccountId());
+          primary_account_manager_->GetPrimaryAccountId(ConsentLevel::kSync));
     case AccountConsistencyMethod::kDisabled:
     case AccountConsistencyMethod::kMirror:
       return true;
@@ -126,7 +126,7 @@ void PrimaryAccountMutatorImpl::RevokeSyncConsent(
 bool PrimaryAccountMutatorImpl::ClearPrimaryAccount(
     signin_metrics::ProfileSignout source_metric,
     signin_metrics::SignoutDelete delete_metric) {
-  if (!primary_account_manager_->HasPrimaryAccount(ConsentLevel::kNotRequired))
+  if (!primary_account_manager_->HasPrimaryAccount(ConsentLevel::kSignin))
     return false;
 
   primary_account_manager_->ClearPrimaryAccount(source_metric, delete_metric);

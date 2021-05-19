@@ -9,7 +9,6 @@
 #include "base/android/jni_android.h"
 #include "base/android/jni_string.h"
 #include "base/android/scoped_java_ref.h"
-#include "base/optional.h"
 #include "base/stl_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/trace_event/trace_event.h"
@@ -17,10 +16,12 @@
 #include "content/browser/renderer_host/navigation_request.h"
 #include "content/browser/renderer_host/render_widget_host_impl.h"
 #include "content/browser/web_contents/web_contents_impl.h"
+#include "content/public/android/content_jni_headers/LoadCommittedDetails_jni.h"
 #include "content/public/android/content_jni_headers/WebContentsObserverProxy_jni.h"
 #include "content/public/browser/navigation_details.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/navigation_handle.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "url/android/gurl_android.h"
 
 using base::android::AttachCurrentThread;
@@ -139,7 +140,8 @@ void WebContentsObserverProxy::DidChangeVisibleSecurityState() {
       AttachCurrentThread(), java_observer_);
 }
 
-void WebContentsObserverProxy::DocumentAvailableInMainFrame() {
+void WebContentsObserverProxy::DocumentAvailableInMainFrame(
+    RenderFrameHost* render_frame_host) {
   JNIEnv* env = AttachCurrentThread();
   Java_WebContentsObserverProxy_documentAvailableInMainFrame(env,
                                                              java_observer_);
@@ -193,7 +195,14 @@ void WebContentsObserverProxy::DOMContentLoaded(
 void WebContentsObserverProxy::NavigationEntryCommitted(
     const LoadCommittedDetails& load_details) {
   JNIEnv* env = AttachCurrentThread();
-  Java_WebContentsObserverProxy_navigationEntryCommitted(env, java_observer_);
+  Java_WebContentsObserverProxy_navigationEntryCommitted(
+      env, java_observer_,
+      Java_LoadCommittedDetails_Constructor(
+          env, load_details.previous_entry_index,
+          url::GURLAndroid::FromNativeGURL(
+              env, load_details.previous_main_frame_url),
+          load_details.did_replace_entry, load_details.is_same_document,
+          load_details.is_main_frame, load_details.http_status_code));
 }
 
 void WebContentsObserverProxy::NavigationEntriesDeleted() {
@@ -218,6 +227,14 @@ void WebContentsObserverProxy::MediaEffectivelyFullscreenChanged(
   JNIEnv* env = AttachCurrentThread();
   Java_WebContentsObserverProxy_hasEffectivelyFullscreenVideoChange(
       env, java_observer_, is_fullscreen);
+}
+
+void WebContentsObserverProxy::DidToggleFullscreenModeForTab(
+    bool entered_fullscreen,
+    bool will_cause_resize) {
+  JNIEnv* env = AttachCurrentThread();
+  Java_WebContentsObserverProxy_didToggleFullscreenModeForTab(
+      env, java_observer_, entered_fullscreen, will_cause_resize);
 }
 
 void WebContentsObserverProxy::DidFirstVisuallyNonEmptyPaint() {

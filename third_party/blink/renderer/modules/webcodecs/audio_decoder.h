@@ -12,7 +12,6 @@
 #include "media/base/status.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise_resolver.h"
-#include "third_party/blink/renderer/bindings/modules/v8/v8_video_frame_output_callback.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_webcodecs_error_callback.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
 #include "third_party/blink/renderer/modules/webcodecs/codec_config_eval.h"
@@ -33,20 +32,21 @@ class MediaLog;
 
 namespace blink {
 
+class AudioData;
 class AudioDecoderConfig;
-class AudioFrame;
 class EncodedAudioChunk;
 class ExceptionState;
 class AudioDecoderInit;
-class V8AudioFrameOutputCallback;
+class ScriptPromise;
+class V8AudioDataOutputCallback;
 
 class MODULES_EXPORT AudioDecoderTraits {
  public:
   using InitType = AudioDecoderInit;
-  using OutputType = AudioFrame;
+  using OutputType = AudioData;
   using MediaOutputType = media::AudioBuffer;
   using MediaDecoderType = media::AudioDecoder;
-  using OutputCallbackType = V8AudioFrameOutputCallback;
+  using OutputCallbackType = V8AudioDataOutputCallback;
   using ConfigType = AudioDecoderConfig;
   using MediaConfigType = media::AudioDecoderConfig;
   using InputType = EncodedAudioChunk;
@@ -58,6 +58,7 @@ class MODULES_EXPORT AudioDecoderTraits {
       media::GpuVideoAcceleratorFactories* gpu_factories,
       media::MediaLog* media_log);
   static void InitializeDecoder(MediaDecoderType& decoder,
+                                bool low_delay,
                                 const MediaConfigType& media_config,
                                 MediaDecoderType::InitCB init_cb,
                                 MediaDecoderType::OutputCB output_cb);
@@ -65,8 +66,9 @@ class MODULES_EXPORT AudioDecoderTraits {
   static void UpdateDecoderLog(const MediaDecoderType& decoder,
                                const MediaConfigType& media_config,
                                media::MediaLog* media_log);
-  static OutputType* MakeOutput(scoped_refptr<MediaOutputType>,
-                                ExecutionContext*);
+  static media::StatusOr<OutputType*> MakeOutput(scoped_refptr<MediaOutputType>,
+                                                 ExecutionContext*);
+  static const char* GetName();
 };
 
 class MODULES_EXPORT AudioDecoder : public DecoderTemplate<AudioDecoderTraits> {
@@ -76,6 +78,10 @@ class MODULES_EXPORT AudioDecoder : public DecoderTemplate<AudioDecoderTraits> {
   static AudioDecoder* Create(ScriptState*,
                               const AudioDecoderInit*,
                               ExceptionState&);
+
+  static ScriptPromise isConfigSupported(ScriptState*,
+                                         const AudioDecoderConfig*,
+                                         ExceptionState&);
 
   // For use by MediaSource and by ::MakeMediaConfig.
   static CodecConfigEval MakeMediaAudioDecoderConfig(

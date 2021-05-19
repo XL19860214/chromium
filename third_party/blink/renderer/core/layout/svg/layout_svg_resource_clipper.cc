@@ -45,7 +45,7 @@ enum class ClipStrategy { kNone, kMask, kPath };
 ClipStrategy ModifyStrategyForClipPath(const ComputedStyle& style,
                                        ClipStrategy strategy) {
   // If the shape in the clip-path gets clipped too then fallback to masking.
-  if (strategy != ClipStrategy::kPath || !style.ClipPath())
+  if (strategy != ClipStrategy::kPath || !style.HasClipPath())
     return strategy;
   return ClipStrategy::kMask;
 }
@@ -117,26 +117,25 @@ void LayoutSVGResourceClipper::RemoveAllClientsFromCache() {
   clip_content_path_.Clear();
   cached_paint_record_.reset();
   local_clip_bounds_ = FloatRect();
-  MarkAllClientsForInvalidation(SVGResourceClient::kClipCacheInvalidation |
-                                SVGResourceClient::kPaintInvalidation);
+  MarkAllClientsForInvalidation(kClipCacheInvalidation | kPaintInvalidation);
 }
 
-base::Optional<Path> LayoutSVGResourceClipper::AsPath() {
+absl::optional<Path> LayoutSVGResourceClipper::AsPath() {
   NOT_DESTROYED();
   if (clip_content_path_validity_ == kClipContentPathValid)
-    return base::Optional<Path>(clip_content_path_);
+    return absl::optional<Path>(clip_content_path_);
   if (clip_content_path_validity_ == kClipContentPathInvalid)
-    return base::nullopt;
+    return absl::nullopt;
   DCHECK_EQ(clip_content_path_validity_, kClipContentPathUnknown);
 
   clip_content_path_validity_ = kClipContentPathInvalid;
   // If the current clip-path gets clipped itself, we have to fallback to
   // masking.
-  if (StyleRef().ClipPath())
-    return base::nullopt;
+  if (StyleRef().HasClipPath())
+    return absl::nullopt;
 
   unsigned op_count = 0;
-  base::Optional<SkOpBuilder> clip_path_builder;
+  absl::optional<SkOpBuilder> clip_path_builder;
   SkPath resolved_path;
   for (const SVGElement& child_element :
        Traversal<SVGElement>::ChildrenOf(*GetElement())) {
@@ -144,14 +143,14 @@ base::Optional<Path> LayoutSVGResourceClipper::AsPath() {
     if (strategy == ClipStrategy::kNone)
       continue;
     if (strategy == ClipStrategy::kMask)
-      return base::nullopt;
+      return absl::nullopt;
 
     // Multiple shapes require PathOps. In some degenerate cases PathOps can
     // exhibit quadratic behavior, so we cap the number of ops to a reasonable
     // count.
     const unsigned kMaxOps = 42;
     if (++op_count > kMaxOps)
-      return base::nullopt;
+      return absl::nullopt;
     if (clip_path_builder) {
       clip_path_builder->add(PathFromElement(child_element).GetSkPath(),
                              kUnion_SkPathOp);
@@ -169,7 +168,7 @@ base::Optional<Path> LayoutSVGResourceClipper::AsPath() {
     clip_path_builder->resolve(&resolved_path);
   clip_content_path_ = std::move(resolved_path);
   clip_content_path_validity_ = kClipContentPathValid;
-  return base::Optional<Path>(clip_content_path_);
+  return absl::optional<Path>(clip_content_path_);
 }
 
 sk_sp<const PaintRecord> LayoutSVGResourceClipper::CreatePaintRecord() {
@@ -185,7 +184,7 @@ sk_sp<const PaintRecord> LayoutSVGResourceClipper::CreatePaintRecord() {
   // - masker/filter not applied when laying out the children
   // - fill is set to the initial fill paint server (solid, black)
   // - stroke is set to the initial stroke paint server (none)
-  PaintInfo info(builder.Context(), LayoutRect::InfiniteIntRect(),
+  PaintInfo info(builder.Context(), CullRect::Infinite(),
                  PaintPhase::kForeground, kGlobalPaintNormalPhase,
                  kPaintLayerPaintingRenderingClipPathAsMask |
                      kPaintLayerPaintingRenderingResourceSubtree);
@@ -279,8 +278,7 @@ FloatRect LayoutSVGResourceClipper::ResourceBoundingBox(
   return CalculateClipTransform(reference_box).MapRect(local_clip_bounds_);
 }
 
-bool LayoutSVGResourceClipper::FindCycleFromSelf(
-    SVGResourcesCycleSolver& solver) const {
+bool LayoutSVGResourceClipper::FindCycleFromSelf() const {
   NOT_DESTROYED();
   // Check nested clip-path.
   if (auto* reference_clip =
@@ -288,28 +286,19 @@ bool LayoutSVGResourceClipper::FindCycleFromSelf(
     // The resource can be null if the reference is external but external
     // references are not allowed.
     if (SVGResource* resource = reference_clip->Resource()) {
-      if (resource->FindCycle(*SVGResources::GetClient(*this), solver))
+      if (resource->FindCycle(*SVGResources::GetClient(*this)))
         return true;
     }
   }
-  return LayoutSVGResourceContainer::FindCycleFromSelf(solver);
+  return LayoutSVGResourceContainer::FindCycleFromSelf();
 }
 
 void LayoutSVGResourceClipper::StyleDidChange(StyleDifference diff,
                                               const ComputedStyle* old_style) {
   NOT_DESTROYED();
   LayoutSVGResourceContainer::StyleDidChange(diff, old_style);
-  if (diff.TransformChanged()) {
-    MarkAllClientsForInvalidation(SVGResourceClient::kClipCacheInvalidation |
-                                  SVGResourceClient::kPaintInvalidation);
-  }
-}
-
-void LayoutSVGResourceClipper::WillBeDestroyed() {
-  NOT_DESTROYED();
-  MarkAllClientsForInvalidation(SVGResourceClient::kClipCacheInvalidation |
-                                SVGResourceClient::kPaintInvalidation);
-  LayoutSVGResourceContainer::WillBeDestroyed();
+  if (diff.TransformChanged())
+    MarkAllClientsForInvalidation(kClipCacheInvalidation | kPaintInvalidation);
 }
 
 }  // namespace blink

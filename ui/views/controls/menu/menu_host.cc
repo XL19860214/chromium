@@ -20,11 +20,11 @@
 #include "ui/views/controls/menu/menu_scroll_view_container.h"
 #include "ui/views/controls/menu/submenu_view.h"
 #include "ui/views/round_rect_painter.h"
+#include "ui/views/views_delegate.h"
 #include "ui/views/widget/native_widget_private.h"
 #include "ui/views/widget/widget.h"
-#include "ui/views/widget/widget_delegate.h"
 
-#if !defined(OS_APPLE)
+#if !defined(OS_MAC)
 #include "ui/aura/window.h"
 #endif
 
@@ -32,7 +32,7 @@ namespace views {
 
 namespace internal {
 
-#if !defined(OS_APPLE)
+#if !defined(OS_MAC)
 // This class adds itself as the pre target handler for the |window|
 // passed in. It currently handles touch events and forwards them to the
 // controller. Reason for this approach is views does not get raw touch
@@ -79,16 +79,21 @@ class PreMenuEventDispatchHandler : public ui::EventHandler,
 
   DISALLOW_COPY_AND_ASSIGN(PreMenuEventDispatchHandler);
 };
-#endif  // OS_APPLE
+#endif  // OS_MAC
 
-void TransferGesture(Widget* source, Widget* target) {
-#if defined(OS_APPLE)
+void TransferGesture(ui::GestureRecognizer* gesture_recognizer,
+                     gfx::NativeView source,
+                     gfx::NativeView target) {
+#if defined(USE_AURA)
+  // Use kCancel for the transfer touches behavior to ensure that `source` sees
+  // a valid touch stream. If kCancel is not used source's touch state may not
+  // be valid after the menu is closed, potentially causing it to drop touch
+  // events it encounters immediately after the menu is closed.
+  gesture_recognizer->TransferEventsTo(source, target,
+                                       ui::TransferTouchesBehavior::kCancel);
+#else
   NOTIMPLEMENTED();
-#else   // !defined(OS_APPLE)
-  source->GetGestureRecognizer()->TransferEventsTo(
-      source->GetNativeView(), target->GetNativeView(),
-      ui::TransferTouchesBehavior::kDontCancel);
-#endif  // defined(OS_APPLE)
+#endif  // defined(USE_AURA)
 }
 
 }  // namespace internal
@@ -110,7 +115,8 @@ MenuHost::~MenuHost() {
 void MenuHost::InitMenuHost(Widget* parent,
                             const gfx::Rect& bounds,
                             View* contents_view,
-                            bool do_capture) {
+                            bool do_capture,
+                            gfx::NativeView native_view_for_gestures) {
   TRACE_EVENT0("views", "MenuHost::InitMenuHost");
   Widget::InitParams params(Widget::InitParams::TYPE_MENU);
   const MenuController* menu_controller =
@@ -126,19 +132,11 @@ void MenuHost::InitMenuHost(Widget* parent,
                        : Widget::InitParams::WindowOpacity::kOpaque;
   params.parent = parent ? parent->GetNativeView() : gfx::kNullNativeView;
   params.bounds = bounds;
-
-  auto delegate = std::make_unique<WidgetDelegate>();
-  delegate->SetOwnedByWidget(true);
-  delegate->SetInitiallyFocusedView(submenu_);
-  params.delegate = delegate.release();
-
   // If MenuHost has no parent widget, it needs to be marked
   // Activatable, so that calling Show in ShowMenuHost will
   // get keyboard focus.
-  const bool take_focus =
-      menu_controller && menu_controller->should_take_keyboard_focus();
-  if (parent == nullptr || take_focus)
-    params.activatable = Widget::InitParams::ACTIVATABLE_YES;
+  if (parent == nullptr)
+    params.activatable = Widget::InitParams::Activatable::kYes;
 #if defined(OS_WIN)
   // On Windows use the software compositor to ensure that we don't block
   // the UI thread blocking issue during command buffer creation. We can
@@ -147,7 +145,7 @@ void MenuHost::InitMenuHost(Widget* parent,
 #endif
   Init(std::move(params));
 
-#if !defined(OS_APPLE)
+#if !defined(OS_MAC)
   pre_dispatch_handler_ =
       std::make_unique<internal::PreMenuEventDispatchHandler>(
           menu_controller, submenu_, GetNativeView());
@@ -157,6 +155,8 @@ void MenuHost::InitMenuHost(Widget* parent,
   owner_ = parent;
   if (owner_)
     owner_->AddObserver(this);
+
+  native_view_for_gestures_ = native_view_for_gestures;
 
   SetContentsView(contents_view);
   ShowMenuHost(do_capture);
@@ -170,18 +170,19 @@ void MenuHost::ShowMenuHost(bool do_capture) {
   // Doing a capture may make us get capture lost. Ignore it while we're in the
   // process of showing.
   base::AutoReset<bool> reseter(&ignore_capture_lost_, true);
-  MenuController* menu_controller =
-      submenu_->GetMenuItem()->GetMenuController();
-  if (menu_controller && menu_controller->should_take_keyboard_focus())
-    Show();
-  else
-    ShowInactive();
+  ShowInactive();
   if (do_capture) {
+    MenuController* menu_controller =
+        submenu_->GetMenuItem()->GetMenuController();
     if (menu_controller && menu_controller->send_gesture_events_to_owner()) {
       // TransferGesture when owner needs gesture events so that the incoming
       // touch events after MenuHost is created are properly translated into
       // gesture events instead of being dropped.
-      internal::TransferGesture(owner_, this);
+      gfx::NativeView source_view = native_view_for_gestures_
+                                        ? native_view_for_gestures_
+                                        : owner_->GetNativeView();
+      internal::TransferGesture(GetGestureRecognizer(), source_view,
+                                GetNativeView());
     } else {
       GetGestureRecognizer()->CancelActiveTouchesExcept(nullptr);
     }
@@ -198,7 +199,11 @@ void MenuHost::HideMenuHost() {
       submenu_->GetMenuItem()->GetMenuController();
   if (owner_ && menu_controller &&
       menu_controller->send_gesture_events_to_owner()) {
-    internal::TransferGesture(this, owner_);
+    gfx::NativeView target_view = native_view_for_gestures_
+                                      ? native_view_for_gestures_
+                                      : owner_->GetNativeView();
+    internal::TransferGesture(GetGestureRecognizer(), GetNativeView(),
+                              target_view);
   }
   ignore_capture_lost_ = true;
   ReleaseMenuHostCapture();
@@ -210,7 +215,7 @@ void MenuHost::DestroyMenuHost() {
   HideMenuHost();
   destroying_ = true;
   static_cast<MenuHostRootView*>(GetRootView())->ClearSubmenu();
-#if !defined(OS_APPLE)
+#if !defined(OS_MAC)
   pre_dispatch_handler_.reset();
 #endif
   Close();
@@ -235,6 +240,10 @@ internal::RootView* MenuHost::CreateRootView() {
 void MenuHost::OnMouseCaptureLost() {
   if (destroying_ || ignore_capture_lost_)
     return;
+
+  if (!ViewsDelegate::GetInstance()->ShouldCloseMenuIfMouseCaptureLost())
+    return;
+
   MenuController* menu_controller =
       submenu_->GetMenuItem()->GetMenuController();
   if (menu_controller && !menu_controller->drag_in_progress())
@@ -296,10 +305,16 @@ void MenuHost::OnDragComplete() {
     native_widget_private()->SetCapture();
 }
 
+Widget* MenuHost::GetPrimaryWindowWidget() {
+  return owner_ ? owner_->GetPrimaryWindowWidget()
+                : Widget::GetPrimaryWindowWidget();
+}
+
 void MenuHost::OnWidgetDestroying(Widget* widget) {
   DCHECK_EQ(owner_, widget);
   owner_->RemoveObserver(this);
   owner_ = nullptr;
+  native_view_for_gestures_ = nullptr;
 }
 
 }  // namespace views

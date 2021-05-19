@@ -21,7 +21,6 @@
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_test_utils.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_features.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_switches.h"
-#include "components/variations/variations_associated_data.h"
 #include "net/base/auth.h"
 #include "net/base/host_port_pair.h"
 #include "net/base/load_flags.h"
@@ -55,7 +54,7 @@ const char kClientStr[] = "android";
 #elif defined(OS_IOS)
 const Client kClient = Client::CHROME_IOS;
 const char kClientStr[] = "ios";
-#elif defined(OS_APPLE)
+#elif defined(OS_MAC)
 const Client kClient = Client::CHROME_MAC;
 const char kClientStr[] = "mac";
 #elif BUILDFLAG(IS_CHROMEOS_ASH)
@@ -131,8 +130,8 @@ class DataReductionProxyRequestOptionsTest : public testing::Test {
   }
 
   void CreateRequestOptions(const std::string& version) {
-    request_options_.reset(
-        new TestDataReductionProxyRequestOptions(kClient, version));
+    request_options_ = std::make_unique<TestDataReductionProxyRequestOptions>(
+        kClient, version);
     request_options_->Init();
   }
 
@@ -387,7 +386,7 @@ TEST_F(DataReductionProxyRequestOptionsTest, GetSessionKeyFromRequestHeaders) {
                               test.chrome_proxy_header_value);
     request_headers.SetHeader("some_random_header_after", "some_random_key");
 
-    base::Optional<std::string> session_key =
+    absl::optional<std::string> session_key =
         request_options()->GetSessionKeyFromRequestHeaders(request_headers);
     EXPECT_EQ(test.expect_result, session_key.has_value());
     if (test.expect_result) {
@@ -429,7 +428,7 @@ TEST_F(DataReductionProxyRequestOptionsTest, GetPageIdFromRequestHeaders) {
                               test.chrome_proxy_header_value);
     request_headers.SetHeader("some_random_header_after", "some_random_key");
 
-    base::Optional<uint64_t> page_id =
+    absl::optional<uint64_t> page_id =
         request_options()->GetPageIdFromRequestHeaders(request_headers);
     EXPECT_EQ(test.expect_result, page_id.has_value());
     if (test.expect_result) {

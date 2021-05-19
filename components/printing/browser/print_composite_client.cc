@@ -12,7 +12,6 @@
 #include "build/build_config.h"
 #include "components/discardable_memory/service/discardable_shared_memory_manager.h"
 #include "components/printing/browser/service_sandbox_type.h"
-#include "components/printing/common/print_messages.h"
 #include "components/services/print_compositor/public/cpp/print_service_mojo_types.h"
 #include "components/strings/grit/components_strings.h"
 #include "content/public/browser/browser_task_traits.h"
@@ -20,6 +19,7 @@
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/service_process_host.h"
+#include "content/public/common/content_features.h"
 #include "printing/common/metafile_utils.h"
 #include "printing/printing_utils.h"
 #include "third_party/blink/public/common/associated_interfaces/associated_interface_provider.h"
@@ -50,7 +50,8 @@ ContentToFrameMap ConvertContentInfoMap(
     auto proxy_token = entry.second;
     // Find the RenderFrameHost that the proxy id corresponds to.
     content::RenderFrameHost* rfh =
-        content::RenderFrameHost::FromPlaceholderToken(process_id, proxy_token);
+        content::RenderFrameHost::FromPlaceholderToken(
+            process_id, blink::RemoteFrameToken(proxy_token));
     if (!rfh) {
       // If the corresponding RenderFrameHost cannot be found, just skip it.
       continue;
@@ -62,10 +63,12 @@ ContentToFrameMap ConvertContentInfoMap(
   return content_frame_map;
 }
 
-void BindDiscardableSharedMemoryManagerOnIOThread(
+void BindDiscardableSharedMemoryManagerOnProcessThread(
     mojo::PendingReceiver<
         discardable_memory::mojom::DiscardableSharedMemoryManager> receiver) {
-  DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
+  DCHECK_CURRENTLY_ON(base::FeatureList::IsEnabled(features::kProcessHostOnUI)
+                          ? content::BrowserThread::UI
+                          : content::BrowserThread::IO);
   discardable_memory::DiscardableSharedMemoryManager::Get()->Bind(
       std::move(receiver));
 }
@@ -370,10 +373,13 @@ mojom::PrintCompositor* PrintCompositeClient::CreateCompositeRequest(
 
   mojo::PendingRemote<discardable_memory::mojom::DiscardableSharedMemoryManager>
       discardable_memory_manager;
-  content::GetIOThreadTaskRunner({})->PostTask(
+  auto task_runner = base::FeatureList::IsEnabled(features::kProcessHostOnUI)
+                         ? content::GetUIThreadTaskRunner({})
+                         : content::GetIOThreadTaskRunner({});
+  task_runner->PostTask(
       FROM_HERE,
       base::BindOnce(
-          &BindDiscardableSharedMemoryManagerOnIOThread,
+          &BindDiscardableSharedMemoryManagerOnProcessThread,
           discardable_memory_manager.InitWithNewPipeAndPassReceiver()));
   compositor_->SetDiscardableSharedMemoryManager(
       std::move(discardable_memory_manager));

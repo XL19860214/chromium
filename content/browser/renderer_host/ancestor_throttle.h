@@ -12,14 +12,8 @@
 #include "base/macros.h"
 #include "content/public/browser/navigation_throttle.h"
 #include "services/network/public/mojom/content_security_policy.mojom-forward.h"
-#include "services/network/public/mojom/parsed_headers.mojom-forward.h"
 #include "services/network/public/mojom/x_frame_options.mojom-forward.h"
-
-class GURL;
-
-namespace url {
-class Origin;
-}
+#include "third_party/blink/public/mojom/devtools/console_message.mojom-shared.h"
 
 namespace net {
 class HttpResponseHeaders;
@@ -37,7 +31,6 @@ class CONTENT_EXPORT AncestorThrottle : public NavigationThrottle {
 
   ~AncestorThrottle() override;
 
-  NavigationThrottle::ThrottleCheckResult WillStartRequest() override;
   NavigationThrottle::ThrottleCheckResult WillRedirectRequest() override;
   NavigationThrottle::ThrottleCheckResult WillProcessResponse() override;
   const char* GetNameForLogging() override;
@@ -50,8 +43,6 @@ class CONTENT_EXPORT AncestorThrottle : public NavigationThrottle {
   FRIEND_TEST_ALL_PREFIXES(AncestorThrottleTest, ErrorsParsingXFrameOptions);
   FRIEND_TEST_ALL_PREFIXES(AncestorThrottleTest,
                            IgnoreWhenFrameAncestorsPresent);
-  FRIEND_TEST_ALL_PREFIXES(AncestorThrottleTest,
-                           AllowsBlanketEnforcementOfRequiredCSP);
 
   explicit AncestorThrottle(NavigationHandle* handle);
   NavigationThrottle::ThrottleCheckResult ProcessResponseImpl(
@@ -62,16 +53,13 @@ class CONTENT_EXPORT AncestorThrottle : public NavigationThrottle {
   void ConsoleErrorXFrameOptions(
       network::mojom::XFrameOptionsValue disposition);
   void ConsoleErrorEmbeddingRequiresOptIn();
+  void AddMessageToConsole(blink::mojom::ConsoleMessageLevel level,
+                           std::string message);
   CheckResult EvaluateXFrameOptions(LoggingDisposition logging);
   CheckResult EvaluateFrameAncestors(
       const std::vector<network::mojom::ContentSecurityPolicyPtr>&
           content_security_policy);
   CheckResult EvaluateEmbeddingOptIn(LoggingDisposition logging);
-  CheckResult EvaluateCSPEmbeddedEnforcement();
-  static bool AllowsBlanketEnforcementOfRequiredCSP(
-      const url::Origin& request_origin,
-      const GURL& response_url,
-      const network::mojom::AllowCSPFromHeaderValuePtr& allow_csp_from);
 
   DISALLOW_COPY_AND_ASSIGN(AncestorThrottle);
 };

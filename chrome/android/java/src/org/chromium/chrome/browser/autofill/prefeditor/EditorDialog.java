@@ -293,6 +293,10 @@ public class EditorDialog
     private void animateOutDialog() {
         if (mDialogInOutAnimator != null || !isShowing()) return;
 
+        if (getCurrentFocus() != null) {
+            KeyboardVisibilityDelegate.getInstance().hideKeyboard(getCurrentFocus());
+        }
+
         Animator dropDown =
                 ObjectAnimator.ofFloat(mLayout, View.TRANSLATION_Y, 0f, mLayout.getHeight());
         Animator fadeOut = ObjectAnimator.ofFloat(mLayout, View.ALPHA, mLayout.getAlpha(), 0f);
@@ -340,6 +344,9 @@ public class EditorDialog
         mDoneButton = (Button) mLayout.findViewById(R.id.button_primary);
         mDoneButton.setId(R.id.editor_dialog_done_button);
         mDoneButton.setOnClickListener(this);
+        if (mEditorModel.getCustomDoneButtonText() != null) {
+            mDoneButton.setText(mEditorModel.getCustomDoneButtonText());
+        }
 
         Button cancelButton = (Button) mLayout.findViewById(R.id.button_secondary);
         cancelButton.setId(R.id.payments_edit_cancel_button);
@@ -535,6 +542,9 @@ public class EditorDialog
         prepareEditor();
         prepareFooter();
         prepareButtons();
+
+        // Temporarily hide the content to avoid blink before animation starts.
+        mLayout.setVisibility(View.INVISIBLE);
         show();
     }
 
@@ -557,6 +567,7 @@ public class EditorDialog
             mEditableTextFields.get(i).setEnabled(false);
         }
 
+        mLayout.setVisibility(View.VISIBLE);
         mLayout.setLayerType(View.LAYER_TYPE_HARDWARE, null);
         mLayout.buildLayer();
         Animator popUp =

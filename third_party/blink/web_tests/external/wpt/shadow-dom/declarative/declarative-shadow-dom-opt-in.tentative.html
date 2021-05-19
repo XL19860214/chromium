@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <meta charset="utf-8">
 <title>Declarative Shadow DOM</title>
-<link rel="author" title="Mason Freed" href="mailto:masonfreed@chromium.org">
+<link rel="author" href="mailto:masonf@chromium.org">
 <link rel="help" href="https://github.com/whatwg/dom/issues/831">
 <script src="/resources/testharness.js"></script>
 <script src="/resources/testharnessreport.js"></script>
@@ -137,14 +137,16 @@ test(() => {
 }, 'insertAdjacentHTML on element - not supported');
 
 test(() => {
-  document.write(`<div id=doc-write-1 style="display:none">${content}</div>`);
-  assert_dsd(document.getElementById('doc-write-1'),true);
+  const id = 'doc-write-1';
+  document.write(`<div id=${id} style="display:none">${content}</div>`);
+  assert_dsd(document.getElementById(id),true);
 }, 'document.write allowed from synchronous script loaded from main document');
 
 test(() => {
+  const id = 'doc-write-2';
   const doc = document.implementation.createHTMLDocument('');
-  doc.write(`<div id=doc-write-1>${content}</div>`);
-  assert_dsd(doc.getElementById('doc-write-1'),false);
+  doc.write(`<div id=${id}>${content}</div>`);
+  assert_dsd(doc.getElementById(id),false);
 }, 'document.write disallowed on fresh document');
 
 

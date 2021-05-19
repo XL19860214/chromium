@@ -11,7 +11,6 @@
 #include "base/test/scoped_feature_list.h"
 #include "base/test/simple_test_tick_clock.h"
 #include "build/chromeos_buildflags.h"
-#include "chrome/browser/engagement/site_engagement_service.h"
 #include "chrome/browser/resource_coordinator/lifecycle_unit.h"
 #include "chrome/browser/resource_coordinator/tab_activity_watcher.h"
 #include "chrome/browser/resource_coordinator/tab_lifecycle_unit.h"
@@ -26,6 +25,7 @@
 #include "chrome/test/base/chrome_render_view_host_test_harness.h"
 #include "chrome/test/base/test_browser_window.h"
 #include "chrome/test/base/testing_profile.h"
+#include "components/site_engagement/content/site_engagement_service.h"
 #include "components/ukm/content/source_url_recorder.h"
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/render_widget_host.h"
@@ -104,7 +104,7 @@ class TabActivityWatcherTest : public ChromeRenderViewHostTestHarness {
   }
 
   // Calculate reactivation score of the |lifecycle_unit| using tab_ranker.
-  base::Optional<float> GetReactivationScore(
+  absl::optional<float> GetReactivationScore(
       LifecycleUnit* const lifecycle_unit) {
     return TabActivityWatcher::GetInstance()->CalculateReactivationScore(
         lifecycle_unit->AsTabLifecycleUnitExternal()->GetWebContents());
@@ -637,7 +637,7 @@ TEST_F(TabMetricsTest, Navigations) {
                                     ui::PAGE_TRANSITION_FROM_ADDRESS_BAR));
   WebContentsTester::For(test_contents)->TestSetIsLoading(false);
   expected_metrics[TabManager_TabMetrics::kPageTransitionCoreTypeName] =
-      base::nullopt;
+      absl::nullopt;
   expected_metrics[TabManager_TabMetrics::kPageTransitionFromAddressBarName] =
       true;
   expected_metrics[TabManager_TabMetrics::kPageTransitionIsRedirectName] =
@@ -727,7 +727,7 @@ TEST_F(TabMetricsTest, Navigations) {
                                 ui::PAGE_TRANSITION_FROM_ADDRESS_BAR));
   WebContentsTester::For(test_contents)->TestSetIsLoading(false);
   expected_metrics[TabManager_TabMetrics::kPageTransitionCoreTypeName] =
-      base::nullopt;
+      absl::nullopt;
   expected_metrics[TabManager_TabMetrics::kPageTransitionFromAddressBarName] =
       true;
   expected_metrics[TabManager_TabMetrics::kNavigationEntryCountName].value()++;

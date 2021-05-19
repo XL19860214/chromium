@@ -6,6 +6,8 @@
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_HEAP_COLLECTION_SUPPORT_HEAP_LIST_HASH_SET_H_
 
 #include "third_party/blink/renderer/platform/heap/heap.h"
+#include "third_party/blink/renderer/platform/heap/member.h"
+#include "third_party/blink/renderer/platform/heap/visitor.h"
 #include "third_party/blink/renderer/platform/wtf/list_hash_set.h"
 #include "third_party/blink/renderer/platform/wtf/type_traits.h"
 
@@ -85,10 +87,9 @@ class HeapListHashSet final
                          HashArg,
                          HeapListHashSetAllocator> {
  public:
-  HeapListHashSet() = default;
+  HeapListHashSet() { CheckType(); }
 
   void Trace(Visitor* v) const {
-    CheckType();
     ListHashSet<ValueArg, inlineCapacity, HashArg,
                 HeapListHashSetAllocator>::Trace(v);
   }

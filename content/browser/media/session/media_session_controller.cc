@@ -9,7 +9,6 @@
 #include "content/browser/media/session/media_session_impl.h"
 #include "content/browser/renderer_host/render_frame_host_impl.h"
 #include "content/browser/web_contents/web_contents_impl.h"
-#include "content/common/media/media_player_delegate_messages.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/media_device_id.h"
 #include "content/public/browser/render_frame_host.h"
@@ -80,12 +79,23 @@ void MediaSessionController::OnSeekBackward(int player_id,
       ->RequestSeekBackward(seek_time);
 }
 
+void MediaSessionController::OnSeekTo(int player_id,
+                                      base::TimeDelta seek_time) {
+  DCHECK_EQ(player_id_, player_id);
+  web_contents_->media_web_contents_observer()
+      ->GetMediaPlayerRemote(id_)
+      ->RequestSeekTo(seek_time);
+}
+
 void MediaSessionController::OnSetVolumeMultiplier(int player_id,
                                                    double volume_multiplier) {
   DCHECK_EQ(player_id_, player_id);
-  id_.render_frame_host->Send(new MediaPlayerDelegateMsg_UpdateVolumeMultiplier(
-      id_.render_frame_host->GetRoutingID(), id_.delegate_id,
-      volume_multiplier));
+
+  auto* observer = web_contents_->media_web_contents_observer();
+  // The MediaPlayer mojo interface may not be available in tests.
+  if (!observer->IsMediaPlayerRemoteAvailable(id_))
+    return;
+  observer->GetMediaPlayerRemote(id_)->SetVolumeMultiplier(volume_multiplier);
 }
 
 void MediaSessionController::OnEnterPictureInPicture(int player_id) {
@@ -107,28 +117,35 @@ void MediaSessionController::OnExitPictureInPicture(int player_id) {
 void MediaSessionController::OnSetAudioSinkId(
     int player_id,
     const std::string& raw_device_id) {
+  DCHECK_EQ(player_id_, player_id);
+
+  auto* render_frame_host = RenderFrameHost::FromID(id_.frame_routing_id);
+  if (!render_frame_host)
+    return;
+
   // The sink id needs to be hashed before it is suitable for use in the
   // renderer process.
   auto salt_and_origin = content::GetMediaDeviceSaltAndOrigin(
-      id_.render_frame_host->GetProcess()->GetID(),
-      id_.render_frame_host->GetRoutingID());
+      render_frame_host->GetProcess()->GetID(),
+      render_frame_host->GetRoutingID());
 
   std::string hashed_sink_id = GetHMACForMediaDeviceID(
       salt_and_origin.device_id_salt, salt_and_origin.origin, raw_device_id);
 
   // Grant the renderer the permission to use this audio output device.
-  static_cast<RenderFrameHostImpl*>(id_.render_frame_host)
+  static_cast<RenderFrameHostImpl*>(render_frame_host)
       ->SetAudioOutputDeviceIdForGlobalMediaControls(hashed_sink_id);
 
-  id_.render_frame_host->Send(new MediaPlayerDelegateMsg_SetAudioSinkId(
-      id_.render_frame_host->GetRoutingID(), id_.delegate_id, hashed_sink_id));
+  web_contents_->media_web_contents_observer()
+      ->GetMediaPlayerRemote(id_)
+      ->SetAudioSinkId(hashed_sink_id);
 }
 
 RenderFrameHost* MediaSessionController::render_frame_host() const {
-  return id_.render_frame_host;
+  return RenderFrameHost::FromID(id_.frame_routing_id);
 }
 
-base::Optional<media_session::MediaPosition>
+absl::optional<media_session::MediaPosition>
 MediaSessionController::GetPosition(int player_id) const {
   DCHECK_EQ(player_id_, player_id);
   return position_;
@@ -186,13 +203,15 @@ void MediaSessionController::OnAudioOutputSinkChangingDisabled() {
 }
 
 bool MediaSessionController::IsMediaSessionNeeded() const {
+  if (web_contents_->HasPictureInPictureVideo())
+    return true;
+
   if (!is_playback_in_progress_)
     return false;
 
   // We want to make sure we do not request audio focus on a muted tab as it
   // would break user expectations by pausing/ducking other playbacks.
-  const bool has_audio = has_audio_ && !web_contents_->IsAudioMuted();
-  return has_audio || web_contents_->HasPictureInPictureVideo();
+  return has_audio_ && !web_contents_->IsAudioMuted();
 }
 
 bool MediaSessionController::AddOrRemovePlayer() {

@@ -4,6 +4,7 @@
 
 #include "third_party/blink/renderer/modules/mediacapturefromelement/canvas_capture_handler.h"
 
+#include <memory>
 #include <utility>
 
 #include "base/bind.h"
@@ -13,6 +14,7 @@
 #include "base/rand_util.h"
 #include "gpu/command_buffer/client/raster_interface.h"
 #include "media/base/limits.h"
+#include "media/base/video_util.h"
 #include "third_party/blink/public/platform/web_graphics_context_3d_provider.h"
 #include "third_party/blink/public/web/modules/mediastream/media_stream_video_source.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
@@ -30,6 +32,7 @@
 #include "third_party/skia/include/core/SkImage.h"
 #include "third_party/skia/include/gpu/GrBackendSurface.h"
 #include "ui/gfx/color_space.h"
+#include "ui/gfx/geometry/size.h"
 
 namespace blink {
 
@@ -52,7 +55,7 @@ gfx::ColorSpace GetImageYUVColorSpace(scoped_refptr<StaticBitmapImage> image) {
 class VideoCapturerSource : public media::VideoCapturerSource {
  public:
   VideoCapturerSource(base::WeakPtr<CanvasCaptureHandler> canvas_handler,
-                      const blink::WebSize& size,
+                      const gfx::Size& size,
                       double frame_rate)
       : size_(size),
         frame_rate_(static_cast<float>(
@@ -91,9 +94,14 @@ class VideoCapturerSource : public media::VideoCapturerSource {
     if (canvas_handler_.get())
       canvas_handler_->StopVideoCapture();
   }
+  void SetCanDiscardAlpha(bool can_discard_alpha) override {
+    DCHECK_CALLED_ON_VALID_THREAD(main_render_thread_checker_);
+    if (canvas_handler_.get())
+      canvas_handler_->SetCanDiscardAlpha(can_discard_alpha);
+  }
 
  private:
-  const blink::WebSize size_;
+  const gfx::Size size_;
   const float frame_rate_;
   // Bound to Main Render thread.
   THREAD_CHECKER(main_render_thread_checker_);
@@ -118,7 +126,7 @@ class CanvasCaptureHandler::CanvasCaptureHandlerDelegate {
   void SendNewFrameOnIOThread(scoped_refptr<media::VideoFrame> video_frame,
                               base::TimeTicks current_time) {
     DCHECK_CALLED_ON_VALID_THREAD(io_thread_checker_);
-    new_frame_callback_.Run(std::move(video_frame), current_time);
+    new_frame_callback_.Run(std::move(video_frame), {}, current_time);
   }
 
   base::WeakPtr<CanvasCaptureHandlerDelegate> GetWeakPtrForIOThread() {
@@ -137,7 +145,7 @@ class CanvasCaptureHandler::CanvasCaptureHandlerDelegate {
 
 CanvasCaptureHandler::CanvasCaptureHandler(
     LocalFrame* frame,
-    const blink::WebSize& size,
+    const gfx::Size& size,
     double frame_rate,
     scoped_refptr<base::SingleThreadTaskRunner> io_task_runner,
     MediaStreamComponent** component)
@@ -158,7 +166,7 @@ CanvasCaptureHandler::~CanvasCaptureHandler() {
 std::unique_ptr<CanvasCaptureHandler>
 CanvasCaptureHandler::CreateCanvasCaptureHandler(
     LocalFrame* frame,
-    const blink::WebSize& size,
+    const gfx::Size& size,
     double frame_rate,
     scoped_refptr<base::SingleThreadTaskRunner> io_task_runner,
     MediaStreamComponent** component) {
@@ -182,19 +190,18 @@ void CanvasCaptureHandler::SendNewFrame(
   if (!image->IsTextureBacked()) {
     // Initially try accessing pixels directly if they are in memory.
     sk_sp<SkImage> sk_image = image->PaintImageForCurrentFrame().GetSwSkImage();
-    SkPixmap pixmap;
-    if (sk_image->peekPixels(&pixmap) &&
-        (pixmap.colorType() == kRGBA_8888_SkColorType ||
-         pixmap.colorType() == kBGRA_8888_SkColorType) &&
-        (pixmap.alphaType() == kUnpremul_SkAlphaType || sk_image->isOpaque())) {
-      const base::TimeTicks timestamp = base::TimeTicks::Now();
-      SendFrame(ConvertToYUVFrame(
-                    sk_image->isOpaque(), false,
-                    static_cast<const uint8_t*>(pixmap.addr(0, 0)),
-                    gfx::Size(pixmap.width(), pixmap.height()),
-                    static_cast<int>(pixmap.rowBytes()), pixmap.colorType()),
-                timestamp, GetImageYUVColorSpace(image));
-      return;
+    if (sk_image->alphaType() != kPremul_SkAlphaType) {
+      const gfx::Size sk_image_size(sk_image->width(), sk_image->height());
+      auto sk_image_video_frame = media::CreateFromSkImage(
+          std::move(sk_image), gfx::Rect(sk_image_size), sk_image_size,
+          base::TimeDelta());
+      if (sk_image_video_frame) {
+        const base::TimeTicks timestamp = base::TimeTicks::Now();
+        SendFrame(ConvertToYUVFrame(std::move(sk_image_video_frame),
+                                    /* flip = */ false),
+                  timestamp, GetImageYUVColorSpace(image));
+        return;
+      }
     }
 
     // Copy the pixels into memory synchronously. This call may block the main
@@ -231,7 +238,8 @@ void CanvasCaptureHandler::StartVideoCapture(
   DCHECK_CALLED_ON_VALID_THREAD(main_render_thread_checker_);
   DCHECK(params.requested_format.IsValid());
   capture_format_ = params.requested_format;
-  delegate_.reset(new CanvasCaptureHandlerDelegate(new_frame_callback));
+  delegate_ =
+      std::make_unique<CanvasCaptureHandlerDelegate>(new_frame_callback);
   DCHECK(delegate_);
   ask_for_new_frame_ = true;
   running_callback.Run(true);
@@ -267,14 +275,16 @@ void CanvasCaptureHandler::ReadARGBPixelsSync(
   PaintImage paint_image = image->PaintImageForCurrentFrame();
   const base::TimeTicks timestamp = base::TimeTicks::Now();
   const gfx::Size image_size(paint_image.width(), paint_image.height());
+  const bool is_opaque = paint_image.IsOpaque();
+  const media::VideoPixelFormat temp_argb_pixel_format =
+      media::VideoPixelFormatFromSkColorType(kN32_SkColorType, is_opaque);
   scoped_refptr<media::VideoFrame> temp_argb_frame = frame_pool_.CreateFrame(
-      media::PIXEL_FORMAT_ARGB, image_size, gfx::Rect(image_size), image_size,
+      temp_argb_pixel_format, image_size, gfx::Rect(image_size), image_size,
       base::TimeDelta());
   if (!temp_argb_frame) {
     DLOG(ERROR) << "Couldn't allocate video frame";
     return;
   }
-  const bool is_opaque = paint_image.IsOpaque();
   SkImageInfo image_info = SkImageInfo::MakeN32(
       image_size.width(), image_size.height(),
       is_opaque ? kPremul_SkAlphaType : kUnpremul_SkAlphaType);
@@ -286,13 +296,8 @@ void CanvasCaptureHandler::ReadARGBPixelsSync(
     DLOG(ERROR) << "Couldn't read pixels from PaintImage";
     return;
   }
-  SendFrame(
-      ConvertToYUVFrame(
-          is_opaque, false /* flip */,
-          temp_argb_frame->visible_data(media::VideoFrame::kARGBPlane),
-          image_size, temp_argb_frame->stride(media::VideoFrame::kARGBPlane),
-          kN32_SkColorType),
-      timestamp, GetImageYUVColorSpace(image));
+  SendFrame(ConvertToYUVFrame(std::move(temp_argb_frame), /* flip = */ false),
+            timestamp, GetImageYUVColorSpace(image));
 }
 
 void CanvasCaptureHandler::ReadARGBPixelsAsync(
@@ -302,9 +307,12 @@ void CanvasCaptureHandler::ReadARGBPixelsAsync(
   DCHECK(context_provider);
 
   const base::TimeTicks timestamp = base::TimeTicks::Now();
+  const bool is_opaque = image->CurrentFrameKnownToBeOpaque();
+  const media::VideoPixelFormat temp_argb_pixel_format =
+      media::VideoPixelFormatFromSkColorType(kN32_SkColorType, is_opaque);
   const gfx::Size image_size(image->width(), image->height());
   scoped_refptr<media::VideoFrame> temp_argb_frame = frame_pool_.CreateFrame(
-      media::PIXEL_FORMAT_ARGB, image_size, gfx::Rect(image_size), image_size,
+      temp_argb_pixel_format, image_size, gfx::Rect(image_size), image_size,
       base::TimeDelta());
   if (!temp_argb_frame) {
     DLOG(ERROR) << "Couldn't allocate video frame";
@@ -315,11 +323,20 @@ void CanvasCaptureHandler::ReadARGBPixelsAsync(
                     kN32_SkColorType == kBGRA_8888_SkColorType,
                 "CanvasCaptureHandler::ReadARGBPixelsAsync supports only "
                 "kRGBA_8888_SkColorType and kBGRA_8888_SkColorType.");
-  GLenum format;
-  if (kN32_SkColorType == kRGBA_8888_SkColorType)
-    format = GL_RGBA;
-  else
-    format = GL_BGRA_EXT;
+  SkImageInfo info = SkImageInfo::MakeN32(
+      image_size.width(), image_size.height(),
+      is_opaque ? kOpaque_SkAlphaType : kUnpremul_SkAlphaType);
+  GLuint row_bytes;
+  if (!base::CheckedNumeric<size_t>(info.minRowBytes())
+           .AssignIfValid(&row_bytes)) {
+    DLOG(ERROR) << "Row stride must fit in GLuint (32 bits), given stride: "
+                << info.minRowBytes();
+    return;
+  }
+
+  GrSurfaceOrigin image_origin = image->IsOriginTopLeft()
+                                     ? kTopLeft_GrSurfaceOrigin
+                                     : kBottomLeft_GrSurfaceOrigin;
 
   IncrementOngoingAsyncPixelReadouts();
   gpu::MailboxHolder mailbox_holder = image->GetMailboxHolder();
@@ -327,11 +344,11 @@ void CanvasCaptureHandler::ReadARGBPixelsAsync(
   context_provider->RasterInterface()->WaitSyncTokenCHROMIUM(
       mailbox_holder.sync_token.GetConstData());
   context_provider->RasterInterface()->ReadbackARGBPixelsAsync(
-      mailbox_holder.mailbox, mailbox_holder.texture_target, image_size,
-      temp_argb_frame->visible_data(media::VideoFrame::kARGBPlane), format,
+      mailbox_holder.mailbox, mailbox_holder.texture_target, image_origin, info,
+      row_bytes, temp_argb_frame->visible_data(media::VideoFrame::kARGBPlane),
       WTF::Bind(&CanvasCaptureHandler::OnARGBPixelsReadAsync,
                 weak_ptr_factory_.GetWeakPtr(), image, temp_argb_frame,
-                timestamp, !image->IsOriginTopLeft()));
+                timestamp));
 }
 
 void CanvasCaptureHandler::ReadYUVPixelsAsync(
@@ -376,7 +393,7 @@ void CanvasCaptureHandler::OnARGBPixelsReadAsync(
     scoped_refptr<StaticBitmapImage> image,
     scoped_refptr<media::VideoFrame> temp_argb_frame,
     base::TimeTicks this_frame_ticks,
-    bool flip,
+    GrSurfaceOrigin result_origin,
     bool success) {
   DCHECK_CALLED_ON_VALID_THREAD(main_render_thread_checker_);
   DecrementOngoingAsyncPixelReadouts();
@@ -388,15 +405,10 @@ void CanvasCaptureHandler::OnARGBPixelsReadAsync(
     return;
   }
   // Let |image| fall out of scope after we are done reading.
-  const bool is_opaque = image->CurrentFrameKnownToBeOpaque();
   const auto color_space = GetImageYUVColorSpace(image);
 
-  SendFrame(ConvertToYUVFrame(
-                is_opaque, flip,
-                temp_argb_frame->visible_data(media::VideoFrame::kARGBPlane),
-                temp_argb_frame->visible_rect().size(),
-                temp_argb_frame->stride(media::VideoFrame::kARGBPlane),
-                kN32_SkColorType),
+  bool flip = result_origin == kBottomLeft_GrSurfaceOrigin;
+  SendFrame(ConvertToYUVFrame(std::move(temp_argb_frame), flip),
             this_frame_ticks, color_space);
   if (num_ongoing_async_pixel_readouts_ == 0 && deferred_request_refresh_frame_)
     SendRefreshFrame();
@@ -422,16 +434,21 @@ void CanvasCaptureHandler::OnReleaseMailbox(
 }
 
 scoped_refptr<media::VideoFrame> CanvasCaptureHandler::ConvertToYUVFrame(
-    bool is_opaque,
-    bool flip,
-    const uint8_t* source_ptr,
-    const gfx::Size& image_size,
-    int stride,
-    SkColorType source_color_type) {
+    scoped_refptr<media::VideoFrame> temp_argb_frame,
+    bool flip) {
   DVLOG(4) << __func__;
   DCHECK_CALLED_ON_VALID_THREAD(main_render_thread_checker_);
   TRACE_EVENT0("webrtc", "CanvasCaptureHandler::ConvertToYUVFrame");
 
+  const bool is_opaque = media::IsOpaque(temp_argb_frame->format());
+  const uint8_t* source_ptr =
+      temp_argb_frame->visible_data(media::VideoFrame::kARGBPlane);
+  const gfx::Size image_size = temp_argb_frame->coded_size();
+  const int stride = temp_argb_frame->stride(media::VideoFrame::kARGBPlane);
+
+  // TODO(https://crbug.com/1191932): Use |is_opaque || can_discard_alpha_|
+  // instead of just |is_opaque| to determine if the format should be
+  // I420 versus I420A.
   scoped_refptr<media::VideoFrame> video_frame = frame_pool_.CreateFrame(
       is_opaque ? media::PIXEL_FORMAT_I420 : media::PIXEL_FORMAT_I420A,
       image_size, gfx::Rect(image_size), image_size, base::TimeDelta());
@@ -444,15 +461,17 @@ scoped_refptr<media::VideoFrame> CanvasCaptureHandler::ConvertToYUVFrame(
                        uint8_t* dst_y, int dst_stride_y, uint8_t* dst_u,
                        int dst_stride_u, uint8_t* dst_v, int dst_stride_v,
                        int width, int height) = nullptr;
-  switch (source_color_type) {
-    case kRGBA_8888_SkColorType:
+  switch (temp_argb_frame->format()) {
+    case media::PIXEL_FORMAT_XBGR:
+    case media::PIXEL_FORMAT_ABGR:
       ConvertToI420 = libyuv::ABGRToI420;
       break;
-    case kBGRA_8888_SkColorType:
+    case media::PIXEL_FORMAT_XRGB:
+    case media::PIXEL_FORMAT_ARGB:
       ConvertToI420 = libyuv::ARGBToI420;
       break;
     default:
-      NOTIMPLEMENTED() << "Unexpected SkColorType.";
+      NOTIMPLEMENTED() << "Unexpected pixel format.";
       return nullptr;
   }
 

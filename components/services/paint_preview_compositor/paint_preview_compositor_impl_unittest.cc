@@ -16,7 +16,6 @@
 #include "base/files/file_path.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/notreached.h"
-#include "base/optional.h"
 #include "base/test/task_environment.h"
 #include "base/unguessable_token.h"
 #include "components/paint_preview/common/capture_result.h"
@@ -28,6 +27,7 @@
 #include "mojo/public/cpp/base/big_buffer.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/skia/include/core/SkCanvas.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "third_party/skia/include/core/SkMatrix.h"
@@ -127,7 +127,7 @@ SkRect ToSkRect(const gfx::Rect& rect) {
 void DrawDummyTestPicture(SkCanvas* canvas,
                           SkColor rect_fill_color,
                           const gfx::Size& scroll_extents,
-                          base::Optional<gfx::Rect> clip_rect = base::nullopt,
+                          absl::optional<gfx::Rect> clip_rect = absl::nullopt,
                           gfx::Size scroll_offsets = gfx::Size()) {
   canvas->save();
   if (clip_rect.has_value()) {
@@ -232,7 +232,7 @@ void PopulateFrameProto(
   size_t serialized_size = 0;
   ASSERT_TRUE(RecordToFile(
       base::File(path, base::File::FLAG_CREATE_ALWAYS | base::File::FLAG_WRITE),
-      pic, &tracker, base::nullopt, &serialized_size));
+      pic, &tracker, absl::nullopt, &serialized_size));
   ASSERT_GE(serialized_size, 0u);
 
   expected_data->insert({guid, std::move(expected_frame_data)});
@@ -599,8 +599,7 @@ TEST(PaintPreviewCompositorTest, TestComposite) {
   gfx::Rect rect = gfx::ScaleToEnclosingRect(
       gfx::Rect(root_frame_scroll_extent), scale_factor);
   SkBitmap bitmap;
-  bitmap.allocPixels(
-      SkImageInfo::MakeN32(rect.width(), rect.height(), kOpaque_SkAlphaType));
+  bitmap.allocPixels(SkImageInfo::MakeN32Premul(rect.width(), rect.height()));
   SkCanvas canvas(bitmap, SkSurfaceProps{});
   canvas.scale(scale_factor, scale_factor);
   DrawDummyTestPicture(&canvas, SK_ColorDKGRAY, root_frame_scroll_extent);
@@ -646,7 +645,7 @@ TEST(PaintPreviewCompositorTest, TestCompositeWithMemoryBuffer) {
                                 /*is_main_frame=*/true);
     size_t serialized_size = 0;
     auto result =
-        RecordToBuffer(pic, &tracker, base::nullopt, &serialized_size);
+        RecordToBuffer(pic, &tracker, absl::nullopt, &serialized_size);
     ASSERT_TRUE(result.has_value());
     buffer = std::move(result.value());
 
@@ -671,8 +670,7 @@ TEST(PaintPreviewCompositorTest, TestCompositeWithMemoryBuffer) {
   gfx::Rect rect = gfx::ScaleToEnclosingRect(
       gfx::Rect(root_frame_scroll_extent), scale_factor);
   SkBitmap bitmap;
-  bitmap.allocPixels(
-      SkImageInfo::MakeN32(rect.width(), rect.height(), kOpaque_SkAlphaType));
+  bitmap.allocPixels(SkImageInfo::MakeN32Premul(rect.width(), rect.height()));
   SkCanvas canvas(bitmap, SkSurfaceProps{});
   canvas.scale(scale_factor, scale_factor);
   DrawDummyTestPicture(&canvas, SK_ColorDKGRAY, root_frame_scroll_extent);
@@ -719,8 +717,7 @@ TEST(PaintPreviewCompositorTest, TestCompositeMainFrameNoDependencies) {
   gfx::Rect rect = gfx::ScaleToEnclosingRect(
       gfx::Rect(root_frame_scroll_extent), scale_factor);
   SkBitmap bitmap;
-  bitmap.allocPixels(
-      SkImageInfo::MakeN32(rect.width(), rect.height(), kOpaque_SkAlphaType));
+  bitmap.allocPixels(SkImageInfo::MakeN32Premul(rect.width(), rect.height()));
   SkCanvas canvas(bitmap, SkSurfaceProps{});
   canvas.scale(scale_factor, scale_factor);
   DrawDummyTestPicture(&canvas, SK_ColorDKGRAY, root_frame_scroll_extent);
@@ -774,8 +771,7 @@ TEST(PaintPreviewCompositorTest, TestCompositeMainFrameOneDependency) {
   gfx::Rect rect = gfx::ScaleToEnclosingRect(
       gfx::Rect(root_frame_scroll_extent), scale_factor);
   SkBitmap bitmap;
-  bitmap.allocPixels(
-      SkImageInfo::MakeN32(rect.width(), rect.height(), kOpaque_SkAlphaType));
+  bitmap.allocPixels(SkImageInfo::MakeN32Premul(rect.width(), rect.height()));
   SkCanvas canvas(bitmap, SkSurfaceProps{});
   canvas.scale(scale_factor, scale_factor);
   DrawDummyTestPicture(&canvas, SK_ColorDKGRAY, root_frame_scroll_extent);
@@ -833,8 +829,7 @@ TEST(PaintPreviewCompositorTest, TestCompositeMainFrameOneDependencyScrolled) {
   gfx::Rect rect = gfx::ScaleToEnclosingRect(
       gfx::Rect(root_frame_scroll_extent), scale_factor);
   SkBitmap bitmap;
-  bitmap.allocPixels(
-      SkImageInfo::MakeN32(rect.width(), rect.height(), kOpaque_SkAlphaType));
+  bitmap.allocPixels(SkImageInfo::MakeN32Premul(rect.width(), rect.height()));
   SkCanvas canvas(bitmap, SkSurfaceProps{});
   canvas.scale(scale_factor, scale_factor);
   DrawDummyTestPicture(&canvas, SK_ColorDKGRAY, root_frame_scroll_extent);
@@ -895,8 +890,72 @@ TEST(PaintPreviewCompositorTest,
   gfx::Rect rect =
       gfx::ScaleToEnclosingRect(root_frame_clip_rect, scale_factor);
   SkBitmap bitmap;
-  bitmap.allocPixels(
-      SkImageInfo::MakeN32(rect.width(), rect.height(), kOpaque_SkAlphaType));
+  bitmap.allocPixels(SkImageInfo::MakeN32Premul(rect.width(), rect.height()));
+  SkCanvas canvas(bitmap, SkSurfaceProps{});
+  canvas.scale(scale_factor, scale_factor);
+  // Offset the canvas to simulate the root frame being scrolled.
+  canvas.translate(-root_frame_clip_rect.x(), -root_frame_clip_rect.y());
+  DrawDummyTestPicture(&canvas, SK_ColorDKGRAY, root_frame_scroll_extent,
+                       root_frame_clip_rect, root_frame_scroll_offsets);
+  DrawDummyTestPicture(&canvas, SK_ColorLTGRAY, subframe_0_scroll_extent,
+                       subframe_0_clip_rect);
+  compositor.BitmapForMainFrame(
+      rect, scale_factor,
+      base::BindOnce(&BitmapCallbackImpl,
+                     mojom::PaintPreviewCompositor::BitmapStatus::kSuccess,
+                     bitmap));
+  task_environment.RunUntilIdle();
+}
+
+TEST(PaintPreviewCompositorTest,
+     TestCompositeMainFrameOneDependencyWithRootFrameScrolledWithClamp) {
+  base::test::TaskEnvironment task_environment;
+  base::ScopedTempDir temp_dir;
+  ASSERT_TRUE(temp_dir.CreateUniqueTempDir());
+  PaintPreviewCompositorImpl compositor(mojo::NullReceiver(), nullptr,
+                                        base::BindOnce([]() {}));
+  GURL url("https://www.chromium.org");
+  const base::UnguessableToken kRootFrameID = base::UnguessableToken::Create();
+  gfx::Size root_frame_scroll_extent(110, 215);
+  gfx::Size root_frame_scroll_offsets(50, 20);
+  gfx::Rect root_frame_clip_rect(50, 20, 100, 200);
+  const base::UnguessableToken kSubframe_0_ID =
+      base::UnguessableToken::Create();
+  gfx::Size subframe_0_scroll_extent(50, 75);
+  gfx::Rect subframe_0_clip_rect(10, 20, 30, 40);
+
+  PaintPreviewProto proto;
+  proto.mutable_metadata()->set_url(url.spec());
+  base::flat_map<base::UnguessableToken, mojom::FrameDataPtr> expected_data;
+  PopulateFrameProto(proto.mutable_root_frame(), kRootFrameID, true,
+                     temp_dir.GetPath().AppendASCII("root.skp"),
+                     root_frame_scroll_extent,
+                     {{kSubframe_0_ID, subframe_0_clip_rect}}, &expected_data,
+                     root_frame_scroll_offsets);
+  PopulateFrameProto(proto.add_subframes(), kSubframe_0_ID, false,
+                     temp_dir.GetPath().AppendASCII("subframe_0.skp"),
+                     subframe_0_scroll_extent, {}, &expected_data, gfx::Size(),
+                     SK_ColorLTGRAY);
+
+  mojom::PaintPreviewBeginCompositeRequestPtr request =
+      mojom::PaintPreviewBeginCompositeRequest::New();
+  request->recording_map = RecordingMapFromPaintPreviewProto(proto);
+  request->proto = ToReadOnlySharedMemory(proto);
+  expected_data.erase(kSubframe_0_ID);
+  expected_data.find(kRootFrameID)->second->subframes.clear();
+  compositor.BeginMainFrameComposite(
+      std::move(request),
+      base::BindOnce(
+          &BeginCompositeCallbackImpl,
+          mojom::PaintPreviewCompositor::BeginCompositeStatus::kSuccess,
+          kRootFrameID, std::move(expected_data)));
+  float scale_factor = 1;
+  root_frame_clip_rect.set_width(110 - 50);
+  root_frame_clip_rect.set_height(215 - 20);
+  gfx::Rect rect =
+      gfx::ScaleToEnclosingRect(root_frame_clip_rect, scale_factor);
+  SkBitmap bitmap;
+  bitmap.allocPixels(SkImageInfo::MakeN32Premul(rect.width(), rect.height()));
   SkCanvas canvas(bitmap, SkSurfaceProps{});
   canvas.scale(scale_factor, scale_factor);
   // Offset the canvas to simulate the root frame being scrolled.

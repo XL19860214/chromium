@@ -37,14 +37,19 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) NetworkConnectionHandlerImpl
   // NetworkStateHandlerObserver
   void NetworkListChanged() override;
   void NetworkPropertiesUpdated(const NetworkState* network) override;
+  void NetworkIdentifierTransitioned(const std::string& old_service_path,
+                                     const std::string& new_service_path,
+                                     const std::string& old_guid,
+                                     const std::string& new_guid) override;
 
   // NetworkCertLoader::Observer
   void OnCertificatesLoaded() override;
 
-  void Init(NetworkStateHandler* network_state_handler,
-            NetworkConfigurationHandler* network_configuration_handler,
-            ManagedNetworkConfigurationHandler*
-                managed_network_configuration_handler) override;
+  void Init(
+      NetworkStateHandler* network_state_handler,
+      NetworkConfigurationHandler* network_configuration_handler,
+      ManagedNetworkConfigurationHandler* managed_network_configuration_handler,
+      CellularConnectionHandler* cellular_connection_handler) override;
 
  private:
   struct ConnectRequest {
@@ -74,6 +79,10 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) NetworkConnectionHandlerImpl
 
   ConnectRequest* GetPendingRequest(const std::string& service_path);
 
+  void OnPrepareCellularNetworkForConnectionFailure(
+      const std::string& service_path,
+      const std::string& error_name);
+
   // Callback from Shill.Service.GetProperties. Parses |properties| to verify
   // whether or not the network appears to be configured. If configured,
   // attempts a connection, otherwise invokes error_callback from
@@ -81,7 +90,7 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) NetworkConnectionHandlerImpl
   // ConnectToNetwork(), see comment for info.
   void VerifyConfiguredAndConnect(bool check_error_state,
                                   const std::string& service_path,
-                                  base::Optional<base::Value> properties);
+                                  absl::optional<base::Value> properties);
 
   // Queues a connect request until certificates have loaded.
   void QueueConnectRequest(const std::string& service_path);
@@ -109,6 +118,9 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) NetworkConnectionHandlerImpl
                                  const std::string& error_name,
                                  const std::string& error_message);
 
+  // Sets connection request to started and calls callback if necessary.
+  void HandleNetworkConnectStarted(ConnectRequest* request);
+
   // Note: |service_path| is passed by value here, because in some cases
   // the value may be located in the map and then it can be deleted, producing
   // a reference to invalid memory.
@@ -132,10 +144,11 @@ class COMPONENT_EXPORT(CHROMEOS_NETWORK) NetworkConnectionHandlerImpl
                                     base::OnceClosure success_callback);
 
   // Local references to the associated handler instances.
-  NetworkCertLoader* network_cert_loader_;
-  NetworkStateHandler* network_state_handler_;
-  NetworkConfigurationHandler* configuration_handler_;
-  ManagedNetworkConfigurationHandler* managed_configuration_handler_;
+  NetworkCertLoader* network_cert_loader_ = nullptr;
+  NetworkStateHandler* network_state_handler_ = nullptr;
+  NetworkConfigurationHandler* configuration_handler_ = nullptr;
+  ManagedNetworkConfigurationHandler* managed_configuration_handler_ = nullptr;
+  CellularConnectionHandler* cellular_connection_handler_ = nullptr;
 
   // Map of pending connect requests, used to prevent repeated attempts while
   // waiting for Shill and to trigger callbacks on eventual success or failure.

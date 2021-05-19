@@ -74,7 +74,8 @@
 namespace blink {
 
 VisualViewport::VisualViewport(Page& owner)
-    : page_(&owner),
+    : ScrollableArea(owner.GetAgentGroupScheduler().CompositorTaskRunner()),
+      page_(&owner),
       parent_property_tree_state_(PropertyTreeState::Uninitialized()),
       scale_(1),
       is_pinch_gesture_active_(false),
@@ -327,7 +328,7 @@ PaintPropertyChangeType VisualViewport::UpdatePaintPropertyNodesIfNeeded(
 
   if (change == PaintPropertyChangeType::kNodeAddedOrRemoved &&
       LocalMainFrame()) {
-    LocalMainFrame()->View()->SetVisualViewportNeedsRepaint();
+    LocalMainFrame()->View()->SetVisualViewportOrOverlayNeedsRepaint();
   }
 
   return change;
@@ -380,7 +381,7 @@ void VisualViewport::SetSize(const IntSize& size) {
     DCHECK(scrollbar_layer_vertical_);
     UpdateScrollbarLayer(kHorizontalScrollbar);
     UpdateScrollbarLayer(kVerticalScrollbar);
-    LocalMainFrame()->View()->SetVisualViewportNeedsRepaint();
+    LocalMainFrame()->View()->SetVisualViewportOrOverlayNeedsRepaint();
   }
 
   EnqueueResizeEvent();
@@ -499,8 +500,15 @@ double VisualViewport::VisibleHeightCSSPx() const {
 bool VisualViewport::DidSetScaleOrLocation(float scale,
                                            bool is_pinch_gesture_active,
                                            const FloatPoint& location) {
-  if (!LocalMainFrame())
+  if (!LocalMainFrame()) {
+    is_pinch_gesture_active_ = is_pinch_gesture_active;
+    // The VisualViewport for a remote mainframe must always be 1.0 or else
+    // event targeting will fail.
+    DCHECK(scale == 1.f);
+    scale_ = scale;
+    offset_ = ScrollOffset();
     return false;
+  }
 
   bool values_changed = false;
 
@@ -584,14 +592,13 @@ void VisualViewport::CreateLayers() {
   scroll_layer_->SetBounds(gfx::Size(ContentsSize()));
   scroll_layer_->SetElementId(GetScrollElementId());
 
-  ScrollingCoordinator* coordinator = GetPage().GetScrollingCoordinator();
-  DCHECK(coordinator);
-  LayerForScrollingDidChange(coordinator->GetCompositorAnimationTimeline());
-
   InitializeScrollbars();
 
-  if (LocalMainFrame())
+  if (LocalMainFrame()) {
+    ScrollingCoordinator* coordinator = GetPage().GetScrollingCoordinator();
+    DCHECK(coordinator);
     coordinator->UpdateCompositorScrollOffset(*LocalMainFrame(), *this);
+  }
 }
 
 void VisualViewport::InitializeScrollbars() {
@@ -614,12 +621,21 @@ void VisualViewport::InitializeScrollbars() {
   // longer supplies scrollbars.
   LocalFrame* frame = LocalMainFrame();
   if (frame && frame->View())
-    frame->View()->VisualViewportScrollbarsChanged();
+    frame->View()->SetVisualViewportOrOverlayNeedsRepaint();
+}
+
+EScrollbarWidth VisualViewport::CSSScrollbarWidth() const {
+  if (LocalFrame* main_frame = LocalMainFrame()) {
+    if (Document* main_document = main_frame->GetDocument())
+      return main_document->GetLayoutView()->StyleRef().ScrollbarWidth();
+  }
+
+  return EScrollbarWidth::kAuto;
 }
 
 int VisualViewport::ScrollbarThickness() const {
   return ScrollbarThemeOverlayMobile::GetInstance().ScrollbarThickness(
-      ScaleFromDIP());
+      ScaleFromDIP(), CSSScrollbarWidth());
 }
 
 void VisualViewport::UpdateScrollbarLayer(ScrollbarOrientation orientation) {
@@ -629,8 +645,8 @@ void VisualViewport::UpdateScrollbarLayer(ScrollbarOrientation orientation) {
   if (!scrollbar_layer) {
     auto& theme = ScrollbarThemeOverlayMobile::GetInstance();
     float scale = ScaleFromDIP();
-    int thumb_thickness = theme.ThumbThickness(scale);
-    int scrollbar_margin = theme.ScrollbarMargin(scale);
+    int thumb_thickness = theme.ThumbThickness(scale, CSSScrollbarWidth());
+    int scrollbar_margin = theme.ScrollbarMargin(scale, CSSScrollbarWidth());
     cc::ScrollbarOrientation cc_orientation =
         orientation == kHorizontalScrollbar
             ? cc::ScrollbarOrientation::HORIZONTAL
@@ -841,7 +857,7 @@ mojom::blink::ColorScheme VisualViewport::UsedColorScheme() const {
     if (Document* main_document = main_frame->GetDocument())
       return main_document->GetLayoutView()->StyleRef().UsedColorScheme();
   }
-  return ComputedStyle::InitialStyle().UsedColorScheme();
+  return mojom::blink::ColorScheme::kLight;
 }
 
 void VisualViewport::UpdateScrollOffset(const ScrollOffset& position,

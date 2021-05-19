@@ -2026,7 +2026,7 @@ class ResponseAnalyzerTest : public testing::Test,
 
     // Create the site lock, which may differ from the initiator origin or be
     // empty.
-    base::Optional<url::Origin> request_initiator_origin_lock;
+    absl::optional<url::Origin> request_initiator_origin_lock;
     if (strlen(scenario.initiator_site_lock) > 0)
       request_initiator_origin_lock =
           url::Origin::Create(GURL(scenario.initiator_site_lock));
@@ -2565,9 +2565,10 @@ TEST(CrossOriginReadBlockingTest, SniffForJSON) {
   EXPECT_EQ(SniffingResult::kMaybe,
             CrossOriginReadBlocking::SniffForJSON("{\"\\\""))
       << "Incomplete escape results in maybe";
-  EXPECT_EQ(SniffingResult::kNo,
+  EXPECT_EQ(SniffingResult::kYes,
             CrossOriginReadBlocking::SniffForJSON("{\"\n\" : true}"))
-      << "Unescaped control characters are rejected";
+      << "Unescaped control characters are accepted (a bit more like "
+      << "Javascript than strict reading of the JSON spec)";
   EXPECT_EQ(SniffingResult::kNo, CrossOriginReadBlocking::SniffForJSON("{}"))
       << "Empty dictionary is not recognized (since it's valid JS too)";
   EXPECT_EQ(SniffingResult::kNo,

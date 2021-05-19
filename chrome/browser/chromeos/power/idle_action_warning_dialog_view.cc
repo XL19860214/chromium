@@ -14,6 +14,7 @@
 #include "ui/aura/window_event_dispatcher.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/l10n/time_format.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/base/ui_base_types.h"
 #include "ui/gfx/geometry/size.h"
 #include "ui/gfx/text_constants.h"
@@ -41,8 +42,8 @@ IdleActionWarningDialogView::IdleActionWarningDialogView(
       views::DISTANCE_MODAL_DIALOG_PREFERRED_WIDTH));
 
   SetBorder(views::CreateEmptyBorder(
-      ChromeLayoutProvider::Get()->GetDialogInsetsForContentType(views::TEXT,
-                                                                 views::TEXT)));
+      ChromeLayoutProvider::Get()->GetDialogInsetsForContentType(
+          views::DialogContentType::kText, views::DialogContentType::kText)));
   SetLayoutManager(std::make_unique<views::FillLayout>());
 
   views::Label* label = new views::Label(
@@ -71,7 +72,7 @@ void IdleActionWarningDialogView::Update(base::TimeTicks idle_action_time) {
   UpdateTitle();
 }
 
-base::string16 IdleActionWarningDialogView::GetWindowTitle() const {
+std::u16string IdleActionWarningDialogView::GetWindowTitle() const {
   const base::TimeDelta time_until_idle_action =
       std::max(idle_action_time_ - base::TimeTicks::Now(), base::TimeDelta());
   return l10n_util::GetStringFUTF16(
@@ -86,5 +87,8 @@ IdleActionWarningDialogView::~IdleActionWarningDialogView() = default;
 void IdleActionWarningDialogView::UpdateTitle() {
   GetWidget()->UpdateWindowTitle();
 }
+
+BEGIN_METADATA(IdleActionWarningDialogView, views::DialogDelegateView)
+END_METADATA
 
 }  // namespace chromeos

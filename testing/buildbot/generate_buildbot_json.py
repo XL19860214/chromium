@@ -389,6 +389,9 @@ class BBJSONGenerator(object):
   def is_chromeos(self, tester_config):
     return tester_config.get('os_type') == 'chromeos'
 
+  def is_lacros(self, tester_config):
+    return tester_config.get('os_type') == 'lacros'
+
   def is_linux(self, tester_config):
     return tester_config.get('os_type') == 'linux'
 
@@ -576,6 +579,7 @@ class BBJSONGenerator(object):
         args.extend(val)
 
     add_conditional_args('desktop_args', lambda cfg: not self.is_android(cfg))
+    add_conditional_args('lacros_args', self.is_lacros)
     add_conditional_args('linux_args', self.is_linux)
     add_conditional_args('android_args', self.is_android)
     add_conditional_args('chromeos_args', self.is_chromeos)
@@ -606,13 +610,19 @@ class BBJSONGenerator(object):
           tester_config['swarming']['dimension_sets'])
       self.dictionary_merge(generated_test['swarming'],
                             tester_config['swarming'])
-    # Apply any Android-specific Swarming dimensions after the generic ones.
+    # Apply any platform-specific Swarming dimensions after the generic ones.
     if 'android_swarming' in generated_test:
       if self.is_android(tester_config): # pragma: no cover
         self.dictionary_merge(
           generated_test['swarming'],
           generated_test['android_swarming']) # pragma: no cover
       del generated_test['android_swarming'] # pragma: no cover
+    if 'chromeos_swarming' in generated_test:
+      if self.is_chromeos(tester_config):  # pragma: no cover
+        self.dictionary_merge(
+            generated_test['swarming'],
+            generated_test['chromeos_swarming'])  # pragma: no cover
+      del generated_test['chromeos_swarming']  # pragma: no cover
 
   def clean_swarming_dictionary(self, swarming_dict):
     # Clean out redundant entries from a test's "swarming" dictionary.
@@ -698,6 +708,24 @@ class BBJSONGenerator(object):
           'script': '//testing/trigger_scripts/chromeos_device_trigger.py',
         }
 
+  def add_logdog_butler_cipd_package(self, tester_config, result):
+    if not tester_config.get('skip_cipd_packages', False):
+      cipd_packages = result['swarming'].get('cipd_packages', [])
+      already_added = len([
+          package for package in cipd_packages
+          if package.get('cipd_package', "").find('logdog/butler') > 0
+      ]) > 0
+      if not already_added:
+        cipd_packages.append({
+            'cipd_package':
+            'infra/tools/luci/logdog/butler/${platform}',
+            'location':
+            'bin',
+            'revision':
+            'git_revision:ff387eadf445b24c935f1cf7d6ddd279f8a6b04c',
+        })
+        result['swarming']['cipd_packages'] = cipd_packages
+
   def add_android_presentation_args(self, tester_config, test_name, result):
     args = result.get('args', [])
     bucket = tester_config.get('results_bucket', 'chromium-result-details')
@@ -714,16 +742,6 @@ class BBJSONGenerator(object):
         'script': '//build/android/pylib/results/presentation/'
           'test_results_presentation.py',
       }
-    if not tester_config.get('skip_cipd_packages', False):
-      cipd_packages = result['swarming'].get('cipd_packages', [])
-      cipd_packages.append(
-        {
-          'cipd_package': 'infra/tools/luci/logdog/butler/${platform}',
-          'location': 'bin',
-          'revision': 'git_revision:ff387eadf445b24c935f1cf7d6ddd279f8a6b04c',
-        }
-      )
-      result['swarming']['cipd_packages'] = cipd_packages
     if not tester_config.get('skip_output_links', False):
       result['swarming']['output_links'] = [
         {
@@ -754,10 +772,13 @@ class BBJSONGenerator(object):
     self.initialize_args_for_test(
         result, tester_config, additional_arg_keys=['gtest_args'])
     if self.is_android(tester_config) and tester_config.get(
-        'use_swarming',
-        True) and not test_config.get('use_isolated_scripts_api', False):
-      self.add_android_presentation_args(tester_config, test_name, result)
-      result['args'] = result.get('args', []) + ['--recover-devices']
+        'use_swarming', True):
+      if not test_config.get('use_isolated_scripts_api', False):
+        # TODO(https://crbug.com/1137998) make Android presentation work with
+        # isolated scripts in test_results_presentation.py merge script
+        self.add_android_presentation_args(tester_config, test_name, result)
+        result['args'] = result.get('args', []) + ['--recover-devices']
+      self.add_logdog_butler_cipd_package(tester_config, result)
 
     result = self.update_and_cleanup_test(
         result, test_name, tester_name, tester_config, waterfall)
@@ -788,8 +809,13 @@ class BBJSONGenerator(object):
     result['name'] = result.get('name', test_name)
     self.initialize_swarming_dictionary_for_test(result, tester_config)
     self.initialize_args_for_test(result, tester_config)
-    if tester_config.get('use_android_presentation', False):
-      self.add_android_presentation_args(tester_config, test_name, result)
+    if self.is_android(tester_config) and tester_config.get(
+        'use_swarming', True):
+      if tester_config.get('use_android_presentation', False):
+        # TODO(https://crbug.com/1137998) make Android presentation work with
+        # isolated scripts in test_results_presentation.py merge script
+        self.add_android_presentation_args(tester_config, test_name, result)
+      self.add_logdog_butler_cipd_package(tester_config, result)
     result = self.update_and_cleanup_test(
         result, test_name, tester_name, tester_config, waterfall)
     self.add_common_test_properties(result, tester_config)
@@ -1307,6 +1333,18 @@ class BBJSONGenerator(object):
       # Values specified under $mixin_append should be appended to existing
       # lists, rather than replacing them.
       mixin_append = mixin['$mixin_append']
+
+      # Append swarming named cache and delete swarming key, since it's under
+      # another layer of dict.
+      if 'named_caches' in mixin_append.get('swarming', {}):
+        new_test['swarming'].setdefault('named_caches', [])
+        new_test['swarming']['named_caches'].extend(
+            mixin_append['swarming']['named_caches'])
+        if len(mixin_append['swarming']) > 1:
+          raise BBGenErr('Only named_caches is supported under swarming key in '
+                         '$mixin_append, but there are: %s' %
+                         sorted(mixin_append['swarming'].keys()))
+        del mixin_append['swarming']
       for key in mixin_append:
         new_test.setdefault(key, [])
         if not isinstance(mixin_append[key], list):
@@ -1448,11 +1486,6 @@ class BBJSONGenerator(object):
         'ANGLE GPU Android Release (Nexus 5X)',
         'ANGLE GPU Linux Release (Intel HD 630)',
         'ANGLE GPU Linux Release (NVIDIA)',
-        'ANGLE GPU Mac Release (Intel)',
-        'ANGLE GPU Mac Retina Release (AMD)',
-        'ANGLE GPU Mac Retina Release (NVIDIA)',
-        'ANGLE GPU Win10 x64 Release (Intel HD 630)',
-        'ANGLE GPU Win10 x64 Release (NVIDIA)',
         'Optional Android Release (Nexus 5X)',
         'Optional Linux Release (Intel HD 630)',
         'Optional Linux Release (NVIDIA)',
@@ -1461,7 +1494,6 @@ class BBJSONGenerator(object):
         'Optional Mac Retina Release (NVIDIA)',
         'Optional Win10 x64 Release (Intel HD 630)',
         'Optional Win10 x64 Release (NVIDIA)',
-        'Win7 ANGLE Tryserver (AMD)',
         # chromium.chromiumos
         'linux-lacros-rel',
         # chromium.fyi
@@ -1481,6 +1513,14 @@ class BBJSONGenerator(object):
         'win32-dbg',
         'win-archive-dbg',
         'win32-archive-dbg',
+        # New LTC isn't created when LTC becomes LTS, so these builders can go
+        # away
+        "chromeos-arm-generic-ltc",
+        "chromeos-betty-pi-arc-chrome-ltc",
+        "chromeos-eve-chrome-ltc",
+        "chromeos-kevin-chrome-ltc",
+        "linux-chromeos-ltc",
+        "linux64-ltc",
         # TODO(https://crbug.com/1127088): remove once LTS version has been set
         "chromeos-arm-generic-lts",
         "chromeos-betty-pi-arc-chrome-lts",
@@ -1602,6 +1642,12 @@ class BBJSONGenerator(object):
       for test in suite.values():
         assert isinstance(test, dict)
         seen_mixins = seen_mixins.union(test.get('mixins', set()))
+
+    for variant in self.variants:
+      # Unpack the variant from variants.pyl if it's string based.
+      if isinstance(variant, str):
+        variant = self.variants[variant]
+      seen_mixins = seen_mixins.union(variant.get('mixins', set()))
 
     missing_mixins = set(self.mixins.keys()) - seen_mixins
     if missing_mixins:
@@ -1866,7 +1912,8 @@ class BBJSONGenerator(object):
     # by this script already.
     self.resolve_configuration_files()
     ungenerated_files = set()
-    for filename, expected_contents in self.generate_outputs().items():
+    outputs = self.generate_outputs()
+    for filename, expected_contents in outputs.items():
       expected = self.jsonify(expected_contents)
       file_path = filename + '.json'
       current = self.read_file(self.pyl_file_path(file_path))
@@ -1887,6 +1934,31 @@ class BBJSONGenerator(object):
           'The following files have not been properly '
            'autogenerated by generate_buildbot_json.py: ' +
            ', '.join([filename + '.json' for filename in ungenerated_files]))
+
+    for builder_group, builders in outputs.items():
+      for builder, step_types in builders.items():
+        for step_data in step_types.get('gtest_tests', []):
+          step_name = step_data.get('name', step_data['test'])
+          self._check_swarming_config(builder_group, builder, step_name,
+                                      step_data)
+        for step_data in step_types.get('isolated_scripts', []):
+          step_name = step_data.get('name', step_data['isolate_name'])
+          self._check_swarming_config(builder_group, builder, step_name,
+                                      step_data)
+
+  def _check_swarming_config(self, filename, builder, step_name, step_data):
+    # TODO(crbug.com/1203436): Ensure all swarming tests specify os and cpu, not
+    # just mac tests.
+    if ('mac' in builder.lower()
+        and step_data['swarming']['can_use_on_swarming_builders']):
+      dimension_sets = step_data['swarming'].get('dimension_sets')
+      if not dimension_sets:
+        raise BBGenErr('%s: %s / %s : os and cpu must be specified for mac '
+                       'swarmed tests' % (filename, builder, step_name))
+      for s in dimension_sets:
+        if not s.get('os') or not s.get('cpu'):
+          raise BBGenErr('%s: %s / %s : os and cpu must be specified for mac '
+                         'swarmed tests' % (filename, builder, step_name))
 
   def check_consistency(self, verbose=False):
     self.check_input_file_consistency(verbose) # pragma: no cover

@@ -12,6 +12,7 @@
 #include "chrome/grit/generated_resources.h"
 #include "components/constrained_window/constrained_window_views.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/gfx/color_palette.h"
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/views/controls/label.h"
@@ -28,8 +29,8 @@ SettingsOverriddenDialogView::SettingsOverriddenDialogView(
                      IDS_EXTENSION_SETTINGS_OVERRIDDEN_DIALOG_KEEP_IT));
   SetLayoutManager(std::make_unique<views::FillLayout>());
   ChromeLayoutProvider* const layout_provider = ChromeLayoutProvider::Get();
-  set_margins(
-      layout_provider->GetDialogInsetsForContentType(views::TEXT, views::TEXT));
+  set_margins(layout_provider->GetDialogInsetsForContentType(
+      views::DialogContentType::kText, views::DialogContentType::kText));
 
   using DialogResult = SettingsOverriddenDialogController::DialogResult;
   auto make_result_callback = [this](DialogResult result) {
@@ -98,6 +99,9 @@ void SettingsOverriddenDialogView::NotifyControllerOfResult(
   result_ = result;
   controller_->HandleDialogResult(result);
 }
+
+BEGIN_METADATA(SettingsOverriddenDialogView, views::DialogDelegateView)
+END_METADATA
 
 namespace chrome {
 

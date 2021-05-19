@@ -32,7 +32,7 @@
           <option value="">$i18n{addAccountTitle}</option>
         </select>
       </div>
-      <div hidden$="[[printServerScalingFlagEnabled_]]"
+      <div hidden$="[[!printServerScalingFlagEnabled_]]"
           class="server-search-box-container">
         <!-- TODO(crbug.com/1013408): Uses deprecated iron-dropdown. -->
         <cr-searchable-drop-down class="server-search-box-input"
@@ -66,9 +66,4 @@
       $i18n{cancel}
     </cr-button>
   </div>
-  <template is="dom-if" if="[[activeUser]]">
-    <print-preview-invitation-promo slot="footer" active-user="[[activeUser]]"
-        invitation-store="[[invitationStore]]" metrics="[[metrics_]]">
-    </print-preview-invitation-promo>
-  </template>
 </cr-dialog>

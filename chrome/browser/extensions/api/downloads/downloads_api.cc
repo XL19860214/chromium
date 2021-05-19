@@ -19,14 +19,12 @@
 #include "base/files/file_util.h"
 #include "base/json/json_writer.h"
 #include "base/lazy_instance.h"
-#include "base/location.h"
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/weak_ptr.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/single_thread_task_runner.h"
 #include "base/stl_util.h"
-#include "base/strings/string16.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/task/cancelable_task_tracker.h"
@@ -59,9 +57,6 @@
 #include "components/download/public/common/download_url_parameters.h"
 #include "components/web_modal/web_contents_modal_dialog_manager.h"
 #include "content/public/browser/browser_thread.h"
-#include "content/public/browser/notification_details.h"
-#include "content/public/browser/notification_service.h"
-#include "content/public/browser/notification_source.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/render_widget_host_view.h"
@@ -69,7 +64,6 @@
 #include "extensions/browser/event_router.h"
 #include "extensions/browser/extension_function_dispatcher.h"
 #include "extensions/browser/extension_prefs.h"
-#include "extensions/browser/notification_types.h"
 #include "extensions/browser/warning_service.h"
 #include "extensions/common/permissions/permissions_data.h"
 #include "net/base/filename_util.h"
@@ -85,6 +79,7 @@ using content::BrowserThread;
 using content::DownloadManager;
 using download::DownloadItem;
 using download::DownloadPathReservationTracker;
+using extensions::mojom::APIPermissionID;
 
 namespace download_extension_errors {
 
@@ -345,7 +340,7 @@ bool DownloadFileIconExtractorImpl::ExtractIconURLForPath(
   // request, in which case the associated icon may also have changed.
   // Therefore, always call LoadIcon instead of attempting a LookupIcon.
   im->LoadIcon(
-      path, icon_size,
+      path, icon_size, scale,
       base::BindOnce(&DownloadFileIconExtractorImpl::OnIconLoadComplete,
                      base::Unretained(this), scale, std::move(callback)),
       &cancelable_task_tracker_);
@@ -453,11 +448,12 @@ void GetManagers(content::BrowserContext* context,
                  DownloadManager** manager,
                  DownloadManager** incognito_manager) {
   Profile* profile = Profile::FromBrowserContext(context);
-  *manager = BrowserContext::GetDownloadManager(profile->GetOriginalProfile());
+  *manager = profile->GetOriginalProfile()->GetDownloadManager();
   if (profile->HasPrimaryOTRProfile() &&
       (include_incognito || profile->IsOffTheRecord())) {
     *incognito_manager =
-        BrowserContext::GetDownloadManager(profile->GetPrimaryOTRProfile());
+        profile->GetPrimaryOTRProfile(/*create_if_needed=*/true)
+            ->GetDownloadManager();
   } else {
     *incognito_manager = NULL;
   }
@@ -696,8 +692,8 @@ class ExtensionDownloadsEventRouterData : public base::SupportsUserData::Data {
     // should be lower priority than any actual onDeterminingFilename listeners.
 
     // Ensure that the callback is called within a time limit.
-    weak_ptr_factory_.reset(
-        new base::WeakPtrFactory<ExtensionDownloadsEventRouterData>(this));
+    weak_ptr_factory_ = std::make_unique<
+        base::WeakPtrFactory<ExtensionDownloadsEventRouterData>>(this);
     base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
         FROM_HERE,
         base::BindOnce(
@@ -867,8 +863,8 @@ class ExtensionDownloadsEventRouterData : public base::SupportsUserData::Data {
     // kTooManyListeners. After a few seconds, DetermineFilename will return
     // kUnexpectedDeterminer instead of kTooManyListeners so that determiners_
     // doesn't keep hogging memory.
-    weak_ptr_factory_.reset(
-        new base::WeakPtrFactory<ExtensionDownloadsEventRouterData>(this));
+    weak_ptr_factory_ = std::make_unique<
+        base::WeakPtrFactory<ExtensionDownloadsEventRouterData>>(this);
     base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
         FROM_HERE,
         base::BindOnce(
@@ -1036,19 +1032,14 @@ ExtensionFunction::ResponseAction DownloadsDownloadFunction::Run() {
   std::unique_ptr<download::DownloadUrlParameters> download_params(
       new download::DownloadUrlParameters(
           download_url, source_process_id(),
-          render_frame_host()->GetRoutingID(), traffic_annotation));
+          render_frame_host() ? render_frame_host()->GetRoutingID() : -1,
+          traffic_annotation));
 
   base::FilePath creator_suggested_filename;
   if (options.filename.get()) {
 #if defined(OS_WIN)
-    // Can't get filename16 from options.ToValue() because that converts it from
-    // std::string.
-    base::DictionaryValue* options_value = NULL;
-    EXTENSION_FUNCTION_VALIDATE(args_->GetDictionary(0, &options_value));
-    base::string16 filename16;
-    EXTENSION_FUNCTION_VALIDATE(options_value->GetString(
-        kFilenameKey, &filename16));
-    creator_suggested_filename = base::FilePath(filename16);
+    creator_suggested_filename =
+        base::FilePath::FromUTF8Unsafe(*options.filename);
 #elif defined(OS_POSIX)
     creator_suggested_filename = base::FilePath(*options.filename);
 #endif
@@ -1094,9 +1085,7 @@ ExtensionFunction::ResponseAction DownloadsDownloadFunction::Run() {
   download_params->set_do_not_prompt_for_login(true);
   download_params->set_download_source(download::DownloadSource::EXTENSION_API);
 
-  DownloadManager* manager =
-      BrowserContext::GetDownloadManager(browser_context());
-
+  DownloadManager* manager = browser_context()->GetDownloadManager();
   manager->DownloadUrl(std::move(download_params));
   RecordApiFunctions(DOWNLOADS_FUNCTION_DOWNLOAD);
   return RespondLater();
@@ -1119,8 +1108,7 @@ void DownloadsDownloadFunction::OnStarted(
           ExtensionDownloadsEventRouterData::Get(item);
       if (!data) {
         data = new ExtensionDownloadsEventRouterData(
-            item, std::unique_ptr<base::DictionaryValue>(
-                      new base::DictionaryValue()));
+            item, std::make_unique<base::DictionaryValue>());
       }
       data->CreatorSuggestedFilename(
           creator_suggested_filename, creator_conflict_action);
@@ -1171,9 +1159,10 @@ ExtensionFunction::ResponseAction DownloadsSearchFunction::Run() {
     bool off_record = ((incognito_manager != NULL) &&
                        (incognito_manager->GetDownload(download_id) != NULL));
     Profile* profile = Profile::FromBrowserContext(browser_context());
-    std::unique_ptr<base::DictionaryValue> json_item(
-        DownloadItemToJSON(*it, off_record ? profile->GetPrimaryOTRProfile()
-                                           : profile->GetOriginalProfile()));
+    std::unique_ptr<base::DictionaryValue> json_item(DownloadItemToJSON(
+        *it, off_record
+                 ? profile->GetPrimaryOTRProfile(/*create_if_needed=*/true)
+                 : profile->GetOriginalProfile()));
     json_results->Append(std::move(json_item));
   }
   RecordApiFunctions(DOWNLOADS_FUNCTION_SEARCH);
@@ -1360,7 +1349,7 @@ void DownloadsAcceptDangerFunction::PromptOrWait(int download_id, int retries) {
                      download_id));
   // DownloadDangerPrompt deletes itself
   if (on_prompt_created_ && !on_prompt_created_->is_null())
-    on_prompt_created_->Run(prompt);
+    std::move(*on_prompt_created_).Run(prompt);
   // Function finishes in DangerPromptCallback().
 }
 
@@ -1443,7 +1432,7 @@ ExtensionFunction::ResponseAction DownloadsOpenFunction::Run() {
       Fault(download_item->GetState() != DownloadItem::COMPLETE,
             download_extension_errors::kNotComplete, &error) ||
       Fault(!extension()->permissions_data()->HasAPIPermission(
-                APIPermission::kDownloadsOpen),
+                APIPermissionID::kDownloadsOpen),
             download_extension_errors::kOpenPermission, &error)) {
     return RespondNow(Error(std::move(error)));
   }
@@ -1460,7 +1449,7 @@ ExtensionFunction::ResponseAction DownloadsOpenFunction::Run() {
   if (GetSenderWebContents() &&
       GetSenderWebContents()->HasRecentInteractiveInputEvent() &&
       !extension()->permissions_data()->HasAPIPermission(
-          APIPermission::kDebugger)) {
+          APIPermissionID::kDebugger)) {
     download_item->OpenDownload();
     return RespondNow(NoArguments());
   }
@@ -1507,7 +1496,7 @@ ExtensionFunction::ResponseAction DownloadsSetShelfEnabledFunction::Run() {
   EXTENSION_FUNCTION_VALIDATE(params.get());
   // TODO(devlin): Solve this with the feature system.
   if (!extension()->permissions_data()->HasAPIPermission(
-          APIPermission::kDownloadsShelf)) {
+          APIPermissionID::kDownloadsShelf)) {
     return RespondNow(Error(download_extension_errors::kShelfPermission));
   }
 
@@ -1616,7 +1605,7 @@ ExtensionDownloadsEventRouter::ExtensionDownloadsEventRouter(
     : profile_(profile), notifier_(manager, this) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   DCHECK(profile_);
-  extension_registry_observer_.Add(ExtensionRegistry::Get(profile_));
+  extension_registry_observation_.Observe(ExtensionRegistry::Get(profile_));
   EventRouter* router = EventRouter::Get(profile_);
   if (router)
     router->RegisterObserver(this,
@@ -1694,8 +1683,8 @@ void ExtensionDownloadsEventRouter::OnDeterminingFilename(
   json->SetString(kFilenameKey, suggested_path.LossyDisplayName());
   DispatchEvent(events::DOWNLOADS_ON_DETERMINING_FILENAME,
                 downloads::OnDeterminingFilename::kEventName, false,
-                base::Bind(&OnDeterminingFilenameWillDispatchCallback,
-                           &any_determiners, data),
+                base::BindRepeating(&OnDeterminingFilenameWillDispatchCallback,
+                                    &any_determiners, data),
                 std::move(json));
   if (!any_determiners) {
     data->CallFilenameCallback();
@@ -1880,8 +1869,7 @@ void ExtensionDownloadsEventRouter::OnDownloadUpdated(
     // The download_item probably transitioned from temporary to not temporary,
     // or else an event listener was added.
     data = new ExtensionDownloadsEventRouterData(
-        download_item,
-        std::unique_ptr<base::DictionaryValue>(new base::DictionaryValue()));
+        download_item, std::make_unique<base::DictionaryValue>());
   }
   std::unique_ptr<base::DictionaryValue> new_json;
   std::unique_ptr<base::DictionaryValue> delta(new base::DictionaryValue());
@@ -1912,10 +1900,13 @@ void ExtensionDownloadsEventRouter::OnDownloadUpdated(
         const base::Value* old_value = NULL;
         if (!data->json().HasKey(iter.key()) ||
             (data->json().Get(iter.key(), &old_value) &&
-             !iter.value().Equals(old_value))) {
-          delta->Set(iter.key() + ".current", iter.value().CreateDeepCopy());
-          if (old_value)
-            delta->Set(iter.key() + ".previous", old_value->CreateDeepCopy());
+             iter.value() != *old_value)) {
+          delta->Set(iter.key() + ".current",
+                     base::Value::ToUniquePtrValue(iter.value().Clone()));
+          if (old_value) {
+            delta->Set(iter.key() + ".previous",
+                       base::Value::ToUniquePtrValue(old_value->Clone()));
+          }
           changed = true;
         }
       }
@@ -1929,7 +1920,8 @@ void ExtensionDownloadsEventRouter::OnDownloadUpdated(
           IsDownloadDeltaField(iter.key())) {
         // estimatedEndTime disappears after completion, but bytesReceived
         // stays.
-        delta->Set(iter.key() + ".previous", iter.value().CreateDeepCopy());
+        delta->Set(iter.key() + ".previous",
+                   base::Value::ToUniquePtrValue(iter.value().Clone()));
         changed = true;
       }
     }
@@ -1994,15 +1986,6 @@ void ExtensionDownloadsEventRouter::DispatchEvent(
                               restrict_to_browser_context);
   event->will_dispatch_callback = std::move(will_dispatch_callback);
   EventRouter::Get(profile_)->BroadcastEvent(std::move(event));
-  DownloadsNotificationSource notification_source;
-  notification_source.event_name = event_name;
-  notification_source.profile = profile_;
-  content::Source<DownloadsNotificationSource> content_source(
-      &notification_source);
-  content::NotificationService::current()->Notify(
-      extensions::NOTIFICATION_EXTENSION_DOWNLOADS_EVENT,
-      content_source,
-      content::Details<std::string>(&json_args));
 }
 
 void ExtensionDownloadsEventRouter::OnExtensionUnloaded(

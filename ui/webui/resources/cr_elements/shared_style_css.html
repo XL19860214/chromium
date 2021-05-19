@@ -123,6 +123,7 @@
 
       paper-tooltip {
         --paper-tooltip: {
+          border-radius: var(--paper-tooltip-border-radius, 2px);
           font-size: 92.31%;  /* Effectively 12px if the host default is 13px. */
           font-weight: 500;
           max-width: 330px;
@@ -168,6 +169,7 @@
         border-radius: 0 3px 3px 0;
         content: '';
         display: block;
+        flex-shrink: 0;
         height: var(--cr-vertical-tab-height, 100%);
         width: 4px;
       }

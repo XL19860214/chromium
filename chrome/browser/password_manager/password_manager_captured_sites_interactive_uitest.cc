@@ -7,7 +7,6 @@
 
 #include "base/files/file_enumerator.h"
 #include "base/path_service.h"
-#include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/autofill/automated_tests/cache_replayer.h"
 #include "chrome/browser/autofill/captured_sites_test_utils.h"
@@ -229,15 +228,24 @@ class CapturedSitesPasswordManagerBrowserTest
 };
 
 IN_PROC_BROWSER_TEST_P(CapturedSitesPasswordManagerBrowserTest, Recipe) {
+  captured_sites_test_utils::PrintInstructions(
+      "password_manager_captured_sites_interactive_uitest");
+
   base::FilePath src_dir;
   ASSERT_TRUE(base::PathService::Get(base::DIR_SOURCE_ROOT, &src_dir));
 
   bool test_completed = recipe_replayer()->ReplayTest(
-      GetParam().capture_file_path, GetParam().recipe_file_path);
+      GetParam().capture_file_path, GetParam().recipe_file_path,
+      captured_sites_test_utils::GetCommandFilePath());
   if (!test_completed)
     ADD_FAILURE() << "Full execution was unable to complete.";
 }
 
+// This test is called with a dynamic list and may be empty during the Autofill
+// run instance, so adding GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST a la
+// crbug/1192206
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(
+    CapturedSitesPasswordManagerBrowserTest);
 INSTANTIATE_TEST_SUITE_P(
     All,
     CapturedSitesPasswordManagerBrowserTest,

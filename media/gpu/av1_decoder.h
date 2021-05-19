@@ -19,7 +19,7 @@
 
 // For libgav1::RefCountedBufferPtr.
 #include "third_party/libgav1/src/src/buffer_pool.h"
-// For libgav1::ObuSequenceHeader. base::Optional demands ObuSequenceHeader to
+// For libgav1::ObuSequenceHeader. absl::optional demands ObuSequenceHeader to
 // fulfill std::is_trivially_constructible if it is forward-declared. But
 // ObuSequenceHeader doesn't.
 #include "third_party/libgav1/src/src/obu_parser.h"
@@ -112,13 +112,19 @@ class MEDIA_GPU_EXPORT AV1Decoder : public AcceleratedVideoDecoder {
   size_t GetNumReferenceFrames() const override;
 
  private:
-  // Returns whether the current stream contains a new OBU sequence header.
-  bool HasNewSequenceHeader() const;
+  friend class AV1DecoderTest;
+
   bool DecodeAndOutputPicture(
       scoped_refptr<AV1Picture> pic,
       const libgav1::Vector<libgav1::TileBuffer>& tile_buffers);
   void UpdateReferenceFrames(scoped_refptr<AV1Picture> pic);
   void ClearReferenceFrames();
+  // Checks that |ref_frames_| is consistent with libgav1's reference frame
+  // state (returns false if not) and cleans old reference frames from
+  // |ref_frames_| as needed. Also asserts that all reference frames needed by
+  // |current_frame_header_| are in |ref_frames_|. This method should be called
+  // prior to using |ref_frames_| (which includes calling
+  // |accelerator_|->SubmitDecode());
   bool CheckAndCleanUpReferenceFrames();
   void ClearCurrentFrame();
   DecodeResult DecodeInternal();
@@ -132,8 +138,8 @@ class MEDIA_GPU_EXPORT AV1Decoder : public AcceleratedVideoDecoder {
   const std::unique_ptr<AV1Accelerator> accelerator_;
   AV1ReferenceFrameVector ref_frames_;
 
-  base::Optional<libgav1::ObuSequenceHeader> current_sequence_header_;
-  base::Optional<libgav1::ObuFrameHeader> current_frame_header_;
+  absl::optional<libgav1::ObuSequenceHeader> current_sequence_header_;
+  absl::optional<libgav1::ObuFrameHeader> current_frame_header_;
   libgav1::RefCountedBufferPtr current_frame_;
 
   gfx::Rect visible_rect_;

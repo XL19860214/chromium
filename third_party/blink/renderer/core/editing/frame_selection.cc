@@ -363,10 +363,9 @@ void FrameSelection::SetSelectionForAccessibility(
 void FrameSelection::NodeChildrenWillBeRemoved(ContainerNode& container) {
   if (!container.InActiveDocument())
     return;
-  // TODO(yosin): We should move to call |TypingCommand::closeTyping()| to
-  // |Editor| class.
-  if (!GetDocument().IsRunningExecCommand())
-    TypingCommand::CloseTyping(frame_);
+  // TODO(yosin): We should move to call |TypingCommand::CloseTypingIfNeeded()|
+  // to |Editor| class.
+  TypingCommand::CloseTypingIfNeeded(frame_);
 }
 
 void FrameSelection::NodeWillBeRemoved(Node& node) {
@@ -375,10 +374,9 @@ void FrameSelection::NodeWillBeRemoved(Node& node) {
   // needs no adjustment.
   if (!node.InActiveDocument())
     return;
-  // TODO(yosin): We should move to call |TypingCommand::closeTyping()| to
-  // |Editor| class.
-  if (!GetDocument().IsRunningExecCommand())
-    TypingCommand::CloseTyping(frame_);
+  // TODO(yosin): We should move to call |TypingCommand::CloseTypingIfNeeded()|
+  // to |Editor| class.
+  TypingCommand::CloseTypingIfNeeded(frame_);
 }
 
 void FrameSelection::DidChangeFocus() {
@@ -573,6 +571,18 @@ bool FrameSelection::ShouldPaintCaret(const LayoutBlock& block) const {
   DCHECK_GE(GetDocument().Lifecycle().GetState(),
             DocumentLifecycle::kLayoutClean);
   bool result = frame_caret_->ShouldPaintCaret(block);
+  DCHECK(!result ||
+         (ComputeVisibleSelectionInDOMTree().IsCaret() &&
+          (IsEditablePosition(ComputeVisibleSelectionInDOMTree().Start()) ||
+           frame_->IsCaretBrowsingEnabled())));
+  return result;
+}
+
+bool FrameSelection::ShouldPaintCaret(
+    const NGPhysicalBoxFragment& box_fragment) const {
+  DCHECK_GE(GetDocument().Lifecycle().GetState(),
+            DocumentLifecycle::kLayoutClean);
+  bool result = frame_caret_->ShouldPaintCaret(box_fragment);
   DCHECK(!result ||
          (ComputeVisibleSelectionInDOMTree().IsCaret() &&
           (IsEditablePosition(ComputeVisibleSelectionInDOMTree().Start()) ||
@@ -1090,24 +1100,6 @@ void FrameSelection::SetSelectionFromNone() {
   }
 }
 
-// TODO(yoichio): We should have LocalFrame having FrameCaret,
-// Editor and PendingSelection using FrameCaret directly
-// and get rid of this.
-bool FrameSelection::ShouldShowBlockCursor() const {
-  return frame_caret_->ShouldShowBlockCursor();
-}
-
-// TODO(yoichio): We should have LocalFrame having FrameCaret,
-// Editor and PendingSelection using FrameCaret directly
-// and get rid of this.
-// TODO(yoichio): We should use "caret-shape" in "CSS Basic User Interface
-// Module Level 4" https://drafts.csswg.org/css-ui-4/
-// To use "caret-shape", we need to expose inserting mode information to CSS;
-// https://github.com/w3c/csswg-drafts/issues/133
-void FrameSelection::SetShouldShowBlockCursor(bool should_show_block_cursor) {
-  frame_caret_->SetShouldShowBlockCursor(should_show_block_cursor);
-}
-
 #if DCHECK_IS_ON()
 
 void FrameSelection::ShowTreeForThis() const {
@@ -1291,6 +1283,11 @@ LayoutSelectionStatus FrameSelection::ComputeLayoutSelectionStatus(
 SelectionState FrameSelection::ComputeLayoutSelectionStateForCursor(
     const NGInlineCursorPosition& position) const {
   return layout_selection_->ComputeSelectionStateForCursor(position);
+}
+
+SelectionState FrameSelection::ComputeLayoutSelectionStateForInlineTextBox(
+    const InlineTextBox& text_box) const {
+  return layout_selection_->ComputeSelectionStateForInlineTextBox(text_box);
 }
 
 bool FrameSelection::IsDirectional() const {

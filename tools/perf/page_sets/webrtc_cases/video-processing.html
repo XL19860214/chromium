@@ -30,7 +30,7 @@
         stream to a video element on the page, which may affect the source FPS.
     </p>
 
-    <span id="outputVideo"></span>
+    <span id="outputVideoContainer"></span>
 
     <div class="box">
         <span>Source:</span>
@@ -38,6 +38,7 @@
             <option selected value="">(stopped)</option>
             <option value="camera">Camera</option>
             <option value="video">Video</option>
+            <option value="canvas">Canvas</option>
             <option value="pc">Peer connection (from camera)</option>
         </select>
         <span>Add to page: <input type="checkbox" id="sourceVisible" disabled></span>
@@ -47,8 +48,10 @@
         <select id="transformSelector" disabled>
             <option selected value="webgl">WebGL</option>
             <option value="canvas2d">Canvas2D</option>
+            <option value="noop">Do nothing</option>
             <option value="drop">Drop frames at random</option>
             <option value="delay">Delay all frames by 100ms</option>
+            <option value="webcodec">Run frames through WebCodec</option>
         </select>
     </div>
     <div class="box">

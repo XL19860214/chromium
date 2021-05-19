@@ -5,15 +5,26 @@
 import {assertTrue} from '../../chai_assert.js';
 
 /**
- * Helper function for getting an array of data-point elements from a
- * diagnostics card.
+ * Helper function for getting a data-point element.
  * @param {?T} element
+ * @param {string} selector
  * @template T
- * @return {!NodeList<!DataPointElement>}
+ * @return {!DataPointElement}
  */
-export function getDataPointElements(element) {
-  return /** @type {!NodeList<!DataPointElement>} */ (
-      element.shadowRoot.querySelectorAll('data-point'));
+export function getDataPoint(element, selector) {
+  return /** @type {!DataPointElement} */ (
+      element.shadowRoot.querySelector(`data-point${selector}`));
+}
+
+/**
+ * Helper function for getting the value property from a data-point element.
+ * @param {?T} element
+ * @param {string} selector
+ * @template T
+ * @return {string}
+ */
+export function getDataPointValue(element, selector) {
+  return `${getDataPoint(element, selector).value}`;
 }
 
 /**
@@ -83,14 +94,13 @@ export function getRunTestsButtonFromSection(element) {
 }
 
 /**
- * Helper function for getting the Show/Hide Tests Report button from a
- * routine-section.
+ * Helper function for getting the Stop Tests button from a routine-section.
  * @param {?RoutineSectionElement} element
  * @return {!CrButtonElement}
  */
-export function getToggleTestReportButtonFromSection(element) {
+export function getStopTestsButtonFromSection(element) {
   const button =
-      /** @type {!CrButtonElement} */ (element.$$('#toggleReportButton'));
+      /** @type {!CrButtonElement} */ (element.$$('#stopTestsButton'));
   assertTrue(!!button);
   return button;
 }
@@ -101,9 +111,9 @@ export function getToggleTestReportButtonFromSection(element) {
  * @param {?RoutineSectionElement} element
  * @return {!CrButtonElement}
  */
-export function getLearnMoreButtonFromSection(element) {
+export function getToggleTestReportButtonFromSection(element) {
   const button =
-      /** @type {!CrButtonElement} */ (element.$$('#learnMoreButton'));
+      /** @type {!CrButtonElement} */ (element.$$('#toggleReportButton'));
   assertTrue(!!button);
   return button;
 }
@@ -148,4 +158,40 @@ export function getRoutineSection(element) {
       /** @type {!RoutineSectionElement} */ (element.$$('routine-section'));
   assertTrue(!!routineSection);
   return routineSection;
+}
+
+/**
+ * Helper function for getting a wifi-info element from a
+ * network-info element.
+ * @param {?T} element
+ * @template T
+ * @return {!WifiInfoElement}
+ */
+export function getWifiInfoElement(element) {
+  return /** @type {!WifiInfoElement} */ (
+      element.shadowRoot.querySelector('wifi-info'));
+}
+
+/**
+ * Helper function for getting a cellular-info element from a
+ * network-info element.
+ * @param {?T} element
+ * @template T
+ * @return {!CellularInfoElement}
+ */
+export function getCellularInfoElement(element) {
+  return /** @type {!CellularInfoElement} */ (
+      element.shadowRoot.querySelector('cellular-info'));
+}
+
+/**
+ * Helper function for getting an ethernet-info element from a
+ * network-info element.
+ * @param {?T} element
+ * @template T
+ * @return {!EthernetInfoElement}
+ */
+export function getEthernetInfoElement(element) {
+  return /** @type {!EthernetInfoElement} */ (
+      element.shadowRoot.querySelector('ethernet-info'));
 }

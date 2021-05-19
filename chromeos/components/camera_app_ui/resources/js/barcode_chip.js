@@ -2,9 +2,16 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import {assert} from './chrome_util.js';
 import * as dom from './dom.js';
+import {BarcodeContentType, sendBarcodeDetectedEvent} from './metrics.js';
+import * as loadTimeData from './models/load_time_data.js';
 import * as snackbar from './snackbar.js';
-import * as util from './util.js';
+import * as state from './state.js';
+import {OneShotTimer} from './timer.js';
+
+// TODO(b/172879638): Tune the duration according to the final motion spec.
+const CHIP_DURATION = 8000;
 
 /**
  * The detected string that is being shown currently.
@@ -19,11 +26,37 @@ let currentCode = null;
 let currentChip = null;
 
 /**
- * Resets the variables of the current state.
+ * The countdown timer for dismissing the chip.
+ * @type {?OneShotTimer}
  */
-function resetCurrentState() {
+let currentTimer = null;
+
+/**
+ * Resets the variables of the current state and dismisses the chip.
+ */
+function deactivate() {
+  if (currentChip !== null) {
+    currentChip.classList.add('invisible');
+  }
   currentCode = null;
   currentChip = null;
+  currentTimer = null;
+}
+
+/**
+ * Activates the chip on container and starts the timer.
+ * @param {!HTMLElement} container The container of the chip.
+ */
+function activate(container) {
+  container.classList.remove('invisible');
+  currentChip = container;
+
+  currentTimer = new OneShotTimer(deactivate, CHIP_DURATION);
+  if (state.get(state.State.TAB_NAVIGATION)) {
+    // Do not auto dismiss the chip when using keyboard for a11y. Screen reader
+    // might need long time to read the detected content.
+    currentTimer.stop();
+  }
 }
 
 /**
@@ -50,6 +83,7 @@ function isSafeUrl(s) {
  * @param {string} content The content to be copied.
  * @param {string} snackbarLabel The label to be displayed on snackbar when the
  *     content is copied.
+ * @return {!HTMLElement} The copy button element.
  */
 function setupCopyButton(container, content, snackbarLabel) {
   const copyButton =
@@ -58,6 +92,7 @@ function setupCopyButton(container, content, snackbarLabel) {
     await navigator.clipboard.writeText(content);
     snackbar.show(snackbarLabel);
   };
+  return copyButton;
 }
 
 /**
@@ -66,18 +101,20 @@ function setupCopyButton(container, content, snackbarLabel) {
  */
 function showUrl(url) {
   const container = dom.get('#barcode-chip-url-container', HTMLDivElement);
+  activate(container);
 
   const anchor = dom.getFrom(container, 'a', HTMLAnchorElement);
   Object.assign(anchor, {
     href: url,
     textContent: url,
   });
+  const hostname = new URL(url).hostname;
+  const label = loadTimeData.getI18nMessage('barcode_link_detected', hostname);
+  anchor.setAttribute('aria-label', label);
+  anchor.setAttribute('aria-description', url);
+  anchor.focus();
 
   setupCopyButton(container, url, 'snackbar_link_copied');
-
-  // TODO(b/172879638): Handle a11y.
-  currentChip = container;
-  util.animateOnce(container, resetCurrentState);
 }
 
 /**
@@ -86,6 +123,7 @@ function showUrl(url) {
  */
 function showText(text) {
   const container = dom.get('#barcode-chip-text-container', HTMLDivElement);
+  activate(container);
   container.classList.remove('expanded');
 
   const textEl = dom.get('#barcode-chip-text-content', HTMLDivElement);
@@ -93,16 +131,22 @@ function showText(text) {
   const expandable = textEl.scrollWidth > textEl.clientWidth;
 
   const expandEl = dom.get('#barcode-chip-text-expand', HTMLButtonElement);
-  expandEl.classList.toggle('hide', !expandable);
+  expandEl.classList.toggle('hidden', !expandable);
   expandEl.onclick = () => {
     container.classList.toggle('expanded');
+    const expanded = container.classList.contains('expanded');
+    expandEl.setAttribute('aria-expanded', expanded.toString());
   };
 
-  setupCopyButton(container, text, 'snackbar_text_copied');
+  const copyButton = setupCopyButton(container, text, 'snackbar_text_copied');
 
-  // TODO(b/172879638): Handle a11y.
-  currentChip = container;
-  util.animateOnce(container, resetCurrentState);
+  // TODO(b/172879638): There is a race in ChromeVox which will speak the
+  // focused element twice.
+  if (expandable) {
+    expandEl.focus();
+  } else {
+    copyButton.focus();
+  }
 }
 
 /**
@@ -111,18 +155,36 @@ function showText(text) {
  */
 export async function show(code) {
   if (code === currentCode) {
+    if (currentTimer !== null) {
+      // Extend the duration by resetting the timeout.
+      currentTimer.resetTimeout();
+    }
     return;
   }
 
-  if (currentChip !== null) {
-    await util.animateCancel(currentChip);
+  if (currentTimer !== null) {
+    // Dismiss the previous chip.
+    currentTimer.fireNow();
+    assert(currentTimer === null, 'The timer should be cleared.');
   }
 
   currentCode = code;
 
   if (isSafeUrl(code)) {
+    sendBarcodeDetectedEvent({contentType: BarcodeContentType.URL});
     showUrl(code);
   } else {
+    sendBarcodeDetectedEvent({contentType: BarcodeContentType.TEXT});
     showText(code);
   }
+}
+
+/**
+ * Dismisses the current barcode chip if it's being shown.
+ */
+export function dismiss() {
+  if (currentTimer === null) {
+    return;
+  }
+  currentTimer.fireNow();
 }

@@ -2,11 +2,18 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+// clang-format off
+// #import {ProgressCenterPanelInterface} from '../../../externs/progress_center_panel.m.js';
+// #import {assertNotReached} from 'chrome://resources/js/assert.m.js';
+// #import {strf, str} from '../../../common/js/util.m.js';
+// #import {ProgressItemType, ProgressItemState, ProgressCenterItem} from '../../../common/js/progress_center_common.m.js';
+// clang-format on
+
 /**
  * Progress center panel.
  * @implements {ProgressCenterPanelInterface}
  */
-class ProgressCenterPanel {
+/* #export */ class ProgressCenterPanel {
   constructor() {
     /**
      * Reference to the feedback panel host.
@@ -98,45 +105,6 @@ class ProgressCenterPanel {
       return false;
     }
     return true;
-  }
-
-  /**
-   * Generate destination string for display on the feedback panel.
-   * @param {!ProgressCenterItem} item Item we're generating a message for.
-   * @param {Object} info Cached information to use for formatting.
-   * @return {string} String formatted based on the item state.
-   */
-  generateDestinationString_(item, info) {
-    const hasDestination = this.isNonEmptyString_(info['destination']);
-    switch (item.state) {
-      case 'progressing':
-        if (hasDestination) {
-          return strf('TO_FOLDER_NAME', info['destination']);
-        }
-        break;
-      case 'completed':
-        if (item.type === ProgressItemType.COPY) {
-          if (hasDestination) {
-            return strf('COPIED_TO', info['destination']);
-          } else {
-            return str('COPIED');
-          }
-        } else if (item.type === ProgressItemType.MOVE) {
-          if (hasDestination) {
-            return strf('MOVED_TO', info['destination']);
-          } else {
-            return str('MOVED');
-          }
-        }
-        break;
-      case 'error':
-      case 'canceled':
-        break;
-      default:
-        assertNotReached();
-        break;
-    }
-    return '';
   }
 
   /**
@@ -284,17 +252,8 @@ class ProgressCenterPanel {
         };
       }
 
-      let primaryText, secondaryText;
-      if (util.isTransferDetailsEnabled()) {
-        primaryText = this.generatePrimaryString_(item, panelItem.userData);
-        panelItem.secondaryText = this.generateRemainingTimeMessage(item);
-      } else {
-        primaryText = this.generateSourceString_(item, panelItem.userData);
-        if (item.destinationMessage) {
-          panelItem.secondaryText =
-              strf('TO_FOLDER_NAME', item.destinationMessage);
-        }
-      }
+      const primaryText = this.generatePrimaryString_(item, panelItem.userData);
+      panelItem.secondaryText = this.generateRemainingTimeMessage(item);
       panelItem.primaryText = primaryText;
       panelItem.setAttribute('data-progress-id', item.id);
 
@@ -321,12 +280,7 @@ class ProgressCenterPanel {
             donePanelItem.id = item.id;
             donePanelItem.panelType = donePanelItem.panelTypeDone;
             donePanelItem.primaryText = primaryText;
-            if (util.isTransferDetailsEnabled()) {
-              donePanelItem.secondaryText = str('COMPLETE_LABEL');
-            } else {
-              donePanelItem.secondaryText =
-                  this.generateDestinationString_(item, panelItem.userData);
-            }
+            donePanelItem.secondaryText = str('COMPLETE_LABEL');
             donePanelItem.signalCallback = (signal) => {
               if (signal === 'dismiss') {
                 this.feedbackHost_.removePanelItem(donePanelItem);

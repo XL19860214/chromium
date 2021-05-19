@@ -84,6 +84,9 @@ ExamplesExitCode ExamplesMainProc(bool under_test) {
 
   base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
 
+  if (CheckCommandLineUsage())
+    return ExamplesExitCode::kSucceeded;
+
   // Disabling Direct Composition works around the limitation that
   // InProcessContextFactory doesn't work with Direct Composition, causing the
   // window to not render. See http://crbug.com/936249.
@@ -169,7 +172,7 @@ ExamplesExitCode ExamplesMainProc(bool under_test) {
 #endif
 #if BUILDFLAG(ENABLE_DESKTOP_AURA)
     std::unique_ptr<display::Screen> desktop_screen =
-        base::WrapUnique(views::CreateDesktopScreen());
+        views::CreateDesktopScreen();
 #endif
 
     base::RunLoop run_loop(base::RunLoop::Type::kNestableTasksAllowed);

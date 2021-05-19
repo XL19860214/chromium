@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "base/bind.h"
+#include "base/containers/contains.h"
 #include "base/files/file_util.h"
 #include "base/lazy_instance.h"
 #include "base/memory/ref_counted_memory.h"
@@ -31,6 +32,7 @@
 #include "chrome/test/base/js_test_api.h"
 #include "chrome/test/base/test_chrome_web_ui_controller_factory.h"
 #include "chrome/test/base/ui_test_utils.h"
+#include "content/public/browser/global_routing_id.h"
 #include "content/public/browser/url_data_source.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_ui_controller.h"
@@ -39,6 +41,7 @@
 #include "content/public/common/content_switches.h"
 #include "content/public/common/url_constants.h"
 #include "content/public/test/browser_test_utils.h"
+#include "content/public/test/scoped_web_ui_controller_factory_registration.h"
 #include "content/public/test/test_launcher.h"
 #include "content/public/test/test_navigation_observer.h"
 #include "net/base/filename_util.h"
@@ -50,7 +53,7 @@
 #include "chrome/browser/printing/print_preview_dialog_controller.h"
 #endif
 
-using content::RenderViewHost;
+using content::RenderFrameHost;
 using content::WebContents;
 using content::WebUIController;
 using content::WebUIMessageHandler;
@@ -85,9 +88,12 @@ class WebUIJsInjectionReadyObserver : public content::WebContentsObserver {
         preload_test_fixture_(preload_test_fixture),
         preload_test_name_(preload_test_name) {}
 
-  void RenderViewCreated(content::RenderViewHost* rvh) override {
-    browser_test_->PreLoadJavascriptLibraries(
-        preload_test_fixture_, preload_test_name_, rvh);
+  void RenderFrameCreated(content::RenderFrameHost* frame_host) override {
+    // We only load JS libraries in the main frame.
+    if (!frame_host->GetParent()) {
+      browser_test_->PreLoadJavascriptLibraries(preload_test_fixture_,
+                                                preload_test_name_, frame_host);
+    }
   }
 
  private:
@@ -116,7 +122,7 @@ class WebUITestMessageHandler : public content::WebUIMessageHandler,
     if (!test_succeeded)
       ASSERT_TRUE(test_result->GetString(1, &message));
 
-    TestComplete(test_succeeded ? base::Optional<std::string>() : message);
+    TestComplete(test_succeeded ? absl::optional<std::string>() : message);
   }
 
   // content::WebUIMessageHandler:
@@ -248,20 +254,25 @@ bool BaseWebUIBrowserTest::RunJavascriptAsyncTest(
 void BaseWebUIBrowserTest::PreLoadJavascriptLibraries(
     const std::string& preload_test_fixture,
     const std::string& preload_test_name,
-    RenderViewHost* preload_host) {
-  ASSERT_FALSE(libraries_preloaded_);
+    RenderFrameHost* preload_frame) {
+  // We shouldn't preload libraries twice for the same frame in the same
+  // process.
+  auto global_frame_routing_id = preload_frame->GetGlobalFrameRoutingId();
+  ASSERT_FALSE(
+      base::Contains(libraries_preloaded_for_frames_, global_frame_routing_id));
+
   std::vector<base::Value> args;
   args.push_back(base::Value(preload_test_fixture));
   args.push_back(base::Value(preload_test_name));
   RunJavascriptUsingHandler("preloadJavascriptLibraries", std::move(args),
-                            false, false, preload_host);
-  libraries_preloaded_ = true;
+                            false, false, preload_frame);
+  libraries_preloaded_for_frames_.emplace(global_frame_routing_id);
 
   bool should_wait_flag = base::CommandLine::ForCurrentProcess()->HasSwitch(
       ::switches::kWaitForDebuggerWebUI);
 
   if (should_wait_flag)
-    RunJavascriptUsingHandler("setWaitUser", {}, false, false, preload_host);
+    RunJavascriptUsingHandler("setWaitUser", {}, false, false, preload_frame);
 }
 
 void BaseWebUIBrowserTest::BrowsePreload(const GURL& browse_to) {
@@ -447,12 +458,10 @@ void BaseWebUIBrowserTest::SetUpOnMainThread() {
 
   logging::SetLogMessageHandler(&LogHandler);
 
-  content::WebUIControllerFactory::UnregisterFactoryForTesting(
-      ChromeWebUIControllerFactory::GetInstance());
-
   test_factory_ = std::make_unique<TestChromeWebUIControllerFactory>();
-
-  content::WebUIControllerFactory::RegisterFactory(test_factory_.get());
+  factory_registration_ =
+      std::make_unique<content::ScopedWebUIControllerFactoryRegistration>(
+          test_factory_.get(), ChromeWebUIControllerFactory::GetInstance());
 
   test_factory_->AddFactoryOverride(DummyUrl().host(),
                                     mock_provider_.Pointer());
@@ -464,14 +473,10 @@ void BaseWebUIBrowserTest::TearDownOnMainThread() {
   logging::SetLogMessageHandler(nullptr);
 
   test_factory_->RemoveFactoryOverride(DummyUrl().host());
-  content::WebUIControllerFactory::UnregisterFactoryForTesting(
-      test_factory_.get());
-
-  // This is needed to avoid a debug assert after the test completes, see stack
-  // trace in http://crrev.com/179347
-  content::WebUIControllerFactory::RegisterFactory(
-      ChromeWebUIControllerFactory::GetInstance());
-
+  // |factory_registration_| must be reset before |test_factory_| to remove
+  // any pointers to |test_factory_| from the factory registry before its
+  // destruction.
+  factory_registration_.reset();
   test_factory_.reset();
 }
 
@@ -488,22 +493,33 @@ bool BaseWebUIBrowserTest::RunJavascriptUsingHandler(
     std::vector<base::Value> function_arguments,
     bool is_test,
     bool is_async,
-    RenderViewHost* preload_host) {
+    RenderFrameHost* preload_frame) {
+  if (!preload_frame)
+    SetupHandlers();
+
   // Get the user libraries. Preloading them individually is best, then
   // we can assign each one a filename for better stack traces. Otherwise
   // append them all to |content|.
-  base::string16 content;
-  std::vector<base::string16> libraries;
-  if (!libraries_preloaded_) {
+  std::u16string content;
+  std::vector<std::u16string> libraries;
+
+  // Some tests don't use `BaseWebUIBrowserTest::BrowsePreload()`, which is
+  // where we attach WebUIJsInjectionReadyObserver and preload libraries. In
+  // these cases prepend the libraries to the test itself.
+  auto* frame_for_libraries = preload_frame
+                                  ? preload_frame
+                                  : test_handler_->GetRenderFrameHostForTest();
+  if (!base::Contains(libraries_preloaded_for_frames_,
+                      frame_for_libraries->GetGlobalFrameRoutingId())) {
     BuildJavascriptLibraries(&libraries);
-    if (!preload_host) {
-      content = base::JoinString(libraries, base::ASCIIToUTF16("\n"));
+    if (!preload_frame) {
+      content = base::JoinString(libraries, u"\n");
       libraries.clear();
     }
   }
 
   if (!function_name.empty()) {
-    base::string16 called_function;
+    std::u16string called_function;
     if (is_test) {
       called_function = BuildRunTestJSCall(is_async, function_name,
                                            std::move(function_arguments));
@@ -517,18 +533,15 @@ bool BaseWebUIBrowserTest::RunJavascriptUsingHandler(
     content.append(called_function);
   }
 
-  if (!preload_host)
-    SetupHandlers();
-
   bool result = true;
 
-  for (size_t i = 0; i < libraries.size(); ++i)
-    test_handler_->PreloadJavaScript(libraries[i], preload_host);
+  for (const std::u16string& library : libraries)
+    test_handler_->PreloadJavaScript(library, preload_frame);
 
   if (is_test)
     result = test_handler_->RunJavaScriptTestWithResult(content);
-  else if (preload_host)
-    test_handler_->PreloadJavaScript(content, preload_host);
+  else if (preload_frame)
+    test_handler_->PreloadJavaScript(content, preload_frame);
   else
     test_handler_->RunJavaScript(content);
 

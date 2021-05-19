@@ -29,6 +29,7 @@
 #include "google_apis/gaia/gaia_auth_util.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/base/window_open_disposition.h"
 #include "ui/gfx/color_palette.h"
 #include "ui/gfx/font.h"
@@ -91,6 +92,7 @@ ProfileSigninConfirmationDialogViews::ProfileSigninConfirmationDialogViews(
   }
   SetButtonLabel(ui::DIALOG_BUTTON_CANCEL,
                  l10n_util::GetStringUTF16(IDS_ENTERPRISE_SIGNIN_CANCEL));
+  SetModalType(ui::MODAL_TYPE_WINDOW);
 
   using Delegate = ui::ProfileSigninConfirmationDelegate;
   using DelegateNotifyFn = void (Delegate::*)();
@@ -119,30 +121,12 @@ void ProfileSigninConfirmationDialogViews::Show(
     Browser* browser,
     const std::string& username,
     std::unique_ptr<ui::ProfileSigninConfirmationDelegate> delegate,
-    bool prompt) {
+    bool prompt_for_new_profile) {
   auto dialog = std::make_unique<ProfileSigninConfirmationDialogViews>(
-      browser, username, std::move(delegate), prompt);
+      browser, username, std::move(delegate), prompt_for_new_profile);
   constrained_window::CreateBrowserModalDialogViews(
       dialog.release(), browser->window()->GetNativeWindow())
       ->Show();
-}
-
-// static
-void ProfileSigninConfirmationDialogViews::ShowDialog(
-    Browser* browser,
-    Profile* profile,
-    const std::string& username,
-    std::unique_ptr<ui::ProfileSigninConfirmationDelegate> delegate) {
-  // Checking whether to show the prompt is sometimes asynchronous. Defer
-  // constructing the dialog (in ::Show) until that check completes.
-  ui::CheckShouldPromptForNewProfile(
-      profile,
-      base::BindOnce(&ProfileSigninConfirmationDialogViews::Show,
-                     base::Unretained(browser), username, std::move(delegate)));
-}
-
-ui::ModalType ProfileSigninConfirmationDialogViews::GetModalType() const {
-  return ui::MODAL_TYPE_WINDOW;
 }
 
 void ProfileSigninConfirmationDialogViews::ViewHierarchyChanged(
@@ -170,13 +154,11 @@ void ProfileSigninConfirmationDialogViews::BuildDefaultView() {
 
   // Create the prompt label.
   size_t offset;
-  const base::string16 domain =
+  const std::u16string domain =
       base::ASCIIToUTF16(gaia::ExtractDomainName(username_));
-  const base::string16 username = base::ASCIIToUTF16(username_);
-  const base::string16 prompt_text =
-      l10n_util::GetStringFUTF16(
-          IDS_ENTERPRISE_SIGNIN_ALERT,
-          domain, &offset);
+  const std::u16string username = base::ASCIIToUTF16(username_);
+  const std::u16string prompt_text =
+      l10n_util::GetStringFUTF16(IDS_ENTERPRISE_SIGNIN_ALERT, domain, &offset);
   auto prompt_label = std::make_unique<views::StyledLabel>();
   prompt_label->SetText(prompt_text);
   prompt_label->SetDisplayedOnBackgroundColor(kPromptBarBackgroundColor);
@@ -196,13 +178,13 @@ void ProfileSigninConfirmationDialogViews::BuildDefaultView() {
 
   // Create the explanation label.
   std::vector<size_t> offsets;
-  const base::string16 learn_more_text =
+  const std::u16string learn_more_text =
       l10n_util::GetStringUTF16(IDS_LEARN_MORE);
-  const base::string16 signin_explanation_text =
-      l10n_util::GetStringFUTF16(prompt_for_new_profile_ ?
-          IDS_ENTERPRISE_SIGNIN_EXPLANATION_WITH_PROFILE_CREATION :
-          IDS_ENTERPRISE_SIGNIN_EXPLANATION_WITHOUT_PROFILE_CREATION,
-          username, learn_more_text, &offsets);
+  const std::u16string signin_explanation_text = l10n_util::GetStringFUTF16(
+      prompt_for_new_profile_
+          ? IDS_ENTERPRISE_SIGNIN_EXPLANATION_WITH_PROFILE_CREATION
+          : IDS_ENTERPRISE_SIGNIN_EXPLANATION_WITHOUT_PROFILE_CREATION,
+      username, learn_more_text, &offsets);
   auto explanation_label = std::make_unique<views::StyledLabel>();
   explanation_label->SetText(signin_explanation_text);
   explanation_label->AddStyleRange(
@@ -214,7 +196,7 @@ void ProfileSigninConfirmationDialogViews::BuildDefaultView() {
   // Layout the components.
   const gfx::Insets content_insets =
       views::LayoutProvider::Get()->GetDialogInsetsForContentType(
-          views::CONTROL, views::TEXT);
+          views::DialogContentType::kControl, views::DialogContentType::kText);
   // The prompt bar needs to go to the edge of the dialog, so remove horizontal
   // insets.
   SetBorder(views::CreateEmptyBorder(content_insets.top(), 0,
@@ -296,9 +278,9 @@ void ProfileSigninConfirmationDialogViews::BuildWorkProfileView() {
 
   // Create the explanation label.
   size_t learn_more_offset;
-  const base::string16 learn_more_text =
+  const std::u16string learn_more_text =
       l10n_util::GetStringUTF16(IDS_LEARN_MORE);
-  const base::string16 signin_explanation_text =
+  const std::u16string signin_explanation_text =
       l10n_util::GetStringFUTF16(IDS_ENTERPRISE_SIGNIN_WORK_PROFILE_EXPLANATION,
                                  learn_more_text, &learn_more_offset);
   auto explanation_label = std::make_unique<views::StyledLabel>();
@@ -312,7 +294,7 @@ void ProfileSigninConfirmationDialogViews::BuildWorkProfileView() {
   // Layout the components.
   const gfx::Insets content_insets =
       views::LayoutProvider::Get()->GetDialogInsetsForContentType(
-          views::CONTROL, views::TEXT);
+          views::DialogContentType::kControl, views::DialogContentType::kText);
   // The prompt bar needs to go to the edge of the dialog, so remove horizontal
   // insets.
   SetBorder(views::CreateEmptyBorder(content_insets.top(), 0,
@@ -378,3 +360,6 @@ void ProfileSigninConfirmationDialogViews::LearnMoreClicked(
   params.window_action = NavigateParams::SHOW_WINDOW;
   Navigate(&params);
 }
+
+BEGIN_METADATA(ProfileSigninConfirmationDialogViews, views::DialogDelegateView)
+END_METADATA

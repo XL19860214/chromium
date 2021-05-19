@@ -6,6 +6,7 @@
 
 #include <memory>
 
+#include "base/bind.h"
 #include "base/containers/contains.h"
 #include "base/scoped_observation.h"
 #include "chrome/browser/themes/theme_properties.h"
@@ -13,6 +14,7 @@
 #include "chrome/browser/ui/views/chrome_layout_provider.h"
 #include "chrome/browser/ui/views/toolbar/toolbar_button.h"
 #include "chrome/browser/ui/views/toolbar/toolbar_ink_drop_util.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/compositor/paint_recorder.h"
 #include "ui/compositor/scoped_layer_animation_settings.h"
 #include "ui/gfx/canvas.h"
@@ -22,10 +24,6 @@
 #include "ui/views/layout/flex_layout.h"
 #include "ui/views/view_class_properties.h"
 #include "ui/views/view_observer.h"
-
-// static
-const char ToolbarIconContainerView::kToolbarIconContainerViewClassName[] =
-    "ToolbarIconContainerView";
 
 ToolbarIconContainerView::RoundRectBorder::RoundRectBorder(views::View* parent)
     : parent_(parent) {
@@ -44,7 +42,7 @@ void ToolbarIconContainerView::RoundRectBorder::OnPaintLayer(
   gfx::Canvas* canvas = paint_recorder.canvas();
 
   const int radius = ChromeLayoutProvider::Get()->GetCornerRadiusMetric(
-      views::EMPHASIS_MAXIMUM, layer_.size());
+      views::Emphasis::kMaximum, layer_.size());
   cc::PaintFlags flags;
   flags.setAntiAlias(true);
   flags.setStyle(cc::PaintFlags::kStroke_Style);
@@ -92,8 +90,10 @@ class ToolbarIconContainerView::WidgetRestoreObserver
     const bool is_collapsed = observed_view->bounds().IsEmpty();
     if (is_collapsed != was_collapsed_) {
       was_collapsed_ = is_collapsed;
-      if (!is_collapsed)
-        toolbar_icon_container_view_->animating_layout_manager()->ResetLayout();
+      if (!is_collapsed) {
+        toolbar_icon_container_view_->GetAnimatingLayoutManager()
+            ->ResetLayout();
+      }
     }
   }
 
@@ -142,7 +142,7 @@ void ToolbarIconContainerView::ObserveButton(views::Button* button) {
   // We don't care about the main button being highlighted.
   if (button != main_button_) {
     subscriptions_.push_back(
-        button->AddHighlightedChangedCallback(base::BindRepeating(
+        button->ink_drop()->AddHighlightedChangedCallback(base::BindRepeating(
             &ToolbarIconContainerView::OnButtonHighlightedChanged,
             base::Unretained(this), base::Unretained(button))));
   }
@@ -159,56 +159,20 @@ void ToolbarIconContainerView::RemoveObserver(const Observer* obs) {
   observers_.RemoveObserver(obs);
 }
 
-void ToolbarIconContainerView::OverrideIconColor(SkColor color) {
+void ToolbarIconContainerView::SetIconColor(SkColor color) {
+  if (icon_color_ == color)
+    return;
   icon_color_ = color;
   UpdateAllIcons();
+  OnPropertyChanged(&icon_color_, views::kPropertyEffectsNone);
 }
 
 SkColor ToolbarIconContainerView::GetIconColor() const {
-  if (icon_color_)
-    return icon_color_.value();
-  return GetThemeProvider()->GetColor(
-      ThemeProperties::COLOR_TOOLBAR_BUTTON_ICON);
+  return icon_color_.value_or(
+      GetThemeProvider()->GetColor(ThemeProperties::COLOR_TOOLBAR_BUTTON_ICON));
 }
 
-bool ToolbarIconContainerView::IsHighlighted() {
-  return ShouldDisplayHighlight();
-}
-
-void ToolbarIconContainerView::OnViewFocused(views::View* observed_view) {
-  UpdateHighlight();
-}
-
-void ToolbarIconContainerView::OnViewBlurred(views::View* observed_view) {
-  UpdateHighlight();
-}
-
-void ToolbarIconContainerView::OnBoundsChanged(
-    const gfx::Rect& previous_bounds) {
-  const gfx::Rect bounds = ConvertRectToWidget(GetLocalBounds());
-  border_.layer()->SetBounds(bounds);
-  border_.layer()->SchedulePaint(gfx::Rect(bounds.size()));
-}
-
-void ToolbarIconContainerView::OnMouseEntered(const ui::MouseEvent& event) {
-  UpdateHighlight();
-}
-
-void ToolbarIconContainerView::OnMouseExited(const ui::MouseEvent& event) {
-  UpdateHighlight();
-}
-
-const char* ToolbarIconContainerView::GetClassName() const {
-  return kToolbarIconContainerViewClassName;
-}
-
-void ToolbarIconContainerView::AddedToWidget() {
-  // Add an observer to reset the animation if the browser window is restored,
-  // preventing spurious animation. (See crbug.com/1106506)
-  restore_observer_ = std::make_unique<WidgetRestoreObserver>(this);
-}
-
-bool ToolbarIconContainerView::ShouldDisplayHighlight() {
+bool ToolbarIconContainerView::GetHighlighted() const {
   if (!uses_highlight_)
     return false;
 
@@ -216,12 +180,12 @@ bool ToolbarIconContainerView::ShouldDisplayHighlight() {
     return true;
 
   // Focused, pressed or hovered children should trigger the highlight.
-  for (views::View* child : children()) {
+  for (const views::View* child : children()) {
     if (child == main_button_)
       continue;
     if (child->HasFocus())
       return true;
-    views::Button* button = views::Button::AsButton(child);
+    const views::Button* button = views::Button::AsButton(child);
     if (!button)
       continue;
     if (button->GetState() == views::Button::ButtonState::STATE_PRESSED ||
@@ -236,12 +200,71 @@ bool ToolbarIconContainerView::ShouldDisplayHighlight() {
   return false;
 }
 
+void ToolbarIconContainerView::OnThemeChanged() {
+  views::View::OnThemeChanged();
+  border_.layer()->SchedulePaint(GetLocalBounds());
+}
+
+void ToolbarIconContainerView::OnViewFocused(views::View* observed_view) {
+  UpdateHighlight();
+}
+
+void ToolbarIconContainerView::OnViewBlurred(views::View* observed_view) {
+  UpdateHighlight();
+}
+
+views::AnimatingLayoutManager*
+ToolbarIconContainerView::GetAnimatingLayoutManager() {
+  return static_cast<views::AnimatingLayoutManager*>(GetLayoutManager());
+}
+
+const views::AnimatingLayoutManager*
+ToolbarIconContainerView::GetAnimatingLayoutManager() const {
+  return static_cast<const views::AnimatingLayoutManager*>(GetLayoutManager());
+}
+
+views::FlexLayout* ToolbarIconContainerView::GetTargetLayoutManager() {
+  return static_cast<views::FlexLayout*>(
+      GetAnimatingLayoutManager()->target_layout_manager());
+}
+
+void ToolbarIconContainerView::OnBoundsChanged(
+    const gfx::Rect& previous_bounds) {
+  const gfx::Rect bounds = GetLocalBounds();
+  border_.layer()->SetBounds(ConvertRectToWidget(bounds));
+  border_.layer()->SchedulePaint(bounds);
+}
+
+void ToolbarIconContainerView::OnMouseEntered(const ui::MouseEvent& event) {
+  UpdateHighlight();
+}
+
+void ToolbarIconContainerView::OnMouseExited(const ui::MouseEvent& event) {
+  UpdateHighlight();
+}
+
+void ToolbarIconContainerView::AddedToWidget() {
+  // Add an observer to reset the animation if the browser window is restored,
+  // preventing spurious animation. (See crbug.com/1106506)
+  restore_observer_ = std::make_unique<WidgetRestoreObserver>(this);
+}
+
 void ToolbarIconContainerView::UpdateHighlight() {
   bool showing_before = border_.layer()->GetTargetOpacity() == 1;
 
   {
     ui::ScopedLayerAnimationSettings settings(border_.layer()->GetAnimator());
-    border_.layer()->SetOpacity(ShouldDisplayHighlight() ? 1 : 0);
+    border_.layer()->SetOpacity(GetHighlighted() ? 1 : 0);
+  }
+
+  // TODO(crbug.com/1194150): For some reason, the SchedulePaint() calls that
+  // happen initially -- in OnThemeChanged() and OnBoundsChanged() -- do not
+  // result in the layer getting painted for the first time. Calling
+  // SchedulePaint() here works. Without this, the highlight will not appear
+  // until an extension icon is added or removed or the theme is changed.
+  if (!ever_painted_highlight_ && GetHighlighted()) {
+    ever_painted_highlight_ = true;
+    border_.layer()->SchedulePaint(GetLocalBounds());
   }
 
   if (showing_before == (border_.layer()->GetTargetOpacity() == 1))
@@ -252,10 +275,15 @@ void ToolbarIconContainerView::UpdateHighlight() {
 
 void ToolbarIconContainerView::OnButtonHighlightedChanged(
     views::Button* button) {
-  if (button->GetHighlighted())
+  if (button->ink_drop()->GetHighlighted())
     highlighted_buttons_.insert(button);
   else
     highlighted_buttons_.erase(button);
 
   UpdateHighlight();
 }
+
+BEGIN_METADATA(ToolbarIconContainerView, views::View)
+ADD_PROPERTY_METADATA(SkColor, IconColor, ui::metadata::SkColorConverter)
+ADD_READONLY_PROPERTY_METADATA(bool, Highlighted)
+END_METADATA

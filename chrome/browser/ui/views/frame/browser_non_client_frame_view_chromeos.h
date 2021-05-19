@@ -8,7 +8,6 @@
 #include <memory>
 
 #include "base/gtest_prod_util.h"
-#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/scoped_observation.h"
 #include "chrome/browser/ui/views/frame/browser_frame_header_chromeos.h"
@@ -17,6 +16,7 @@
 #include "chrome/browser/ui/views/tab_icon_view_model.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_observer.h"
+#include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/display/display_observer.h"
 #include "ui/display/tablet_state.h"
 
@@ -40,8 +40,13 @@ class BrowserNonClientFrameViewChromeOS
       public aura::WindowObserver,
       public ImmersiveModeController::Observer {
  public:
+  METADATA_HEADER(BrowserNonClientFrameViewChromeOS);
   BrowserNonClientFrameViewChromeOS(BrowserFrame* frame,
                                     BrowserView* browser_view);
+  BrowserNonClientFrameViewChromeOS(const BrowserNonClientFrameViewChromeOS&) =
+      delete;
+  BrowserNonClientFrameViewChromeOS& operator=(
+      const BrowserNonClientFrameViewChromeOS&) = delete;
   ~BrowserNonClientFrameViewChromeOS() override;
 
   void Init();
@@ -70,11 +75,12 @@ class BrowserNonClientFrameViewChromeOS
   // views::View:
   void OnPaint(gfx::Canvas* canvas) override;
   void Layout() override;
-  const char* GetClassName() const override;
   void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
   gfx::Size GetMinimumSize() const override;
   void OnThemeChanged() override;
   void ChildPreferredSizeChanged(views::View* child) override;
+  bool DoesIntersectRect(const views::View* target,
+                         const gfx::Rect& rect) const override;
 
   // BrowserFrameHeaderChromeOS::AppearanceProvider:
   SkColor GetTitleColor() override;
@@ -145,9 +151,9 @@ class BrowserNonClientFrameViewChromeOS
 
   friend class WebAppNonClientFrameViewAshTest;
 
-  // Returns true if |ShouldShowCaptionButtonsWhenNotInOverview| returns true
+  // Returns true if GetShowCaptionButtonsWhenNotInOverview() returns true
   // and this browser window is not showing in overview.
-  bool ShouldShowCaptionButtons() const;
+  bool GetShowCaptionButtons() const;
 
   // In tablet mode, to prevent accidental taps of the window controls, and to
   // give more horizontal space for tabs and the new tab button (especially in
@@ -156,7 +162,7 @@ class BrowserNonClientFrameViewChromeOS
   // enabled, because it gives the user the ability to minimize all windows when
   // pressing the Launcher button on the shelf. So, this function returns true
   // if the Home Launcher feature is disabled or we are in clamshell mode.
-  bool ShouldShowCaptionButtonsWhenNotInOverview() const;
+  bool GetShowCaptionButtonsWhenNotInOverview() const;
 
   // Distance between the edge of the NonClientFrameView and the web app frame
   // toolbar.
@@ -168,7 +174,7 @@ class BrowserNonClientFrameViewChromeOS
 
   // Returns true if there is anything to paint. Some fullscreen windows do
   // not need their frames painted.
-  bool ShouldPaint() const;
+  bool GetShouldPaint() const;
 
   // Helps to hide or show the header as needed when the window is added to or
   // removed from overview.
@@ -185,7 +191,7 @@ class BrowserNonClientFrameViewChromeOS
   void UpdateTopViewInset();
 
   // Returns true if |profile_indicator_icon_| should be shown.
-  bool ShouldShowProfileIndicatorIcon() const;
+  bool GetShowProfileIndicatorIcon() const;
 
   // Updates the icon that indicates a teleported window.
   void UpdateProfileIcons();
@@ -193,7 +199,7 @@ class BrowserNonClientFrameViewChromeOS
   void LayoutProfileIndicator();
 
   // Returns whether this window is currently in the overview list.
-  bool IsInOverviewMode() const;
+  bool GetOverviewMode() const;
 
   // Called any time the frame color may have changed.
   void OnUpdateFrameColor();
@@ -220,8 +226,6 @@ class BrowserNonClientFrameViewChromeOS
 
   base::WeakPtrFactory<BrowserNonClientFrameViewChromeOS> weak_ptr_factory_{
       this};
-
-  DISALLOW_COPY_AND_ASSIGN(BrowserNonClientFrameViewChromeOS);
 };
 
 #endif  // CHROME_BROWSER_UI_VIEWS_FRAME_BROWSER_NON_CLIENT_FRAME_VIEW_CHROMEOS_H_

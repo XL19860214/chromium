@@ -35,8 +35,8 @@ TestExtensionsBrowserClient::TestExtensionsBrowserClient()
 TestExtensionsBrowserClient::~TestExtensionsBrowserClient() = default;
 
 void TestExtensionsBrowserClient::SetUpdateClientFactory(
-    const base::Callback<update_client::UpdateClient*(void)>& factory) {
-  update_client_factory_ = factory;
+    base::RepeatingCallback<update_client::UpdateClient*(void)> factory) {
+  update_client_factory_ = std::move(factory);
 }
 
 void TestExtensionsBrowserClient::SetMainContext(
@@ -166,7 +166,7 @@ ProcessManagerDelegate* TestExtensionsBrowserClient::GetProcessManagerDelegate()
 
 std::unique_ptr<ExtensionHostDelegate>
 TestExtensionsBrowserClient::CreateExtensionHostDelegate() {
-  return std::unique_ptr<ExtensionHostDelegate>();
+  return nullptr;
 }
 
 bool TestExtensionsBrowserClient::DidVersionUpdate(BrowserContext* context) {

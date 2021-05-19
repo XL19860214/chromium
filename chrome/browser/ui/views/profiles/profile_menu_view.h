@@ -33,8 +33,13 @@ class Browser;
 // It displays a list of profiles and allows users to switch between profiles.
 class ProfileMenuView : public ProfileMenuViewBase {
  public:
+  METADATA_HEADER(ProfileMenuView);
+
   ProfileMenuView(views::Button* anchor_button, Browser* browser);
   ~ProfileMenuView() override;
+
+  ProfileMenuView(const ProfileMenuView&) = delete;
+  ProfileMenuView& operator=(const ProfileMenuView&) = delete;
 
   // ProfileMenuViewBase:
   void BuildMenu() override;
@@ -45,7 +50,7 @@ class ProfileMenuView : public ProfileMenuViewBase {
   friend class ProfileMenuViewSignoutTest;
 
   // views::BubbleDialogDelegateView:
-  base::string16 GetAccessibleWindowTitle() const override;
+  std::u16string GetAccessibleWindowTitle() const override;
 
   // Button/link actions.
   void OnManageGoogleAccountButtonClicked();
@@ -84,7 +89,8 @@ class ProfileMenuView : public ProfileMenuViewBase {
   void BuildProfileManagementFeatureButtons();
 #endif
 
-  DISALLOW_COPY_AND_ASSIGN(ProfileMenuView);
+  std::u16string menu_title_;
+  std::u16string menu_subtitle_;
 };
 
 #endif  // CHROME_BROWSER_UI_VIEWS_PROFILES_PROFILE_MENU_VIEW_H_

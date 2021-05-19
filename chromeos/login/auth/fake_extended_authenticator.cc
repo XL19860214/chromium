@@ -21,24 +21,6 @@ void FakeExtendedAuthenticator::SetConsumer(AuthStatusConsumer* consumer) {
   consumer_ = consumer;
 }
 
-void FakeExtendedAuthenticator::AuthenticateToMount(
-    const UserContext& context,
-    ResultCallback success_callback) {
-  if (expected_user_context_ == context) {
-    UserContext reported_user_context(context);
-    const std::string mount_hash =
-        reported_user_context.GetAccountId().GetUserEmail() + "-hash";
-    reported_user_context.SetUserIDHash(mount_hash);
-    if (success_callback)
-      std::move(success_callback).Run(mount_hash);
-    OnAuthSuccess(reported_user_context);
-    return;
-  }
-
-  OnAuthFailure(FAILED_MOUNT,
-                AuthFailure(AuthFailure::COULD_NOT_MOUNT_CRYPTOHOME));
-}
-
 void FakeExtendedAuthenticator::AuthenticateToCheck(
     const UserContext& context,
     base::OnceClosure success_callback) {
@@ -63,15 +45,15 @@ void FakeExtendedAuthenticator::EndFingerprintAuthSession() {}
 
 void FakeExtendedAuthenticator::AuthenticateWithFingerprint(
     const UserContext& context,
-    base::OnceCallback<void(cryptohome::CryptohomeErrorCode)> callback) {
+    base::OnceCallback<void(::user_data_auth::CryptohomeErrorCode)> callback) {
   if (expected_user_context_ == context) {
-    std::move(callback).Run(cryptohome::CryptohomeErrorCode::
+    std::move(callback).Run(::user_data_auth::CryptohomeErrorCode::
                                 CRYPTOHOME_ERROR_FINGERPRINT_RETRY_REQUIRED);
     return;
   }
 
   std::move(callback).Run(
-      cryptohome::CryptohomeErrorCode::CRYPTOHOME_ERROR_NOT_SET);
+      ::user_data_auth::CryptohomeErrorCode::CRYPTOHOME_ERROR_NOT_SET);
 }
 
 void FakeExtendedAuthenticator::AddKey(const UserContext& context,

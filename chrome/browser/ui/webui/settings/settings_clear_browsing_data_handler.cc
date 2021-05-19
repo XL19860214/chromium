@@ -77,7 +77,6 @@ ClearBrowsingDataHandler::ClearBrowsingDataHandler(content::WebUI* webui,
                                                    Profile* profile)
     : profile_(profile),
       sync_service_(ProfileSyncServiceFactory::GetForProfile(profile_)),
-      sync_service_observer_(this),
       show_history_deletion_dialog_(false) {}
 
 ClearBrowsingDataHandler::~ClearBrowsingDataHandler() {
@@ -102,7 +101,7 @@ void ClearBrowsingDataHandler::RegisterMessages() {
 
 void ClearBrowsingDataHandler::OnJavascriptAllowed() {
   if (sync_service_)
-    sync_service_observer_.Add(sync_service_);
+    sync_service_observation_.Observe(sync_service_);
 
   DCHECK(counters_.empty());
   for (const std::string& pref : kCounterPrefsBasic) {
@@ -127,7 +126,7 @@ void ClearBrowsingDataHandler::OnJavascriptAllowed() {
 }
 
 void ClearBrowsingDataHandler::OnJavascriptDisallowed() {
-  sync_service_observer_.RemoveAll();
+  sync_service_observation_.Reset();
   weak_ptr_factory_.InvalidateWeakPtrs();
   counters_.clear();
   period_.reset();
@@ -204,7 +203,7 @@ ClearBrowsingDataHandler::ProcessInstalledApps(
   std::vector<int32_t> excluded_domain_reasons;
   std::vector<std::string> ignored_domains;
   std::vector<int32_t> ignored_domain_reasons;
-  for (const auto& item : *installed_apps) {
+  for (const auto& item : installed_apps->GetList()) {
     const base::DictionaryValue* site = nullptr;
     CHECK(item.GetAsDictionary(&site));
     bool is_checked = false;
@@ -222,10 +221,9 @@ ClearBrowsingDataHandler::ProcessInstalledApps(
     }
   }
   if (!excluded_domains.empty() || !ignored_domains.empty()) {
-    site_engagement::ImportantSitesUtil::
-        RecordBlacklistedAndIgnoredImportantSites(
-            profile_->GetOriginalProfile(), excluded_domains,
-            excluded_domain_reasons, ignored_domains, ignored_domain_reasons);
+    site_engagement::ImportantSitesUtil::RecordExcludedAndIgnoredImportantSites(
+        profile_->GetOriginalProfile(), excluded_domains,
+        excluded_domain_reasons, ignored_domains, ignored_domain_reasons);
   }
 
   std::unique_ptr<content::BrowsingDataFilterBuilder> filter_builder(
@@ -254,7 +252,7 @@ void ClearBrowsingDataHandler::HandleClearBrowsingData(
   std::vector<BrowsingDataType> data_type_vector;
   const base::ListValue* data_type_list = nullptr;
   CHECK(args->GetList(1, &data_type_list));
-  for (const base::Value& type : *data_type_list) {
+  for (const base::Value& type : data_type_list->GetList()) {
     std::string pref_name;
     CHECK(type.GetAsString(&pref_name));
     BrowsingDataType data_type =
@@ -359,8 +357,7 @@ void ClearBrowsingDataHandler::HandleClearBrowsingData(
   std::unique_ptr<content::BrowsingDataFilterBuilder> filter_builder =
       ProcessInstalledApps(installed_apps);
 
-  content::BrowsingDataRemover* remover =
-      content::BrowserContext::GetBrowsingDataRemover(profile_);
+  content::BrowsingDataRemover* remover = profile_->GetBrowsingDataRemover();
 
   base::OnceCallback<void(uint64_t)> callback =
       base::BindOnce(&ClearBrowsingDataHandler::OnClearingTaskFinished,
@@ -439,14 +436,21 @@ void ClearBrowsingDataHandler::OnStateChanged(syncer::SyncService* sync) {
 void ClearBrowsingDataHandler::UpdateSyncState() {
   signin::IdentityManager* identity_manager =
       IdentityManagerFactory::GetForProfile(profile_);
-  FireWebUIListener(
-      "update-sync-state",
-      base::Value(identity_manager && identity_manager->HasPrimaryAccount()),
-      base::Value(sync_service_ && sync_service_->IsSyncFeatureActive() &&
-                  sync_service_->GetActiveDataTypes().Has(
-                      syncer::HISTORY_DELETE_DIRECTIVES)),
-      base::Value(
-          browsing_data_counter_utils::ShouldShowCookieException(profile_)));
+  base::DictionaryValue event;
+  event.SetBoolKey("signedIn",
+                   identity_manager && identity_manager->HasPrimaryAccount(
+                                           signin::ConsentLevel::kSignin));
+  event.SetBoolKey("syncConsented",
+                   identity_manager && identity_manager->HasPrimaryAccount(
+                                           signin::ConsentLevel::kSync));
+  event.SetBoolKey("syncingHistory",
+                   sync_service_ && sync_service_->IsSyncFeatureActive() &&
+                       sync_service_->GetActiveDataTypes().Has(
+                           syncer::HISTORY_DELETE_DIRECTIVES));
+  event.SetBoolKey(
+      "shouldShowCookieException",
+      browsing_data_counter_utils::ShouldShowCookieException(profile_));
+  FireWebUIListener("update-sync-state", event);
 }
 
 void ClearBrowsingDataHandler::RefreshHistoryNotice() {

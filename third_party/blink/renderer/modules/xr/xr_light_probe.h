@@ -41,7 +41,7 @@ class XRLightProbe : public EventTargetWithInlineData {
 
   DEFINE_ATTRIBUTE_EVENT_LISTENER(reflectionchange, kReflectionchange)
 
-  base::Optional<TransformationMatrix> MojoFromObject() const;
+  absl::optional<TransformationMatrix> MojoFromObject() const;
 
   void ProcessLightEstimationData(
       const device::mojom::blink::XRLightEstimationData* data,
@@ -55,6 +55,8 @@ class XRLightProbe : public EventTargetWithInlineData {
   // EventTarget overrides.
   ExecutionContext* GetExecutionContext() const override;
   const AtomicString& InterfaceName() const override;
+
+  bool IsStationary() const { return true; }
 
   void Trace(Visitor* visitor) const override;
 

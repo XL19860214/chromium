@@ -6,6 +6,7 @@
 
 #include <utility>
 
+#include "ash/constants/ash_features.h"
 #include "ash/public/cpp/assistant/controller/assistant_interaction_controller.h"
 #include "ash/public/cpp/quick_answers/controller/quick_answers_controller.h"
 #include "base/metrics/histogram_functions.h"
@@ -17,7 +18,6 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chromeos/components/quick_answers/quick_answers_model.h"
-#include "chromeos/constants/chromeos_features.h"
 #include "chromeos/services/assistant/public/cpp/assistant_service.h"
 #include "components/language/core/browser/pref_names.h"
 #include "components/prefs/pref_service.h"
@@ -26,6 +26,7 @@
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/storage_partition.h"
 #include "content/public/browser/web_contents.h"
+#include "third_party/blink/public/mojom/context_menu/context_menu.mojom.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/gfx/text_constants.h"
 #include "ui/gfx/text_elider.h"
@@ -42,25 +43,24 @@ constexpr int kMaxSurroundingTextLength = 300;
 QuickAnswersMenuObserver::QuickAnswersMenuObserver(
     RenderViewContextMenuProxy* proxy)
     : proxy_(proxy) {
-  auto* assistant_state = ash::AssistantState::Get();
-  if (assistant_state && proxy_ && proxy_->GetBrowserContext()) {
+  if (proxy_ && proxy_->GetBrowserContext()) {
     auto* browser_context = proxy_->GetBrowserContext();
     if (browser_context->IsOffTheRecord())
       return;
 
     quick_answers_client_ = std::make_unique<QuickAnswersClient>(
-        content::BrowserContext::GetDefaultStoragePartition(browser_context)
+        browser_context->GetDefaultStoragePartition()
             ->GetURLLoaderFactoryForBrowserProcess()
             .get(),
-        assistant_state, /*delegate=*/this);
+        /*delegate=*/this);
     quick_answers_controller_ = ash::QuickAnswersController::Get();
     if (!quick_answers_controller_)
       return;
     quick_answers_controller_->SetClient(std::make_unique<QuickAnswersClient>(
-        content::BrowserContext::GetDefaultStoragePartition(browser_context)
+        browser_context->GetDefaultStoragePartition()
             ->GetURLLoaderFactoryForBrowserProcess()
             .get(),
-        assistant_state, quick_answers_controller_->GetQuickAnswersDelegate()));
+        quick_answers_controller_->GetQuickAnswersDelegate()));
   }
 }
 
@@ -76,7 +76,7 @@ void QuickAnswersMenuObserver::OnContextMenuShown(
 
   // Skip password input field.
   if (params.input_field_type ==
-      blink::ContextMenuDataInputFieldType::kPassword) {
+      blink::mojom::ContextMenuDataInputFieldType::kPassword) {
     return;
   }
 
@@ -144,7 +144,7 @@ void QuickAnswersMenuObserver::OnEligibilityChanged(bool eligible) {
 
 void QuickAnswersMenuObserver::OnTextSurroundingSelectionAvailable(
     const std::string& selected_text,
-    const base::string16& surrounding_text,
+    const std::u16string& surrounding_text,
     uint32_t start_offset,
     uint32_t end_offset) {
   PrefService* prefs =

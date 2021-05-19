@@ -223,22 +223,44 @@ class TabGridViewBinder {
             if (model.get(TabProperties.SHOPPING_PERSISTED_TAB_DATA_FETCHER) != null) {
                 model.get(TabProperties.SHOPPING_PERSISTED_TAB_DATA_FETCHER)
                         .fetch((shoppingPersistedTabData) -> {
-                            if (shoppingPersistedTabData.getPriceDrop() == null) {
+                            if (shoppingPersistedTabData == null
+                                    || shoppingPersistedTabData.getPriceDrop() == null) {
                                 priceCardView.setVisibility(View.GONE);
-                                model.set(TabProperties.PRICE_DROP, null);
                             } else {
                                 priceCardView.setPriceStrings(
                                         shoppingPersistedTabData.getPriceDrop().price,
                                         shoppingPersistedTabData.getPriceDrop().previousPrice);
                                 priceCardView.setVisibility(View.VISIBLE);
-                                model.set(TabProperties.PRICE_DROP,
-                                        shoppingPersistedTabData.getPriceDrop());
                             }
                         });
             } else {
                 priceCardView.setVisibility(View.GONE);
-                // TODO(crbug.com/1157578): Update the model in mediator.
-                model.set(TabProperties.PRICE_DROP, null);
+            }
+        } else if (TabProperties.STORE_PERSISTED_TAB_DATA_FETCHER == propertyKey) {
+            StoreHoursCardView storeHoursCardView =
+                    (StoreHoursCardView) view.fastFindViewById(R.id.store_hours_box_outer);
+            if (model.get(TabProperties.STORE_PERSISTED_TAB_DATA_FETCHER) != null) {
+                model.get(TabProperties.STORE_PERSISTED_TAB_DATA_FETCHER)
+                        .fetch((storePersistedTabData) -> {
+                            if (storePersistedTabData == null
+                                    || storePersistedTabData.getStoreHoursString().equals("")) {
+                                storeHoursCardView.setVisibility(View.GONE);
+                            } else {
+                                storeHoursCardView.setStoreHours(
+                                        storePersistedTabData.getStoreHoursString());
+                                storeHoursCardView.setVisibility(View.VISIBLE);
+                            }
+                        });
+            } else {
+                storeHoursCardView.setVisibility(View.GONE);
+            }
+        } else if (TabProperties.SHOULD_SHOW_PRICE_DROP_TOOLTIP == propertyKey) {
+            if (model.get(TabProperties.SHOULD_SHOW_PRICE_DROP_TOOLTIP)) {
+                PriceCardView priceCardView =
+                        (PriceCardView) view.fastFindViewById(R.id.price_info_box_outer);
+                assert priceCardView.getVisibility() == View.VISIBLE;
+                LargeMessageCardView.showPriceDropTooltip(
+                        priceCardView.findViewById(R.id.current_price));
             }
         } else if (TabProperties.PAGE_INFO_LISTENER == propertyKey) {
             TabListMediator.TabActionListener listener =

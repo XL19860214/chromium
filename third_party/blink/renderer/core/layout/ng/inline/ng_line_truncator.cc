@@ -6,6 +6,7 @@
 
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_inline_box_state.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_inline_item_result.h"
+#include "third_party/blink/renderer/core/layout/ng/inline/ng_line_info.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_logical_line_item.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_physical_box_fragment.h"
 #include "third_party/blink/renderer/platform/fonts/font_baseline.h"
@@ -17,13 +18,13 @@ namespace blink {
 namespace {
 
 bool IsLeftMostOffset(const ShapeResult& shape_result, unsigned offset) {
-  if (shape_result.Rtl())
+  if (shape_result.IsRtl())
     return offset == shape_result.NumCharacters();
   return offset == 0;
 }
 
 bool IsRightMostOffset(const ShapeResult& shape_result, unsigned offset) {
-  if (shape_result.Rtl())
+  if (shape_result.IsRtl())
     return offset == 0;
   return offset == shape_result.NumCharacters();
 }
@@ -112,7 +113,7 @@ wtf_size_t NGLineTruncator::AddTruncatedChild(
       return kDidNotAddChild;
     text_offset =
         shape_result->OffsetToFit(shape_result->PositionForOffset(
-                                      IsRtl(edge) == shape_result->Rtl()
+                                      IsRtl(edge) == shape_result->IsRtl()
                                           ? 1
                                           : shape_result->NumCharacters() - 1),
                                   edge);
@@ -134,7 +135,7 @@ LayoutUnit NGLineTruncator::TruncateLine(LayoutUnit line_width,
   // to place the ellipsis. Children maybe truncated or moved as part of the
   // process.
   NGLogicalLineItem* ellipsized_child = nullptr;
-  base::Optional<NGLogicalLineItem> truncated_child;
+  absl::optional<NGLogicalLineItem> truncated_child;
   if (IsLtr(line_direction_)) {
     NGLogicalLineItem* first_child = line_box->FirstInFlowChild();
     for (auto it = line_box->rbegin(); it != line_box->rend(); it++) {
@@ -243,6 +244,10 @@ LayoutUnit NGLineTruncator::TruncateLineInTheMiddle(
     const NGLogicalLineItem& item = line[initial_index_right + 1];
     // |line_width| and/or InlineOffset() might be saturated.
     if (line_width <= item.InlineOffset())
+      return line_width;
+    // We can do nothing if the right-side static item sticks out to the both
+    // sides.
+    if (item.InlineOffset() < 0)
       return line_width;
     static_width_right =
         line_width - item.InlineOffset() + item.margin_line_left;
@@ -425,7 +430,7 @@ bool NGLineTruncator::EllipsizeChild(
     LayoutUnit ellipsis_width,
     bool is_first_child,
     NGLogicalLineItem* child,
-    base::Optional<NGLogicalLineItem>* truncated_child) {
+    absl::optional<NGLogicalLineItem>* truncated_child) {
   DCHECK(truncated_child && !*truncated_child);
 
   // Leave out-of-flow children as is.
@@ -480,7 +485,7 @@ bool NGLineTruncator::TruncateChild(
     LayoutUnit space_for_child,
     bool is_first_child,
     const NGLogicalLineItem& child,
-    base::Optional<NGLogicalLineItem>* truncated_child) {
+    absl::optional<NGLogicalLineItem>* truncated_child) {
   DCHECK(truncated_child && !*truncated_child);
 
   // If the space is not enough, try the next child.

@@ -578,7 +578,6 @@ async function checkMyFilesRootItemContextMenu(itemName, commandStates) {
     ['Downloads', '--', 'Folder'],
     ['Play files', '--', 'Folder'],
     ['Linux files', '--', 'Folder'],
-    ['Trash', '--', 'Folder'],
   ];
   await remoteCall.waitForFiles(
       appId, expectedRows,

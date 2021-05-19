@@ -6,11 +6,13 @@
 #define BASE_ALLOCATOR_PARTITION_ALLOCATOR_PAGE_ALLOCATOR_INTERNALS_POSIX_H_
 
 #include <errno.h>
+#include <string.h>
 #include <sys/mman.h>
+#include <algorithm>
 
+#include "base/allocator/partition_allocator/oom.h"
 #include "base/allocator/partition_allocator/partition_alloc_check.h"
-#include "base/check_op.h"
-#include "base/notreached.h"
+#include "base/dcheck_is_on.h"
 #include "base/posix/eintr_wrapper.h"
 #include "build/build_config.h"
 
@@ -28,8 +30,6 @@
 #endif
 #if defined(OS_LINUX) || defined(OS_CHROMEOS)
 #include <sys/resource.h>
-
-#include <algorithm>
 #endif
 
 #include "base/allocator/partition_allocator/page_allocator.h"
@@ -139,23 +139,7 @@ bool UseMapJit() {
 constexpr bool kHintIsAdvisory = true;
 std::atomic<int32_t> s_allocPageErrorCode{0};
 
-int GetAccessFlags(PageAccessibilityConfiguration accessibility) {
-  switch (accessibility) {
-    case PageRead:
-      return PROT_READ;
-    case PageReadWrite:
-      return PROT_READ | PROT_WRITE;
-    case PageReadExecute:
-      return PROT_READ | PROT_EXEC;
-    case PageReadWriteExecute:
-      return PROT_READ | PROT_WRITE | PROT_EXEC;
-    default:
-      NOTREACHED();
-      FALLTHROUGH;
-    case PageInaccessible:
-      return PROT_NONE;
-  }
-}
+int GetAccessFlags(PageAccessibilityConfiguration accessibility);
 
 void* SystemAllocPagesInternal(void* hint,
                                size_t length,
@@ -216,8 +200,26 @@ void SetSystemPagesAccessInternal(
     void* address,
     size_t length,
     PageAccessibilityConfiguration accessibility) {
-  PA_PCHECK(0 == HANDLE_EINTR(
-                     mprotect(address, length, GetAccessFlags(accessibility))));
+  int access_flags = GetAccessFlags(accessibility);
+  const int ret = HANDLE_EINTR(mprotect(address, length, access_flags));
+
+  // On Linux, man mprotect(2) states that ENOMEM is returned when (1) internal
+  // kernel data structures cannot be allocated, (2) the address range is
+  // invalid, or (3) this would split an existing mapping in a way that would
+  // exceed the maximum number of allowed mappings.
+  //
+  // Neither are very likely, but we still get a lot of crashes here. This is
+  // because setrlimit(RLIMIT_DATA)'s limit is checked and enforced here, if the
+  // access flags match a "data" mapping, which in our case would be MAP_PRIVATE
+  // | MAP_ANONYMOUS, and PROT_WRITE. see the call to may_expand_vm() in
+  // mm/mprotect.c in the kernel for details.
+  //
+  // In this case, we are almost certainly bumping into the sandbox limit, mark
+  // the crash as OOM. See SandboxLinux::LimitAddressSpace() for details.
+  if (ret == -1 && errno == ENOMEM && (access_flags & PROT_WRITE))
+    OOM_CRASH(length);
+
+  PA_PCHECK(0 == ret);
 }
 
 void FreePagesInternal(void* address, size_t length) {
@@ -252,13 +254,32 @@ void DecommitSystemPagesInternal(
   // pages in the region.
   DiscardSystemPages(address, length);
 
+  bool change_permissions = accessibility_disposition == PageUpdatePermissions;
+#if DCHECK_IS_ON()
+  // This is not guaranteed, show that we're serious.
+  //
+  // More specifically, several callers have had issues with assuming that
+  // memory is zeroed, this would hopefully make these bugs more visible.  We
+  // don't memset() everything, because ranges can be very large, and doing it
+  // over the entire range could make Chrome unusable with DCHECK_IS_ON().
+  //
+  // Only do it when we are about to change the permissions, since we don't know
+  // the previous permissions, and cannot restore them.
+  if (!DecommittedMemoryIsAlwaysZeroed() && change_permissions) {
+    // Memory may not be writable.
+    size_t size = std::min(length, 2 * SystemPageSize());
+    PA_CHECK(mprotect(address, size, PROT_WRITE) == 0);
+    memset(address, 0xcc, size);
+  }
+#endif
+
   // Make pages inaccessible, unless the caller requested to keep permissions.
   //
   // Note, there is a small window between these calls when the pages can be
   // incorrectly touched and brought back to memory. Not ideal, but doing those
-  // operaions in the opposite order resulted in PMF regression on Mac (see
+  // operations in the opposite order resulted in PMF regression on Mac (see
   // crbug.com/1153021).
-  if (accessibility_disposition == PageUpdatePermissions) {
+  if (change_permissions) {
     SetSystemPagesAccess(address, length, PageInaccessible);
   }
 }
@@ -280,6 +301,29 @@ void RecommitSystemPagesInternal(
   // details, see https://crbug.com/823915.
   madvise(address, length, MADV_FREE_REUSE);
 #endif
+}
+
+bool TryRecommitSystemPagesInternal(
+    void* address,
+    size_t length,
+    PageAccessibilityConfiguration accessibility,
+    PageAccessibilityDisposition accessibility_disposition) {
+  // On POSIX systems, the caller needs to simply read the memory to recommit
+  // it. However, if decommit changed the permissions, recommit has to change
+  // them back.
+  if (accessibility_disposition == PageUpdatePermissions) {
+    bool ok = TrySetSystemPagesAccess(address, length, accessibility);
+    if (!ok)
+      return false;
+  }
+
+#if defined(OS_APPLE)
+  // On macOS, to update accounting, we need to make another syscall. For more
+  // details, see https://crbug.com/823915.
+  madvise(address, length, MADV_FREE_REUSE);
+#endif
+
+  return true;
 }
 
 void DiscardSystemPagesInternal(void* address, size_t length) {

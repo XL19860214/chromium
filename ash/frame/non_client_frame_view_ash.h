@@ -12,18 +12,22 @@
 #include "ash/wm/overview/overview_observer.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
-#include "base/optional.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/skia/include/core/SkColor.h"
+#include "ui/base/metadata/metadata_header_macros.h"
+#include "ui/views/context_menu_controller.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/window/non_client_view.h"
 
 namespace chromeos {
 class FrameCaptionButtonContainerView;
 class ImmersiveFullscreenController;
+class MoveToDesksMenuModel;
 }
 
 namespace views {
 class Widget;
+class MenuRunner;
 }
 
 namespace ash {
@@ -36,16 +40,18 @@ class NonClientFrameViewAshImmersiveHelper;
 // The window header overlay slides onscreen when the user hovers the mouse at
 // the top of the screen. See also views::CustomFrameView and
 // BrowserNonClientFrameViewAsh.
-class ASH_EXPORT NonClientFrameViewAsh : public views::NonClientFrameView {
+class ASH_EXPORT NonClientFrameViewAsh : public views::NonClientFrameView,
+                                         public views::ContextMenuController {
  public:
-  // Internal class name.
-  static const char kViewClassName[];
+  METADATA_HEADER(NonClientFrameViewAsh);
 
   // |control_immersive| controls whether ImmersiveFullscreenController is
   // created for the NonClientFrameViewAsh; if true and a WindowStateDelegate
   // has not been set on the WindowState associated with |frame|, then an
   // ImmersiveFullscreenController is created.
   explicit NonClientFrameViewAsh(views::Widget* frame);
+  NonClientFrameViewAsh(const NonClientFrameViewAsh&) = delete;
+  NonClientFrameViewAsh& operator=(const NonClientFrameViewAsh&) = delete;
   ~NonClientFrameViewAsh() override;
 
   static NonClientFrameViewAsh* Get(aura::Window* window);
@@ -86,10 +92,13 @@ class ASH_EXPORT NonClientFrameViewAsh : public views::NonClientFrameView {
   // views::View:
   gfx::Size CalculatePreferredSize() const override;
   void Layout() override;
-  const char* GetClassName() const override;
   gfx::Size GetMinimumSize() const override;
   gfx::Size GetMaximumSize() const override;
-  void SetVisible(bool visible) override;
+
+  // views::ContextMenuController:
+  void ShowContextMenuForViewImpl(View* source,
+                                  const gfx::Point& point,
+                                  ui::MenuSourceType source_type) override;
 
   // If |paint| is false, we should not paint the header. Used for overview mode
   // with OnOverviewModeStarting() and OnOverviewModeEnded() to hide/show the
@@ -109,6 +118,9 @@ class ASH_EXPORT NonClientFrameViewAsh : public views::NonClientFrameView {
   SkColor GetInactiveFrameColorForTest() const;
 
   views::Widget* frame() { return frame_; }
+
+  bool GetFrameEnabled() const { return frame_enabled_; }
+  virtual void SetFrameEnabled(bool enabled);
 
  protected:
   // views::View:
@@ -140,7 +152,12 @@ class ASH_EXPORT NonClientFrameViewAsh : public views::NonClientFrameView {
 
   OverlayView* overlay_view_ = nullptr;
 
+  bool frame_enabled_ = true;
+
   std::unique_ptr<NonClientFrameViewAshImmersiveHelper> immersive_helper_;
+
+  std::unique_ptr<chromeos::MoveToDesksMenuModel> move_to_desks_menu_model_;
+  std::unique_ptr<views::MenuRunner> menu_runner_;
 
   base::CallbackListSubscription paint_as_active_subscription_ =
       frame_->RegisterPaintAsActiveChangedCallback(
@@ -148,8 +165,6 @@ class ASH_EXPORT NonClientFrameViewAsh : public views::NonClientFrameView {
                               base::Unretained(this)));
 
   base::WeakPtrFactory<NonClientFrameViewAsh> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(NonClientFrameViewAsh);
 };
 
 }  // namespace ash

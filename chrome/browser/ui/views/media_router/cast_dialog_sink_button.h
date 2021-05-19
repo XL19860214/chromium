@@ -10,8 +10,7 @@
 #include "base/bind.h"
 #include "chrome/browser/ui/media_router/ui_media_sink.h"
 #include "chrome/browser/ui/views/hover_button.h"
-
-class Profile;
+#include "ui/base/metadata/metadata_header_macros.h"
 
 namespace ui {
 class MouseEvent;
@@ -23,10 +22,13 @@ namespace media_router {
 // hovered.
 class CastDialogSinkButton : public HoverButton {
  public:
+  METADATA_HEADER(CastDialogSinkButton);
   CastDialogSinkButton(PressedCallback callback, const UIMediaSink& sink);
+  CastDialogSinkButton(const CastDialogSinkButton&) = delete;
+  CastDialogSinkButton& operator=(const CastDialogSinkButton&) = delete;
   ~CastDialogSinkButton() override;
 
-  void OverrideStatusText(const base::string16& status_text);
+  void OverrideStatusText(const std::u16string& status_text);
   void RestoreStatusText();
 
   // views::View:
@@ -38,14 +40,8 @@ class CastDialogSinkButton : public HoverButton {
 
   const UIMediaSink& sink() const { return sink_; }
 
-  // If this button will cast to a meeting, creates a view showing a warning
-  // about the feature being deprecated.  Otherwise returns nullptr.  The
-  // |profile| parameter is used to open the meeting tab the the user clicks on
-  // the link in the warning.
-  std::unique_ptr<views::View> MakeCastToMeetingDeprecationWarningView(
-      Profile* profile);
-
   static const gfx::VectorIcon* GetVectorIcon(SinkIconType icon_type);
+  static const gfx::VectorIcon* GetVectorIcon(UIMediaSink sink);
 
  private:
   friend class MediaRouterUiForTest;
@@ -62,13 +58,11 @@ class CastDialogSinkButton : public HoverButton {
   void OnEnabledChanged();
 
   const UIMediaSink sink_;
-  base::Optional<base::string16> saved_status_text_;
+  absl::optional<std::u16string> saved_status_text_;
   base::CallbackListSubscription enabled_changed_subscription_ =
       AddEnabledChangedCallback(
           base::BindRepeating(&CastDialogSinkButton::OnEnabledChanged,
                               base::Unretained(this)));
-
-  DISALLOW_COPY_AND_ASSIGN(CastDialogSinkButton);
 };
 
 }  // namespace media_router

@@ -33,13 +33,12 @@ StreamingSearchPrefetchURLLoader::StreamingSearchPrefetchURLLoader(
     : resource_request_(std::move(resource_request)),
       streaming_prefetch_request_(streaming_prefetch_request) {
   DCHECK(streaming_prefetch_request_);
-  auto url_loader_factory =
-      content::BrowserContext::GetDefaultStoragePartition(profile)
-          ->GetURLLoaderFactoryForBrowserProcess();
+  auto url_loader_factory = profile->GetDefaultStoragePartition()
+                                ->GetURLLoaderFactoryForBrowserProcess();
 
   // Create a network service URL loader with passed in params.
   url_loader_factory->CreateLoaderAndStart(
-      network_url_loader_.BindNewPipeAndPassReceiver(), 0, 0,
+      network_url_loader_.BindNewPipeAndPassReceiver(), 0,
       network::mojom::kURLLoadOptionNone, *resource_request_,
       url_loader_receiver_.BindNewPipeAndPassRemote(
           base::ThreadTaskRunnerHandle::Get()),
@@ -84,8 +83,19 @@ void StreamingSearchPrefetchURLLoader::SetUpForwardingClient(
     resource_response_->raw_request_response_info = nullptr;
   }
 
+  // We are serving, so if the request is complete before serving, mark the
+  // request completion time as now.
+  if (status_) {
+    status_->completion_time = base::TimeTicks::Now();
+  }
+
   forwarding_client_->OnReceiveResponse(std::move(resource_response_));
   RunEventQueue();
+}
+
+void StreamingSearchPrefetchURLLoader::OnReceiveEarlyHints(
+    network::mojom::EarlyHintsPtr early_hints) {
+  // Do nothing.
 }
 
 void StreamingSearchPrefetchURLLoader::OnReceiveResponse(
@@ -179,6 +189,11 @@ void StreamingSearchPrefetchURLLoader::OnDataAvailable(const void* data,
 
 void StreamingSearchPrefetchURLLoader::OnDataComplete() {
   drain_complete_ = true;
+
+  // Disconnect if all content is served.
+  if (bytes_of_raw_data_to_transfer_ - write_position_ == 0) {
+    Finish();
+  }
 }
 
 void StreamingSearchPrefetchURLLoader::OnStartLoadingResponseBodyFromData() {
@@ -191,7 +206,7 @@ void StreamingSearchPrefetchURLLoader::OnStartLoadingResponseBodyFromData() {
   options.capacity_num_bytes = network::kDataPipeDefaultAllocationSize;
 
   MojoResult rv =
-      mojo::CreateDataPipe(&options, &producer_handle_, &consumer_handle);
+      mojo::CreateDataPipe(&options, producer_handle_, consumer_handle);
 
   if (rv != MOJO_RESULT_OK) {
     delete this;
@@ -270,9 +285,14 @@ void StreamingSearchPrefetchURLLoader::OnComplete(
     return;
   }
 
-  if (!forwarding_client_) {
-    DCHECK(streaming_prefetch_request_);
-    streaming_prefetch_request_->MarkPrefetchAsComplete();
+  if (streaming_prefetch_request_) {
+    DCHECK(!forwarding_client_);
+    if (status.error_code == net::OK) {
+      streaming_prefetch_request_->MarkPrefetchAsComplete();
+    } else {
+      streaming_prefetch_request_->ErrorEncountered();
+      return;
+    }
   }
 
   status_ = status;
@@ -289,7 +309,7 @@ void StreamingSearchPrefetchURLLoader::FollowRedirect(
     const std::vector<std::string>& removed_headers,
     const net::HttpRequestHeaders& modified_headers,
     const net::HttpRequestHeaders& modified_cors_exempt_headers,
-    const base::Optional<GURL>& new_url) {
+    const absl::optional<GURL>& new_url) {
   // This should never be called for a non-network service URLLoader.
   NOTREACHED();
 }

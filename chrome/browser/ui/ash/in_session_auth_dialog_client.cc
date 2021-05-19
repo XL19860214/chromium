@@ -11,10 +11,10 @@
 #include "base/callback_helpers.h"
 #include "base/logging.h"
 #include "base/strings/utf_string_conversions.h"
-#include "chrome/browser/chromeos/login/quick_unlock/fingerprint_storage.h"
-#include "chrome/browser/chromeos/login/quick_unlock/pin_backend.h"
-#include "chrome/browser/chromeos/login/quick_unlock/quick_unlock_factory.h"
-#include "chrome/browser/chromeos/login/quick_unlock/quick_unlock_storage.h"
+#include "chrome/browser/ash/login/quick_unlock/fingerprint_storage.h"
+#include "chrome/browser/ash/login/quick_unlock/pin_backend.h"
+#include "chrome/browser/ash/login/quick_unlock/quick_unlock_factory.h"
+#include "chrome/browser/ash/login/quick_unlock/quick_unlock_storage.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_navigator.h"
@@ -32,10 +32,8 @@ using chromeos::UserContext;
 
 namespace {
 
-// TODO(b/156258540): Replace with correct URL once the article is uploaded.
-// This URL is an irrelevant article just for validating functionality.
 const char kInSessionAuthHelpPageUrl[] =
-    "https://support.google.com/chrome/?p=settings_sign_in";
+    "https://support.google.com/chromebook?p=WebAuthn";
 
 InSessionAuthDialogClient* g_auth_dialog_client_instance = nullptr;
 
@@ -171,8 +169,8 @@ void InSessionAuthDialogClient::AuthenticateWithPassword(
       base::BindOnce(
           &ExtendedAuthenticator::AuthenticateToCheck,
           GetExtendedAuthenticator(), user_context,
-          base::Bind(&InSessionAuthDialogClient::OnPasswordAuthSuccess,
-                     weak_factory_.GetWeakPtr(), user_context)));
+          base::BindOnce(&InSessionAuthDialogClient::OnPasswordAuthSuccess,
+                         weak_factory_.GetWeakPtr(), user_context)));
 }
 
 void InSessionAuthDialogClient::OnPasswordAuthSuccess(
@@ -195,21 +193,20 @@ void InSessionAuthDialogClient::AuthenticateUserWithFingerprint(
   extended_authenticator_->AuthenticateWithFingerprint(
       user_context,
       base::BindOnce(&InSessionAuthDialogClient::OnFingerprintAuthDone,
-                     weak_factory_.GetWeakPtr(),
-                     base::Passed(std::move(callback))));
+                     weak_factory_.GetWeakPtr(), std::move(callback)));
 }
 
 void InSessionAuthDialogClient::OnFingerprintAuthDone(
     base::OnceCallback<void(bool, ash::FingerprintState)> callback,
-    cryptohome::CryptohomeErrorCode error) {
+    user_data_auth::CryptohomeErrorCode error) {
   switch (error) {
-    case cryptohome::CRYPTOHOME_ERROR_NOT_SET:
+    case user_data_auth::CRYPTOHOME_ERROR_NOT_SET:
       std::move(callback).Run(true, ash::FingerprintState::AVAILABLE_DEFAULT);
       break;
-    case cryptohome::CRYPTOHOME_ERROR_FINGERPRINT_RETRY_REQUIRED:
+    case user_data_auth::CRYPTOHOME_ERROR_FINGERPRINT_RETRY_REQUIRED:
       std::move(callback).Run(false, ash::FingerprintState::AVAILABLE_DEFAULT);
       break;
-    case cryptohome::CRYPTOHOME_ERROR_FINGERPRINT_DENIED:
+    case user_data_auth::CRYPTOHOME_ERROR_FINGERPRINT_DENIED:
       std::move(callback).Run(false,
                               ash::FingerprintState::DISABLED_FROM_ATTEMPTS);
       break;

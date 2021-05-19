@@ -10,6 +10,7 @@
 #include <string>
 #include <vector>
 
+#include "base/android/callback_android.h"
 #include "base/android/jni_android.h"
 #include "base/android/jni_array.h"
 #include "base/android/jni_string.h"
@@ -23,6 +24,7 @@
 #include "chrome/android/chrome_jni_headers/BrowsingDataBridge_jni.h"
 #include "chrome/browser/browsing_data/browsing_data_important_sites_util.h"
 #include "chrome/browser/browsing_data/chrome_browsing_data_remover_constants.h"
+#include "chrome/browser/browsing_data/third_party_data_remover.h"
 #include "chrome/browser/engagement/important_sites_util.h"
 #include "chrome/browser/history/web_history_service_factory.h"
 #include "chrome/browser/profiles/profile_android.h"
@@ -89,7 +91,7 @@ static void JNI_BrowsingDataBridge_ClearBrowsingData(
 
   Profile* profile = ProfileAndroid::FromProfileAndroid(jprofile);
   BrowsingDataRemover* browsing_data_remover =
-      content::BrowserContext::GetBrowsingDataRemover(profile);
+      profile->GetBrowsingDataRemover();
 
   std::vector<int> data_types_vector;
   base::android::JavaIntArrayToIntVector(env, data_types, &data_types_vector);
@@ -152,10 +154,9 @@ static void JNI_BrowsingDataBridge_ClearBrowsingData(
   }
 
   if (!excluding_domains.empty() || !ignoring_domains.empty()) {
-    site_engagement::ImportantSitesUtil::
-        RecordBlacklistedAndIgnoredImportantSites(
-            profile, excluding_domains, excluding_domain_reasons,
-            ignoring_domains, ignoring_domain_reasons);
+    site_engagement::ImportantSitesUtil::RecordExcludedAndIgnoredImportantSites(
+        profile, excluding_domains, excluding_domain_reasons, ignoring_domains,
+        ignoring_domain_reasons);
   }
 
   base::OnceCallback<void(uint64_t)> callback = base::BindOnce(
@@ -167,6 +168,18 @@ static void JNI_BrowsingDataBridge_ClearBrowsingData(
   browsing_data_important_sites_util::Remove(
       remove_mask, BrowsingDataRemover::ORIGIN_TYPE_UNPROTECTED_WEB, period,
       std::move(filter_builder), browsing_data_remover, std::move(callback));
+}
+
+static void JNI_BrowsingDataBridge_ClearSameSiteNoneData(
+    JNIEnv* env,
+    const JavaParamRef<jobject>& obj,
+    const JavaParamRef<jobject>& jprofile,
+    const JavaParamRef<jobject>& jcallback) {
+  TRACE_EVENT0("browsing_data", "BrowsingDataBridge_ClearSameSiteNoneData");
+  Profile* profile = ProfileAndroid::FromProfileAndroid(jprofile);
+  ClearThirdPartyData(base::BindOnce(&base::android::RunRunnableAndroid,
+                                     ScopedJavaGlobalRef<jobject>(jcallback)),
+                      profile);
 }
 
 static void EnableDialogAboutOtherFormsOfBrowsingHistory(

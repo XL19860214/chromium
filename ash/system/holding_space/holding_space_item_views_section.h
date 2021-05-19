@@ -10,13 +10,8 @@
 #include <string>
 #include <vector>
 
-#include "ash/public/cpp/holding_space/holding_space_controller.h"
-#include "ash/public/cpp/holding_space/holding_space_controller_observer.h"
 #include "ash/public/cpp/holding_space/holding_space_item.h"
-#include "ash/public/cpp/holding_space/holding_space_model.h"
-#include "ash/public/cpp/holding_space/holding_space_model_observer.h"
-#include "base/optional.h"
-#include "base/scoped_observation.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/views/view.h"
 
 namespace ui {
@@ -24,20 +19,21 @@ class CallbackLayerAnimationObserver;
 class LayerAnimationObserver;
 }  // namespace ui
 
+namespace views {
+class ScrollView;
+}  // namespace views
+
 namespace ash {
 
 class HoldingSpaceItemView;
 class HoldingSpaceItemViewDelegate;
 
 // A section of holding space item views in a `HoldingSpaceTrayChildBubble`.
-class HoldingSpaceItemViewsSection : public views::View,
-                                     public HoldingSpaceControllerObserver,
-                                     public HoldingSpaceModelObserver {
+class HoldingSpaceItemViewsSection : public views::View {
  public:
-  HoldingSpaceItemViewsSection(
-      HoldingSpaceItemViewDelegate* delegate,
-      std::vector<HoldingSpaceItem::Type> supported_types,
-      const base::Optional<size_t>& max_count);
+  HoldingSpaceItemViewsSection(HoldingSpaceItemViewDelegate* delegate,
+                               std::set<HoldingSpaceItem::Type> supported_types,
+                               const absl::optional<size_t>& max_count);
   HoldingSpaceItemViewsSection(const HoldingSpaceItemViewsSection& other) =
       delete;
   HoldingSpaceItemViewsSection& operator=(
@@ -47,24 +43,43 @@ class HoldingSpaceItemViewsSection : public views::View,
   // Initializes the section.
   void Init();
 
-  // Resets the section. Called when the tray bubble starts closing to stop
-  // observing the holding space controller/model to ensure that no new items
-  // are created while the bubble widget is being asynchronously closed.
+  // Resets the section. Called when the tray bubble starts closing to ensure
+  // that no new items are created while the bubble widget is being
+  // asynchronously closed.
   void Reset();
+
+  // Returns all holding space item views in the section. Views are returned in
+  // top-to-bottom, left-to-right order (or mirrored for RTL).
+  std::vector<HoldingSpaceItemView*> GetHoldingSpaceItemViews();
 
   // views::View:
   void ChildPreferredSizeChanged(views::View* child) override;
   void ChildVisibilityChanged(views::View* child) override;
+  void PreferredSizeChanged() override;
   void ViewHierarchyChanged(const views::ViewHierarchyChangedDetails&) override;
 
-  // HoldingSpaceControllerObserver:
-  void OnHoldingSpaceModelAttached(HoldingSpaceModel* model) override;
-  void OnHoldingSpaceModelDetached(HoldingSpaceModel* model) override;
+  // `HoldingSpaceModelObserver` events forwarded from the parent
+  // `HoldingSpaceTrayChildBubble`. Note that events may be withheld from this
+  // view if, for example, its parent is animating out.
+  void OnHoldingSpaceItemsAdded(const std::vector<const HoldingSpaceItem*>&);
+  void OnHoldingSpaceItemsRemoved(const std::vector<const HoldingSpaceItem*>&);
+  void OnHoldingSpaceItemInitialized(const HoldingSpaceItem* item);
 
-  // HoldingSpaceModelObserver:
-  void OnHoldingSpaceItemAdded(const HoldingSpaceItem* item) override;
-  void OnHoldingSpaceItemRemoved(const HoldingSpaceItem* item) override;
-  void OnHoldingSpaceItemFinalized(const HoldingSpaceItem* item) override;
+  // Removes all holding space item views from this section. This method is
+  // expected to only be called:
+  // * from the parent `HoldingSpaceTrayChildBubble` when this view is hidden.
+  // * internally after having animated out the `container_` just prior to
+  //   swapping in new contents.
+  void RemoveAllHoldingSpaceItemViews();
+
+  // Returns whether this section has a placeholder to show in lieu of item
+  // views when the model contains no initialized items of supported types.
+  bool has_placeholder() const { return !!placeholder_; }
+
+  // Returns the types of holding space items supported by this section.
+  const std::set<HoldingSpaceItem::Type>& supported_types() const {
+    return supported_types_;
+  }
 
  protected:
   // Invoked to create the `header_` for this section.
@@ -113,19 +128,19 @@ class HoldingSpaceItemViewsSection : public views::View,
   void AnimateOut(ui::LayerAnimationObserver* observer);
 
   // Invoked when an animate in/out of the contents of this section has been
-  // completed. These methods always return true to delete the observer which
-  // notified the event.
-  bool OnAnimateInCompleted(const ui::CallbackLayerAnimationObserver&);
-  bool OnAnimateOutCompleted(const ui::CallbackLayerAnimationObserver&);
+  // completed. Note that the provided observer will be deleted after returning.
+  void OnAnimateInCompleted(const ui::CallbackLayerAnimationObserver&);
+  void OnAnimateOutCompleted(const ui::CallbackLayerAnimationObserver&);
 
   HoldingSpaceItemViewDelegate* const delegate_;
-  const std::vector<HoldingSpaceItem::Type> supported_types_;
-  const base::Optional<size_t> max_count_;
+  const std::set<HoldingSpaceItem::Type> supported_types_;
+  const absl::optional<size_t> max_count_;
 
   // Owned by view hierarchy.
   views::View* header_ = nullptr;
   views::View* container_ = nullptr;
   views::View* placeholder_ = nullptr;
+  views::ScrollView* scroll_view_ = nullptr;
   std::map<std::string, HoldingSpaceItemView*> views_by_item_id_;
 
   // Bit flag representation of current `AnimationState`. Note that it is
@@ -133,11 +148,16 @@ class HoldingSpaceItemViewsSection : public views::View,
   // animation is preempting another.
   uint32_t animation_state_ = AnimationState::kNotAnimating;
 
-  base::ScopedObservation<HoldingSpaceController,
-                          HoldingSpaceControllerObserver>
-      controller_observer_{this};
-  base::ScopedObservation<HoldingSpaceModel, HoldingSpaceModelObserver>
-      model_observer_{this};
+  // Whether or not animations are disabled. Animations are only disabled during
+  // initialization as holding space child bubbles are animated in instead.
+  bool disable_animations_ = false;
+
+  // Whether or not `PreferredSizeChanged()` is allowed to propagate up the
+  // view hierarchy. This is disabled during batch child additions, removals,
+  // and visibility change operations to reduce the number of layout events.
+  bool disable_preferred_size_changed_ = false;
+
+  base::WeakPtrFactory<HoldingSpaceItemViewsSection> weak_factory_{this};
 };
 
 }  // namespace ash

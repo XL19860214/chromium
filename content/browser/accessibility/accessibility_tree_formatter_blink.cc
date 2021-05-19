@@ -9,13 +9,14 @@
 
 #include <utility>
 
-#include "base/optional.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
+#include "content/browser/accessibility/browser_accessibility.h"
 #include "content/browser/accessibility/browser_accessibility_manager.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/accessibility/ax_node_data.h"
 #include "ui/accessibility/ax_tree_manager_map.h"
@@ -27,7 +28,7 @@
 namespace content {
 namespace {
 
-base::Optional<std::string> GetStringAttribute(
+absl::optional<std::string> GetStringAttribute(
     const ui::AXNode& node,
     ax::mojom::StringAttribute attr) {
   // Language is different from other string attributes as it inherits and has
@@ -35,7 +36,7 @@ base::Optional<std::string> GetStringAttribute(
   if (attr == ax::mojom::StringAttribute::kLanguage) {
     std::string value = node.GetLanguage();
     if (value.empty()) {
-      return base::nullopt;
+      return absl::nullopt;
     }
     return value;
   }
@@ -44,7 +45,7 @@ base::Optional<std::string> GetStringAttribute(
   if (attr == ax::mojom::StringAttribute::kFontFamily) {
     std::string value = node.GetInheritedStringAttribute(attr);
     if (value.empty()) {
-      return base::nullopt;
+      return absl::nullopt;
     }
     return value;
   }
@@ -55,7 +56,14 @@ base::Optional<std::string> GetStringAttribute(
   if (node.GetStringAttribute(attr, &value)) {
     return value;
   }
-  return base::nullopt;
+  return absl::nullopt;
+}
+
+std::string FormatColor(int argb) {
+  // Don't output the alpha component; only the red, green and blue
+  // actually matter.
+  int rgb = (static_cast<uint32_t>(argb) & 0xffffff);
+  return base::StringPrintf("%06x", rgb);
 }
 
 std::string IntAttrToString(const ui::AXNode& node,
@@ -67,7 +75,30 @@ std::string IntAttrToString(const ui::AXNode& node,
     ui::AXNode* target = ui::AXTreeManagerMap::GetInstance()
                              .GetManager(tree_id)
                              ->GetNodeFromTree(tree_id, value);
-    return target ? ui::ToString(target->data().role) : std::string("null");
+    if (!target)
+      return "null";
+
+    std::string result = ui::ToString(target->data().role);
+    // Provide some extra info about the related object via the name or
+    // possibly the class (if an element).
+    // TODO(accessibility) Include all relational attributes here.
+    // TODO(accessibility) Consider using line numbers from the results instead.
+    if (attr == ax::mojom::IntAttribute::kNextOnLineId ||
+        attr == ax::mojom::IntAttribute::kPreviousOnLineId) {
+      if (target->data().HasStringAttribute(
+              ax::mojom::StringAttribute::kName)) {
+        result += ":\"";
+        result += target->data().GetStringAttribute(
+            ax::mojom::StringAttribute::kName);
+        result += "\"";
+      } else if (target->data().HasStringAttribute(
+                     ax::mojom::StringAttribute::kClassName)) {
+        result += ".";
+        result += target->data().GetStringAttribute(
+            ax::mojom::StringAttribute::kClassName);
+      }
+    }
+    return result;
   }
 
   switch (attr) {
@@ -105,6 +136,10 @@ std::string IntAttrToString(const ui::AXNode& node,
       return ui::ToString(static_cast<ax::mojom::TextPosition>(value));
     case ax::mojom::IntAttribute::kImageAnnotationStatus:
       return ui::ToString(static_cast<ax::mojom::ImageAnnotationStatus>(value));
+    case ax::mojom::IntAttribute::kBackgroundColor:
+      return FormatColor(node.ComputeBackgroundColor());
+    case ax::mojom::IntAttribute::kColor:
+      return FormatColor(node.ComputeColor());
     // No pretty printing necessary for these:
     case ax::mojom::IntAttribute::kActivedescendantId:
     case ax::mojom::IntAttribute::kAriaCellColumnIndex:
@@ -113,8 +148,6 @@ std::string IntAttrToString(const ui::AXNode& node,
     case ax::mojom::IntAttribute::kAriaCellColumnSpan:
     case ax::mojom::IntAttribute::kAriaCellRowSpan:
     case ax::mojom::IntAttribute::kAriaRowCount:
-    case ax::mojom::IntAttribute::kBackgroundColor:
-    case ax::mojom::IntAttribute::kColor:
     case ax::mojom::IntAttribute::kColorValue:
     case ax::mojom::IntAttribute::kDOMNodeId:
     case ax::mojom::IntAttribute::kErrormessageId:
@@ -194,6 +227,7 @@ void AccessibilityTreeFormatterBlink::AddDefaultFilters(
                     AXPropertyFilter::DENY);  // Don't show false value
   AddPropertyFilter(property_filters, "roleDescription=*");
   AddPropertyFilter(property_filters, "errormessageId=*");
+  AddPropertyFilter(property_filters, "virtualContent=*");
 }
 
 const char* const TREE_DATA_ATTRIBUTES[] = {"TreeData.textSelStartOffset",
@@ -231,6 +265,14 @@ base::Value AccessibilityTreeFormatterBlink::BuildTreeForNode(
   return dict;
 }
 
+base::Value AccessibilityTreeFormatterBlink::BuildNode(
+    ui::AXPlatformNodeDelegate* node) const {
+  CHECK(node);
+  base::DictionaryValue dict;
+  AddProperties(*BrowserAccessibility::FromAXPlatformNodeDelegate(node), &dict);
+  return std::move(dict);
+}
+
 std::string AccessibilityTreeFormatterBlink::DumpInternalAccessibilityTree(
     ui::AXTreeID tree_id,
     const std::vector<AXPropertyFilter>& property_filters) {
@@ -245,7 +287,12 @@ std::string AccessibilityTreeFormatterBlink::DumpInternalAccessibilityTree(
 void AccessibilityTreeFormatterBlink::RecursiveBuildTree(
     const BrowserAccessibility& node,
     base::Value* dict) const {
+  if (!ShouldDumpNode(node))
+    return;
+
   AddProperties(node, static_cast<base::DictionaryValue*>(dict));
+  if (!ShouldDumpChildren(node))
+    return;
 
   base::Value children(base::Value::Type::LIST);
   for (size_t i = 0; i < ChildCount(node); ++i) {
@@ -770,10 +817,9 @@ std::string AccessibilityTreeFormatterBlink::ProcessTreeForOutput(
         break;
       }
       case base::Value::Type::INTEGER: {
-        int int_value = 0;
-        value->GetAsInteger(&int_value);
         WriteAttribute(false,
-                       base::StringPrintf("%s=%d", attribute_name, int_value),
+                       base::StringPrintf("%s=%d", attribute_name,
+                                          value->GetIfInt().value_or(0)),
                        &line);
         break;
       }

@@ -7,17 +7,22 @@ import 'chrome://resources/polymer/v3_0/iron-icon/iron-icon.js';
 import './data_point.js';
 import './diagnostics_card.js';
 import './diagnostics_shared_css.js';
+import './icons.js';
 import './percent_bar_chart.js';
 import './routine_section.js';
 import './strings.m.js';
 
+import {assert, assertNotReached} from 'chrome://resources/js/assert.m.js';
 import {I18nBehavior} from 'chrome://resources/js/i18n_behavior.m.js';
 import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
 import {html, Polymer} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
-import {BatteryChargeStatus, BatteryHealth, BatteryInfo, RoutineType, SystemDataProviderInterface} from './diagnostics_types.js'
+import {BatteryChargeStatus, BatteryChargeStatusObserverInterface, BatteryChargeStatusObserverReceiver, BatteryHealth, BatteryHealthObserverInterface, BatteryHealthObserverReceiver, BatteryInfo, BatteryState, ExternalPowerSource, RoutineType, SystemDataProviderInterface} from './diagnostics_types.js'
+import {getDiagnosticsIcon} from './diagnostics_utils.js';
 import {getSystemDataProvider} from './mojo_interface_provider.js';
 import {mojoString16ToString} from './mojo_utils.js';
+
+const BATTERY_ICON_PREFIX = 'battery-';
 
 /**
  * @fileoverview
@@ -37,15 +42,14 @@ Polymer({
 
   /**
    * Receiver responsible for observing battery charge status.
-   * @private {
-   *  ?chromeos.diagnostics.mojom.BatteryChargeStatusObserverReceiver}
+   * @private {?BatteryChargeStatusObserverReceiver}
    */
   batteryChargeStatusObserverReceiver_: null,
 
   /**
    * Receiver responsible for observing battery health.
    * @private {
-   *  ?chromeos.diagnostics.mojom.BatteryHealthObserverReceiver}
+   *  ?BatteryHealthObserverReceiver}
    */
   batteryHealthObserverReceiver_: null,
 
@@ -75,13 +79,28 @@ Polymer({
     /** @protected {string} */
     powerTimeString_: {
       type: String,
-      computed: 'decodeString16_(batteryChargeStatus_.powerTime)',
+      computed: 'getPowerTimeString_(batteryChargeStatus_.powerTime)',
     },
 
     /** @type {boolean} */
     isTestRunning: {
       type: Boolean,
+      value: false,
       notify: true,
+    },
+
+    /** @type {string} */
+    batteryIcon: {
+      type: String,
+      computed: 'getBatteryIcon_(batteryChargeStatus_.powerAdapterStatus,' +
+          'batteryChargeStatus_.chargeNowMilliampHours,' +
+          'batteryHealth_.chargeFullNowMilliampHours)',
+    },
+
+    /** @type {string} */
+    iconClass: {
+      type: String,
+      computed: 'updateIconClassList_(batteryChargeStatus_.powerAdapterStatus)',
     },
   },
 
@@ -117,10 +136,9 @@ Polymer({
   /** @private */
   observeBatteryChargeStatus_() {
     this.batteryChargeStatusObserverReceiver_ =
-        new chromeos.diagnostics.mojom.BatteryChargeStatusObserverReceiver(
+        new BatteryChargeStatusObserverReceiver(
             /**
-             * @type {!chromeos.diagnostics.mojom.
-             *        BatteryChargeStatusObserverInterface}
+             * @type {!BatteryChargeStatusObserverInterface}
              */
             (this));
 
@@ -138,13 +156,11 @@ Polymer({
 
   /** @private */
   observeBatteryHealth_() {
-    this.batteryHealthObserverReceiver_ =
-        new chromeos.diagnostics.mojom.BatteryHealthObserverReceiver(
-            /**
-             * @type {!chromeos.diagnostics.mojom.
-             *        BatteryHealthObserverInterface}
-             */
-            (this));
+    this.batteryHealthObserverReceiver_ = new BatteryHealthObserverReceiver(
+        /**
+         * @type {!BatteryHealthObserverInterface}
+         */
+        (this));
 
     this.systemDataProvider_.observeBatteryHealth(
         this.batteryHealthObserverReceiver_.$.bindNewPipeAndPassRemote());
@@ -152,25 +168,40 @@ Polymer({
 
   /**
    * Get an array of currently relevant routines based on power adaptor status
-   * @param {!chromeos.diagnostics.mojom.ExternalPowerSource} powerAdapterStatus
+   * @param {!ExternalPowerSource} powerAdapterStatus
    * @return {!Array<!RoutineType>}
    * @private
    */
   getCurrentPowerRoutines_(powerAdapterStatus) {
-    return powerAdapterStatus ===
-            chromeos.diagnostics.mojom.ExternalPowerSource.kDisconnected ?
-        [chromeos.diagnostics.mojom.RoutineType.kBatteryDischarge] :
-        [chromeos.diagnostics.mojom.RoutineType.kBatteryCharge];
+    return powerAdapterStatus === ExternalPowerSource.kDisconnected ?
+        [RoutineType.kBatteryDischarge] :
+        [RoutineType.kBatteryCharge];
   },
 
   /**
-   * Converts utf16 to a readable string.
-   * @param {!mojoBase.mojom.String16} str16
+   * Get power time string from battery status.
    * @return {string}
-   * @private
+   * @protected
    */
-  decodeString16_(str16) {
-    return mojoString16ToString(str16);
+  getPowerTimeString_() {
+    const fullyCharged =
+        this.batteryChargeStatus_.batteryState === BatteryState.kFull;
+    if (fullyCharged) {
+      return loadTimeData.getString('batteryFullText');
+    }
+
+    const powerTimeStr = this.batteryChargeStatus_.powerTime;
+    if (!powerTimeStr || powerTimeStr.data.length === 0) {
+      return loadTimeData.getString('batteryCalculatingText');
+    }
+
+    const timeValue = mojoString16ToString(powerTimeStr);
+    const charging = this.batteryChargeStatus_.powerAdapterStatus ===
+        ExternalPowerSource.kAc;
+
+    return charging ?
+        loadTimeData.getStringF('batteryChargingStatusText', timeValue) :
+        loadTimeData.getStringF('batteryDischargingStatusText', timeValue);
   },
 
   /**
@@ -205,8 +236,108 @@ Polymer({
   getRunTestsButtonText_() {
     return loadTimeData.getString(
         this.batteryChargeStatus_.powerAdapterStatus ===
-                chromeos.diagnostics.mojom.ExternalPowerSource.kDisconnected ?
+                ExternalPowerSource.kDisconnected ?
             'runBatteryDischargeTestText' :
             'runBatteryChargeTestText')
+  },
+
+  /** @protected */
+  getRunTestsAdditionalMessage() {
+    const batteryInfoMissing =
+        !this.batteryChargeStatus_ || !this.batteryHealth_;
+    const notCharging = this.batteryChargeStatus_.powerAdapterStatus ===
+        ExternalPowerSource.kDisconnected;
+    if (notCharging || batteryInfoMissing) {
+      return '';
+    }
+
+    const disableRunButtonThreshold = 98;
+    const percentage = Math.round(
+        100 * this.batteryChargeStatus_.chargeNowMilliampHours /
+        this.batteryHealth_.chargeFullNowMilliampHours);
+
+    return percentage >= disableRunButtonThreshold ?
+        loadTimeData.getString('batteryChargeTestFullMessage') :
+        '';
+  },
+
+  /** @protected */
+  getEstimateRuntimeInMinutes_() {
+    // Power routines will always last <= 1 minute.
+    return 1;
+  },
+
+  /**
+   * Use the current battery percentage to determine which icon to show the
+   * user. Each icon covers a range of 6 or 7 percentage values.
+   * @private
+   * @return {string}
+   */
+  getBatteryIconForChargePercentage_() {
+    if (!this.batteryChargeStatus_ || !this.batteryHealth_) {
+      return this.batteryIcon;
+    }
+
+    const percentage = Math.round(
+        100 * this.batteryChargeStatus_.chargeNowMilliampHours /
+        this.batteryHealth_.chargeFullNowMilliampHours);
+    assert(percentage > 0 && percentage <= 100);
+
+    const iconSizes = [
+      [1, 7],
+      [8, 14],
+      [15, 21],
+      [22, 28],
+      [29, 35],
+      [36, 42],
+      [43, 49],
+      [50, 56],
+      [57, 63],
+      [64, 70],
+      [71, 77],
+      [78, 85],
+      [86, 92],
+      [93, 100],
+    ];
+
+    for (const [rangeStart, rangeEnd] of iconSizes) {
+      if (percentage >= rangeStart && percentage <= rangeEnd) {
+        return getDiagnosticsIcon(
+            `${BATTERY_ICON_PREFIX}${rangeStart}-${rangeEnd}`);
+      }
+    };
+
+    assertNotReached();
+  },
+
+  /**
+   * @protected
+   * @return {string}
+   */
+  getBatteryIcon_() {
+    const charging = this.batteryChargeStatus_ &&
+        this.batteryChargeStatus_.powerAdapterStatus ===
+            ExternalPowerSource.kAc;
+
+    if (charging) {
+      return getDiagnosticsIcon(`${BATTERY_ICON_PREFIX}charging`);
+    }
+
+    return this.getBatteryIconForChargePercentage_();
+  },
+
+  /**
+   * Use the power adapter status to determine if we need to overwrite the value
+   * for --iron-icon-stroke-color since the charging icon needs to remove it in
+   * order to display properly.
+   * @protected
+   * @return {string}
+   */
+  updateIconClassList_() {
+    return (this.batteryChargeStatus_ &&
+            this.batteryChargeStatus_.powerAdapterStatus ===
+                ExternalPowerSource.kAc) ?
+        'remove-stroke' :
+        '';
   }
 });

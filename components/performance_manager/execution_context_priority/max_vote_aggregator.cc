@@ -10,17 +10,16 @@
 namespace performance_manager {
 namespace execution_context_priority {
 
-MaxVoteAggregator::MaxVoteAggregator()
-    : vote_consumer_default_impl_(this), next_vote_id_(0) {}
+MaxVoteAggregator::MaxVoteAggregator() = default;
 
 MaxVoteAggregator::~MaxVoteAggregator() = default;
 
 VotingChannel MaxVoteAggregator::GetVotingChannel() {
-  return vote_consumer_default_impl_.BuildVotingChannel();
+  return voting_channel_factory_.BuildVotingChannel();
 }
 
-void MaxVoteAggregator::SetUpstreamVotingChannel(VotingChannel&& channel) {
-  channel_.SetVotingChannel(std::move(channel));
+void MaxVoteAggregator::SetUpstreamVotingChannel(VotingChannel channel) {
+  channel_ = std::move(channel);
 }
 
 void MaxVoteAggregator::OnVoteSubmitted(
@@ -34,7 +33,7 @@ void MaxVoteAggregator::OnVoteSubmitted(
 
   // Remember the previous top vote before adding the new vote. There could be
   // none if this is the first vote submitted for |execution_context|.
-  base::Optional<Vote> old_top_vote;
+  absl::optional<Vote> old_top_vote;
   if (!vote_data.IsEmpty())
     old_top_vote = vote_data.GetTopVote();
 

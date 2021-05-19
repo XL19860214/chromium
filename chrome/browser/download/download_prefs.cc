@@ -48,8 +48,8 @@
 #include "content/public/browser/save_page_type.h"
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-#include "chrome/browser/chromeos/drive/drive_integration_service.h"
-#include "chrome/browser/chromeos/drive/file_system_util.h"
+#include "chrome/browser/ash/drive/drive_integration_service.h"
+#include "chrome/browser/ash/drive/file_system_util.h"
 #include "chrome/browser/chromeos/file_manager/path_util.h"
 #include "chromeos/dbus/cros_disks_client.h"
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
@@ -358,7 +358,7 @@ DownloadPrefs* DownloadPrefs::FromDownloadManager(
 // static
 DownloadPrefs* DownloadPrefs::FromBrowserContext(
     content::BrowserContext* context) {
-  return FromDownloadManager(BrowserContext::GetDownloadManager(context));
+  return FromDownloadManager(context->GetDownloadManager());
 }
 
 bool DownloadPrefs::IsFromTrustedSource(const download::DownloadItem& item) {
@@ -395,6 +395,10 @@ bool DownloadPrefs::PromptForDownload() const {
 
 // Return the Android prompt for download only.
 #if defined(OS_ANDROID)
+  // Use |prompt_for_download_| preference for enterprise policy.
+  if (prompt_for_download_.IsManaged())
+    return prompt_for_download_.GetValue();
+
   // As long as they haven't indicated in preferences they do not want the
   // dialog shown, show the dialog.
   return *prompt_for_download_android_ !=
@@ -406,6 +410,9 @@ bool DownloadPrefs::PromptForDownload() const {
 
 bool DownloadPrefs::PromptDownloadLater() const {
 #ifdef OS_ANDROID
+  if (prompt_for_download_.IsManaged())
+    return false;
+
   if (base::FeatureList::IsEnabled(download::features::kDownloadLater)) {
     return *prompt_for_download_later_ !=
            static_cast<int>(DownloadLaterPromptStatus::kDontShow);
@@ -641,7 +648,7 @@ void DownloadPrefs::UpdateAutoOpenByPolicy() {
 
   PrefService* prefs = profile_->GetPrefs();
   for (const auto& extension :
-       *prefs->GetList(prefs::kDownloadExtensionsToOpenByPolicy)) {
+       prefs->GetList(prefs::kDownloadExtensionsToOpenByPolicy)->GetList()) {
     base::FilePath::StringType extension_string =
         StringToFilePathString(extension.GetString());
     auto_open_by_policy_.insert(extension_string);

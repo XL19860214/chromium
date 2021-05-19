@@ -5,6 +5,20 @@
     justify-content: flex-end;
   }
 
+  :host([side-panel]) #top-container {
+    display: none;
+  }
+
+  #readLaterList {
+    max-height: 500px;
+    overflow: auto;
+  }
+
+  :host([side-panel]) #readLaterList {
+    margin-block-start: 8px;
+    max-height: none;
+  }
+
   #header {
     align-items: center;
     color: var(--cr-primary-text-color);
@@ -27,12 +41,6 @@
     }
   }
 
-  #read-later-list {
-    max-height: 444px;
-    overflow-x: hidden;
-    overflow-y: auto;
-  }
-
   .mwb-list-item:focus-within {
     background-color: var(--mwb-list-item-hover-background-color);
   }
@@ -50,6 +58,19 @@
     height: 24px;
     margin-inline-start: var(--mwb-list-item-horizontal-margin);
     margin-top: 4px;
+  }
+
+  :host([side-panel]) .sub-heading {
+    border: none;
+    font-weight: 600;
+    height: 20px;
+    margin: 0;
+    padding: 8px 16px;
+  }
+
+  :host([side-panel]) #ureadItemsList + .sub-heading {
+    border-top: 1px solid #dbdbdb;
+    margin-block-start: 8px;
   }
 
   #empty-state-header {
@@ -74,11 +95,11 @@
       hidden="[[isReadingListEmpty_(unreadItems_, readItems_)]]">$i18n{title}
   </div>
   <cr-icon-button id="closeButton" aria-label="$i18n{tooltipClose}"
-      disable-ripple iron-icon="cr:close" on-click="onCloseClick_"
-      title="$i18n{tooltipClose}">
+      iron-icon="cr:close" noink="[[!buttonRipples]]" no-ripple-on-focus
+      on-click="onCloseClick_" title="$i18n{tooltipClose}">
   </cr-icon-button>
 </div>
-<div id="read-later-list">
+<div id="readLaterList">
   <iron-selector id="selector" on-keydown="onItemKeyDown_"
       attr-for-selected="data-url" selectable="read-later-item">
     <div hidden="[[!unreadItems_.length]]" class="sub-heading">
@@ -86,7 +107,8 @@
     </div>
     <template id="ureadItemsList" is="dom-repeat" items="[[unreadItems_]]">
       <read-later-item data-url$="[[item.url.url]]" on-focus="onItemFocus_"
-          class="mwb-list-item" data="[[item]]" tabindex="0">
+          aria-label="[[ariaLabel_(item)]]" class="mwb-list-item"
+          data="[[item]]" button-ripples="[[buttonRipples]]" tabindex="0">
       </read-later-item>
     </template>
     <div hidden="[[!readItems_.length]]" class="sub-heading">
@@ -94,12 +116,13 @@
     </div>
     <template id="readItemsList" is="dom-repeat" items="[[readItems_]]">
       <read-later-item data-url$="[[item.url.url]]" on-focus="onItemFocus_"
-          class="mwb-list-item" data="[[item]]" tabindex="0">
+          aria-label="[[ariaLabel_(item)]]" class="mwb-list-item"
+          data="[[item]]" button-ripples="[[buttonRipples]]" tabindex="0">
       </read-later-item>
     </template>
   </iron-selector>
-  <div hidden="[[!isReadingListEmpty_(unreadItems_, readItems_)]]">
-    <div id="empty-state-header">$i18n{emptyStateHeader}</div>
-    <div id="empty-state-subheader">$i18n{emptyStateSubheader}</div>
-  </div>
+</div>
+<div hidden="[[!isReadingListEmpty_(unreadItems_, readItems_)]]">
+  <div id="empty-state-header">$i18n{emptyStateHeader}</div>
+  <div id="empty-state-subheader">$i18n{emptyStateSubheader}</div>
 </div>

@@ -4,6 +4,7 @@
 
 #include "net/url_request/url_request_test_util.h"
 
+#include <memory>
 #include <utility>
 
 #include "base/check_op.h"
@@ -196,7 +197,7 @@ TestURLRequestContext* TestURLRequestContextGetter::GetURLRequestContext() {
     return nullptr;
 
   if (!context_.get())
-    context_.reset(new TestURLRequestContext);
+    context_ = std::make_unique<TestURLRequestContext>();
   return context_.get();
 }
 
@@ -242,8 +243,17 @@ void TestDelegate::RunUntilAuthRequired() {
   run_loop.Run();
 }
 
-int TestDelegate::OnConnected(URLRequest* request, const TransportInfo& info) {
+int TestDelegate::OnConnected(URLRequest* request,
+                              const TransportInfo& info,
+                              CompletionOnceCallback callback) {
   transports_.push_back(info);
+
+  if (on_connected_run_callback_) {
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE, base::BindOnce(std::move(callback), on_connected_result_));
+    return net::ERR_IO_PENDING;
+  }
+
   return on_connected_result_;
 }
 
@@ -461,7 +471,7 @@ int TestNetworkDelegate::OnHeadersReceived(
     const HttpResponseHeaders* original_response_headers,
     scoped_refptr<HttpResponseHeaders>* override_response_headers,
     const IPEndPoint& endpoint,
-    base::Optional<GURL>* preserve_fragment_on_redirect_url) {
+    absl::optional<GURL>* preserve_fragment_on_redirect_url) {
   EXPECT_FALSE(preserve_fragment_on_redirect_url->has_value());
   int req_id = GetRequestId(request);
   bool is_first_response =
@@ -489,7 +499,7 @@ int TestNetworkDelegate::OnHeadersReceived(
 
     redirect_on_headers_received_url_ = GURL();
 
-    // Since both values are base::Optionals, can just copy this over.
+    // Since both values are absl::optionals, can just copy this over.
     *preserve_fragment_on_redirect_url = preserve_fragment_on_redirect_url_;
   } else if (add_header_to_first_response_ && is_first_response) {
     *override_response_headers =
@@ -590,8 +600,7 @@ void TestNetworkDelegate::OnURLRequestDestroyed(URLRequest* request) {
 }
 
 void TestNetworkDelegate::OnPACScriptError(int line_number,
-                                           const base::string16& error) {
-}
+                                           const std::u16string& error) {}
 
 bool TestNetworkDelegate::OnCanGetCookies(const URLRequest& request,
                                           bool allowed_from_caller) {

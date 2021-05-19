@@ -36,10 +36,10 @@
 #include <memory>
 #include <string>
 
+#include "base/callback_helpers.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "cc/test/fake_layer_tree_frame_sink.h"
-#include "cc/test/test_task_graph_runner.h"
 #include "cc/trees/layer_tree_host.h"
 #include "components/viz/common/surfaces/frame_sink_id.h"
 #include "mojo/public/cpp/bindings/associated_remote.h"
@@ -68,7 +68,6 @@
 #include "third_party/blink/renderer/core/scroll/scrollbar_theme.h"
 #include "third_party/blink/renderer/core/testing/scoped_mock_overlay_scrollbars.h"
 #include "third_party/blink/renderer/platform/loader/testing/web_url_loader_factory_with_mock.h"
-#include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 
@@ -149,16 +148,20 @@ WebMouseEvent CreateMouseEvent(WebInputEvent::Type,
 // ensuring that non-null clients outlive the created frame.
 
 // Helper for creating a local child frame of a local parent frame.
-WebLocalFrameImpl* CreateLocalChild(WebLocalFrame& parent,
-                                    blink::mojom::blink::TreeScopeType,
-                                    TestWebFrameClient* = nullptr);
+WebLocalFrameImpl* CreateLocalChild(
+    WebLocalFrame& parent,
+    blink::mojom::blink::TreeScopeType,
+    TestWebFrameClient*,
+    WebPolicyContainerBindParams policy_container_bind_params);
 
 // Similar, but unlike the overload which takes the client as a raw pointer,
 // ownership of the TestWebFrameClient is transferred to the test framework.
 // TestWebFrameClient may not be null.
-WebLocalFrameImpl* CreateLocalChild(WebLocalFrame& parent,
-                                    blink::mojom::blink::TreeScopeType,
-                                    std::unique_ptr<TestWebFrameClient>);
+WebLocalFrameImpl* CreateLocalChild(
+    WebLocalFrame& parent,
+    blink::mojom::blink::TreeScopeType,
+    std::unique_ptr<TestWebFrameClient>,
+    WebPolicyContainerBindParams policy_container_bind_params);
 
 // Helper for creating a remote frame. Generally used when creating a remote
 // frame to swap into the frame tree.
@@ -182,14 +185,16 @@ class TestWebFrameWidgetHost : public mojom::blink::WidgetHost,
 
   // mojom::blink::WidgetHost overrides:
   void SetCursor(const ui::Cursor& cursor) override;
-  void SetToolTipText(const String& tooltip_text,
-                      base::i18n::TextDirection text_direction_hint) override;
+  void UpdateTooltipUnderCursor(
+      const String& tooltip_text,
+      base::i18n::TextDirection text_direction_hint) override;
   void TextInputStateChanged(
       ui::mojom::blink::TextInputStatePtr state) override;
   void SelectionBoundsChanged(const gfx::Rect& anchor_rect,
                               base::i18n::TextDirection anchor_dir,
                               const gfx::Rect& focus_rect,
                               base::i18n::TextDirection focus_dir,
+                              const gfx::Rect& bounding_box,
                               bool is_anchor_first) override;
   void CreateFrameSink(
       mojo::PendingReceiver<viz::mojom::blink::CompositorFrameSink>
@@ -235,7 +240,9 @@ class TestWebFrameWidget : public WebFrameWidgetImpl {
  public:
   template <typename... Args>
   explicit TestWebFrameWidget(Args&&... args)
-      : WebFrameWidgetImpl(std::forward<Args>(args)...) {}
+      : WebFrameWidgetImpl(std::forward<Args>(args)...) {
+    agent_group_scheduler_ = fake_thread_scheduler_.CreateAgentGroupScheduler();
+  }
   ~TestWebFrameWidget() override = default;
 
   TestWebFrameWidgetHost& WidgetHost() { return *widget_host_; }
@@ -246,10 +253,12 @@ class TestWebFrameWidget : public WebFrameWidgetImpl {
     return injected_scroll_events_;
   }
 
-  cc::TaskGraphRunner* task_graph_runner() { return &test_task_graph_runner_; }
-
   scheduler::WebThreadScheduler* main_thread_scheduler() {
     return &fake_thread_scheduler_;
+  }
+
+  blink::scheduler::WebAgentGroupScheduler& GetAgentGroupScheduler() {
+    return *agent_group_scheduler_;
   }
 
   // The returned pointer is valid after AllocateNewLayerTreeFrameSink() occurs,
@@ -281,9 +290,10 @@ class TestWebFrameWidget : public WebFrameWidgetImpl {
   }
 
  private:
-  cc::TestTaskGraphRunner test_task_graph_runner_;
   cc::FakeLayerTreeFrameSink* last_created_frame_sink_ = nullptr;
   blink::scheduler::WebFakeThreadScheduler fake_thread_scheduler_;
+  std::unique_ptr<blink::scheduler::WebAgentGroupScheduler>
+      agent_group_scheduler_;
   Vector<std::unique_ptr<blink::WebCoalescedInputEvent>>
       injected_scroll_events_;
   std::unique_ptr<TestWidgetInputHandlerHost> widget_input_handler_host_;
@@ -299,7 +309,6 @@ class TestWebViewClient : public WebViewClient {
   void DestroyChildViews();
 
   // WebViewClient overrides.
-  bool CanUpdateLayout() override { return true; }
   WebView* CreateView(WebLocalFrame* opener,
                       const WebURLRequest&,
                       const WebWindowFeatures&,
@@ -307,7 +316,8 @@ class TestWebViewClient : public WebViewClient {
                       WebNavigationPolicy,
                       network::mojom::blink::WebSandboxFlags,
                       const SessionStorageNamespaceId&,
-                      bool& consumed_user_gesture) override;
+                      bool& consumed_user_gesture,
+                      const absl::optional<WebImpression>&) override;
 
  private:
   WTF::Vector<std::unique_ptr<WebViewHelper>> child_web_views_;
@@ -451,6 +461,10 @@ class WebViewHelper : public ScopedMockOverlayScrollbars {
         is_for_child_local_root, is_for_nested_main_frame);
   }
 
+  blink::scheduler::WebAgentGroupScheduler& GetAgentGroupScheduler() {
+    return *agent_group_scheduler_;
+  }
+
  private:
   void InitializeWebView(TestWebViewClient*,
                          class WebView* opener);
@@ -492,18 +506,18 @@ class TestWebFrameClient : public WebLocalFrameClient {
 
   // WebLocalFrameClient:
   void FrameDetached() override;
-  WebLocalFrame* CreateChildFrame(WebLocalFrame* parent,
-                                  blink::mojom::blink::TreeScopeType,
-                                  const WebString& name,
-                                  const WebString& fallback_name,
-                                  const FramePolicy&,
-                                  const WebFrameOwnerProperties&,
-                                  mojom::blink::FrameOwnerElementType,
-                                  blink::CrossVariantMojoAssociatedReceiver<
-                                      mojom::PolicyContainerHostInterfaceBase>
-                                      policy_container_host_receiver) override;
+  WebLocalFrame* CreateChildFrame(
+      blink::mojom::blink::TreeScopeType,
+      const WebString& name,
+      const WebString& fallback_name,
+      const FramePolicy&,
+      const WebFrameOwnerProperties&,
+      mojom::blink::FrameOwnerElementType,
+      WebPolicyContainerBindParams policy_container_bind_params) override;
+  void InitializeAsChildFrame(WebLocalFrame* parent) override;
   void DidStartLoading() override;
   void DidStopLoading() override;
+  bool SwapIn(WebFrame* previous_frame) override;
   std::unique_ptr<blink::WebURLLoaderFactory> CreateURLLoaderFactory()
       override {
     return std::make_unique<WebURLLoaderFactoryWithMock>(
@@ -531,6 +545,9 @@ class TestWebFrameClient : public WebLocalFrameClient {
   int FinishedLoadingLayoutCount() const {
     return finished_loading_layout_count_;
   }
+  network::mojom::WebSandboxFlags sandbox_flags() const {
+    return sandbox_flags_;
+  }
 
  private:
   void CommitNavigation(std::unique_ptr<WebNavigationInfo>);
@@ -552,6 +569,10 @@ class TestWebFrameClient : public WebLocalFrameClient {
   int visually_non_empty_layout_count_ = 0;
   int finished_parsing_layout_count_ = 0;
   int finished_loading_layout_count_ = 0;
+
+  // The sandbox flags to use when committing navigations.
+  network::mojom::WebSandboxFlags sandbox_flags_ =
+      network::mojom::WebSandboxFlags::kNone;
 
   base::WeakPtrFactory<TestWebFrameClient> weak_factory_{this};
 };

@@ -43,6 +43,7 @@
 #include "third_party/blink/public/platform/web_touch_action.h"
 #include "third_party/blink/public/web/web_swap_result.h"
 #include "third_party/blink/public/web/web_widget.h"
+#include "ui/base/dragdrop/mojom/drag_drop_types.mojom-shared.h"
 
 namespace blink {
 
@@ -54,7 +55,7 @@ class WebNonCompositedWidgetClient;
 
 class WebFrameWidget : public WebWidget {
  public:
-  // Similiar to `InitializeCompositing()` but for non-compositing widgets.
+  // Similar to `InitializeCompositing()` but for non-compositing widgets.
   // Exactly one of either `InitializeCompositing()` or this method must
   // be called before using the widget.
   virtual void InitializeNonCompositing(
@@ -83,24 +84,26 @@ class WebFrameWidget : public WebWidget {
       const gfx::PointF& screen_point,
       DragOperationsMask operations_allowed,
       uint32_t key_modifiers,
-      base::OnceCallback<void(blink::DragOperation)> callback) = 0;
+      base::OnceCallback<void(ui::mojom::DragOperation)> callback) = 0;
   virtual void DragTargetDragOver(
       const gfx::PointF& point_in_viewport,
       const gfx::PointF& screen_point,
       DragOperationsMask operations_allowed,
       uint32_t key_modifiers,
-      base::OnceCallback<void(blink::DragOperation)> callback) = 0;
+      base::OnceCallback<void(ui::mojom::DragOperation)> callback) = 0;
   virtual void DragTargetDragLeave(const gfx::PointF& point_in_viewport,
                                    const gfx::PointF& screen_point) = 0;
   virtual void DragTargetDrop(const WebDragData&,
                               const gfx::PointF& point_in_viewport,
                               const gfx::PointF& screen_point,
-                              uint32_t key_modifiers) = 0;
+                              uint32_t key_modifiers,
+                              base::OnceClosure callback) = 0;
 
   // Notifies the WebFrameWidget that a drag has terminated.
   virtual void DragSourceEndedAt(const gfx::PointF& point_in_viewport,
                                  const gfx::PointF& screen_point,
-                                 DragOperation) = 0;
+                                 ui::mojom::DragOperation,
+                                 base::OnceClosure callback) = 0;
 
   // Notifies the WebFrameWidget that the system drag and drop operation has
   // ended.
@@ -122,10 +125,6 @@ class WebFrameWidget : public WebWidget {
   // inside) this widget into view. The scrolling might end with a final zooming
   // into the editable region which is performed in the main frame process.
   virtual bool ScrollFocusedEditableElementIntoView() = 0;
-
-  // This function provides zooming for find in page results when browsing with
-  // page autosize.
-  virtual void ZoomToFindInPageRect(const WebRect& rect_in_root_frame) = 0;
 
   // Applies viewport related properties that are normally provided by the
   // compositor. Useful for tests that don't use a compositor.
@@ -239,4 +238,4 @@ InstallCreateWebFrameWidgetHook(CreateWebFrameWidgetCallback* create_widget);
 
 }  // namespace blink
 
-#endif
+#endif  // THIRD_PARTY_BLINK_PUBLIC_WEB_WEB_FRAME_WIDGET_H_

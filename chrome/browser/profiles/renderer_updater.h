@@ -5,10 +5,9 @@
 #ifndef CHROME_BROWSER_PROFILES_RENDERER_UPDATER_H_
 #define CHROME_BROWSER_PROFILES_RENDERER_UPDATER_H_
 
-#include <string>
 #include <vector>
 
-#include "base/scoped_observer.h"
+#include "base/scoped_observation.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/common/renderer_configuration.mojom-forward.h"
 #include "components/keyed_service/core/keyed_service.h"
@@ -19,7 +18,7 @@
 #include "mojo/public/cpp/bindings/remote.h"
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-#include "chrome/browser/chromeos/login/signin/oauth2_login_manager.h"
+#include "chrome/browser/ash/login/signin/oauth2_login_manager.h"
 #endif
 
 class Profile;
@@ -61,8 +60,8 @@ class RendererUpdater : public KeyedService,
 #endif
 
   // IdentityManager::Observer:
-  void OnPrimaryAccountSet(const CoreAccountInfo& account_info) override;
-  void OnPrimaryAccountCleared(const CoreAccountInfo& account_info) override;
+  void OnPrimaryAccountChanged(
+      const signin::PrimaryAccountChangeEvent& event) override;
 
   // Update all renderers due to a configuration change.
   void UpdateAllRenderers();
@@ -86,8 +85,9 @@ class RendererUpdater : public KeyedService,
   IntegerPrefMember force_youtube_restrict_;
   StringPrefMember allowed_domains_for_apps_;
 
-  ScopedObserver<signin::IdentityManager, signin::IdentityManager::Observer>
-      identity_manager_observer_;
+  base::ScopedObservation<signin::IdentityManager,
+                          signin::IdentityManager::Observer>
+      identity_manager_observation_{this};
   signin::IdentityManager* identity_manager_;
 };
 

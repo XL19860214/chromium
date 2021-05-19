@@ -19,25 +19,22 @@
 #include "base/macros.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
-#include "base/optional.h"
 #include "base/sequence_checker.h"
 #include "base/time/time.h"
 #include "build/chromeos_buildflags.h"
 #include "media/base/callback_registry.h"
 #include "media/base/cdm_context.h"
 #include "media/base/status.h"
+#include "media/base/supported_video_decoder_config.h"
 #include "media/base/video_codecs.h"
 #include "media/base/video_frame_layout.h"
 #include "media/gpu/chromeos/video_decoder_pipeline.h"
 #include "media/gpu/decode_surface_handler.h"
-#include "media/video/supported_video_decoder_config.h"
+#include "media/gpu/vaapi/vaapi_utils.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/size.h"
 #include "ui/gfx/gpu_memory_buffer.h"
-
-namespace gpu {
-class GpuDriverBugWorkarounds;
-}
 
 namespace media {
 
@@ -55,20 +52,25 @@ class VaapiVideoDecoder : public DecoderInterface,
       scoped_refptr<base::SequencedTaskRunner> decoder_task_runner,
       base::WeakPtr<DecoderInterface::Client> client);
 
-  static SupportedVideoDecoderConfigs GetSupportedConfigs(
-      const gpu::GpuDriverBugWorkarounds& workarounds);
+  static SupportedVideoDecoderConfigs GetSupportedConfigs();
 
   // DecoderInterface implementation.
   void Initialize(const VideoDecoderConfig& config,
                   CdmContext* cdm_context,
                   InitCB init_cb,
-                  const OutputCB& output_cb) override;
+                  const OutputCB& output_cb,
+                  const WaitingCB& waiting_cb) override;
   void Decode(scoped_refptr<DecoderBuffer> buffer, DecodeCB decode_cb) override;
   void Reset(base::OnceClosure reset_cb) override;
   void ApplyResolutionChange() override;
 
   // DecodeSurfaceHandler<VASurface> implementation.
   scoped_refptr<VASurface> CreateSurface() override;
+  scoped_refptr<VASurface> CreateDecodeSurface() override;
+  bool IsScalingDecode() override;
+  const gfx::Rect GetOutputVisibleRect(
+      const gfx::Rect& decode_visible_rect,
+      const gfx::Size& output_picture_size) override;
   void SurfaceReady(scoped_refptr<VASurface> va_surface,
                     int32_t buffer_id,
                     const gfx::Rect& visible_rect,
@@ -143,11 +145,27 @@ class VaapiVideoDecoder : public DecoderInterface,
   // Callback for the CDM to notify |this|.
   void OnCdmContextEvent(CdmContext::Event event);
 
+  // This is a callback from ApplyResolutionChange() when we need to query the
+  // browser process for the screen sizes.
+  void ApplyResolutionChangeWithScreenSizes(
+      const std::vector<gfx::Size>& screen_resolution);
+
+  // Callback for when a VASurface in the decode pool is no longer used as a
+  // reference frame and should then be returned to the pool. We ignore the
+  // VASurfaceID in the normal callback because it is retained in the |surface|
+  // object.
+  void ReturnDecodeSurfaceToPool(std::unique_ptr<ScopedVASurface> surface,
+                                 VASurfaceID);
+
   // The video decoder's state.
   State state_ = State::kUninitialized;
 
   // Callback used to notify the client when a frame is available for output.
   OutputCB output_cb_;
+
+  // Callback used to notify the client when we have lost decode context and
+  // request a reset. (Used in protected decoding).
+  WaitingCB waiting_cb_;
 
   // The video stream's profile.
   VideoCodecProfile profile_ = VIDEO_CODEC_PROFILE_UNKNOWN;
@@ -169,7 +187,7 @@ class VaapiVideoDecoder : public DecoderInterface,
   // Queue containing all requested decode tasks.
   base::queue<DecodeTask> decode_task_queue_;
   // The decode task we're currently trying to execute.
-  base::Optional<DecodeTask> current_decode_task_;
+  absl::optional<DecodeTask> current_decode_task_;
   // The next input buffer id.
   int32_t next_buffer_id_ = 0;
 
@@ -209,6 +227,15 @@ class VaapiVideoDecoder : public DecoderInterface,
   // TODO(crbug.com/1022246): Instead of having the raw pointer here, getting
   // the pointer from AcceleratedVideoDecoder.
   VaapiVideoDecoderDelegate* decoder_delegate_ = nullptr;
+
+  // When we are doing scaled decoding, this is the pool of surfaces used by the
+  // decoder for reference frames.
+  base::queue<std::unique_ptr<ScopedVASurface>>
+      decode_surface_pool_for_scaling_;
+
+  // When we are doing scaled decoding, this is the scale factor we are using,
+  // and applies the same in both dimensions.
+  absl::optional<float> decode_to_output_scale_factor_;
 
   SEQUENCE_CHECKER(sequence_checker_);
 

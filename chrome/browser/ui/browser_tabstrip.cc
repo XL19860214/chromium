@@ -26,7 +26,7 @@ void AddTabAt(Browser* browser,
               const GURL& url,
               int idx,
               bool foreground,
-              base::Optional<tab_groups::TabGroupId> group) {
+              absl::optional<tab_groups::TabGroupId> group) {
   // Time new tab page creation time.  We keep track of the timing data in
   // WebContents, but we want to include the time it takes to create the
   // WebContents object too.
@@ -124,6 +124,7 @@ void ConfigureTabGroupForNavigation(NavigateParams* nav_params) {
     if (ShouldAutoCreateGroupForNavigation(nav_params)) {
       nav_params->group =
           model->AddToNewGroup({source_index, source_index + 1});
+      model->OpenTabGroupEditor(nav_params->group.value());
     }
   }
 }

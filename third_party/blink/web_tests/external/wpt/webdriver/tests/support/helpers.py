@@ -4,8 +4,6 @@ import collections
 import math
 import sys
 
-from six import iteritems
-
 import webdriver
 
 from tests.support import defaults
@@ -114,7 +112,7 @@ def deep_update(source, overrides):
     Update a nested dictionary or similar mapping.
     Modify ``source`` in place.
     """
-    for key, value in iteritems(overrides):
+    for key, value in overrides.items():
         if isinstance(value, collections.Mapping) and value:
             returned = deep_update(source.get(key, {}), value)
             source[key] = returned
@@ -238,3 +236,11 @@ def available_screen_size(session):
             screen.availHeight - screen.availTop,
         ];
         """))
+
+def filter_dict(source, d):
+    """Filter `source` dict to only contain same keys as `d` dict.
+
+    :param source: dictionary to filter.
+    :param d: dictionary whose keys determine the filtering.
+    """
+    return {k: source[k] for k in d.keys()}

@@ -434,15 +434,6 @@ public class PersonalDataManager {
                     0 /* issuerIconDrawableId */, "" /* billingAddressId */, "" /* serverId */);
         }
 
-        /** TODO(estade): remove this constructor. */
-        @VisibleForTesting
-        public CreditCard(String guid, String origin, String name, String number,
-                String obfuscatedNumber, String month, String year) {
-            this(guid, origin, true /* isLocal */, false /* isCached */, name, number,
-                    obfuscatedNumber, month, year, "" /* basicCardIssuerNetwork */,
-                    0 /* issuerIconDrawableId */, "" /* billingAddressId */, "" /* serverId */);
-        }
-
         @CalledByNative("CreditCard")
         public String getGUID() {
             return mGUID;
@@ -917,6 +908,13 @@ public class PersonalDataManager {
                 mPersonalDataManagerAndroid, PersonalDataManager.this);
     }
 
+    @VisibleForTesting
+    protected void clearServerDataForTesting() {
+        ThreadUtils.assertOnUiThread();
+        PersonalDataManagerJni.get().clearServerDataForTesting(
+                mPersonalDataManagerAndroid, PersonalDataManager.this);
+    }
+
     /**
      * Starts loading the address validation rules for the specified {@code regionCode}.
      *
@@ -1173,6 +1171,8 @@ public class PersonalDataManager {
         long getCreditCardUseDateForTesting(
                 long nativePersonalDataManagerAndroid, PersonalDataManager caller, String guid);
         long getCurrentDateForTesting(
+                long nativePersonalDataManagerAndroid, PersonalDataManager caller);
+        void clearServerDataForTesting(
                 long nativePersonalDataManagerAndroid, PersonalDataManager caller);
         void clearUnmaskedCache(
                 long nativePersonalDataManagerAndroid, PersonalDataManager caller, String guid);

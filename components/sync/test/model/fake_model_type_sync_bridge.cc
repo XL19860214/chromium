@@ -13,9 +13,9 @@
 #include "base/strings/string_number_conversions.h"
 #include "components/sync/base/client_tag_hash.h"
 #include "components/sync/model/conflict_resolution.h"
+#include "components/sync/model/in_memory_metadata_change_list.h"
 #include "components/sync/model/model_type_store.h"
 #include "components/sync/model/mutable_data_batch.h"
-#include "components/sync/model_impl/in_memory_metadata_change_list.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 using sync_pb::EntityMetadata;
@@ -215,7 +215,7 @@ FakeModelTypeSyncBridge::CreateMetadataChangeList() {
   return std::make_unique<InMemoryMetadataChangeList>();
 }
 
-base::Optional<ModelError> FakeModelTypeSyncBridge::MergeSyncData(
+absl::optional<ModelError> FakeModelTypeSyncBridge::MergeSyncData(
     std::unique_ptr<MetadataChangeList> metadata_change_list,
     EntityChangeList entity_data) {
   if (error_next_) {
@@ -259,7 +259,7 @@ base::Optional<ModelError> FakeModelTypeSyncBridge::MergeSyncData(
   return {};
 }
 
-base::Optional<ModelError> FakeModelTypeSyncBridge::ApplySyncChanges(
+absl::optional<ModelError> FakeModelTypeSyncBridge::ApplySyncChanges(
     std::unique_ptr<MetadataChangeList> metadata_changes,
     EntityChangeList entity_changes) {
   if (error_next_) {

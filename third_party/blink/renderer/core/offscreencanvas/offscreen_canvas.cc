@@ -39,6 +39,7 @@
 #include "third_party/blink/renderer/platform/image-encoders/image_encoder_utils.h"
 #include "third_party/blink/renderer/platform/instrumentation/histogram.h"
 #include "third_party/blink/renderer/platform/instrumentation/tracing/trace_event.h"
+#include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
 #include "third_party/blink/renderer/platform/wtf/math_extras.h"
 #include "third_party/skia/include/core/SkFilterQuality.h"
 #include "third_party/skia/include/core/SkSurface.h"
@@ -221,13 +222,6 @@ ImageBitmap* OffscreenCanvas::transferToImageBitmap(
                                       "ImageBitmap construction failed");
   }
 
-  RecordIdentifiabilityMetric(
-      blink::IdentifiableSurface::FromTypeAndToken(
-          blink::IdentifiableSurface::Type::kCanvasReadback,
-          context_ ? context_->GetContextType()
-                   : CanvasRenderingContext::kContextTypeUnknown),
-      0);
-
   return image;
 }
 
@@ -269,7 +263,7 @@ IntSize OffscreenCanvas::BitmapSourceSize() const {
 
 ScriptPromise OffscreenCanvas::CreateImageBitmap(
     ScriptState* script_state,
-    base::Optional<IntRect> crop_rect,
+    absl::optional<IntRect> crop_rect,
     const ImageBitmapOptions* options,
     ExceptionState& exception_state) {
   if (context_)
@@ -292,13 +286,23 @@ CanvasRenderingContext* OffscreenCanvas::GetCanvasRenderingContext(
     const CanvasContextCreationAttributesCore& attributes) {
   DCHECK_EQ(execution_context, GetTopExecutionContext());
   CanvasRenderingContext::ContextType context_type =
-      CanvasRenderingContext::ContextTypeFromId(id);
+      CanvasRenderingContext::ContextTypeFromId(id, execution_context);
 
   // Unknown type.
   if (context_type == CanvasRenderingContext::kContextTypeUnknown ||
       (context_type == CanvasRenderingContext::kContextXRPresent &&
        !RuntimeEnabledFeatures::WebXREnabled(execution_context))) {
     return nullptr;
+  }
+
+  if (auto* window = DynamicTo<LocalDOMWindow>(GetExecutionContext())) {
+    if (attributes.color_space != kSRGBCanvasColorSpaceName ||
+        attributes.pixel_format != kUint8CanvasPixelFormatName) {
+      UseCounter::Count(window->document(), WebFeature::kCanvasUseColorSpace);
+    }
+
+    if (RuntimeEnabledFeatures::NewCanvas2DAPIEnabled())
+      UseCounter::Count(window->document(), WebFeature::kNewCanvas2DAPI);
   }
 
   // Log the aliased context type used.
@@ -480,10 +484,10 @@ bool OffscreenCanvas::BeginFrame() {
 
 void OffscreenCanvas::SetFilterQualityInResource(
     SkFilterQuality filter_quality) {
-  if (filter_quality_ == filter_quality)
+  if (FilterQuality() == filter_quality)
     return;
 
-  filter_quality_ = filter_quality;
+  SetFilterQuality(filter_quality);
   if (ResourceProvider())
     GetOrCreateResourceProvider()->SetFilterQuality(filter_quality);
 }

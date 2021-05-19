@@ -58,12 +58,11 @@ void BookmarkBubbleSignInDelegateTest::ReplaceBlank(Browser* browser) {
   NavigateParams params(
       GetSingletonTabNavigateParams(browser, GURL("chrome:version")));
   params.path_behavior = NavigateParams::IGNORE_AND_NAVIGATE;
-  ShowSingletonTabOverwritingNTP(browser, std::move(params));
+  ShowSingletonTabOverwritingNTP(browser, &params);
 }
 
 void BookmarkBubbleSignInDelegateTest::SignInBrowser(Browser* browser) {
-  std::unique_ptr<BubbleSyncPromoDelegate> delegate;
-  delegate.reset(new BookmarkBubbleSignInDelegate(browser));
+  auto delegate = std::make_unique<BookmarkBubbleSignInDelegate>(browser);
   delegate->OnEnableSync(AccountInfo());
 }
 

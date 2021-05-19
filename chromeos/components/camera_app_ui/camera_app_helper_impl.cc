@@ -8,6 +8,7 @@
 
 #include "ash/public/cpp/tablet_mode.h"
 #include "ash/public/cpp/window_properties.h"
+#include "base/callback_helpers.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/trace_event/trace_event.h"
 #include "content/public/browser/web_contents.h"
@@ -17,13 +18,13 @@
 namespace chromeos_camera {
 namespace {
 
-mojom::ScreenState ToMojoScreenState(ash::ScreenState s) {
+mojom::ScreenState ToMojoScreenState(ash::ScreenBacklightState s) {
   switch (s) {
-    case ash::ScreenState::ON:
+    case ash::ScreenBacklightState::ON:
       return mojom::ScreenState::ON;
-    case ash::ScreenState::OFF:
+    case ash::ScreenBacklightState::OFF:
       return mojom::ScreenState::OFF;
-    case ash::ScreenState::OFF_AUTO:
+    case ash::ScreenBacklightState::OFF_AUTO:
       return mojom::ScreenState::OFF_AUTO;
     default:
       NOTREACHED();
@@ -39,15 +40,15 @@ bool HasExternalScreen() {
   return false;
 }
 
-base::Optional<uint32_t> ParseIntentIdFromUrl(const GURL& url) {
+absl::optional<uint32_t> ParseIntentIdFromUrl(const GURL& url) {
   std::string id_str;
   if (!net::GetValueForKeyInQuery(url, "intentId", &id_str)) {
-    return base::nullopt;
+    return absl::nullopt;
   }
 
   uint32_t intent_id;
   if (!base::StringToUint(id_str, &intent_id)) {
-    return base::nullopt;
+    return absl::nullopt;
   }
   return intent_id;
 }
@@ -63,7 +64,7 @@ CameraAppHelperImpl::CameraAppHelperImpl(
       camera_result_callback_(std::move(camera_result_callback)),
       send_broadcast_callback_(std::move(send_broadcast_callback)),
       has_external_screen_(HasExternalScreen()),
-      pending_intent_id_(base::nullopt),
+      pending_intent_id_(absl::nullopt),
       window_(window) {
   DCHECK(window);
   window->SetProperty(ash::kCanConsumeSystemKeysKey, true);
@@ -102,7 +103,7 @@ void CameraAppHelperImpl::HandleCameraResult(
   if (pending_intent_id_.has_value() && *pending_intent_id_ == intent_id &&
       (action == arc::mojom::CameraIntentAction::FINISH ||
        action == arc::mojom::CameraIntentAction::CANCEL)) {
-    pending_intent_id_ = base::nullopt;
+    pending_intent_id_ = absl::nullopt;
   }
   camera_result_callback_.Run(intent_id, action, data, std::move(callback));
 }
@@ -131,7 +132,7 @@ void CameraAppHelperImpl::SetScreenStateMonitor(
     SetScreenStateMonitorCallback callback) {
   screen_state_monitor_ = mojo::Remote<ScreenStateMonitor>(std::move(monitor));
   auto&& mojo_state =
-      ToMojoScreenState(ash::ScreenBacklight::Get()->GetScreenState());
+      ToMojoScreenState(ash::ScreenBacklight::Get()->GetScreenBacklightState());
   std::move(callback).Run(mojo_state);
 }
 
@@ -219,9 +220,10 @@ void CameraAppHelperImpl::OnTabletModeEnded() {
     tablet_mode_monitor_->Update(false);
 }
 
-void CameraAppHelperImpl::OnScreenStateChanged(ash::ScreenState screen_state) {
+void CameraAppHelperImpl::OnScreenBacklightStateChanged(
+    ash::ScreenBacklightState screen_backlight_state) {
   if (screen_state_monitor_.is_bound())
-    screen_state_monitor_->Update(ToMojoScreenState(screen_state));
+    screen_state_monitor_->Update(ToMojoScreenState(screen_backlight_state));
 }
 
 void CameraAppHelperImpl::OnDisplayAdded(const display::Display& new_display) {

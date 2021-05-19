@@ -17,6 +17,7 @@
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_inline_node.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_line_box_fragment_builder.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_line_breaker.h"
+#include "third_party/blink/renderer/core/layout/ng/inline/ng_line_info.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_line_truncator.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_ruby_utils.h"
 #include "third_party/blink/renderer/core/layout/ng/list/layout_ng_outside_list_marker.h"
@@ -32,6 +33,7 @@
 #include "third_party/blink/renderer/core/layout/ng/ng_relative_utils.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_space_utils.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_unpositioned_float.h"
+#include "third_party/blink/renderer/core/layout/svg/layout_svg_inline_text.h"
 #include "third_party/blink/renderer/core/style/computed_style.h"
 #include "third_party/blink/renderer/platform/fonts/shaping/shape_result_spacing.h"
 #include "third_party/blink/renderer/platform/fonts/shaping/shape_result_view.h"
@@ -56,8 +58,10 @@ NGInlineLayoutAlgorithm::NGInlineLayoutAlgorithm(
     NGInlineChildLayoutContext* context)
     : NGLayoutAlgorithm(
           inline_node,
-          ComputedStyle::CreateAnonymousStyleWithDisplay(inline_node.Style(),
-                                                         EDisplay::kBlock),
+          inline_node.GetDocument()
+              .GetStyleResolver()
+              .CreateAnonymousStyleWithDisplay(inline_node.Style(),
+                                               EDisplay::kBlock),
           space,
           // Use LTR direction since inline layout handles bidi by itself and
           // lays out in visual order.
@@ -86,7 +90,7 @@ NGInlineBoxState* NGInlineLayoutAlgorithm::HandleOpenTag(
   // for the purpose of empty block calculation.
   // https://drafts.csswg.org/css2/visudet.html#line-height
   if (!quirks_mode_ || !item.IsEmptyItem())
-    box->ComputeTextMetrics(*item.Style(), baseline_type_);
+    box->ComputeTextMetrics(*item.Style(), *box->font, baseline_type_);
 
   if (item.Style()->HasMask()) {
     // Layout may change the bounding box, which affects MaskClip.
@@ -103,7 +107,7 @@ NGInlineBoxState* NGInlineLayoutAlgorithm::HandleCloseTag(
     NGLogicalLineItems* line_box,
     NGInlineBoxState* box) {
   if (UNLIKELY(quirks_mode_ && !item.IsEmptyItem()))
-    box->EnsureTextMetrics(*item.Style(), baseline_type_);
+    box->EnsureTextMetrics(*item.Style(), *box->font, baseline_type_);
   box = box_states_->OnCloseTag(ConstraintSpace(), line_box, box,
                                 baseline_type_, item.HasEndEdge());
   // Just clear |NeedsLayout| flags. Culled inline boxes do not need paint
@@ -157,7 +161,7 @@ void NGInlineLayoutAlgorithm::RebuildBoxStates(
 
   // Create box states for tags that are not closed yet.
   NGLogicalLineItems line_box;
-  box_states->OnBeginPlaceItems(line_info.LineStyle(), baseline_type_,
+  box_states->OnBeginPlaceItems(Node(), line_info.LineStyle(), baseline_type_,
                                 quirks_mode_, &line_box);
   for (const NGInlineItem* item : open_items) {
     NGInlineItemResult item_result;
@@ -173,8 +177,8 @@ void NGInlineLayoutAlgorithm::CheckBoxStates(
   NGInlineLayoutStateStack rebuilt;
   RebuildBoxStates(line_info, break_token, &rebuilt);
   NGLogicalLineItems line_box;
-  rebuilt.OnBeginPlaceItems(line_info.LineStyle(), baseline_type_, quirks_mode_,
-                            &line_box);
+  rebuilt.OnBeginPlaceItems(Node(), line_info.LineStyle(), baseline_type_,
+                            quirks_mode_, &line_box);
   DCHECK(box_states_);
   box_states_->CheckSame(rebuilt);
 }
@@ -199,7 +203,7 @@ void NGInlineLayoutAlgorithm::CreateLine(
   const ComputedStyle& line_style = line_info->LineStyle();
   box_states_->SetIsEmptyLine(line_info->IsEmptyLine());
   NGInlineBoxState* box = box_states_->OnBeginPlaceItems(
-      line_style, baseline_type_, quirks_mode_, line_box);
+      Node(), line_style, baseline_type_, quirks_mode_, line_box);
 #if DCHECK_IS_ON()
   if (is_box_states_from_context_)
     CheckBoxStates(*line_info, BreakToken());
@@ -214,7 +218,7 @@ void NGInlineLayoutAlgorithm::CreateLine(
   // have been to make sure that there's always room for the list item marker,
   // but that doesn't explain why it's done for every line...
   if (quirks_mode_ && line_style.Display() == EDisplay::kListItem)
-    box->ComputeTextMetrics(line_style, baseline_type_);
+    box->ComputeTextMetrics(line_style, *box->font, baseline_type_);
 
   bool has_logical_text_items = false;
   for (NGInlineItemResult& item_result : *line_items) {
@@ -227,7 +231,7 @@ void NGInlineLayoutAlgorithm::CreateLine(
       DCHECK(item_result.shape_result);
 
       if (UNLIKELY(quirks_mode_))
-        box->EnsureTextMetrics(*item.Style(), baseline_type_);
+        box->EnsureTextMetrics(*item.Style(), *box->font, baseline_type_);
 
       // Take all used fonts into account if 'line-height: normal'.
       if (box->include_used_fonts) {
@@ -508,7 +512,7 @@ void NGInlineLayoutAlgorithm::PlaceControlItem(const NGInlineItem& item,
   ClearNeedsLayoutIfNeeded(item.GetLayoutObject());
 
   if (UNLIKELY(quirks_mode_ && !box->HasMetrics()))
-    box->EnsureTextMetrics(*item.Style(), baseline_type_);
+    box->EnsureTextMetrics(*item.Style(), *box->font, baseline_type_);
 
   line_box->AddChild(item, std::move(item_result->shape_result),
                      item_result->TextOffset(), box->text_top,
@@ -755,6 +759,8 @@ void NGInlineLayoutAlgorithm::PlaceRelativePositionedItems(
     const auto* physical_fragment = child.PhysicalFragment();
     if (!physical_fragment)
       continue;
+    // TODO(almaher): Handle inline relative positioning correctly for OOF
+    // fragmentation.
     child.rect.offset += ComputeRelativeOffsetForInline(
         ConstraintSpace(), physical_fragment->Style());
   }
@@ -765,33 +771,30 @@ void NGInlineLayoutAlgorithm::PlaceListMarker(const NGInlineItem& item,
                                               NGInlineItemResult* item_result,
                                               const NGLineInfo& line_info) {
   if (UNLIKELY(quirks_mode_)) {
-    box_states_->LineBoxState().EnsureTextMetrics(*item.Style(),
-                                                  baseline_type_);
+    box_states_->LineBoxState().EnsureTextMetrics(
+        *item.Style(), item.Style()->GetFont(), baseline_type_);
   }
-
-  container_builder_.SetUnpositionedListMarker(NGUnpositionedListMarker(
-      To<LayoutNGOutsideListMarker>(item.GetLayoutObject())));
 }
 
 // Justify the line. This changes the size of items by adding spacing.
 // Returns false if justification failed and should fall back to start-aligned.
-base::Optional<LayoutUnit> NGInlineLayoutAlgorithm::ApplyJustify(
+absl::optional<LayoutUnit> NGInlineLayoutAlgorithm::ApplyJustify(
     LayoutUnit space,
     NGLineInfo* line_info) {
   // Empty lines should align to start.
   if (line_info->IsEmptyLine())
-    return base::nullopt;
+    return absl::nullopt;
 
   // Justify the end of visible text, ignoring preserved trailing spaces.
   unsigned end_offset = line_info->EndOffsetForJustify();
 
   // If this line overflows, fallback to 'text-align: start'.
   if (space <= 0)
-    return base::nullopt;
+    return absl::nullopt;
 
   // Can't justify an empty string.
   if (end_offset == line_info->StartOffset())
-    return base::nullopt;
+    return absl::nullopt;
 
   // Construct the line text to compute spacing for.
   StringBuilder line_text_builder;
@@ -820,7 +823,7 @@ base::Optional<LayoutUnit> NGInlineLayoutAlgorithm::ApplyJustify(
     // LayoutRubyText.
     if (box && (box->IsRubyText() || box->IsRubyBase()))
       return space / 2;
-    return base::nullopt;
+    return absl::nullopt;
   }
 
   LayoutUnit inset;
@@ -882,7 +885,7 @@ LayoutUnit NGInlineLayoutAlgorithm::ApplyTextAlign(NGLineInfo* line_info) {
 
   ETextAlign text_align = line_info->TextAlign();
   if (text_align == ETextAlign::kJustify) {
-    base::Optional<LayoutUnit> offset = ApplyJustify(space, line_info);
+    absl::optional<LayoutUnit> offset = ApplyJustify(space, line_info);
     if (offset)
       return *offset;
 

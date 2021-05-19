@@ -19,6 +19,7 @@
 #include "components/sync_user_events/global_id_mapper.h"
 #include "ios/chrome/browser/browser_state/test_chrome_browser_state.h"
 #include "ios/chrome/browser/main/test_browser.h"
+#include "ios/chrome/browser/sessions/ios_chrome_tab_restore_service_factory.h"
 #include "ios/chrome/browser/sync/profile_sync_service_factory.h"
 #include "ios/chrome/browser/sync/session_sync_service_factory.h"
 #include "ios/chrome/browser/sync/sync_setup_service.h"
@@ -63,7 +64,6 @@ class SessionSyncServiceMockForRecentTabsTableCoordinator
                base::WeakPtr<syncer::ModelTypeControllerDelegate>());
   MOCK_METHOD1(ProxyTabsStateChanged,
                void(syncer::DataTypeController::State state));
-  MOCK_METHOD1(SetSyncSessionsGUID, void(const std::string& guid));
 };
 
 std::unique_ptr<KeyedService>
@@ -125,6 +125,9 @@ class RecentTabsTableCoordinatorTest : public BlockCleanupTest {
         SessionSyncServiceFactory::GetInstance(),
         base::BindRepeating(
             &BuildMockSessionSyncServiceForRecentTabsTableCoordinator));
+    test_cbs_builder.AddTestingFactory(
+        IOSChromeTabRestoreServiceFactory::GetInstance(),
+        IOSChromeTabRestoreServiceFactory::GetDefaultFactory());
     chrome_browser_state_ = test_cbs_builder.Build();
 
     browser_ = std::make_unique<TestBrowser>(chrome_browser_state_.get(),
@@ -144,7 +147,8 @@ class RecentTabsTableCoordinatorTest : public BlockCleanupTest {
                       BOOL hasForeignSessions) {
     if (signedIn) {
       identity_test_env_.MakePrimaryAccountAvailable("test@test.com");
-    } else if (identity_test_env_.identity_manager()->HasPrimaryAccount()) {
+    } else if (identity_test_env_.identity_manager()->HasPrimaryAccount(
+                   signin::ConsentLevel::kSync)) {
       auto* account_mutator =
           identity_test_env_.identity_manager()->GetPrimaryAccountMutator();
 
@@ -152,7 +156,7 @@ class RecentTabsTableCoordinatorTest : public BlockCleanupTest {
       DCHECK(account_mutator);
       account_mutator->ClearPrimaryAccount(
           signin_metrics::SIGNOUT_TEST,
-          signin_metrics::SignoutDelete::IGNORE_METRIC);
+          signin_metrics::SignoutDelete::kIgnoreMetric);
     }
 
     SessionSyncServiceMockForRecentTabsTableCoordinator* session_sync_service =

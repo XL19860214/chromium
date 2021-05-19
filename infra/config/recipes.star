@@ -56,11 +56,32 @@ build_recipe(
 )
 
 build_recipe(
+    name = "recipe:binary_size_cast_trybot",
+)
+
+build_recipe(
+    name = "recipe:branch_configuration/tester",
+    use_bbagent = True,
+)
+
+build_recipe(
     name = "recipe:celab",
 )
 
 build_recipe(
     name = "recipe:chromium",
+)
+
+build_recipe(
+    name = "recipe:chromium/orchestrator",
+)
+
+build_recipe(
+    name = "recipe:chromium/compilator",
+)
+
+build_recipe(
+    name = "recipe:chromium_3pp",
 )
 
 build_recipe(
@@ -90,6 +111,11 @@ build_recipe(
 )
 
 build_recipe(
+    name = "recipe:chromium_rts/create_model",
+    use_bbagent = True,
+)
+
+build_recipe(
     name = "recipe:chromium_trybot",
 )
 
@@ -115,14 +141,6 @@ build_recipe(
 
 build_recipe(
     name = "recipe:findit/chromium/update_components",
-)
-
-build_recipe(
-    name = "recipe:chromium/mini_orchestrator",
-)
-
-build_recipe(
-    name = "recipe:chromium/try_warmer",
 )
 
 build_recipe(

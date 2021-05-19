@@ -9,7 +9,6 @@
 #include "base/metrics/user_metrics_action.h"
 #include "base/numerics/safe_conversions.h"
 #include "build/build_config.h"
-#include "components/viz/common/delegated_ink_point.h"
 #include "components/viz/common/features.h"
 #include "content/browser/renderer_host/hit_test_debug_key_event_observer.h"
 #include "content/browser/renderer_host/input/touch_selection_controller_client_aura.h"
@@ -32,9 +31,11 @@
 #include "ui/aura/window_tree_host.h"
 #include "ui/base/ime/text_input_client.h"
 #include "ui/compositor/compositor.h"
+#include "ui/compositor/layer.h"
 #include "ui/events/blink/blink_event_util.h"
 #include "ui/events/blink/web_input_event.h"
 #include "ui/events/keycodes/dom/dom_code.h"
+#include "ui/gfx/delegated_ink_point.h"
 #include "ui/touch_selection/touch_selection_controller.h"
 
 #if defined(OS_WIN)
@@ -266,7 +267,7 @@ void RenderWidgetHostViewEventHandler::UnlockMouse() {
 }
 
 bool RenderWidgetHostViewEventHandler::LockKeyboard(
-    base::Optional<base::flat_set<ui::DomCode>> codes) {
+    absl::optional<base::flat_set<ui::DomCode>> codes) {
   aura::Window* root_window = window_->GetRootWindow();
   if (!root_window)
     return false;
@@ -363,11 +364,21 @@ void RenderWidgetHostViewEventHandler::HandleMouseWheelEvent(
   }
 }
 
+bool IsMoveEvent(ui::EventType type) {
+  return type == ui::ET_MOUSE_MOVED || type == ui::ET_MOUSE_DRAGGED ||
+         type == ui::ET_TOUCH_MOVED;
+}
+
 void RenderWidgetHostViewEventHandler::ForwardDelegatedInkPoint(
-    ui::LocatedEvent* event) {
+    ui::LocatedEvent* event,
+    bool hovering,
+    int32_t pointer_id) {
   const cc::RenderFrameMetadata& last_metadata =
       host_->render_frame_metadata_provider()->LastRenderFrameMetadata();
-  if (last_metadata.has_delegated_ink_metadata) {
+  if (IsMoveEvent(event->type()) &&
+      last_metadata.delegated_ink_metadata.has_value() &&
+      hovering == last_metadata.delegated_ink_metadata.value()
+                      .delegated_ink_is_hovering) {
     if (!delegated_ink_point_renderer_.is_bound()) {
       ui::Compositor* compositor = window_ && window_->layer()
                                        ? window_->layer()->GetCompositor()
@@ -388,7 +399,8 @@ void RenderWidgetHostViewEventHandler::ForwardDelegatedInkPoint(
 
     gfx::PointF point = event->root_location_f();
     point.Scale(host_view_->GetDeviceScaleFactor());
-    viz::DelegatedInkPoint delegated_ink_point(point, event->time_stamp());
+    gfx::DelegatedInkPoint delegated_ink_point(point, event->time_stamp(),
+                                               pointer_id);
     TRACE_EVENT_INSTANT1("input",
                          "Forwarding delegated ink point from browser.",
                          TRACE_EVENT_SCOPE_THREAD, "delegated point",
@@ -402,6 +414,16 @@ void RenderWidgetHostViewEventHandler::ForwardDelegatedInkPoint(
     // DrawAndSwap() is called, allowing more points to be drawn as part of
     // the delegated ink trail, and thus reducing user perceived latency.
     delegated_ink_point_renderer_->StoreDelegatedInkPoint(delegated_ink_point);
+    ended_delegated_ink_trail_ = false;
+  } else if (delegated_ink_point_renderer_.is_bound() &&
+             !ended_delegated_ink_trail_) {
+    // Let viz know that the most recent point it received from us is probably
+    // the last point the user is inking, so it shouldn't predict anything
+    // beyond it.
+    TRACE_EVENT_INSTANT0("input", "Delegated ink trail ended",
+                         TRACE_EVENT_SCOPE_THREAD);
+    delegated_ink_point_renderer_->ResetPrediction();
+    ended_delegated_ink_trail_ = true;
   }
 }
 
@@ -448,7 +470,9 @@ void RenderWidgetHostViewEventHandler::OnMouseEvent(ui::MouseEvent* event) {
     bool is_selection_popup = NeedsInputGrab(popup_child_host_view_);
     if (CanRendererHandleEvent(event, mouse_locked_, is_selection_popup) &&
         !(event->flags() & ui::EF_FROM_TOUCH)) {
-      ForwardDelegatedInkPoint(event);
+      bool hovering = (event->type() ^ ui::ET_MOUSE_DRAGGED) &&
+                      (event->type() ^ ui::ET_MOUSE_PRESSED);
+      ForwardDelegatedInkPoint(event, hovering, event->pointer_details().id);
 
       // Confirm existing composition text on mouse press, to make sure
       // the input caret won't be moved with an ongoing composition text.
@@ -502,7 +526,7 @@ void RenderWidgetHostViewEventHandler::OnScrollEvent(ui::ScrollEvent* event) {
     mouse_wheel_phase_handler_.AddPhaseIfNeededAndScheduleEndEvent(
         mouse_wheel_event, should_route_event);
 
-    base::Optional<blink::WebGestureEvent> maybe_synthetic_fling_cancel;
+    absl::optional<blink::WebGestureEvent> maybe_synthetic_fling_cancel;
     if (mouse_wheel_event.phase == blink::WebMouseWheelEvent::kPhaseBegan) {
       maybe_synthetic_fling_cancel =
           ui::MakeWebGestureEventFlingCancel(mouse_wheel_event);
@@ -573,7 +597,8 @@ void RenderWidgetHostViewEventHandler::OnTouchEvent(ui::TouchEvent* event) {
   if (handled)
     return;
 
-  ForwardDelegatedInkPoint(event);
+  ForwardDelegatedInkPoint(event, event->hovering(),
+                           event->pointer_details().id);
 
   if (had_no_pointer)
     delegate_->selection_controller_client()->OnTouchDown();
@@ -600,6 +625,11 @@ void RenderWidgetHostViewEventHandler::OnTouchEvent(ui::TouchEvent* event) {
 
 void RenderWidgetHostViewEventHandler::OnGestureEvent(ui::GestureEvent* event) {
   TRACE_EVENT0("input", "RenderWidgetHostViewBase::OnGestureEvent");
+
+  // Ensure that we get keyboard focus on tap down as page may lose focus
+  // state previously (e.g. tapping outside to dismiss a select pop-up menu).
+  if (event->type() == ui::ET_GESTURE_TAP)
+    SetKeyboardFocus();
 
   if ((event->type() == ui::ET_GESTURE_PINCH_BEGIN ||
        event->type() == ui::ET_GESTURE_PINCH_UPDATE ||
@@ -730,7 +760,7 @@ void RenderWidgetHostViewEventHandler::FinishImeCompositionSession() {
   // otherwise the following call to cancel composition will lead to an extra
   // IPC for finishing the ongoing composition (see https://crbug.com/723024).
   host_view_->GetTextInputClient()->ConfirmCompositionText(
-      /* keep_selection */ false);
+      /* keep_selection */ true);
   host_view_->ImeCancelComposition();
 }
 
@@ -929,7 +959,7 @@ bool RenderWidgetHostViewEventHandler::MatchesSynthesizedMovePosition(
     const blink::WebMouseEvent& event) {
   if (event.GetType() == blink::WebInputEvent::Type::kMouseMove &&
       synthetic_move_position_.has_value()) {
-    if (IsFractionalScaleFactor(host_view_->current_device_scale_factor())) {
+    if (IsFractionalScaleFactor(host_view_->GetCurrentDeviceScaleFactor())) {
       // For fractional scale factors, the conversion from pixels to dip and
       // vice versa could result in off by 1 or 2 errors which hurts us because
       // the artificial move to center event cause the cursor to bounce around

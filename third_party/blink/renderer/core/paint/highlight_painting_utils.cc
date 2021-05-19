@@ -4,8 +4,9 @@
 
 #include "third_party/blink/renderer/core/paint/highlight_painting_utils.h"
 
-#include "third_party/blink/renderer/core/css/pseudo_style_request.h"
+#include "components/shared_highlighting/core/common/text_fragments_constants.h"
 #include "third_party/blink/renderer/core/css/style_engine.h"
+#include "third_party/blink/renderer/core/css/style_request.h"
 #include "third_party/blink/renderer/core/dom/element.h"
 #include "third_party/blink/renderer/core/dom/element_traversal.h"
 #include "third_party/blink/renderer/core/dom/node.h"
@@ -15,10 +16,12 @@
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/layout/layout_theme.h"
 #include "third_party/blink/renderer/core/page/focus_controller.h"
+#include "third_party/blink/renderer/core/page/page.h"
 #include "third_party/blink/renderer/core/paint/paint_info.h"
 #include "third_party/blink/renderer/core/paint/text_paint_style.h"
 #include "third_party/blink/renderer/core/style/computed_style.h"
 #include "third_party/blink/renderer/platform/graphics/color.h"
+#include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 
 namespace blink {
 
@@ -105,6 +108,9 @@ Color HighlightThemeBackgroundColor(const Document& document,
                  : LayoutTheme::GetTheme().InactiveSelectionBackgroundColor(
                        style.UsedColorScheme());
     case kPseudoIdTargetText:
+      if (RuntimeEnabledFeatures::TextFragmentColorChangeEnabled())
+        return Color(shared_highlighting::kFragmentTextBackgroundColorARGB);
+
       return LayoutTheme::GetTheme().PlatformTextSearchHighlightColor(
           false /* active match */, document.InForcedColorsMode(),
           style.UsedColorScheme());
@@ -142,18 +148,17 @@ scoped_refptr<const ComputedStyle> HighlightPseudoStyle(Node* node,
   if (!element || element->IsPseudoElement())
     return nullptr;
 
-  PseudoElementStyleRequest request(pseudo);
-
   if (pseudo == kPseudoIdSelection &&
       element->GetDocument().GetStyleEngine().UsesWindowInactiveSelector() &&
       !element->GetDocument().GetPage()->GetFocusController().IsActive()) {
     // ::selection and ::selection:window-inactive styles may be different. Only
     // cache the styles for ::selection if there are no :window-inactive
     // selector, or if the page is active.
-    return element->StyleForPseudoElement(request, element->GetComputedStyle());
+    return element->UncachedStyleForPseudoElement(
+        StyleRequest(pseudo, element->GetComputedStyle()));
   }
 
-  return element->CachedStyleForPseudoElement(request);
+  return element->CachedStyleForPseudoElement(pseudo);
 }
 
 Color HighlightColor(const Document& document,
@@ -222,7 +227,7 @@ Color HighlightPaintingUtils::HighlightBackgroundColor(
   return HighlightThemeBackgroundColor(document, style, pseudo);
 }
 
-base::Optional<AppliedTextDecoration>
+absl::optional<AppliedTextDecoration>
 HighlightPaintingUtils::HighlightTextDecoration(
     const ComputedStyle& style,
     const ComputedStyle& pseudo_style) {
@@ -232,9 +237,9 @@ HighlightPaintingUtils::HighlightTextDecoration(
       pseudo_style.AppliedTextDecorations();
 
   if (style_decorations.IsEmpty())
-    return base::nullopt;
+    return absl::nullopt;
 
-  base::Optional<AppliedTextDecoration> highlight_text_decoration =
+  absl::optional<AppliedTextDecoration> highlight_text_decoration =
       style_decorations.back();
 
   if (pseudo_style_decorations.size() &&
@@ -281,6 +286,10 @@ TextPaintStyle HighlightPaintingUtils::HighlightPaintingStyle(
   TextPaintStyle highlight_style = text_style;
   bool uses_text_as_clip = paint_info.phase == PaintPhase::kTextClip;
   const GlobalPaintFlags global_paint_flags = paint_info.GetGlobalPaintFlags();
+
+  // Each highlight overlay’s shadows are completely independent of any shadows
+  // specified on the originating element (or the other highlight overlays).
+  highlight_style.shadow = nullptr;
 
   if (!uses_text_as_clip) {
     highlight_style.fill_color = HighlightForegroundColor(

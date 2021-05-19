@@ -4,9 +4,13 @@
 
 package org.chromium.components.messages;
 
+import android.graphics.Color;
 import android.graphics.drawable.Drawable;
 import android.view.View.OnClickListener;
 
+import androidx.annotation.ColorInt;
+
+import org.chromium.base.Callback;
 import org.chromium.ui.modelutil.PropertyKey;
 import org.chromium.ui.modelutil.PropertyModel.WritableFloatPropertyKey;
 import org.chromium.ui.modelutil.PropertyModel.WritableIntPropertyKey;
@@ -16,6 +20,10 @@ import org.chromium.ui.modelutil.PropertyModel.WritableObjectPropertyKey;
  * Properties of message banner.
  */
 public class MessageBannerProperties {
+    /** A Color value indicating that the "natural" colors from the image should be used. */
+    @ColorInt
+    public static final int TINT_NONE = Color.TRANSPARENT;
+
     public static final WritableObjectPropertyKey<String> PRIMARY_BUTTON_TEXT =
             new WritableObjectPropertyKey<>();
     public static final WritableObjectPropertyKey<Runnable> ON_PRIMARY_ACTION =
@@ -23,25 +31,36 @@ public class MessageBannerProperties {
     public static final WritableObjectPropertyKey<Runnable> ON_SECONDARY_ACTION =
             new WritableObjectPropertyKey<>();
     public static final WritableObjectPropertyKey<String> TITLE = new WritableObjectPropertyKey<>();
-    public static final WritableObjectPropertyKey<String> DESCRIPTION =
+    public static final WritableObjectPropertyKey<CharSequence> DESCRIPTION =
             new WritableObjectPropertyKey<>();
+
     public static final WritableObjectPropertyKey<Drawable> ICON =
             new WritableObjectPropertyKey<>();
     public static final WritableIntPropertyKey ICON_RESOURCE_ID = new WritableIntPropertyKey();
+
+    /**
+     * If left unspecified, this will be default_icon_color_blue. {@link #TINT_NONE} can be used to
+     * completely remove the tint.
+     */
+    public static final WritableIntPropertyKey ICON_TINT_COLOR = new WritableIntPropertyKey();
     // Secondary icon is shown as a button, so content description should be always set.
     public static final WritableObjectPropertyKey<Drawable> SECONDARY_ICON =
             new WritableObjectPropertyKey<>();
     public static final WritableIntPropertyKey SECONDARY_ICON_RESOURCE_ID =
             new WritableIntPropertyKey();
-    public static final WritableObjectPropertyKey<String> SECONDARY_ACTION_TEXT =
+    public static final WritableObjectPropertyKey<String> SECONDARY_BUTTON_MENU_TEXT =
             new WritableObjectPropertyKey<>();
     public static final WritableObjectPropertyKey<String> SECONDARY_ICON_CONTENT_DESCRIPTION =
             new WritableObjectPropertyKey<>();
-    // TODO(crbug.com/1123947): remove this since on_dismissed is not a property of the view?
-    public static final WritableObjectPropertyKey<Runnable> ON_DISMISSED =
+    /**
+     * The callback invoked when the message is dismissed. DismissReason is passed through the
+     * callback's parameter.
+     */
+    public static final WritableObjectPropertyKey<Callback<Integer>> ON_DISMISSED =
             new WritableObjectPropertyKey<>();
 
     // Following properties should only be accessed by the message banner component.
+    static final WritableFloatPropertyKey TRANSLATION_X = new WritableFloatPropertyKey();
     static final WritableFloatPropertyKey TRANSLATION_Y = new WritableFloatPropertyKey();
     static final WritableFloatPropertyKey ALPHA = new WritableFloatPropertyKey();
     static final WritableObjectPropertyKey<Runnable> ON_TOUCH_RUNNABLE =
@@ -51,17 +70,9 @@ public class MessageBannerProperties {
     static final WritableObjectPropertyKey<OnClickListener> PRIMARY_BUTTON_CLICK_LISTENER =
             new WritableObjectPropertyKey<>();
 
-    // TODO(pavely): There is no need to maintain two lists of property keys. Remove one and clean
-    // up references.
-    public static final PropertyKey[] ALL_KEYS =
-            new PropertyKey[] {PRIMARY_BUTTON_TEXT, PRIMARY_BUTTON_CLICK_LISTENER, TITLE,
-                    DESCRIPTION, ICON, ICON_RESOURCE_ID, SECONDARY_ICON, SECONDARY_ICON_RESOURCE_ID,
-                    SECONDARY_ACTION_TEXT, SECONDARY_ICON_CONTENT_DESCRIPTION, TRANSLATION_Y, ALPHA,
-                    ON_TOUCH_RUNNABLE, ON_PRIMARY_ACTION, ON_SECONDARY_ACTION};
-
-    public static final PropertyKey[] SINGLE_ACTION_MESSAGE_KEYS =
-            new PropertyKey[] {PRIMARY_BUTTON_TEXT, PRIMARY_BUTTON_CLICK_LISTENER, TITLE,
-                    DESCRIPTION, ICON, ICON_RESOURCE_ID, SECONDARY_ICON, SECONDARY_ICON_RESOURCE_ID,
-                    SECONDARY_ACTION_TEXT, ON_DISMISSED, TRANSLATION_Y, ALPHA, ON_TOUCH_RUNNABLE,
-                    ON_PRIMARY_ACTION, ON_SECONDARY_ACTION};
+    public static final PropertyKey[] ALL_KEYS = new PropertyKey[] {PRIMARY_BUTTON_TEXT,
+            PRIMARY_BUTTON_CLICK_LISTENER, TITLE, DESCRIPTION, ICON, ICON_RESOURCE_ID,
+            ICON_TINT_COLOR, SECONDARY_ICON, SECONDARY_ICON_RESOURCE_ID, SECONDARY_BUTTON_MENU_TEXT,
+            SECONDARY_ICON_CONTENT_DESCRIPTION, TRANSLATION_X, TRANSLATION_Y, ALPHA,
+            ON_TOUCH_RUNNABLE, ON_PRIMARY_ACTION, ON_SECONDARY_ACTION, ON_DISMISSED};
 }

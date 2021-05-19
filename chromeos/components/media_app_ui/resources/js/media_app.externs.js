@@ -68,10 +68,9 @@ mediaApp.AbstractFile.prototype.error;
 mediaApp.AbstractFile.prototype.overwriteOriginal;
 /**
  * A function that will delete the original file. Returns a promise that
- * resolves to an enum value (see DeleteResult in chromium message_types)
- * reflecting the result of the deletion. Errors encountered are thrown from the
- * message pipe and handled by invoking functions in Google3.
- * @type {function(): !Promise<number>|undefined}
+ * resolves on success. Errors encountered are thrown from the message pipe and
+ * handled by invoking functions in Google3.
+ * @type {function(): !Promise<undefined>|undefined}
  */
 mediaApp.AbstractFile.prototype.deleteOriginalFile;
 /**
@@ -84,8 +83,8 @@ mediaApp.AbstractFile.prototype.deleteOriginalFile;
 mediaApp.AbstractFile.prototype.renameOriginalFile;
 /**
  * A function that will save the provided blob in the file pointed to by
- * pickedFileToken. Once saved the new file takes over this.token and becomes
- * the current file. The original file is given a new token
+ * pickedFileToken. Once saved, the new file takes over this.token and becomes
+ * currently writable. The original file is given a new token
  * and pushed forward in the navigation order.
  * @type {function(!Blob, number): !Promise<undefined>|undefined}
  */
@@ -137,7 +136,7 @@ mediaApp.AbstractFileList.prototype.addObserver = function(observer) {};
  * lists implement a openFile function.
  * @type {function(): !Promise<undefined>|undefined}
  */
-mediaApp.AbstractFileList.prototype.openFile;
+mediaApp.AbstractFileList.prototype.openFile = function() {};
 
 /**
  * The delegate which exposes open source privileged WebUi functions to
@@ -199,8 +198,8 @@ mediaApp.ClientApi.prototype.setDelegate = function(delegate) {};
 /**
  * Launch data that can be read by the app when it first loads.
  * @type {{
- *     delegate: (mediaApp.ClientApiDelegate | undefined),
- *     files: mediaApp.AbstractFileList
+ *     delegate: (!mediaApp.ClientApiDelegate | undefined),
+ *     files: !mediaApp.AbstractFileList
  * }}
  */
 window.customLaunchData;

@@ -5,6 +5,7 @@
 #include "cc/paint/skia_paint_canvas.h"
 
 #include "base/bind.h"
+#include "base/trace_event/trace_event.h"
 #include "cc/paint/display_item_list.h"
 #include "cc/paint/paint_recorder.h"
 #include "cc/paint/scoped_raster_flags.h"
@@ -263,9 +264,10 @@ void SkiaPaintCanvas::drawPath(const SkPath& path, const PaintFlags& flags) {
 void SkiaPaintCanvas::drawImage(const PaintImage& image,
                                 SkScalar left,
                                 SkScalar top,
+                                const SkSamplingOptions& sampling,
                                 const PaintFlags* flags) {
   DCHECK(!image.IsPaintWorklet());
-  base::Optional<ScopedRasterFlags> scoped_flags;
+  absl::optional<ScopedRasterFlags> scoped_flags;
   if (flags) {
     scoped_flags.emplace(flags, image_provider_, canvas_->getTotalMatrix(),
                          max_texture_size(), 255u);
@@ -275,7 +277,7 @@ void SkiaPaintCanvas::drawImage(const PaintImage& image,
 
   const PaintFlags* raster_flags = scoped_flags ? scoped_flags->flags() : flags;
   PlaybackParams params(image_provider_, canvas_->getLocalToDevice());
-  DrawImageOp draw_image_op(image, left, top, nullptr);
+  DrawImageOp draw_image_op(image, left, top, sampling, nullptr);
   DrawImageOp::RasterWithFlags(&draw_image_op, raster_flags, canvas_, params);
   FlushAfterDrawIfNeeded();
 }
@@ -283,9 +285,10 @@ void SkiaPaintCanvas::drawImage(const PaintImage& image,
 void SkiaPaintCanvas::drawImageRect(const PaintImage& image,
                                     const SkRect& src,
                                     const SkRect& dst,
+                                    const SkSamplingOptions& sampling,
                                     const PaintFlags* flags,
                                     SkCanvas::SrcRectConstraint constraint) {
-  base::Optional<ScopedRasterFlags> scoped_flags;
+  absl::optional<ScopedRasterFlags> scoped_flags;
   if (flags) {
     scoped_flags.emplace(flags, image_provider_, canvas_->getTotalMatrix(),
                          max_texture_size(), 255u);
@@ -295,7 +298,8 @@ void SkiaPaintCanvas::drawImageRect(const PaintImage& image,
 
   const PaintFlags* raster_flags = scoped_flags ? scoped_flags->flags() : flags;
   PlaybackParams params(image_provider_, canvas_->getLocalToDevice());
-  DrawImageRectOp draw_image_rect_op(image, src, dst, flags, constraint);
+  DrawImageRectOp draw_image_rect_op(image, src, dst, sampling, flags,
+                                     constraint);
   DrawImageRectOp::RasterWithFlags(&draw_image_rect_op, raster_flags, canvas_,
                                    params);
   FlushAfterDrawIfNeeded();
@@ -345,6 +349,10 @@ bool SkiaPaintCanvas::isClipEmpty() const {
 
 SkMatrix SkiaPaintCanvas::getTotalMatrix() const {
   return canvas_->getTotalMatrix();
+}
+
+SkM44 SkiaPaintCanvas::getLocalToDevice() const {
+  return canvas_->getLocalToDevice();
 }
 
 void SkiaPaintCanvas::Annotate(AnnotationType type,

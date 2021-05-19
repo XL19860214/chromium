@@ -10,6 +10,7 @@
 #include <utility>
 
 #include "ash/child_accounts/parent_access_controller_impl.h"
+#include "ash/constants/ash_features.h"
 #include "ash/detachable_base/detachable_base_pairing_status.h"
 #include "ash/login/login_screen_controller.h"
 #include "ash/login/mock_login_screen_client.h"
@@ -49,7 +50,6 @@
 #include "base/test/scoped_feature_list.h"
 #include "base/test/simple_test_tick_clock.h"
 #include "base/timer/mock_timer.h"
-#include "chromeos/constants/chromeos_features.h"
 #include "chromeos/dbus/power/fake_power_manager_client.h"
 #include "chromeos/dbus/power_manager/suspend.pb.h"
 #include "components/prefs/pref_service.h"
@@ -820,22 +820,8 @@ TEST_F(LockContentsViewUnitTest, ShowStatusIndicatorIfAdbSideloadingEnabled) {
   EXPECT_TRUE(test_api.bottom_status_indicator()->GetVisible());
 }
 
-class LockContentsViewUnitTestWithDeviceDisclosureEnabled
-    : public LockContentsViewUnitTest {
- public:
-  LockContentsViewUnitTestWithDeviceDisclosureEnabled()
-      : LockContentsViewUnitTest() {
-    feature_list_.InitWithFeatures(
-        {chromeos::features::kLoginDeviceManagementDisclosure}, {});
-  }
-
- private:
-  base::test::ScopedFeatureList feature_list_;
-};
-
 // Show bottom status indicator if device is enrolled
-TEST_F(LockContentsViewUnitTestWithDeviceDisclosureEnabled,
-       ShowStatusIndicatorIfEnrolledDevice) {
+TEST_F(LockContentsViewUnitTest, ShowStatusIndicatorIfEnrolledDevice) {
   // If the device is enrolled, bottom_status_indicator should be visible.
   Shell::Get()->system_tray_model()->SetEnterpriseDomainInfo("BestCompanyEver",
                                                              false);
@@ -860,8 +846,7 @@ TEST_F(LockContentsViewUnitTestWithDeviceDisclosureEnabled,
 }
 
 // Show bottom status indicator if device is enrolled
-TEST_F(LockContentsViewUnitTestWithDeviceDisclosureEnabled,
-       ShowManagementBubbleOnClickIfEnrolledDevice) {
+TEST_F(LockContentsViewUnitTest, ShowManagementBubbleOnClickIfEnrolledDevice) {
   // If the device is enrolled, bottom_status_indicator should be visible.
   Shell::Get()->system_tray_model()->SetEnterpriseDomainInfo("BestCompanyEver",
                                                              false);
@@ -896,8 +881,7 @@ TEST_F(LockContentsViewUnitTestWithDeviceDisclosureEnabled,
 
 // Do not show the management bubble on click if ADB sideloading is enabled and
 // device is enrolled.
-TEST_F(LockContentsViewUnitTestWithDeviceDisclosureEnabled,
-       DoNotShowManagementBubbleOnClickIfAdb) {
+TEST_F(LockContentsViewUnitTest, DoNotShowManagementBubbleOnClickIfAdb) {
   // If the device is enrolled, bottom_status_indicator should be visible.
   Shell::Get()->system_tray_model()->SetEnterpriseDomainInfo("BestCompanyEver",
                                                              false);
@@ -2328,7 +2312,7 @@ TEST_F(LockContentsViewUnitTest, PasswordClearedOnSuspend) {
   views::Textfield* textfield =
       LoginPasswordView::TestApi(password_view).textfield();
 
-  textfield->SetText(base::ASCIIToUTF16("some_password"));
+  textfield->SetText(u"some_password");
   // Suspend clears password.
   EXPECT_FALSE(textfield->GetText().empty());
   contents->SuspendImminent(power_manager::SuspendImminent_Reason_LID_CLOSED);
@@ -2493,7 +2477,7 @@ TEST_F(LockContentsViewUnitTest, ShowHideWarningBannerBubble) {
   EXPECT_FALSE(test_api.warning_banner_bubble()->GetVisible());
 
   // Verifies that a warning banner is shown by giving a non-empty message.
-  DataDispatcher()->UpdateWarningMessage(base::ASCIIToUTF16("foo"));
+  DataDispatcher()->UpdateWarningMessage(u"foo");
   EXPECT_TRUE(test_api.warning_banner_bubble()->GetVisible());
 
   // Verifies that a warning banner is hidden by HideWarningBanner().
@@ -2501,7 +2485,7 @@ TEST_F(LockContentsViewUnitTest, ShowHideWarningBannerBubble) {
   EXPECT_FALSE(test_api.warning_banner_bubble()->GetVisible());
 
   // Shows a warning banner again.
-  DataDispatcher()->UpdateWarningMessage(base::ASCIIToUTF16("foo"));
+  DataDispatcher()->UpdateWarningMessage(u"foo");
   EXPECT_TRUE(test_api.warning_banner_bubble()->GetVisible());
 
   // Attempt and fail user auth - an auth error is expected to be shown.
@@ -2776,7 +2760,7 @@ TEST_F(LockContentsViewUnitTest, LockScreenMediaControlsHiddenAfterDelay) {
       media_session::mojom::MediaPlaybackState::kPlaying);
 
   // Simulate media session stopping and delay.
-  lock_contents.media_controls_view()->MediaSessionChanged(base::nullopt);
+  lock_contents.media_controls_view()->MediaSessionChanged(absl::nullopt);
   mock_timer->Fire();
   base::RunLoop().RunUntilIdle();
 
@@ -2833,7 +2817,7 @@ TEST_F(LockContentsViewUnitTest, KeepMediaControlsShownWithinDelay) {
       media_session::mojom::MediaPlaybackState::kPlaying);
 
   // Simulate media session stopping.
-  lock_contents.media_controls_view()->MediaSessionChanged(base::nullopt);
+  lock_contents.media_controls_view()->MediaSessionChanged(absl::nullopt);
 
   // Simulate new media session starting within timer delay.
   SimulateMediaSessionChanged(

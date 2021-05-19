@@ -13,7 +13,6 @@
 #include "base/path_service.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
-#include "base/strings/stringprintf.h"
 #include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
 #include "chrome/common/chrome_paths.h"
@@ -104,7 +103,7 @@ class ResourceBundleFileLoader : public network::mojom::URLLoader {
       const std::vector<std::string>& removed_headers,
       const net::HttpRequestHeaders& modified_headers,
       const net::HttpRequestHeaders& modified_cors_exempt_headers,
-      const base::Optional<GURL>& new_url) override {
+      const absl::optional<GURL>& new_url) override {
     NOTREACHED() << "No redirects for local file loads.";
   }
   // Current implementation reads all resource data at start of resource
@@ -163,8 +162,10 @@ class ResourceBundleFileLoader : public network::mojom::URLLoader {
     head->content_length = data->size();
     head->mime_type = *read_mime_type;
     DetermineCharset(head->mime_type, data.get(), &head->charset);
-    mojo::DataPipe pipe(data->size());
-    if (!pipe.consumer_handle.is_valid()) {
+    mojo::ScopedDataPipeProducerHandle producer_handle;
+    mojo::ScopedDataPipeConsumerHandle consumer_handle;
+    if (mojo::CreateDataPipe(data->size(), producer_handle, consumer_handle) !=
+        MOJO_RESULT_OK) {
       client_->OnComplete(network::URLLoaderCompletionStatus(net::ERR_FAILED));
       client_.reset();
       MaybeDeleteSelf();
@@ -178,11 +179,11 @@ class ResourceBundleFileLoader : public network::mojom::URLLoader {
                                head->mime_type.c_str());
     }
     client_->OnReceiveResponse(std::move(head));
-    client_->OnStartLoadingResponseBody(std::move(pipe.consumer_handle));
+    client_->OnStartLoadingResponseBody(std::move(consumer_handle));
 
     uint32_t write_size = data->size();
-    MojoResult result = pipe.producer_handle->WriteData(
-        data->front(), &write_size, MOJO_WRITE_DATA_FLAG_NONE);
+    MojoResult result = producer_handle->WriteData(data->front(), &write_size,
+                                                   MOJO_WRITE_DATA_FLAG_NONE);
     OnFileWritten(result);
   }
 

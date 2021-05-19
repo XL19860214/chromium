@@ -38,6 +38,7 @@ static_library("exo") {
     "frame_sink_resource_manager.cc",
     "frame_sink_resource_manager.h",
     "input_trace.h",
+    "key_state.h",
     "keyboard_delegate.h",
     "keyboard_device_configuration_delegate.h",
     "keyboard_observer.h",
@@ -92,6 +93,8 @@ static_library("exo") {
     "//ui/accessibility:ax_base",
     "//ui/aura",
     "//ui/base/cursor",
+    "//ui/base/dragdrop:types",
+    "//ui/base/dragdrop/mojom",
     "//ui/base/ime",
     "//ui/compositor",
     "//ui/compositor_extra",
@@ -124,12 +127,15 @@ static_library("exo") {
   if (is_chromeos_ash) {
     deps += [
       "//ash",
+      "//ash/constants",
       "//ash/keyboard/ui",
       "//ash/public/cpp",
-      "//chromeos/constants",
       "//chromeos/crosapi/cpp",
       "//chromeos/ui/base",
       "//chromeos/ui/frame",
+      "//components/full_restore",
+      "//components/fullscreen_control",
+      "//components/strings",
       "//ui/base",
       "//ui/events/ozone/layout",
     ]
@@ -212,6 +218,7 @@ source_set("test_support") {
     "//gpu",
     "//skia",
     "//ui/aura",
+    "//ui/base/dragdrop/mojom",
     "//ui/base/ime/init",
     "//ui/compositor",
     "//ui/compositor:test_support",
@@ -231,6 +238,8 @@ source_set("test_support") {
       "test/exo_test_data_exchange_delegate.h",
       "test/exo_test_helper.cc",
       "test/exo_test_helper.h",
+      "test/shell_surface_builder.cc",
+      "test/shell_surface_builder.h",
     ]
     deps += [
       "//ash:test_support",
@@ -298,6 +307,7 @@ source_set("unit_tests") {
       "seat_unittest.cc",
       "shared_memory_unittest.cc",
       "shell_surface_unittest.cc",
+      "shell_surface_util_unittest.cc",
       "sub_surface_unittest.cc",
       "surface_unittest.cc",
       "text_input_unittest.cc",
@@ -311,15 +321,20 @@ source_set("unit_tests") {
     deps += [
       "//ash",
       "//ash:test_support",
+      "//ash/constants",
       "//ash/keyboard/ui",
       "//ash/public/cpp",
+      "//ash/public/cpp/external_arc",
       "//build:chromeos_buildflags",
-      "//chromeos/constants",
       "//chromeos/ui/base",
       "//chromeos/ui/frame",
+      "//components/fullscreen_control",
       "//ui/base:test_support",
       "//ui/base/cursor/mojom:cursor_type",
-      "//ui/base/dragdrop/mojom:mojom_shared",
+      "//ui/base/dragdrop:types",
+      "//ui/base/dragdrop/mojom",
+      "//ui/gfx:test_support",
+      "//ui/gfx/geometry",
     ]
   }
 
@@ -368,6 +383,7 @@ test("exo_unittests") {
     deps += [
       "//ash:test_support",
       "//ash/public/cpp",
+      "//components/exo/server:unit_tests",
     ]
 
     data_deps += [

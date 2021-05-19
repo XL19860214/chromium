@@ -9,13 +9,10 @@
 #include "base/feature_list.h"
 #include "base/macros.h"
 #include "base/strings/string_util.h"
-#include "base/strings/utf_string_conversions.h"
 #include "components/autofill/core/browser/autofill_regex_constants.h"
 #include "components/autofill/core/browser/autofill_type.h"
 #include "components/autofill/core/browser/form_parsing/autofill_scanner.h"
 #include "components/autofill/core/common/autofill_features.h"
-
-using base::UTF8ToUTF16;
 
 namespace autofill {
 namespace {
@@ -137,11 +134,10 @@ std::unique_ptr<FullNameField> FullNameField::Parse(
       PatternProvider::GetInstance().GetMatchPatterns("ADDRESS_NAME_IGNORED",
                                                       page_language);
   bool should_ignore =
-      ParseField(scanner, UTF8ToUTF16(kNameIgnoredRe), name_ignored_patterns,
-                 nullptr, {log_manager, "kNameIgnoredRe"}) ||
-      ParseField(scanner, UTF8ToUTF16(kAddressNameIgnoredRe),
-                 address_name_ignored_patterns, nullptr,
-                 {log_manager, "kAddressNameIgnoredRe"});
+      ParseField(scanner, kNameIgnoredRe, name_ignored_patterns, nullptr,
+                 {log_manager, "kNameIgnoredRe"}) ||
+      ParseField(scanner, kAddressNameIgnoredRe, address_name_ignored_patterns,
+                 nullptr, {log_manager, "kAddressNameIgnoredRe"});
   scanner->Rewind();
   if (should_ignore)
     return nullptr;
@@ -154,7 +150,7 @@ std::unique_ptr<FullNameField> FullNameField::Parse(
   const std::vector<MatchingPattern>& name_patterns =
       PatternProvider::GetInstance().GetMatchPatterns("FULL_NAME",
                                                       page_language);
-  if (ParseField(scanner, UTF8ToUTF16(kNameRe), name_patterns, &field,
+  if (ParseField(scanner, kNameRe, name_patterns, &field,
                  {log_manager, "kNameRe"}))
     return std::make_unique<FullNameField>(field);
 
@@ -210,51 +206,55 @@ FirstTwoLastNamesField::ParseComponentNames(AutofillScanner* scanner,
 
   // Allow name fields to appear in any order.
   while (!scanner->IsEnd()) {
+    // Skip over address label fields, which can have misleading names
+    // e.g. "title" or "name".
+    if (ParseFieldSpecifics(scanner, kAddressNameIgnoredRe, MATCH_DEFAULT,
+                            address_name_ignored_patterns, nullptr,
+                            {log_manager, "kAddressNameIgnoredRe"})) {
+      continue;
+    }
+
     // Scan for the honorific prefix before checking for unrelated name fields
     // because a honorific prefix field is expected to have very specific labels
     // including "Title:". The latter is matched with |kNameIgnoredRe|.
     // TODO(crbug.com/1098943): Remove check once feature is launched or
     // removed.
     if (!v->honorific_prefix_ &&
-        ParseField(scanner, UTF8ToUTF16(kHonorificPrefixRe),
-                   honorific_prefix_patterns, &v->honorific_prefix_,
+        ParseField(scanner, kHonorificPrefixRe, honorific_prefix_patterns,
+                   &v->honorific_prefix_,
                    {log_manager, "kHonorificPrefixRe"})) {
       continue;
     }
 
     // Skip over any unrelated fields, e.g. "username" or "nickname".
-    if (ParseFieldSpecifics(scanner, UTF8ToUTF16(kNameIgnoredRe),
+    if (ParseFieldSpecifics(scanner, kNameIgnoredRe,
                             MATCH_DEFAULT | MATCH_SELECT | MATCH_SEARCH,
                             name_ignored_patterns, nullptr,
-                            {log_manager, "kNameIgnoredRe"}) ||
-        ParseFieldSpecifics(scanner, UTF8ToUTF16(kAddressNameIgnoredRe),
-                            MATCH_DEFAULT, address_name_ignored_patterns,
-                            nullptr, {log_manager, "kAddressNameIgnoredRe"})) {
+                            {log_manager, "kNameIgnoredRe"})) {
       continue;
     }
 
     if (!v->first_name_ &&
-        ParseField(scanner, UTF8ToUTF16(kFirstNameRe), first_name_patterns,
-                   &v->first_name_, {log_manager, "kFirstNameRe"})) {
+        ParseField(scanner, kFirstNameRe, first_name_patterns, &v->first_name_,
+                   {log_manager, "kFirstNameRe"})) {
       continue;
     }
 
     if (!v->middle_name_ &&
-        ParseField(scanner, UTF8ToUTF16(kMiddleNameRe), middle_name_patterns,
+        ParseField(scanner, kMiddleNameRe, middle_name_patterns,
                    &v->middle_name_, {log_manager, "kMiddleNameRe"})) {
       continue;
     }
 
     if (!v->first_last_name_ &&
-        ParseField(scanner, UTF8ToUTF16(kNameLastFirstRe),
-                   first_last_name_patterns, &v->first_last_name_,
-                   {log_manager, "kNameLastFirstRe"})) {
+        ParseField(scanner, kNameLastFirstRe, first_last_name_patterns,
+                   &v->first_last_name_, {log_manager, "kNameLastFirstRe"})) {
       continue;
     }
 
     if (!v->second_last_name_ &&
-        ParseField(scanner, UTF8ToUTF16(kNameLastSecondRe),
-                   second_last_name_patterns, &v->second_last_name_,
+        ParseField(scanner, kNameLastSecondRe, second_last_name_patterns,
+                   &v->second_last_name_,
                    {log_manager, "kNameLastSecondtRe"})) {
       continue;
     }
@@ -300,7 +300,7 @@ std::unique_ptr<FirstLastNameField> FirstLastNameField::ParseSpecificName(
       PatternProvider::GetInstance().GetMatchPatterns("NAME_SPECIFIC",
                                                       page_language);
 
-  if (ParseField(scanner, UTF8ToUTF16(kNameSpecificRe), name_specific_patterns,
+  if (ParseField(scanner, kNameSpecificRe, name_specific_patterns,
                  &v->first_name_, {log_manager, "kNameSpecificRe"}) &&
       ParseEmptyLabel(scanner, &next)) {
     if (ParseEmptyLabel(scanner, &v->last_name_)) {
@@ -362,6 +362,14 @@ std::unique_ptr<FirstLastNameField> FirstLastNameField::ParseComponentNames(
                                                       page_language);
 
   while (!scanner->IsEnd()) {
+    // Skip over address label fields, which can have misleading names
+    // e.g. "title" or "name".
+    if (ParseFieldSpecifics(scanner, kAddressNameIgnoredRe, MATCH_DEFAULT,
+                            address_name_ignored_patterns, nullptr,
+                            {log_manager, "kAddressNameIgnoredRe"})) {
+      continue;
+    }
+
     // Scan for the honorific prefix before checking for unrelated fields
     // because a honorific prefix field is expected to have very specific labels
     // including "Title:". The latter is matched with |kNameIgnoredRe|.
@@ -370,27 +378,24 @@ std::unique_ptr<FirstLastNameField> FirstLastNameField::ParseComponentNames(
     if (base::FeatureList::IsEnabled(
             features::kAutofillEnableSupportForMoreStructureInNames)) {
       if (!v->honorific_prefix_ &&
-          ParseField(scanner, UTF8ToUTF16(kHonorificPrefixRe),
-                     honorific_prefix_patterns, &v->honorific_prefix_,
+          ParseField(scanner, kHonorificPrefixRe, honorific_prefix_patterns,
+                     &v->honorific_prefix_,
                      {log_manager, "kHonorificPrefixRe"})) {
         continue;
       }
     }
 
     // Skip over any unrelated name fields, e.g. "username" or "nickname".
-    if (ParseFieldSpecifics(scanner, UTF8ToUTF16(kNameIgnoredRe),
+    if (ParseFieldSpecifics(scanner, kNameIgnoredRe,
                             MATCH_DEFAULT | MATCH_SELECT | MATCH_SEARCH,
                             name_ignored_patterns, nullptr,
-                            {log_manager, "kNameIgnoredRe"}) ||
-        ParseFieldSpecifics(scanner, UTF8ToUTF16(kAddressNameIgnoredRe),
-                            MATCH_DEFAULT, address_name_ignored_patterns,
-                            nullptr, {log_manager, "kAddressNameIgnoredRe"})) {
+                            {log_manager, "kNameIgnoredRe"})) {
       continue;
     }
 
     if (!v->first_name_ &&
-        ParseField(scanner, UTF8ToUTF16(kFirstNameRe), first_name_patterns,
-                   &v->first_name_, {log_manager, "kFirstNameRe"})) {
+        ParseField(scanner, kFirstNameRe, first_name_patterns, &v->first_name_,
+                   {log_manager, "kFirstNameRe"})) {
       continue;
     }
 
@@ -400,22 +405,21 @@ std::unique_ptr<FirstLastNameField> FirstLastNameField::ParseComponentNames(
     // "txtmiddlename"); such a field probably actually represents a
     // middle initial.
     if (!v->middle_name_ &&
-        ParseField(scanner, UTF8ToUTF16(kMiddleInitialRe),
-                   middle_name_initial_patterns, &v->middle_name_,
-                   {log_manager, "kMiddleInitialRe"})) {
+        ParseField(scanner, kMiddleInitialRe, middle_name_initial_patterns,
+                   &v->middle_name_, {log_manager, "kMiddleInitialRe"})) {
       v->middle_initial_ = true;
       continue;
     }
 
     if (!v->middle_name_ &&
-        ParseField(scanner, UTF8ToUTF16(kMiddleNameRe), middle_name_patterns,
+        ParseField(scanner, kMiddleNameRe, middle_name_patterns,
                    &v->middle_name_, {log_manager, "kMiddleNameRe"})) {
       continue;
     }
 
     if (!v->last_name_ &&
-        ParseField(scanner, UTF8ToUTF16(kLastNameRe), last_name_patterns,
-                   &v->last_name_, {log_manager, "kLastNameRe"})) {
+        ParseField(scanner, kLastNameRe, last_name_patterns, &v->last_name_,
+                   {log_manager, "kLastNameRe"})) {
       continue;
     }
 

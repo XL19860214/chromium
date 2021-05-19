@@ -4,6 +4,7 @@
 
 #include "net/base/schemeful_site.h"
 
+#include "base/test/metrics/histogram_tester.h"
 #include "net/base/url_util.h"
 #include "testing/gmock/include/gmock/gmock-matchers.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -159,7 +160,7 @@ TEST(SchemefulSiteTest, SchemeWithNetworkHost) {
   ASSERT_TRUE(IsStandardSchemeWithNetworkHost("network"));
   ASSERT_FALSE(IsStandardSchemeWithNetworkHost("non-network"));
 
-  base::Optional<SchemefulSite> network_host_site =
+  absl::optional<SchemefulSite> network_host_site =
       SchemefulSite::CreateIfHasRegisterableDomain(
           url::Origin::Create(GURL("network://site.example.test:1337")));
   EXPECT_TRUE(network_host_site.has_value());
@@ -168,7 +169,7 @@ TEST(SchemefulSiteTest, SchemeWithNetworkHost) {
   EXPECT_EQ("example.test",
             network_host_site->GetInternalOriginForTesting().host());
 
-  base::Optional<SchemefulSite> non_network_host_site_null =
+  absl::optional<SchemefulSite> non_network_host_site_null =
       SchemefulSite::CreateIfHasRegisterableDomain(
           url::Origin::Create(GURL("non-network://site.example.test")));
   EXPECT_FALSE(non_network_host_site_null.has_value());
@@ -226,7 +227,7 @@ TEST(SchemefulSiteTest, SerializationConsistent) {
     SCOPED_TRACE(site.GetDebugString());
     EXPECT_FALSE(site.GetInternalOriginForTesting().opaque());
 
-    base::Optional<SchemefulSite> deserialized_site =
+    absl::optional<SchemefulSite> deserialized_site =
         SchemefulSite::Deserialize(site.Serialize());
     EXPECT_TRUE(deserialized_site);
     EXPECT_EQ(site, deserialized_site);
@@ -240,7 +241,7 @@ TEST(SchemefulSiteTest, OpaqueSerialization) {
       SchemefulSite(GURL("data:text/html,<body>Hello World</body>"))};
 
   for (auto& site : kTestSites) {
-    base::Optional<SchemefulSite> deserialized_site =
+    absl::optional<SchemefulSite> deserialized_site =
         SchemefulSite::DeserializeWithNonce(*site.SerializeWithNonce());
     EXPECT_TRUE(deserialized_site);
     EXPECT_EQ(site, *deserialized_site);
@@ -293,7 +294,7 @@ TEST(SchemefulSiteTest, CreateIfHasRegisterableDomain) {
        }) {
     url::Origin origin = url::Origin::Create(GURL(site));
     EXPECT_EQ(SchemefulSite::CreateIfHasRegisterableDomain(origin),
-              base::nullopt)
+              absl::nullopt)
         << "site = \"" << site << "\"";
   }
 }
@@ -328,6 +329,84 @@ TEST(SchemefulSiteTest, ConvertWebSocketToHttp) {
   SchemefulSite file_site(url::Origin::Create(GURL("file:///")));
   file_site.ConvertWebSocketToHttp();
   EXPECT_EQ(url::kFileScheme, file_site.GetInternalOriginForTesting().scheme());
+}
+
+// Test for a hack to work around https://crbug.com/1157010, until a more
+// permanent solution is in place. Purely numeric eTLD+1's can't safely be
+// stored in url::Origins.  Not only does trying to do so DCHECK, but converting
+// them to a GURL, as some code does, results in a URL with an IPv4 domain,
+// which is not correct.
+TEST(SchemefulSiteTest, NumericEtldPlusOne) {
+  base::HistogramTester histogram_tester;
+  SchemefulSite site(url::Origin::Create(GURL("https://foo.127.1/")));
+  EXPECT_EQ("foo.127.1", site.registrable_domain_or_host_for_testing());
+  EXPECT_NE(site, SchemefulSite(GURL("https://127.0.0.1/")));
+
+  SchemefulSite site2(url::Origin::Create(GURL("https://bar.foo.127.1/")));
+  EXPECT_EQ("bar.foo.127.1", site2.registrable_domain_or_host_for_testing());
+  EXPECT_NE(site2, SchemefulSite(GURL("https://127.0.0.1/")));
+  EXPECT_NE(site, site2);
+
+  EXPECT_FALSE(SchemefulSite::CreateIfHasRegisterableDomain(
+      url::Origin::Create(GURL("https://foo.127.1/"))));
+}
+
+TEST(SchemefulSiteTest, SiteDomainIsSafeHistogram) {
+  base::HistogramTester histogram_tester1;
+  SchemefulSite site(url::Origin::Create(GURL("https://foo.127.1/")));
+  histogram_tester1.ExpectUniqueSample("Net.SiteDomainIsSafe", false, 1);
+
+  base::HistogramTester histogram_tester2;
+  SchemefulSite site2(url::Origin::Create(GURL("https://foo.bar.127.1/")));
+  histogram_tester2.ExpectUniqueSample("Net.SiteDomainIsSafe", false, 1);
+
+  base::HistogramTester histogram_tester3;
+  SchemefulSite site3(url::Origin::Create(GURL("https://127.0.0.1/")));
+  histogram_tester3.ExpectUniqueSample("Net.SiteDomainIsSafe", true, 1);
+
+  base::HistogramTester histogram_tester4;
+  SchemefulSite site4(url::Origin::Create(GURL("https://foo.test/")));
+  histogram_tester4.ExpectUniqueSample("Net.SiteDomainIsSafe", true, 1);
+
+  base::HistogramTester histogram_tester5;
+  SchemefulSite site5{url::Origin()};
+  histogram_tester5.ExpectTotalCount("Net.SiteDomainIsSafe", 0);
+  SchemefulSite site6(
+      url::Origin::Create(GURL("data:text/html,<body>Hello World</body>")));
+  histogram_tester5.ExpectTotalCount("Net.SiteDomainIsSafe", 0);
+}
+
+TEST(SchemefulSiteTest, GetGURL) {
+  struct {
+    url::Origin origin;
+    GURL wantGURL;
+  } kTestCases[] = {
+      {
+          url::Origin::Create(GURL("data:text/html,<body>Hello World</body>")),
+          GURL(),
+      },
+      {url::Origin::Create(GURL("file://foo")), GURL("file:///")},
+      {url::Origin::Create(GURL("http://a.bar.test")), GURL("http://bar.test")},
+      {url::Origin::Create(GURL("http://c.test")), GURL("http://c.test")},
+      {url::Origin::Create(GURL("http://c.test:8000")), GURL("http://c.test")},
+      {
+          url::Origin::Create(GURL("https://a.bar.test")),
+          GURL("https://bar.test"),
+      },
+      {
+          url::Origin::Create(GURL("https://c.test")),
+          GURL("https://c.test"),
+      },
+      {
+          url::Origin::Create(GURL("https://c.test:1337")),
+          GURL("https://c.test"),
+      },
+  };
+
+  for (const auto& testcase : kTestCases) {
+    SchemefulSite site(testcase.origin);
+    EXPECT_EQ(site.GetURL(), testcase.wantGURL);
+  }
 }
 
 }  // namespace net

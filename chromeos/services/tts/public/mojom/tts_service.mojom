@@ -4,14 +4,13 @@
 
 module chromeos.tts.mojom;
 
-import "services/audio/public/mojom/stream_factory.mojom";
+import "media/mojo/mojom/audio_stream_factory.mojom";
 
-// The main interface to TTS engines on Chrome OS. Only used by and private to
-// the Chrome OS Google and Espeak TTS engine component extensions. TtsService
-// lives in a tts-sandboxed process.  TtsEngineExtensionObserver, the other end
-// of this interface, in the browser process, brokers a connection between
-// TtsService and the TTS engine component extension through a TtsStreamFactory,
-// but does not participate otherwise.
+// The main interface to TTS engines on Chrome OS. TtsService lives in a
+// tts-sandboxed process.  TtsEngineExtensionObserver, the other end of this
+// interface, in the browser process, brokers a connection between TtsService
+// and the TTS engine extension through a TtsStreamFactory, but does not
+// participate otherwise.
 //
 // Graph of audio data flow:
 //
@@ -31,20 +30,21 @@ interface TtsService {
   // AudioOutputStream remote which is bound to AudioService in the browser and
   // which pulls audio data for output.
   BindTtsStreamFactory(pending_receiver<TtsStreamFactory> receiver,
-      pending_remote<audio.mojom.StreamFactory> stream_factory);
+      pending_remote<media.mojom.AudioStreamFactory> stream_factory);
 };
 
 // Interface to create various types of tts streams.
 //
-// The remote is in a component extension; the receiver is the tts ervice
+// The remote is in a component extension; the receiver is the tts service
 // utility process.
 interface TtsStreamFactory {
   // Obtains the tts stream used by the Google tts component extension.
   CreateGoogleTtsStream() => (pending_remote<GoogleTtsStream> stream);
 
   // Obtains the tts stream used by extensions that can perform audio generation
-  // and only require output services. Currently used only by the private Espeak
-  // tts engine extension.
+  // and only require output services.
+  // See media/base/audio_parameters.h for further details on |sample_rate| and
+  // |buffer_size|.
   CreatePlaybackTtsStream() => (
       pending_remote<PlaybackTtsStream> stream,
       int32 sample_rate,
@@ -82,9 +82,10 @@ interface GoogleTtsStream {
   SelectVoice(string voice_name) => (bool success);
 
   // Speak text described by a serialized proto.speech.tts.Text proto with the
-  // speaker given by speaker_name. The call will fail if no speaker is given
-  // and the voice model is a multi-speaker model.
-  Speak(array<uint8> text_jspb, string speaker_name)
+  // speaker params described by a serialized proto.speech.tts.SpeakerParams
+  // proto. The call will fail if no speaker name is given and the voice model
+  // is a multi-speaker model.
+  Speak(array<uint8> text_jspb, array<uint8> speaker_params_jspb)
       => (pending_receiver<TtsEventObserver> event_observer);
 
   // Stop speaking the currently speaking text, if any.
@@ -103,8 +104,10 @@ interface GoogleTtsStream {
 // Interface for a tts engine to control the TtsService's production of audio
 // for engines like Espeak, which send raw audio data.
 //
-// The remote is in a component extension; the receiver is the tts ervice
-// utility process.
+// The remote is in an extension; the receiver is the tts ervice utility
+// process. The chrome.ttsEngine api uses this interface internally to produce
+// audio output, but it is never directly exposed to the extension's public js
+// bindings.
 //
 // Example usage:
 // Play() - starts playback of an utterance like 'hello world'

@@ -145,10 +145,36 @@
       ]
     },
   },
+  '11-x86-emulator': {
+    '$mixin_append': {
+      'args': [
+        '--avd-config=../../tools/android/avd/proto/generic_android30.textpb',
+      ],
+    },
+    'swarming': {
+      'named_caches': [
+        {
+          'name': 'avd_generic_android30',
+          'path': '.android',
+        },
+        {
+          'name': 'system_images_android_30_google_apis_x86',
+          'path': '.emulator_sdk',
+        },
+      ]
+    },
+  },
   'android_q': {
     'swarming': {
       'dimensions': {
         'device_os': 'Q',
+      },
+    },
+  },
+  'android_r': {
+    'swarming': {
+      'dimensions': {
+        'device_os': 'R',
       },
     },
   },
@@ -212,7 +238,7 @@
         {
           'cpu': 'x86',
           'kvm': '1',
-          'os': 'Ubuntu-16.04',
+          'os': 'Ubuntu-18.04',
           'pool': 'chromium.tests',
         }
       ],
@@ -237,7 +263,7 @@
         {
           'cpu': 'x86',
           'kvm': '1',
-          'os': 'Ubuntu-16.04',
+          'os': 'Ubuntu-18.04',
           'pool': 'chrome.tests',
         }
       ],
@@ -275,6 +301,21 @@
       'service_account': 'chromium-tester@chops-service-accounts.iam.gserviceaccount.com',
     },
   },
+  'chromium-webrtc-rel-7': {
+    'perf_builder_name_alias': 'chromium-webrtc-rel-7',
+  },
+  'chromium-webrtc-rel-linux': {
+    'perf_builder_name_alias': 'chromium-webrtc-rel-linux',
+  },
+  'chromium-webrtc-rel-mac': {
+    'perf_builder_name_alias': 'chromium-webrtc-rel-mac',
+  },
+  'chromium-webrtc-rel-win10': {
+    'perf_builder_name_alias': 'chromium-webrtc-rel-win10',
+  },
+  'chromium-webrtc-rel-win8': {
+    'perf_builder_name_alias': 'chromium-webrtc-rel-win8',
+  },
   'dawn_end2end_gpu_test': {
     '$mixin_append': {
       'args': [
@@ -307,6 +348,22 @@
       'enable': True,
     },
   },
+  'femu-additional-ram': {
+    '$mixin_append': {
+      'args': [
+        '--ram-size-mb=16384',
+      ],
+    },
+  },
+  'flame': {
+    # Pixel 4
+    'swarming': {
+      'dimensions': {
+        'device_type': 'flame',
+        'os': 'Android',
+      },
+    },
+  },
   'flounder': {
     # Nexus 9
     'swarming': {
@@ -324,6 +381,14 @@
         'device_type': 'foster',
         'os': 'Android',
       },
+    },
+  },
+  'fuchsia-code-coverage': {
+    '$mixin_append': {
+      'args': [
+        '--code-coverage',
+        '--code-coverage-dir=${ISOLATED_OUTDIR}'
+      ],
     },
   },
   'fuchsia_runner_logs': {
@@ -379,6 +444,66 @@
       ],
     },
   },
+  'ios_runtime_cache_12_4': {
+    '$mixin_append': {
+      'swarming': {
+        'named_caches': [
+          {
+            'name': 'runtime_ios_12_4',
+            'path': 'Runtime-ios-12.4',
+          },
+        ],
+      },
+    },
+  },
+  'ios_runtime_cache_13_5': {
+    '$mixin_append': {
+      'swarming': {
+        'named_caches': [
+          {
+            'name': 'runtime_ios_13_5',
+            'path': 'Runtime-ios-13.5',
+          },
+        ],
+      },
+    },
+  },
+  'ios_runtime_cache_13_6': {
+    '$mixin_append': {
+      'swarming': {
+        'named_caches': [
+          {
+            'name': 'runtime_ios_13_6',
+            'path': 'Runtime-ios-13.6',
+          },
+        ],
+      },
+    },
+  },
+  'ios_runtime_cache_14_0': {
+    '$mixin_append': {
+      'swarming': {
+        'named_caches': [
+          {
+            'name': 'runtime_ios_14_0',
+            'path': 'Runtime-ios-14.0',
+          },
+        ],
+      },
+    },
+  },
+  'ios_runtime_cache_14_4': {
+    '$mixin_append': {
+      'swarming': {
+        'named_caches': [
+          {
+            'name': 'runtime_ios_14_4',
+            'path': 'Runtime-ios-14.4',
+          },
+        ],
+      },
+    },
+  },
   'isolate_profile_data': {
     'isolate_profile_data': True,
   },
@@ -402,6 +527,13 @@
       'linux-release-64/sizes',
     ],
   },
+  'linux-bionic': {
+    'swarming': {
+      'dimensions': {
+        'os': 'Ubuntu-18.04',
+      },
+    },
+  },
   'linux-trusty': {
     'swarming': {
       'dimensions': {
@@ -416,12 +548,10 @@
       },
     },
   },
-  'linux_amd_r7_240': {
+  'linux-xenial-or-bionic': {
     'swarming': {
       'dimensions': {
-        'gpu': '1002:6613',
-        'os': 'Ubuntu',
-        'pool': 'chromium.tests.gpu',
+        'os': 'Ubuntu-16.04|Ubuntu-18.04',
       },
     },
   },
@@ -433,15 +563,6 @@
         'pool': 'chromium.tests.gpu.experimental',
       },
     },
-  },
-  'linux_intel_hd_530': {
-    'swarming': {
-      'dimensions': {
-        'gpu': '8086:1912',
-        'os': 'Ubuntu',
-        'pool': 'chromium.tests.gpu',
-      }
-    }
   },
   'linux_intel_hd_630_experimental': {
     # Similar to stable, but with a newer Mesa version.
@@ -469,10 +590,6 @@
         'os': 'Ubuntu-18.04.5',
         'pool': 'chromium.tests.gpu',
       },
-      # Same long expiration as win10_intel_uhd_630_stable due to capacity.
-      # TODO(https://crbug.com/986939): Remove this when more devices
-      # are added.
-      'expiration': 14400,
     }
   },
   'linux_nvidia_gtx_1660_experimental': {
@@ -515,6 +632,7 @@
   'mac_10.11': {
     'swarming': {
       'dimensions': {
+        'cpu': 'x86-64',
         'os': 'Mac-10.11',
       },
     },
@@ -522,6 +640,7 @@
   'mac_10.13': {
     'swarming': {
       'dimensions': {
+        'cpu': 'x86-64',
         'os': 'Mac-10.13.6',
       },
     },
@@ -529,6 +648,7 @@
   'mac_10.14': {
     'swarming': {
       'dimensions': {
+        'cpu': 'x86-64',
         'os': 'Mac-10.14.6',
       },
     },
@@ -536,14 +656,24 @@
   'mac_10.15': {
     'swarming': {
       'dimensions': {
+        'cpu': 'x86-64',
         'os': 'Mac-10.15',
       },
     },
   },
-  'mac_11.0_beta': {
+  'mac_11_beta_x64': {
     'swarming': {
       'dimensions': {
-        'os': 'Mac-11.0|Mac-10.16',
+        'cpu': 'x86-64',
+        'os': 'Mac-11.3',
+      },
+    },
+  },
+  'mac_11_x64': {
+    'swarming': {
+      'dimensions': {
+        'cpu': 'x86-64',
+        'os': 'Mac-11|Mac-10.16',
       },
     },
   },
@@ -551,14 +681,25 @@
     'swarming': {
       'dimensions': {
         'cpu': 'arm64',
-        'os': 'Mac-11.0',
+        'os': 'Mac-11',
         'pool': 'chromium.tests.mac-arm64',
+      },
+    },
+  },
+  'mac_arm64_apple_dtk_gpu_experimental': {
+    'swarming': {
+      'dimensions': {
+        'cpu': 'arm64',
+        'os': 'Mac-11',
+        'pool': 'chromium.tests.mac-arm64',
+        'display_attached': '1',
       },
     },
   },
   'mac_mini_10.12': {
     'swarming': {
       'dimensions': {
+        'cpu': 'x86-64',
         'gpu': '8086:0a2e',
         'os': 'Mac-10.12.6',
       },
@@ -567,6 +708,7 @@
   'mac_mini_10.14': {
     'swarming': {
       'dimensions': {
+        'cpu': 'x86-64',
         'gpu': '8086:0a2e',
         'os': 'Mac-10.14.6',
       },
@@ -575,16 +717,20 @@
   'mac_mini_intel_gpu_experimental': {
     'swarming': {
       'dimensions': {
+        'cpu': 'x86-64',
         'gpu': '8086:0a2e',
         'os': 'Mac-10.15.5',
+        'display_attached': '1',
       },
     },
   },
   'mac_mini_intel_gpu_stable': {
     'swarming': {
       'dimensions': {
+        'cpu': 'x86-64',
         'gpu': '8086:0a2e',
         'os': 'Mac-10.15.5',
+        'display_attached': '1',
       },
     },
   },
@@ -595,8 +741,10 @@
     'swarming': {
       'dimension_sets': [
         {
+          'cpu': 'x86-64',
           'gpu': '8086:0a2e',
           'os': 'Mac-10.15.5',
+          'display_attached': '1',
         },
       ],
     },
@@ -604,17 +752,21 @@
   'mac_mini_intel_uhd_630_gpu_stable': {
     'swarming': {
       'dimensions': {
+        'cpu': 'x86-64',
         'gpu': '8086:3e9b',
-        'os': 'Mac-10.15.5',
+        'os': 'Mac-10.15.7',
+        'display_attached': '1',
       },
     },
   },
   'mac_pro_amd_gpu': {
     'swarming': {
       'dimensions': {
+        'cpu': 'x86-64',
         'gpu': '1002:679e',
         'os': 'Mac-10.12.6',
         'pool': 'chromium.tests.gpu',
+        'display_attached': '1',
       },
     },
   },
@@ -622,20 +774,24 @@
     # Currently same configuration as stable version below.
     'swarming': {
       'dimensions': {
+        'cpu': 'x86-64',
         'gpu': '1002:6821',
         'hidpi': '1',
         'os': 'Mac-10.14.6',
         'pool': 'chromium.tests.gpu',
+        'display_attached': '1',
       },
     },
   },
   'mac_retina_amd_gpu_stable': {
     'swarming': {
       'dimensions': {
+        'cpu': 'x86-64',
         'gpu': '1002:6821',
         'hidpi': '1',
         'os': 'Mac-10.14.6',
         'pool': 'chromium.tests.gpu',
+        'display_attached': '1',
       },
     },
   },
@@ -646,10 +802,12 @@
     'swarming': {
       'dimension_sets': [
         {
+          'cpu': 'x86-64',
           'gpu': '1002:6821',
           'hidpi': '1',
           'os': 'Mac-10.14.6',
           'pool': 'chromium.tests.gpu',
+          'display_attached': '1',
         },
       ],
     },
@@ -658,20 +816,24 @@
     # Currently the same as the stable version.
     'swarming': {
       'dimensions': {
+        'cpu': 'x86-64',
         'gpu': '10de:0fe9',
         'hidpi': '1',
         'os': 'Mac-10.14.6',
         'pool': 'chromium.tests.gpu',
+        'display_attached': '1',
       },
     },
   },
   'mac_retina_nvidia_gpu_stable': {
     'swarming': {
       'dimensions': {
+        'cpu': 'x86-64',
         'gpu': '10de:0fe9',
         'hidpi': '1',
         'os': 'Mac-10.14.6',
         'pool': 'chromium.tests.gpu',
+        'display_attached': '1',
       },
     },
   },
@@ -681,8 +843,20 @@
         {
           "cipd_package": 'infra/tools/mac_toolchain/${platform}',
           'location': '.',
-          'revision': 'git_revision:796d2b92cff93fc2059623ce0a66284373ceea0a',
+          'revision': 'git_revision:723fc1a6c8cdf2631a57851f5610e598db0c1de1',
         },
+      ],
+    },
+  },
+  # mac_x64 is used as a prefered OS dimension for mac platform instead of any
+  # mac OS version. It selects the most representative dimension on Swarming.
+  'mac_x64': {
+    'swarming': {
+      'dimension_sets': [
+         {
+           'os': 'Mac-10.15',
+           'cpu': 'x86-64',
+         },
       ],
     },
   },
@@ -1017,23 +1191,6 @@
       },
     },
   },
-  # in use by ios-simulator-cronet
-  'xcode_11e146': {
-    '$mixin_append': {
-      'args': [
-        '--xcode-build-version',
-        '11e146'
-      ],
-    },
-    'swarming': {
-      'named_caches': [
-        {
-          'name': 'xcode_ios_11e146',
-          'path': 'Xcode.app',
-        },
-      ],
-    },
-  },
   # in use by ios-webkit-tot
   'xcode_11e608c': {
     '$mixin_append': {
@@ -1041,48 +1198,32 @@
         '--xcode-build-version',
         '11e608c'
       ],
-    },
-    'swarming': {
-      'named_caches': [
-        {
-          'name': 'xcode_ios_11e608c',
-          'path': 'Xcode.app',
-        },
-      ],
+     'swarming': {
+        'named_caches': [
+          {
+            'name': 'xcode_ios_11e608c',
+            'path': 'Xcode.app',
+          },
+        ],
+      },
     },
   },
-  # (default) xcode 12 gm seed
-  'xcode_12a7209': {
+  # (default in Chromium iOS) xcode 12.4 gm seed
+  'xcode_12d4e': {
     '$mixin_append': {
       'args': [
         '--xcode-build-version',
-        '12a7209'
+        '12d4e'
       ],
-    },
-    'swarming': {
-      'named_caches': [
-        {
-          'name': 'xcode_ios_12a7209',
-          'path': 'Xcode.app',
-        },
-      ],
-    },
-  },
-  # latest Xcode 12 beta version.
-  'xcode_12b5044c': {
-    '$mixin_append': {
-      'args': [
-        '--xcode-build-version',
-        '12b5044c'
-      ],
-    },
-    'swarming': {
-      'named_caches': [
-        {
-          'name': 'xcode_ios_12b5044c',
-          'path': 'Xcode.app',
-        },
-      ],
+      'swarming': {
+        'named_caches': [
+          {
+            'name': 'xcode_ios_12d4e',
+            'path': 'Xcode.app',
+          },
+        ],
+      },
+
     },
   },
   'xcode_parallelization': {

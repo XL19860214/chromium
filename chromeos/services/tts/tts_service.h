@@ -13,6 +13,7 @@
 #include "library_loaders/libchrometts.h"
 #include "media/base/audio_renderer_sink.h"
 #include "mojo/public/cpp/bindings/receiver.h"
+#include "mojo/public/cpp/bindings/receiver_set.h"
 #include "mojo/public/cpp/bindings/remote.h"
 
 namespace audio {
@@ -58,19 +59,23 @@ class TtsService : public mojom::TtsService,
   // Maybe exit this process.
   void MaybeExit();
 
-  mojo::Receiver<mojom::TtsStreamFactory>* tts_stream_factory_for_testing() {
-    return &tts_stream_factory_;
+  mojo::ReceiverSet<mojom::TtsStreamFactory>*
+  tts_stream_factory_receivers_for_testing() {
+    return &tts_stream_factory_receivers_;
   }
 
-  std::queue<mojo::PendingReceiver<mojom::TtsStreamFactory>>&
-  pending_tts_stream_factory_receivers_for_testing() {
-    return pending_tts_stream_factory_receivers_;
+  void set_keep_process_alive_for_testing(bool value) {
+    keep_process_alive_for_testing_ = value;
+  }
+
+  mojo::Receiver<mojom::TtsService>* receiver_for_testing() {
+    return &service_receiver_;
   }
 
   // mojom::TtsService:
   void BindTtsStreamFactory(
       mojo::PendingReceiver<mojom::TtsStreamFactory> receiver,
-      mojo::PendingRemote<audio::mojom::StreamFactory> factory) override;
+      mojo::PendingRemote<media::mojom::AudioStreamFactory> factory) override;
 
   // mojom::GoogleTtsStream:
   void CreateGoogleTtsStream(CreateGoogleTtsStreamCallback callback) override;
@@ -89,18 +94,15 @@ class TtsService : public mojom::TtsService,
   void StopLocked(bool clear_buffers = true)
       EXCLUSIVE_LOCKS_REQUIRED(state_lock_);
 
-  // Satisfies any pending tts stream factory receivers.
-  void ProcessPendingTtsStreamFactories();
+  // Do any processing (e.g. sending start/end events) on buffers that have just
+  // been rendered on the audio thread.
+  void ProcessRenderedBuffers();
 
   // Connection to tts in the browser.
   mojo::Receiver<mojom::TtsService> service_receiver_;
 
-  // Factory creating various types of streams.
-  mojo::Receiver<mojom::TtsStreamFactory> tts_stream_factory_;
-
-  // A list of pending component extension requesting a tts stream factory.
-  std::queue<mojo::PendingReceiver<mojom::TtsStreamFactory>>
-      pending_tts_stream_factory_receivers_;
+  // A list of active component extension tts stream factory connections.
+  mojo::ReceiverSet<mojom::TtsStreamFactory> tts_stream_factory_receivers_;
 
   std::unique_ptr<GoogleTtsStream> google_tts_stream_;
 
@@ -117,6 +119,7 @@ class TtsService : public mojom::TtsService,
 
   // The queue of audio buffers to be played by the audio thread.
   std::queue<AudioBuffer> buffers_ GUARDED_BY(state_lock_);
+  std::queue<AudioBuffer> rendered_buffers_;
 
   // An explicit list of increasing time delta sorted timepoints to be fired
   // while rendering audio at the specified |delay| from start of audio
@@ -126,6 +129,17 @@ class TtsService : public mojom::TtsService,
 
   // The time at which playback of the current utterance started.
   base::Time start_playback_time_;
+
+  // Whether a task to process rendered audio buffers has been posted.
+  bool process_rendered_buffers_posted_ GUARDED_BY(state_lock_) = false;
+
+  // The main thread's task runner handle.
+  scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
+
+  // Keeps this process alive for testing.
+  bool keep_process_alive_for_testing_ = false;
+
+  base::WeakPtrFactory<TtsService> weak_factory_{this};
 };
 
 }  // namespace tts

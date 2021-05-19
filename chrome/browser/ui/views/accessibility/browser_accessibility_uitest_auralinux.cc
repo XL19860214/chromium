@@ -20,18 +20,15 @@
 #include "ui/views/accessibility/view_accessibility.h"
 
 class AuraLinuxAccessibilityInProcessBrowserTest : public InProcessBrowserTest {
- public:
-  void SetUp() override {
-    ui::AXPlatformNode::NotifyAddAXModeFlags(ui::kAXModeComplete);
-    InProcessBrowserTest::SetUp();
-  }
-
  protected:
-  AuraLinuxAccessibilityInProcessBrowserTest() = default;
+  AuraLinuxAccessibilityInProcessBrowserTest()
+      : ax_mode_setter_(ui::kAXModeComplete) {}
 
   void VerifyEmbedRelationships();
 
  private:
+  ui::testing::ScopedAxModeSetter ax_mode_setter_;
+
   DISALLOW_COPY_AND_ASSIGN(AuraLinuxAccessibilityInProcessBrowserTest);
 };
 
@@ -58,10 +55,8 @@ class TestTabModalConfirmDialogDelegate : public TabModalConfirmDialogDelegate {
  public:
   explicit TestTabModalConfirmDialogDelegate(content::WebContents* contents)
       : TabModalConfirmDialogDelegate(contents) {}
-  base::string16 GetTitle() override {
-    return base::ASCIIToUTF16("Dialog Title");
-  }
-  base::string16 GetDialogMessage() override { return base::string16(); }
+  std::u16string GetTitle() override { return u"Dialog Title"; }
+  std::u16string GetDialogMessage() override { return std::u16string(); }
 
   DISALLOW_COPY_AND_ASSIGN(TestTabModalConfirmDialogDelegate);
 };
@@ -239,7 +234,7 @@ IN_PROC_BROWSER_TEST_F(AuraLinuxAccessibilityInProcessBrowserTest,
       webview->GetViewAccessibility().GetNativeObject();
 
   // Gets the index in its parents for the WebView.
-  base::Optional<int> index =
+  absl::optional<int> index =
       static_cast<ui::AXPlatformNodeBase*>(
           ui::AXPlatformNode::FromNativeViewAccessible(accessible))
           ->GetIndexInParent();

@@ -7,10 +7,10 @@
 #include <memory>
 
 #include "base/metrics/histogram_macros.h"
-#include "third_party/blink/public/common/feature_policy/policy_value.h"
-#include "third_party/blink/public/mojom/feature_policy/document_policy_feature.mojom-blink.h"
-#include "third_party/blink/public/mojom/feature_policy/feature_policy_feature.mojom-blink.h"
-#include "third_party/blink/public/mojom/feature_policy/policy_value.mojom-blink.h"
+#include "third_party/blink/public/common/permissions_policy/policy_value.h"
+#include "third_party/blink/public/mojom/permissions_policy/document_policy_feature.mojom-blink.h"
+#include "third_party/blink/public/mojom/permissions_policy/permissions_policy_feature.mojom-blink.h"
+#include "third_party/blink/public/mojom/permissions_policy/policy_value.mojom-blink.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/loader/resource/image_resource.h"
 #include "third_party/blink/renderer/core/loader/resource/image_resource_info.h"
@@ -50,8 +50,8 @@ class NullImageResourceInfo final
     return true;
   }
   bool HasCacheControlNoStoreHeader() const override { return false; }
-  base::Optional<ResourceError> GetResourceError() const override {
-    return base::nullopt;
+  absl::optional<ResourceError> GetResourceError() const override {
+    return absl::nullopt;
   }
 
   void SetDecodedSize(size_t) override {}
@@ -650,7 +650,7 @@ const ResourceResponse& ImageResourceContent::GetResponse() const {
   return info_->GetResponse();
 }
 
-base::Optional<ResourceError> ImageResourceContent::GetResourceError() const {
+absl::optional<ResourceError> ImageResourceContent::GetResourceError() const {
   return info_->GetResourceError();
 }
 
@@ -664,6 +664,11 @@ void ImageResourceContent::LoadDeferredImage(ResourceFetcher* fetcher) {
 
 bool ImageResourceContent::IsAdResource() const {
   return info_->IsAdResource();
+}
+
+void ImageResourceContent::RecordDecodedImageType(UseCounter* use_counter) {
+  if (auto* bitmap_image = DynamicTo<BitmapImage>(image_.get()))
+    bitmap_image->RecordDecodedImageType(use_counter);
 }
 
 }  // namespace blink

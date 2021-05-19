@@ -21,6 +21,15 @@ extern const base::Feature kMobileIdentityConsistency;
 // This feature flag is used to run experiments of different variations
 // of MICE on Android.
 extern const base::Feature kMobileIdentityConsistencyVar;
+// Returns true if the flag |kMobileIdentityConsistency| is enabled for the
+// platform.
+bool IsMobileIdentityConsistencyEnabled();
+
+// Feature flag for FRE related changes as part of MICE.
+extern const base::Feature kMobileIdentityConsistencyFRE;
+
+// Feature flag for promo-related changes of `kMobileIdentityConsistency`.
+extern const base::Feature kMobileIdentityConsistencyPromos;
 #endif
 
 enum class AccountConsistencyMethod : int {

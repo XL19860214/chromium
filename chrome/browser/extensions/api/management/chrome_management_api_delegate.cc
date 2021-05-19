@@ -18,6 +18,7 @@
 #include "chrome/browser/apps/app_service/app_service_proxy_factory.h"
 #include "chrome/browser/apps/app_service/browser_app_launcher.h"
 #include "chrome/browser/extensions/chrome_extension_function_details.h"
+#include "chrome/browser/extensions/extension_management.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/launch_util.h"
 #include "chrome/browser/favicon/favicon_service_factory.h"
@@ -42,8 +43,8 @@
 #include "chrome/common/extensions/extension_metrics.h"
 #include "chrome/common/extensions/manifest_handlers/app_launch_info.h"
 #include "components/favicon/core/favicon_service.h"
-#include "components/webapps/installable/installable_manager.h"
-#include "components/webapps/installable/installable_metrics.h"
+#include "components/webapps/browser/installable/installable_manager.h"
+#include "components/webapps/browser/installable/installable_metrics.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/web_contents.h"
 #include "extensions/browser/api/management/management_api.h"
@@ -58,8 +59,8 @@
 #include "third_party/blink/public/mojom/manifest/display_mode.mojom.h"
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-#include "chrome/browser/chromeos/arc/arc_util.h"
-#include "chrome/browser/chromeos/login/demo_mode/demo_session.h"
+#include "chrome/browser/ash/arc/arc_util.h"
+#include "chrome/browser/ash/login/demo_mode/demo_session.h"
 #include "chrome/browser/ui/app_list/arc/arc_app_utils.h"
 #include "components/arc/arc_service_manager.h"
 #include "components/arc/arc_util.h"
@@ -170,7 +171,8 @@ class ManagementUninstallFunctionUninstallDialogDelegate
       : function_(function) {
     ChromeExtensionFunctionDetails details(function);
     extension_uninstall_dialog_ = extensions::ExtensionUninstallDialog::Create(
-        details.GetProfile(), details.GetNativeWindowForUI(), this);
+        Profile::FromBrowserContext(function->browser_context()),
+        details.GetNativeWindowForUI(), this);
     bool uninstall_from_webstore =
         function->extension() &&
         function->extension()->id() == extensions::kWebStoreAppId;
@@ -202,7 +204,7 @@ class ManagementUninstallFunctionUninstallDialogDelegate
 
   // ExtensionUninstallDialog::Delegate implementation.
   void OnExtensionUninstallDialogClosed(bool did_start_uninstall,
-                                        const base::string16& error) override {
+                                        const std::u16string& error) override {
     function_->OnExtensionUninstallDialogClosed(did_start_uninstall, error);
   }
 
@@ -241,7 +243,7 @@ class ChromeAppForLinkDelegate : public extensions::AppForLinkDelegate {
     web_app_info->open_as_window = false;
 
     if (!image_result.image.IsEmpty()) {
-      web_app_info->icon_bitmaps_any[image_result.image.Width()] =
+      web_app_info->icon_bitmaps.any[image_result.image.Width()] =
           image_result.image.AsBitmap();
     }
 
@@ -332,6 +334,14 @@ void LaunchWebApp(const web_app::AppId& app_id, Profile* profile) {
   if (display_mode == blink::mojom::DisplayMode::kBrowser)
     launch_container = apps::mojom::LaunchContainer::kLaunchContainerTab;
 
+  if (!apps::AppServiceProxyFactory::IsAppServiceAvailableForProfile(profile)) {
+    // If the profile doesn't have an App Service Proxy available, that means
+    // this extension has been explicitly permitted to run in an incognito
+    // context. Treat this as if the extension is running in the original
+    // profile, so it is allowed to access apps in the original profile.
+    profile = profile->GetOriginalProfile();
+  }
+
   apps::AppServiceProxyFactory::GetForProfile(profile)
       ->BrowserAppLauncher()
       ->LaunchAppWithParams(apps::AppLaunchParams(
@@ -353,7 +363,7 @@ void OnWebAppInstallabilityChecked(
     InstallOrLaunchWebAppCallback callback,
     std::unique_ptr<content::WebContents> web_contents,
     InstallableCheckResult result,
-    base::Optional<web_app::AppId> app_id) {
+    absl::optional<web_app::AppId> app_id) {
   switch (result) {
     case InstallableCheckResult::kAlreadyInstalled:
       DCHECK(app_id);
@@ -398,6 +408,13 @@ void ChromeManagementAPIDelegate::LaunchAppFunctionDelegate(
   extensions::LaunchContainer launch_container =
       GetLaunchContainer(extensions::ExtensionPrefs::Get(context), extension);
   Profile* profile = Profile::FromBrowserContext(context);
+  if (!apps::AppServiceProxyFactory::IsAppServiceAvailableForProfile(profile)) {
+    // If the profile doesn't have an App Service Proxy available, that means
+    // this extension has been explicitly permitted to run in an incognito
+    // context. Treat this as if the extension is running in the original
+    // profile, so it is allowed to access apps in the original profile.
+    profile = profile->GetOriginalProfile();
+  }
   apps::AppServiceProxyFactory::GetForProfile(profile)
       ->BrowserAppLauncher()
       ->LaunchAppWithParams(apps::AppLaunchParams(
@@ -406,8 +423,8 @@ void ChromeManagementAPIDelegate::LaunchAppFunctionDelegate(
           apps::mojom::AppLaunchSource::kSourceManagementApi));
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-  chromeos::DemoSession::RecordAppLaunchSourceIfInDemoMode(
-      chromeos::DemoSession::AppLaunchSource::kExtensionApi);
+  ash::DemoSession::RecordAppLaunchSourceIfInDemoMode(
+      ash::DemoSession::AppLaunchSource::kExtensionApi);
 #endif
 
   extensions::RecordAppLaunchType(extension_misc::APP_LAUNCH_EXTENSION_API,
@@ -471,9 +488,9 @@ bool ChromeManagementAPIDelegate::CreateAppShortcutFunctionDelegate(
 
   chrome::ShowCreateChromeAppShortcutsDialog(
       browser->window()->GetNativeWindow(), browser->profile(), extension,
-      base::Bind(&extensions::ManagementCreateAppShortcutFunction::
-                     OnCloseShortcutPrompt,
-                 function));
+      base::BindOnce(&extensions::ManagementCreateAppShortcutFunction::
+                         OnCloseShortcutPrompt,
+                     function));
 
   return true;
 }
@@ -636,7 +653,7 @@ bool ChromeManagementAPIDelegate::UninstallExtension(
     content::BrowserContext* context,
     const std::string& transient_extension_id,
     extensions::UninstallReason reason,
-    base::string16* error) const {
+    std::u16string* error) const {
   return extensions::ExtensionSystem::Get(context)
       ->extension_service()
       ->UninstallExtension(transient_extension_id, reason, error);
@@ -656,4 +673,12 @@ GURL ChromeManagementAPIDelegate::GetIconURL(
     bool grayscale) const {
   return extensions::ExtensionIconSource::GetIconURL(extension, icon_size,
                                                      match, grayscale);
+}
+
+GURL ChromeManagementAPIDelegate::GetEffectiveUpdateURL(
+    const extensions::Extension& extension,
+    content::BrowserContext* context) const {
+  extensions::ExtensionManagement* extension_management =
+      extensions::ExtensionManagementFactory::GetForBrowserContext(context);
+  return extension_management->GetEffectiveUpdateURL(extension);
 }

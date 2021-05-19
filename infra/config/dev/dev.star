@@ -49,6 +49,10 @@ luci.realm(
             roles = "role/buildbucket.reader",
             groups = "all",
         ),
+        luci.binding(
+            roles = "role/resultdb.invocationCreator",
+            groups = "luci-resultdb-access",
+        ),
         # Other roles are inherited from @root which grants them to group:all.
     ],
 )
@@ -59,6 +63,7 @@ luci.builder.defaults.experiments.set({
     # Enable resultsink for dev swarming tasks.
     "chromium.resultdb.result_sink": 100,
 })
+luci.builder.defaults.test_presentation.set(resultdb.test_presentation(grouping_keys = ["status", "v.test_suite"]))
 
 exec("//dev/swarming.star")
 

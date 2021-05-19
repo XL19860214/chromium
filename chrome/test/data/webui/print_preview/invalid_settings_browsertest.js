@@ -11,7 +11,7 @@ import {assertEquals, assertFalse, assertTrue} from '../chai_assert.js';
 import {eventToPromise, waitBeforeNextRender} from '../test_util.m.js';
 
 import {CloudPrintInterfaceStub} from './cloud_print_interface_stub.js';
-// <if expr="chromeos">
+// <if expr="chromeos or lacros">
 import {setNativeLayerCrosInstance} from './native_layer_cros_stub.js';
 // </if>
 import {NativeLayerStub} from './native_layer_stub.js';
@@ -71,7 +71,7 @@ suite(invalid_settings_browsertest.suiteName, function() {
   setup(function() {
     nativeLayer = new NativeLayerStub();
     NativeLayerImpl.instance_ = nativeLayer;
-    // <if expr="chromeos">
+    // <if expr="chromeos or lacros">
     setNativeLayerCrosInstance();
     // </if>
     cloudPrintInterface = new CloudPrintInterfaceStub();
@@ -90,10 +90,6 @@ suite(invalid_settings_browsertest.suiteName, function() {
   function createPage(pluginCompatible) {
     nativeLayer.setInitialSettings(initialSettings);
     nativeLayer.setLocalDestinations(localDestinationInfos);
-    if (initialSettings.printerName) {
-      nativeLayer.setLocalDestinationCapabilities(
-          getCddTemplate(initialSettings.printerName));
-    }
     const pluginProxy = new TestPluginProxy();
     pluginProxy.setPluginCompatible(pluginCompatible);
     PluginProxyImpl.instance_ = pluginProxy;
@@ -113,8 +109,6 @@ suite(invalid_settings_browsertest.suiteName, function() {
    * @param {!Array<!Destination>} printers
    */
   function setupInvalidCertificateTest(printers) {
-    loadTimeData.overrideValues(
-        {cloudPrintDeprecationWarningsSuppressed: true});
     initialSettings.printerName = '';
     initialSettings.serializedAppStateStr = JSON.stringify({
       version: 2,
@@ -134,8 +128,6 @@ suite(invalid_settings_browsertest.suiteName, function() {
   }
 
   // Test that error message is displayed when plugin doesn't exist.
-  // TODO (rbpotter): Fix this test so that it works again with calling
-  // appendChild() before setting checkPluginCompatibility.
   test(
       assert(invalid_settings_browsertest.TestNames.NoPDFPluginError),
       function() {

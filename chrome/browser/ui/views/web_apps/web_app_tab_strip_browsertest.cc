@@ -20,6 +20,7 @@
 #include "chrome/browser/web_applications/components/web_app_constants.h"
 #include "chrome/browser/web_applications/components/web_app_provider_base.h"
 #include "chrome/browser/web_applications/components/web_application_info.h"
+#include "chrome/browser/web_applications/test/web_app_install_test_utils.h"
 #include "chrome/browser/web_applications/web_app_provider.h"
 #include "chrome/common/chrome_features.h"
 #include "chrome/test/base/in_process_browser_test.h"
@@ -62,11 +63,11 @@ class WebAppTabStripBrowserTest : public InProcessBrowserTest {
     auto web_app_info = std::make_unique<WebApplicationInfo>();
     web_app_info->start_url = start_url;
     web_app_info->scope = start_url.GetWithoutFilename();
-    web_app_info->title = base::ASCIIToUTF16("Test app");
+    web_app_info->title = u"Test app";
     web_app_info->background_color = kAppBackgroundColor;
     web_app_info->open_as_window = true;
     web_app_info->enable_experimental_tabbed_window = true;
-    AppId app_id = InstallWebApp(profile, std::move(web_app_info));
+    AppId app_id = test::InstallWebApp(profile, std::move(web_app_info));
 
     Browser* app_browser = LaunchWebAppBrowser(profile, app_id);
     return App{app_id, app_browser,

@@ -4,6 +4,7 @@
 
 #import "ios/chrome/browser/safe_browsing/pending_unsafe_resource_storage.h"
 
+#include "base/callback_helpers.h"
 #include "base/memory/ptr_util.h"
 #import "ios/chrome/browser/safe_browsing/unsafe_resource_util.h"
 
@@ -63,13 +64,13 @@ void PendingUnsafeResourceStorage::UpdatePolicyObserver() {
   if (resource_) {
     policy_observer_ = ResourcePolicyObserver(this);
   } else {
-    policy_observer_ = base::nullopt;
+    policy_observer_ = absl::nullopt;
   }
 }
 
 void PendingUnsafeResourceStorage::ResetResource() {
-  resource_ = base::nullopt;
-  policy_observer_ = base::nullopt;
+  resource_ = absl::nullopt;
+  policy_observer_ = absl::nullopt;
 }
 
 #pragma mark - PendingUnsafeResourceStorage::ResourcePolicyObserver

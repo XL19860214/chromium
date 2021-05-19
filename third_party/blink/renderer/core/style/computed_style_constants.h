@@ -65,6 +65,9 @@ enum PseudoId : uint8_t {
   kPseudoIdSelection,
   kPseudoIdScrollbar,
   kPseudoIdTargetText,
+  kPseudoIdHighlight,
+  kPseudoIdSpellingError,
+  kPseudoIdGrammarError,
   // Internal IDs follow:
   kPseudoIdFirstLineInherited,
   kPseudoIdScrollbarThumb,
@@ -81,7 +84,25 @@ enum PseudoId : uint8_t {
 };
 
 inline bool IsHighlightPseudoElement(PseudoId pseudo_id) {
-  return pseudo_id == kPseudoIdSelection || pseudo_id == kPseudoIdTargetText;
+  switch (pseudo_id) {
+    case kPseudoIdSelection:
+    case kPseudoIdTargetText:
+    case kPseudoIdHighlight:
+    case kPseudoIdSpellingError:
+    case kPseudoIdGrammarError:
+      return true;
+    default:
+      return false;
+  }
+}
+
+inline bool PseudoElementHasArguments(PseudoId pseudo_id) {
+  switch (pseudo_id) {
+    case kPseudoIdHighlight:
+      return true;
+    default:
+      return false;
+  }
 }
 
 enum class OutlineIsAuto : bool { kOff = false, kOn = true };
@@ -164,13 +185,15 @@ enum GridAutoFlow {
                          int(kInternalAutoFlowDirectionColumn)
 };
 
-static const size_t kContainmentBits = 4;
+static const size_t kContainmentBits = 5;
 enum Containment {
   kContainsNone = 0x0,
   kContainsLayout = 0x1,
   kContainsStyle = 0x2,
   kContainsPaint = 0x4,
-  kContainsSize = 0x8,
+  kContainsBlockSize = 0x8,
+  kContainsInlineSize = 0x10,
+  kContainsSize = kContainsBlockSize | kContainsInlineSize,
   kContainsStrict = kContainsLayout | kContainsPaint | kContainsSize,
   kContainsContent = kContainsLayout | kContainsPaint,
 };
@@ -349,6 +372,25 @@ enum class EListStyleType : unsigned {
   kKatakanaIroha,
   kNone,
   kString,
+};
+
+enum class EBaselineShiftType : unsigned { kLength, kSub, kSuper };
+
+enum EPaintOrderType {
+  PT_NONE = 0,
+  PT_FILL = 1,
+  PT_STROKE = 2,
+  PT_MARKERS = 3
+};
+
+enum EPaintOrder {
+  kPaintOrderNormal,
+  kPaintOrderFillStrokeMarkers,
+  kPaintOrderFillMarkersStroke,
+  kPaintOrderStrokeFillMarkers,
+  kPaintOrderStrokeMarkersFill,
+  kPaintOrderMarkersFillStroke,
+  kPaintOrderMarkersStrokeFill
 };
 
 }  // namespace blink

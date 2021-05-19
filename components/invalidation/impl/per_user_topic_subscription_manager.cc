@@ -28,7 +28,7 @@
 #include "components/prefs/scoped_user_pref_update.h"
 #include "google_apis/gaia/gaia_constants.h"
 
-namespace syncer {
+namespace invalidation {
 
 namespace {
 
@@ -208,7 +208,7 @@ void PerUserTopicSubscriptionManager::SubscriptionEntry::SubscriptionFinished(
 }
 
 PerUserTopicSubscriptionManager::PerUserTopicSubscriptionManager(
-    invalidation::IdentityProvider* identity_provider,
+    IdentityProvider* identity_provider,
     PrefService* pref_service,
     network::mojom::URLLoaderFactory* url_loader_factory,
     const std::string& project_id,
@@ -225,7 +225,7 @@ PerUserTopicSubscriptionManager::~PerUserTopicSubscriptionManager() = default;
 // static
 std::unique_ptr<PerUserTopicSubscriptionManager>
 PerUserTopicSubscriptionManager::Create(
-    invalidation::IdentityProvider* identity_provider,
+    IdentityProvider* identity_provider,
     PrefService* pref_service,
     network::mojom::URLLoaderFactory* url_loader_factory,
     const std::string& project_id,
@@ -626,14 +626,14 @@ base::DictionaryValue PerUserTopicSubscriptionManager::CollectDebugData()
   return status;
 }
 
-base::Optional<Topic>
+absl::optional<Topic>
 PerUserTopicSubscriptionManager::LookupSubscribedPublicTopicByPrivateTopic(
     const std::string& private_topic) const {
   auto it = private_topic_to_topic_.find(private_topic);
   if (it == private_topic_to_topic_.end()) {
-    return base::nullopt;
+    return absl::nullopt;
   }
   return it->second;
 }
 
-}  // namespace syncer
+}  // namespace invalidation

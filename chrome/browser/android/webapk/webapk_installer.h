@@ -14,12 +14,11 @@
 #include "base/callback.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
-#include "base/optional.h"
-#include "base/strings/string16.h"
 #include "base/timer/timer.h"
 #include "chrome/browser/android/webapk/webapk_icon_hasher.h"
 #include "chrome/browser/android/webapk/webapk_install_service.h"
 #include "chrome/browser/android/webapk/webapk_types.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "url/gurl.h"
 
@@ -133,7 +132,7 @@ class WebApkInstaller {
       const std::string& version,
       std::map<std::string, WebApkIconHasher::Icon> icon_url_to_murmur2_hash,
       bool is_manifest_stale,
-      WebApkUpdateReason update_reason,
+      std::vector<WebApkUpdateReason> update_reasons,
       base::OnceCallback<void(bool)> callback);
 
  protected:
@@ -188,7 +187,7 @@ class WebApkInstaller {
 
   // Called with the computed Murmur2 hash for the icons.
   void OnGotIconMurmur2Hashes(
-      base::Optional<std::map<std::string, WebApkIconHasher::Icon>> hashes);
+      absl::optional<std::map<std::string, WebApkIconHasher::Icon>> hashes);
 
   // Sends a request to WebAPK server to create/update WebAPK. During a
   // successful request the WebAPK server responds with a token to send to
@@ -219,7 +218,7 @@ class WebApkInstaller {
 
   bool is_primary_icon_maskable_;
 
-  base::string16 short_name_;
+  std::u16string short_name_;
 
   // WebAPK server URL.
   GURL server_url_;

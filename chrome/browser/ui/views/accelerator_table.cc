@@ -6,6 +6,7 @@
 
 #include <stddef.h>
 
+#include "base/feature_list.h"
 #include "base/no_destructor.h"
 #include "base/notreached.h"
 #include "base/stl_util.h"
@@ -146,10 +147,17 @@ const AcceleratorMapping kAcceleratorMap[] = {
     {ui::VKEY_BROWSER_REFRESH, ui::EF_SHIFT_DOWN, IDC_RELOAD_BYPASSING_CACHE},
 #endif  // defined(OS_LINUX) || defined(OS_CHROMEOS)
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-    // On Chrome OS, VKEY_BROWSER_SEARCH is handled in Ash.
+#if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
+    // Chrome OS keyboard does not have delete key, so assign it to backspace.
     {ui::VKEY_BACK, ui::EF_SHIFT_DOWN | ui::EF_CONTROL_DOWN,
      IDC_CLEAR_BROWSING_DATA},
+#else   // !(BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS))
+    {ui::VKEY_DELETE, ui::EF_SHIFT_DOWN | ui::EF_CONTROL_DOWN,
+     IDC_CLEAR_BROWSING_DATA},
+#endif  // !(BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS))
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+    // On Chrome OS, VKEY_BROWSER_SEARCH is handled in Ash.
     {ui::VKEY_OEM_2, ui::EF_CONTROL_DOWN, IDC_HELP_PAGE_VIA_KEYBOARD},
     {ui::VKEY_OEM_2, ui::EF_SHIFT_DOWN | ui::EF_CONTROL_DOWN,
      IDC_HELP_PAGE_VIA_KEYBOARD},
@@ -186,10 +194,6 @@ const AcceleratorMapping kAcceleratorMap[] = {
 #if BUILDFLAG(ENABLE_PRINTING)
     {ui::VKEY_P, ui::EF_SHIFT_DOWN | ui::EF_CONTROL_DOWN, IDC_BASIC_PRINT},
 #endif  // ENABLE_PRINTING
-#if !BUILDFLAG(IS_CHROMEOS_ASH)
-    {ui::VKEY_DELETE, ui::EF_SHIFT_DOWN | ui::EF_CONTROL_DOWN,
-     IDC_CLEAR_BROWSING_DATA},
-#endif  // !OS_CHROMEOS
     {ui::VKEY_I, ui::EF_SHIFT_DOWN | ui::EF_CONTROL_DOWN, IDC_DEV_TOOLS},
     {ui::VKEY_J, ui::EF_SHIFT_DOWN | ui::EF_CONTROL_DOWN,
      IDC_DEV_TOOLS_CONSOLE},
@@ -241,6 +245,16 @@ const AcceleratorMapping kEnableWithNewMappingAcceleratorMap[] = {
 };
 #endif
 
+constexpr int kDebugModifier =
+    ui::EF_CONTROL_DOWN | ui::EF_ALT_DOWN | ui::EF_SHIFT_DOWN;
+
+// Accelerators to enable if features::UIDebugTools is true.
+constexpr AcceleratorMapping kUIDebugAcceleratorMap[] = {
+    {ui::VKEY_T, kDebugModifier, IDC_DEBUG_TOGGLE_TABLET_MODE},
+    {ui::VKEY_V, kDebugModifier, IDC_DEBUG_PRINT_VIEW_TREE},
+    {ui::VKEY_M, kDebugModifier, IDC_DEBUG_PRINT_VIEW_TREE_DETAILS},
+};
+
 const int kRepeatableCommandIds[] = {
   IDC_FIND_NEXT,
   IDC_FIND_PREVIOUS,
@@ -273,6 +287,12 @@ std::vector<AcceleratorMapping> GetAcceleratorList() {
                            std::end(kDisableWithNewMappingAcceleratorMap));
     }
 #endif
+
+    if (base::FeatureList::IsEnabled(features::kUIDebugTools)) {
+      accelerators->insert(accelerators->begin(),
+                           std::begin(kUIDebugAcceleratorMap),
+                           std::end(kUIDebugAcceleratorMap));
+    }
   }
 
   return *accelerators;

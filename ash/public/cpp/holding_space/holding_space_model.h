@@ -5,7 +5,9 @@
 #ifndef ASH_PUBLIC_CPP_HOLDING_SPACE_HOLDING_SPACE_MODEL_H_
 #define ASH_PUBLIC_CPP_HOLDING_SPACE_HOLDING_SPACE_MODEL_H_
 
+#include <map>
 #include <memory>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -13,6 +15,7 @@
 #include "ash/public/cpp/holding_space/holding_space_item.h"
 #include "base/callback.h"
 #include "base/observer_list.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "url/gurl.h"
 
 namespace base {
@@ -42,12 +45,20 @@ class ASH_PUBLIC_EXPORT HoldingSpaceModel {
   // Adds a single holding space item to the model.
   void AddItem(std::unique_ptr<HoldingSpaceItem> item);
 
+  // Adds multiple holding space items to the model.
+  void AddItems(std::vector<std::unique_ptr<HoldingSpaceItem>> items);
+
   // Removes a single holding space item from the model.
   void RemoveItem(const std::string& id);
 
-  // Finalizes a partially initialized holding space item using the provided
-  // file system URL. The item will be removed if the file system url is empty.
-  void FinalizeOrRemoveItem(const std::string& id, const GURL& file_system_url);
+  // Removes multiple holding space items from the model.
+  void RemoveItems(const std::set<std::string>& ids);
+
+  // Fully initializes a partially initialized holding space item using the
+  // provided `file_system_url`. The item will be removed if `file_system_url`
+  // is empty.
+  void InitializeOrRemoveItem(const std::string& id,
+                              const GURL& file_system_url);
 
   // Updates the backing file for a single holding space item to the specified
   // `file_path` and `file_system_url`.
@@ -55,10 +66,20 @@ class ASH_PUBLIC_EXPORT HoldingSpaceModel {
                                 const base::FilePath& file_path,
                                 const GURL& file_system_url);
 
+  // Updates the progress for a single holding space item.
+  // NOTE: If present, `progress` must be >= `0.f` and <= `1.f`.
+  // NOTE: Once set to `1.f`, holding space item progress becomes read-only.
+  void UpdateProgressForItem(const std::string& id,
+                             const absl::optional<float>& progress);
+
   // Removes all holding space items from the model for which the specified
   // `predicate` returns true.
   using Predicate = base::RepeatingCallback<bool(const HoldingSpaceItem*)>;
   void RemoveIf(Predicate predicate);
+
+  // Invalidates image representations for items for which the specified
+  // `predicate` returns true.
+  void InvalidateItemImageIf(Predicate predicate);
 
   // Removes all the items from the model.
   void RemoveAll();
@@ -78,6 +99,10 @@ class ASH_PUBLIC_EXPORT HoldingSpaceModel {
   bool ContainsItem(HoldingSpaceItem::Type type,
                     const base::FilePath& file_path) const;
 
+  // Returns `true` if the model contains any initialized items of the specified
+  // `type`, `false` otherwise.
+  bool ContainsInitializedItemOfType(HoldingSpaceItem::Type type) const;
+
   const ItemList& items() const { return items_; }
 
   void AddObserver(HoldingSpaceModelObserver* observer);
@@ -87,6 +112,11 @@ class ASH_PUBLIC_EXPORT HoldingSpaceModel {
   // The list of items added to the model in the order they have been added to
   // the model.
   ItemList items_;
+
+  // Caches the count of initialized items in the model for each holding space
+  // item type. Used to quickly look up whether the model contains any
+  // initialized items of a given type.
+  std::map<HoldingSpaceItem::Type, size_t> initialized_item_counts_by_type_;
 
   base::ObserverList<HoldingSpaceModelObserver> observers_;
 };

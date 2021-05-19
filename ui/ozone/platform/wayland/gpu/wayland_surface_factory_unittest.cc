@@ -2,14 +2,20 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <drm_fourcc.h>
+
+#include <cstdint>
 #include <memory>
 #include <utility>
+#include <vector>
 
+#include "base/containers/flat_map.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/run_loop.h"
 #include "base/test/mock_callback.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/skia/include/core/SkSurface.h"
+#include "ui/gfx/buffer_types.h"
 #include "ui/gfx/linux/gbm_buffer.h"
 #include "ui/gfx/linux/gbm_device.h"
 #include "ui/gfx/linux/test/mock_gbm_device.h"
@@ -32,6 +38,7 @@
 using ::testing::_;
 using ::testing::Expectation;
 using ::testing::SaveArg;
+using ::testing::Values;
 
 namespace ui {
 
@@ -175,10 +182,18 @@ class WaylandSurfaceFactoryTest : public WaylandTest {
   ~WaylandSurfaceFactoryTest() override = default;
 
   void SetUp() override {
+    const base::flat_map<gfx::BufferFormat, std::vector<uint64_t>>
+        kSupportedFormatsWithModifiers{
+            {gfx::BufferFormat::BGRA_8888, {DRM_FORMAT_MOD_LINEAR}}};
+
     WaylandTest::SetUp();
 
     auto manager_ptr = connection_->buffer_manager_host()->BindInterface();
-    buffer_manager_gpu_->Initialize(std::move(manager_ptr), {}, false, false);
+    buffer_manager_gpu_->Initialize(std::move(manager_ptr),
+                                    kSupportedFormatsWithModifiers,
+                                    /*supports_dma_buf=*/false,
+                                    /*supports_viewporter=*/true,
+                                    /*supports_acquire_fence=*/false);
 
     // Wait until initialization and mojo calls go through.
     base::RunLoop().RunUntilIdle();
@@ -213,7 +228,8 @@ TEST_P(WaylandSurfaceFactoryTest,
 
   buffer_manager_gpu_->set_gbm_device(std::make_unique<MockGbmDevice>());
 
-  auto* gl_ozone = surface_factory_->GetGLOzone(gl::kGLImplementationEGLGLES2);
+  auto* gl_ozone = surface_factory_->GetGLOzone(
+      gl::GLImplementationParts(gl::kGLImplementationEGLGLES2));
   auto gl_surface = gl_ozone->CreateSurfacelessViewGLSurface(widget_);
   EXPECT_TRUE(gl_surface);
   gl_surface->SetRelyOnImplicitSync();
@@ -462,7 +478,8 @@ TEST_P(WaylandSurfaceFactoryTest,
 
   buffer_manager_gpu_->set_gbm_device(std::make_unique<MockGbmDevice>());
 
-  auto* gl_ozone = surface_factory_->GetGLOzone(gl::kGLImplementationEGLGLES2);
+  auto* gl_ozone = surface_factory_->GetGLOzone(
+      gl::GLImplementationParts(gl::kGLImplementationEGLGLES2));
   auto gl_surface = gl_ozone->CreateSurfacelessViewGLSurface(widget_);
   EXPECT_TRUE(gl_surface);
   gl_surface->SetRelyOnImplicitSync();
@@ -754,7 +771,8 @@ TEST_P(WaylandSurfaceFactoryTest, CreateSurfaceCheckGbm) {
   // used.
   EXPECT_FALSE(buffer_manager_gpu_->gbm_device());
 
-  auto* gl_ozone = surface_factory_->GetGLOzone(gl::kGLImplementationEGLGLES2);
+  auto* gl_ozone = surface_factory_->GetGLOzone(
+      gl::GLImplementationParts(gl::kGLImplementationEGLGLES2));
   EXPECT_TRUE(gl_ozone);
   auto gl_surface = gl_ozone->CreateSurfacelessViewGLSurface(widget_);
   EXPECT_FALSE(gl_surface);
@@ -774,9 +792,11 @@ TEST_P(WaylandSurfaceFactoryTest, CreateSurfaceCheckGbm) {
 
 INSTANTIATE_TEST_SUITE_P(XdgVersionStableTest,
                          WaylandSurfaceFactoryTest,
-                         ::testing::Values(kXdgShellStable));
+                         Values(wl::ServerConfig{
+                             .shell_version = wl::ShellVersion::kStable}));
 INSTANTIATE_TEST_SUITE_P(XdgVersionV6Test,
                          WaylandSurfaceFactoryTest,
-                         ::testing::Values(kXdgShellV6));
+                         Values(wl::ServerConfig{
+                             .shell_version = wl::ShellVersion::kV6}));
 
 }  // namespace ui

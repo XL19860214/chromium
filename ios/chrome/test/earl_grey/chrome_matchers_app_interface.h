@@ -80,6 +80,9 @@
 // Returns matcher for a close button.
 + (id<GREYMatcher>)closeButton;
 
+// Returns matcher for close tab context menu button.
++ (id<GREYMatcher>)closeTabMenuButton;
+
 // Matcher for the navigate forward button.
 + (id<GREYMatcher>)forwardButton;
 
@@ -126,6 +129,12 @@
 
 // Matcher for show tabs button.
 + (id<GREYMatcher>)showTabsButton;
+
+// Matcher for Add to reading list button.
++ (id<GREYMatcher>)addToReadingListButton;
+
+// Matcher for Add to bookmarks button.
++ (id<GREYMatcher>)addToBookmarksButton;
 
 // Matcher for SettingsSwitchCell.
 + (id<GREYMatcher>)settingsSwitchCell:(NSString*)accessibilityIdentifier
@@ -272,6 +281,10 @@
 // Returns matcher for the back button on a settings menu.
 + (id<GREYMatcher>)settingsMenuBackButton;
 
+// Returns matcher for the back button on a settings menu in given window
+// number.
++ (id<GREYMatcher>)settingsMenuBackButtonInWindowWithNumber:(int)windowNumber;
+
 // Returns matcher for the Privacy cell on the main Settings screen.
 + (id<GREYMatcher>)settingsMenuPrivacyButton;
 
@@ -313,6 +326,9 @@
 
 // Returns matcher for the collection view of content suggestion.
 + (id<GREYMatcher>)contentSuggestionCollectionView;
+
+// Returns matcher for the collection view of the NTP.
++ (id<GREYMatcher>)ntpCollectionView;
 
 // Returns matcher for the warning message while filling in payment requests.
 + (id<GREYMatcher>)warningMessageView;
@@ -377,6 +393,12 @@
 // Returns matcher for a fake omnibox on a new tab page.
 + (id<GREYMatcher>)fakeOmnibox;
 
+// Returns matcher for a label of a Discover feed header.
++ (id<GREYMatcher>)discoverHeaderLabel;
+
+// Returns matcher for a logo on a new tab page.
++ (id<GREYMatcher>)ntpLogo;
+
 // Returns a matcher for the current WebView.
 + (id<GREYMatcher>)webViewMatcher;
 
@@ -428,6 +450,15 @@
 // Returns the GREYMatcher for the button to go to the other devices panel in
 // the tab grid.
 + (id<GREYMatcher>)tabGridOtherDevicesPanelButton;
+
+// Returns the GREYMatcher for the background of the tab grid.
++ (id<GREYMatcher>)tabGridBackground;
+
+// Returns the GREYMatcher for the regular tab grid.
++ (id<GREYMatcher>)regularTabGrid;
+
+// Returns the GREYMatcher for the incognito tab grid.
++ (id<GREYMatcher>)incognitoTabGrid;
 
 // Returns the GREYMatcher for the button to close the cell at |index| in the
 // tab grid.
@@ -531,7 +562,15 @@
 + (id<GREYMatcher>)manualFallbackCreditCardTableViewWindowMatcher;
 
 // Returns the matcher for the Activity View header.
-+ (id<GREYMatcher>)activityViewHeaderWithTitle:(NSString*)pageTitle;
++ (id<GREYMatcher>)activityViewHeaderWithURLHost:(NSString*)host
+                                           title:(NSString*)pageTitle;
+
+// Returns a matcher for the button to trigger password generation on manual
+// fallback.
++ (id<GREYMatcher>)manualFallbackSuggestPasswordMatcher;
+
+// Returns a matcher for the button to accept the generated password.
++ (id<GREYMatcher>)useSuggestedPasswordMatcher;
 
 @end
 

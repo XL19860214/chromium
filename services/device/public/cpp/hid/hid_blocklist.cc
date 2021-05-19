@@ -5,6 +5,7 @@
 #include "services/device/public/cpp/hid/hid_blocklist.h"
 
 #include "base/command_line.h"
+#include "base/containers/contains.h"
 #include "base/no_destructor.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
@@ -88,6 +89,10 @@ constexpr HidBlocklist::Entry kStaticEntries[] = {
     VENDOR_PRODUCT_RULE(0x2abe, 0x1002),
     // Feitian USB, HyperFIDO
     VENDOR_PRODUCT_RULE(0x2ccf, 0x0880),
+
+    // Block Jabra access to certain proprietary functionality.
+    {true, /*vendorId=*/0x0b0e, false, 0, true, /*usagePage=*/0xff00, false, 0,
+     true, /*reportId=*/0x05, HidBlocklist::ReportType::kReportTypeOutput},
 };
 
 bool IsValidBlocklistEntry(const HidBlocklist::Entry& entry) {

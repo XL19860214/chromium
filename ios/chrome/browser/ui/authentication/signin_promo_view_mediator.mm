@@ -413,9 +413,10 @@ const char* AlreadySeenSigninViewPreferenceKey(
     _accessPoint = accessPoint;
     _browserState = browserState;
     _presenter = presenter;
-    NSArray* identities = ios::GetChromeBrowserProvider()
-                              ->GetChromeIdentityService()
-                              ->GetAllIdentitiesSortedForDisplay();
+    NSArray* identities =
+        ios::GetChromeBrowserProvider()
+            ->GetChromeIdentityService()
+            ->GetAllIdentitiesSortedForDisplay(browserState->GetPrefs());
     if (identities.count != 0) {
       [self selectIdentity:identities[0]];
     }
@@ -436,15 +437,18 @@ const char* AlreadySeenSigninViewPreferenceKey(
       AlreadySeenSigninViewPreferenceKey(self.accessPoint) != nullptr;
   if (_defaultIdentity) {
     return [[SigninPromoViewConfigurator alloc]
-        initWithUserEmail:_defaultIdentity.userEmail
-             userFullName:_defaultIdentity.userFullName
-                userImage:self.identityAvatar
-           hasCloseButton:hasCloseButton];
+        initWithSigninPromoViewMode:SigninPromoViewModeSigninWithAccount
+                          userEmail:_defaultIdentity.userEmail
+                      userGivenName:_defaultIdentity.userGivenName
+                          userImage:self.identityAvatar
+                     hasCloseButton:hasCloseButton];
   }
-  return [[SigninPromoViewConfigurator alloc] initWithUserEmail:nil
-                                                   userFullName:nil
-                                                      userImage:nil
-                                                 hasCloseButton:hasCloseButton];
+  return [[SigninPromoViewConfigurator alloc]
+      initWithSigninPromoViewMode:SigninPromoViewModeNoAccounts
+                        userEmail:nil
+                    userGivenName:nil
+                        userImage:nil
+                   hasCloseButton:hasCloseButton];
 }
 
 - (void)signinPromoViewIsVisible {
@@ -610,9 +614,10 @@ const char* AlreadySeenSigninViewPreferenceKey(
 
 - (void)identityListChanged {
   ChromeIdentity* newIdentity = nil;
-  NSArray* identities = ios::GetChromeBrowserProvider()
-                            ->GetChromeIdentityService()
-                            ->GetAllIdentitiesSortedForDisplay();
+  NSArray* identities =
+      ios::GetChromeBrowserProvider()
+          ->GetChromeIdentityService()
+          ->GetAllIdentitiesSortedForDisplay(self.browserState->GetPrefs());
   if (identities.count != 0) {
     newIdentity = identities[0];
   }

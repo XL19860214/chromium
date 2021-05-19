@@ -11,8 +11,6 @@
 #include "base/no_destructor.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
-#include "chrome/services/machine_learning/machine_learning_service.h"  // nogncheck
-#include "chrome/services/machine_learning/public/mojom/machine_learning_service.mojom.h"  // nogncheck
 #include "chrome/services/qrcode_generator/public/mojom/qrcode_generator.mojom.h"  // nogncheck
 #include "chrome/services/qrcode_generator/qrcode_generator_service_impl.h"  // nogncheck
 #include "components/paint_preview/buildflags/buildflags.h"
@@ -23,6 +21,8 @@
 #include "components/services/patch/public/mojom/file_patcher.mojom.h"
 #include "components/services/unzip/public/mojom/unzipper.mojom.h"
 #include "components/services/unzip/unzipper_impl.h"
+#include "components/webapps/services/web_app_origin_association/public/mojom/web_app_origin_association_parser.mojom.h"
+#include "components/webapps/services/web_app_origin_association/web_app_origin_association_parser_impl.h"
 #include "content/public/common/content_features.h"
 #include "content/public/utility/utility_thread.h"
 #include "extensions/buildflags/buildflags.h"
@@ -39,6 +39,10 @@
 #include "components/services/quarantine/public/mojom/quarantine.mojom.h"  // nogncheck
 #include "components/services/quarantine/quarantine_impl.h"  // nogncheck
 #endif  // defined(OS_WIN)
+
+#if defined(OS_MAC)
+#include "chrome/services/mac_notifications/mac_notification_provider_impl.h"
+#endif  // defined(OS_MAC)
 
 #if !defined(OS_ANDROID)
 #include "chrome/common/importer/profile_import.mojom.h"
@@ -103,6 +107,10 @@
 
 #if BUILDFLAG(ENABLE_CROS_LIBASSISTANT)
 #include "chromeos/services/assistant/audio_decoder/assistant_audio_decoder_factory.h"  // nogncheck
+
+#if BUILDFLAG(ENABLE_LIBASSISTANT_SANDBOX)
+#include "chromeos/services/libassistant/libassistant_service.h"  // nogncheck
+#endif  // BUILDFLAG(ENABLE_LIBASSISTANT_SANDBOX)
 #endif  // BUILDFLAG(ENABLE_CROS_LIBASSISTANT)
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
@@ -130,10 +138,10 @@ auto RunQRCodeGeneratorService(
       std::move(receiver));
 }
 
-auto RunMachineLearningService(
-    mojo::PendingReceiver<machine_learning::mojom::MachineLearningService>
+auto RunWebAppOriginAssociationParser(
+    mojo::PendingReceiver<webapps::mojom::WebAppOriginAssociationParser>
         receiver) {
-  return std::make_unique<machine_learning::MachineLearningService>(
+  return std::make_unique<webapps::WebAppOriginAssociationParserImpl>(
       std::move(receiver));
 }
 
@@ -153,6 +161,15 @@ auto RunWindowsIconReader(
   return std::make_unique<UtilReadIcon>(std::move(receiver));
 }
 #endif  // defined(OS_WIN)
+
+#if defined(OS_MAC)
+auto RunMacNotificationService(
+    mojo::PendingReceiver<mac_notifications::mojom::MacNotificationProvider>
+        receiver) {
+  return std::make_unique<mac_notifications::MacNotificationProviderImpl>(
+      std::move(receiver));
+}
+#endif  // defined(OS_MAC)
 
 #if !defined(OS_ANDROID)
 auto RunProxyResolver(
@@ -279,8 +296,17 @@ auto RunAssistantAudioDecoder(
   return std::make_unique<chromeos::assistant::AssistantAudioDecoderFactory>(
       std::move(receiver));
 }
-#endif
-#endif
+
+#if BUILDFLAG(ENABLE_LIBASSISTANT_SANDBOX)
+auto RunLibassistantService(
+    mojo::PendingReceiver<chromeos::libassistant::mojom::LibassistantService>
+        receiver) {
+  return std::make_unique<chromeos::libassistant::LibassistantService>(
+      std::move(receiver));
+}
+#endif  // BUILDFLAG(ENABLE_LIBASSISTANT_SANDBOX)
+#endif  // BUILDFLAG(ENABLE_CROS_LIBASSISTANT)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 }  // namespace
 
@@ -298,7 +324,7 @@ void RegisterMainThreadServices(mojo::ServiceFactory& services) {
   services.Add(RunUnzipper);
   services.Add(RunLanguageDetectionService);
   services.Add(RunQRCodeGeneratorService);
-  services.Add(RunMachineLearningService);
+  services.Add(RunWebAppOriginAssociationParser);
 
 #if !defined(OS_ANDROID)
   services.Add(RunProfileImporter);
@@ -315,6 +341,10 @@ void RegisterMainThreadServices(mojo::ServiceFactory& services) {
 #if BUILDFLAG(ENABLE_PRINTING) && BUILDFLAG(IS_CHROMEOS_ASH)
   services.Add(RunCupsIppParser);
 #endif
+
+#if defined(OS_MAC)
+  services.Add(RunMacNotificationService);
+#endif  // defined(OS_MAC)
 
 #if BUILDFLAG(FULL_SAFE_BROWSING) || BUILDFLAG(IS_CHROMEOS_ASH)
   services.Add(RunFileUtil);
@@ -354,8 +384,11 @@ void RegisterMainThreadServices(mojo::ServiceFactory& services) {
   services.Add(RunLocalSearchService);
 #if BUILDFLAG(ENABLE_CROS_LIBASSISTANT)
   services.Add(RunAssistantAudioDecoder);
-#endif
-#endif
+#if BUILDFLAG(ENABLE_LIBASSISTANT_SANDBOX)
+  services.Add(RunLibassistantService);
+#endif  // BUILDFLAG(ENABLE_LIBASSISTANT_SANDBOX)
+#endif  // BUILDFLAG(ENABLE_CROS_LIBASSISTANT)
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 }
 
 void RegisterIOThreadServices(mojo::ServiceFactory& services) {

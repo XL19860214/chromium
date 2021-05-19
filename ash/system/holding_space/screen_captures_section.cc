@@ -10,12 +10,16 @@
 #include "ash/system/holding_space/holding_space_item_screen_capture_view.h"
 #include "ash/system/holding_space/holding_space_util.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/compositor/layer.h"
 #include "ui/views/accessibility/view_accessibility.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/layout/flex_layout.h"
 #include "ui/views/view_class_properties.h"
 
 namespace ash {
+
+// Appearance.
+constexpr int kChildSpacing = 8;
 
 ScreenCapturesSection::ScreenCapturesSection(
     HoldingSpaceItemViewDelegate* delegate)
@@ -47,7 +51,7 @@ std::unique_ptr<views::View> ScreenCapturesSection::CreateContainer() {
       ->SetOrientation(views::LayoutOrientation::kHorizontal)
       .SetDefault(views::kMarginsKey,
                   gfx::Insets(/*top=*/0, /*left=*/0, /*bottom=*/0,
-                              /*right=*/kHoldingSpaceScreenCaptureSpacing));
+                              /*right=*/kChildSpacing));
   return container;
 }
 

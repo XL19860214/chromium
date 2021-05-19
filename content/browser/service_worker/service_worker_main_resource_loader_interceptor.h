@@ -9,10 +9,10 @@
 
 #include "base/gtest_prod_util.h"
 #include "base/memory/weak_ptr.h"
-#include "base/optional.h"
 #include "content/browser/loader/navigation_loader_interceptor.h"
 #include "content/browser/loader/single_request_url_loader_factory.h"
 #include "content/browser/navigation_subresource_loader_params.h"
+#include "content/browser/service_worker/service_worker_controllee_request_handler.h"
 #include "content/common/content_export.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/service_worker_client_info.h"
@@ -20,6 +20,7 @@
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "services/network/public/mojom/fetch_api.mojom.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/common/tokens/tokens.h"
 #include "third_party/blink/public/mojom/service_worker/service_worker_provider.mojom.h"
 
@@ -68,15 +69,9 @@ class CONTENT_EXPORT ServiceWorkerMainResourceLoaderInterceptor final
                          FallbackCallback fallback_callback) override;
   // Returns params with the ControllerServiceWorkerInfoPtr if we have found
   // a matching controller service worker for the |request| that is given
-  // to MaybeCreateLoader(). Otherwise this returns base::nullopt.
-  base::Optional<SubresourceLoaderParams> MaybeCreateSubresourceLoaderParams()
+  // to MaybeCreateLoader(). Otherwise this returns absl::nullopt.
+  absl::optional<SubresourceLoaderParams> MaybeCreateSubresourceLoaderParams()
       override;
-
-  void LoaderCallbackWrapper(
-      LoaderCallback loader_callback,
-      SingleRequestURLLoaderFactory::RequestHandler handler);
-
-  base::WeakPtr<ServiceWorkerMainResourceLoaderInterceptor> GetWeakPtr();
 
  private:
   friend class ServiceWorkerMainResourceLoaderInterceptorTest;
@@ -122,7 +117,7 @@ class CONTENT_EXPORT ServiceWorkerMainResourceLoaderInterceptor final
   const bool are_ancestors_secure_;
   // If the intercepted resource load is on behalf
   // of a window, the |frame_tree_node_id_| will be set, |worker_token_| will be
-  // base::nullopt, and |process_id_| will be invalid.
+  // absl::nullopt, and |process_id_| will be invalid.
   const int frame_tree_node_id_;
 
   // For web worker clients:
@@ -130,12 +125,10 @@ class CONTENT_EXPORT ServiceWorkerMainResourceLoaderInterceptor final
   // |frame_tree_node_id_| will be invalid, and both |process_id_| and
   // |worker_token_| will be set.
   const int process_id_;
-  const base::Optional<DedicatedOrSharedWorkerToken> worker_token_;
+  const absl::optional<DedicatedOrSharedWorkerToken> worker_token_;
 
-  base::Optional<SubresourceLoaderParams> subresource_loader_params_;
-
-  base::WeakPtrFactory<ServiceWorkerMainResourceLoaderInterceptor>
-      weak_factory_{this};
+  // Handles a single request. Set to a new instance on redirects.
+  std::unique_ptr<ServiceWorkerControlleeRequestHandler> request_handler_;
 
   DISALLOW_COPY_AND_ASSIGN(ServiceWorkerMainResourceLoaderInterceptor);
 };

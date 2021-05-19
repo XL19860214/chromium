@@ -4,19 +4,23 @@
 
 #include "chrome/browser/ui/ash/holding_space/holding_space_keyed_service.h"
 
+#include <set>
+
 #include "ash/public/cpp/holding_space/holding_space_controller.h"
 #include "ash/public/cpp/holding_space/holding_space_image.h"
 #include "ash/public/cpp/holding_space/holding_space_item.h"
 #include "ash/public/cpp/holding_space/holding_space_metrics.h"
 #include "ash/public/cpp/holding_space/holding_space_prefs.h"
+#include "base/callback_helpers.h"
 #include "base/files/file_path.h"
+#include "chrome/browser/ash/drive/drive_integration_service.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/chromeos/drive/drive_integration_service.h"
 #include "chrome/browser/chromeos/file_manager/app_id.h"
 #include "chrome/browser/chromeos/file_manager/fileapi_util.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/ash/holding_space/holding_space_downloads_delegate.h"
 #include "chrome/browser/ui/ash/holding_space/holding_space_file_system_delegate.h"
+#include "chrome/browser/ui/ash/holding_space/holding_space_keyed_service_delegate.h"
 #include "chrome/browser/ui/ash/holding_space/holding_space_persistence_delegate.h"
 #include "chrome/browser/ui/ash/holding_space/holding_space_util.h"
 #include "components/account_id/account_id.h"
@@ -34,7 +38,7 @@ namespace {
 // TODO(crbug.com/1131266): Track alternative type in `HoldingSpaceItem`.
 // Returns a holding space item other than the one provided which is backed by
 // the same file path in the specified `model`.
-base::Optional<const HoldingSpaceItem*> GetAlternativeHoldingSpaceItem(
+absl::optional<const HoldingSpaceItem*> GetAlternativeHoldingSpaceItem(
     const HoldingSpaceModel& model,
     const HoldingSpaceItem* item) {
   for (const auto& candidate_item : model.items()) {
@@ -43,7 +47,7 @@ base::Optional<const HoldingSpaceItem*> GetAlternativeHoldingSpaceItem(
     if (candidate_item->file_path() == item->file_path())
       return candidate_item.get();
   }
-  return base::nullopt;
+  return absl::nullopt;
 }
 
 // Returns the singleton profile manager for the browser process.
@@ -122,12 +126,49 @@ void HoldingSpaceKeyedService::RegisterProfilePrefs(
   HoldingSpacePersistenceDelegate::RegisterProfilePrefs(registry);
 }
 
-void HoldingSpaceKeyedService::AddPinnedFile(
-    const storage::FileSystemURL& file_system_url) {
-  if (holding_space_model_.ContainsItem(HoldingSpaceItem::Type::kPinnedFile,
-                                        file_system_url.path())) {
-    return;
+void HoldingSpaceKeyedService::BindReceiver(
+    mojo::PendingReceiver<crosapi::mojom::HoldingSpaceService> receiver) {
+  receivers_.Add(this, std::move(receiver));
+}
+
+// TODO(crbug.com/1208910): Support incognito.
+void HoldingSpaceKeyedService::AddPrintedPdf(
+    const base::FilePath& printed_pdf_path,
+    bool from_incognito_profile) {
+  if (!from_incognito_profile)
+    AddItemOfType(HoldingSpaceItem::Type::kPrintedPdf, printed_pdf_path);
+}
+
+void HoldingSpaceKeyedService::AddPinnedFiles(
+    const std::vector<storage::FileSystemURL>& file_system_urls) {
+  std::vector<std::unique_ptr<HoldingSpaceItem>> items;
+  std::vector<const HoldingSpaceItem*> items_to_record;
+  for (const storage::FileSystemURL& file_system_url : file_system_urls) {
+    if (holding_space_model_.ContainsItem(HoldingSpaceItem::Type::kPinnedFile,
+                                          file_system_url.path())) {
+      continue;
+    }
+
+    items.push_back(HoldingSpaceItem::CreateFileBackedItem(
+        HoldingSpaceItem::Type::kPinnedFile, file_system_url.path(),
+        file_system_url.ToGURL(),
+        base::BindOnce(&holding_space_util::ResolveImage, &thumbnail_loader_)));
+
+    // When pinning an item which already exists in holding space, the pin
+    // action should be recorded on the alternative item backed by the same file
+    // path if such an item exists. Otherwise the only type of holding space
+    // item pinned will be thought to be `kPinnedFile`.
+    items_to_record.push_back(
+        GetAlternativeHoldingSpaceItem(holding_space_model_, items.back().get())
+            .value_or(items.back().get()));
+
+    if (file_system_url.type() == storage::kFileSystemTypeDriveFs)
+      MakeDriveItemAvailableOffline(file_system_url);
   }
+
+  DCHECK_EQ(items.size(), items_to_record.size());
+  if (items.empty())
+    return;
 
   // Mark when the first pin to holding space occurred. If this is not the first
   // pin to holding space, this will no-op. If this is the first pin, record the
@@ -135,52 +176,41 @@ void HoldingSpaceKeyedService::AddPinnedFile(
   if (holding_space_prefs::MarkTimeOfFirstPin(profile_->GetPrefs()))
     RecordTimeFromFirstEntryToFirstPin(profile_);
 
-  std::unique_ptr<HoldingSpaceItem> holding_space_item =
-      HoldingSpaceItem::CreateFileBackedItem(
-          HoldingSpaceItem::Type::kPinnedFile, file_system_url.path(),
-          file_system_url.ToGURL(),
-          holding_space_util::ResolveImage(&thumbnail_loader_,
-                                           HoldingSpaceItem::Type::kPinnedFile,
-                                           file_system_url.path()));
-
-  // When pinning an item which already exists in holding space, the pin action
-  // should be recorded on the alternative item backed by the same file path if
-  // such an item exists. Otherwise the only type of holding space item pinned
-  // will be thought to be `kPinnedFile`.
-  const HoldingSpaceItem* holding_space_item_to_record =
-      GetAlternativeHoldingSpaceItem(holding_space_model_,
-                                     holding_space_item.get())
-          .value_or(holding_space_item.get());
-
   holding_space_metrics::RecordItemAction(
-      {holding_space_item_to_record}, holding_space_metrics::ItemAction::kPin);
-  AddItem(std::move(holding_space_item));
+      items_to_record, holding_space_metrics::ItemAction::kPin);
 
-  if (file_system_url.type() == storage::kFileSystemTypeDriveFs) {
-    MakeDriveItemAvailableOffline(file_system_url);
-  }
+  AddItems(std::move(items));
 }
 
-void HoldingSpaceKeyedService::RemovePinnedFile(
-    const storage::FileSystemURL& file_system_url) {
-  const HoldingSpaceItem* holding_space_item = holding_space_model_.GetItem(
-      HoldingSpaceItem::Type::kPinnedFile, file_system_url.path());
-  if (!holding_space_item)
+void HoldingSpaceKeyedService::RemovePinnedFiles(
+    const std::vector<storage::FileSystemURL>& file_system_urls) {
+  std::set<std::string> items;
+  std::vector<const HoldingSpaceItem*> items_to_record;
+  for (const storage::FileSystemURL& file_system_url : file_system_urls) {
+    const HoldingSpaceItem* item = holding_space_model_.GetItem(
+        HoldingSpaceItem::Type::kPinnedFile, file_system_url.path());
+    if (!item)
+      continue;
+
+    items.emplace(item->id());
+
+    // When removing a pinned item, the unpin action should be recorded on the
+    // alternative item backed by the same file path if such an item exists.
+    // This will give more insight as to what types of items are being unpinned
+    // than would otherwise be known if only `kPinnedFile` was recorded.
+    items_to_record.push_back(
+        GetAlternativeHoldingSpaceItem(holding_space_model_, item)
+            .value_or(item));
+  }
+
+  DCHECK_EQ(items.size(), items_to_record.size());
+  if (items.empty())
     return;
 
-  // When removing a pinned item, the unpin action should be recorded on the
-  // alternative item backed by the same file path if such an item exists. This
-  // will give more insight as to what types of items are being unpinned than
-  // would otherwise be known if only `kPinnedFile` was recorded.
-  const HoldingSpaceItem* holding_space_item_to_record =
-      GetAlternativeHoldingSpaceItem(holding_space_model_, holding_space_item)
-          .value_or(holding_space_item);
-
   holding_space_metrics::RecordItemAction(
-      {holding_space_item_to_record},
-      holding_space_metrics::ItemAction::kUnpin);
+      items_to_record, holding_space_metrics::ItemAction::kUnpin);
 
-  holding_space_model_.RemoveItem(holding_space_item->id());
+  holding_space_model_.RemoveItems(items);
 }
 
 bool HoldingSpaceKeyedService::ContainsPinnedFile(
@@ -198,81 +228,67 @@ std::vector<GURL> HoldingSpaceKeyedService::GetPinnedFiles() const {
   return pinned_files;
 }
 
-void HoldingSpaceKeyedService::AddScreenshot(
-    const base::FilePath& screenshot_file) {
-  GURL file_system_url =
-      holding_space_util::ResolveFileSystemUrl(profile_, screenshot_file);
-  if (file_system_url.is_empty())
-    return;
-
-  AddItem(HoldingSpaceItem::CreateFileBackedItem(
-      HoldingSpaceItem::Type::kScreenshot, screenshot_file, file_system_url,
-      holding_space_util::ResolveImage(&thumbnail_loader_,
-                                       HoldingSpaceItem::Type::kScreenshot,
-                                       screenshot_file)));
-}
-
 void HoldingSpaceKeyedService::AddDownload(
-    const base::FilePath& download_file) {
-  const bool already_exists = holding_space_model_.ContainsItem(
-      HoldingSpaceItem::Type::kDownload, download_file);
-  if (already_exists)
-    return;
-
-  GURL file_system_url =
-      holding_space_util::ResolveFileSystemUrl(profile_, download_file);
-  if (file_system_url.is_empty())
-    return;
-
-  AddItem(HoldingSpaceItem::CreateFileBackedItem(
-      HoldingSpaceItem::Type::kDownload, download_file, file_system_url,
-      holding_space_util::ResolveImage(&thumbnail_loader_,
-                                       HoldingSpaceItem::Type::kDownload,
-                                       download_file)));
+    HoldingSpaceItem::Type type,
+    const base::FilePath& download_file,
+    const absl::optional<float>& progress) {
+  DCHECK(HoldingSpaceItem::IsDownload(type));
+  AddItemOfType(type, download_file, progress);
 }
 
 void HoldingSpaceKeyedService::AddNearbyShare(
     const base::FilePath& nearby_share_path) {
-  const bool already_exists = holding_space_model_.ContainsItem(
-      HoldingSpaceItem::Type::kNearbyShare, nearby_share_path);
-  if (already_exists)
-    return;
-
-  GURL file_system_url =
-      holding_space_util::ResolveFileSystemUrl(profile_, nearby_share_path);
-  if (file_system_url.is_empty())
-    return;
-
-  AddItem(HoldingSpaceItem::CreateFileBackedItem(
-      HoldingSpaceItem::Type::kNearbyShare, nearby_share_path, file_system_url,
-      holding_space_util::ResolveImage(&thumbnail_loader_,
-                                       HoldingSpaceItem::Type::kNearbyShare,
-                                       nearby_share_path)));
+  AddItemOfType(HoldingSpaceItem::Type::kNearbyShare, nearby_share_path);
 }
 
 void HoldingSpaceKeyedService::AddScreenRecording(
     const base::FilePath& screen_recording_file) {
-  GURL file_system_url =
-      holding_space_util::ResolveFileSystemUrl(profile_, screen_recording_file);
-  if (file_system_url.is_empty())
-    return;
+  AddItemOfType(HoldingSpaceItem::Type::kScreenRecording,
+                screen_recording_file);
+}
 
-  AddItem(HoldingSpaceItem::CreateFileBackedItem(
-      HoldingSpaceItem::Type::kScreenRecording, screen_recording_file,
-      file_system_url,
-      holding_space_util::ResolveImage(&thumbnail_loader_,
-                                       HoldingSpaceItem::Type::kScreenRecording,
-                                       screen_recording_file)));
+void HoldingSpaceKeyedService::AddScreenshot(
+    const base::FilePath& screenshot_file) {
+  AddItemOfType(HoldingSpaceItem::Type::kScreenshot, screenshot_file);
 }
 
 void HoldingSpaceKeyedService::AddItem(std::unique_ptr<HoldingSpaceItem> item) {
+  std::vector<std::unique_ptr<HoldingSpaceItem>> items;
+  items.push_back(std::move(item));
+  AddItems(std::move(items));
+}
+
+void HoldingSpaceKeyedService::AddItems(
+    std::vector<std::unique_ptr<HoldingSpaceItem>> items) {
+  // Ignore any `items` that already exist in the `holding_space_model_`.
+  base::EraseIf(items, [&](const std::unique_ptr<HoldingSpaceItem>& item) {
+    return holding_space_model_.ContainsItem(item->type(), item->file_path());
+  });
+
+  if (items.empty())
+    return;
+
   // Mark the time when the user's first item was added to holding space. Note
   // that true is returned iff this is in fact the user's first add and, if so,
   // the time it took for the user to add their first item should be recorded.
   if (holding_space_prefs::MarkTimeOfFirstAdd(profile_->GetPrefs()))
     RecordTimeFromFirstAvailabilityToFirstAdd(profile_);
 
-  holding_space_model_.AddItem(std::move(item));
+  holding_space_model_.AddItems(std::move(items));
+}
+
+void HoldingSpaceKeyedService::AddItemOfType(
+    HoldingSpaceItem::Type type,
+    const base::FilePath& file_path,
+    const absl::optional<float>& progress) {
+  const GURL file_system_url =
+      holding_space_util::ResolveFileSystemUrl(profile_, file_path);
+  if (file_system_url.is_empty())
+    return;
+
+  AddItem(HoldingSpaceItem::CreateFileBackedItem(
+      type, file_path, file_system_url, progress,
+      base::BindOnce(&holding_space_util::ResolveImage, &thumbnail_loader_)));
 }
 
 void HoldingSpaceKeyedService::Shutdown() {
@@ -318,25 +334,24 @@ void HoldingSpaceKeyedService::SuspendDone(base::TimeDelta sleep_duration) {
 }
 
 void HoldingSpaceKeyedService::InitializeDelegates() {
-  DCHECK(delegates_.empty());
+  // Bail out if delegates have already been initialized - delegates are
+  // shutdown on suspend, and re-initialized once suspend completes. If
+  // holding space keyed service starts observing suspend state after
+  // `SuspendImminent()` is sent out, original delegates may still be around.
+  if (!delegates_.empty())
+    return;
 
   // The `HoldingSpaceDownloadsDelegate` monitors the status of downloads.
   delegates_.push_back(std::make_unique<HoldingSpaceDownloadsDelegate>(
-      profile_, &holding_space_model_,
-      /*item_downloaded_callback=*/
-      base::BindRepeating(&HoldingSpaceKeyedService::AddDownload,
-                          weak_factory_.GetWeakPtr())));
+      this, &holding_space_model_));
 
   // The `HoldingSpaceFileSystemDelegate` monitors the file system for changes.
   delegates_.push_back(std::make_unique<HoldingSpaceFileSystemDelegate>(
-      profile_, &holding_space_model_));
+      this, &holding_space_model_));
 
   // The `HoldingSpacePersistenceDelegate` manages holding space persistence.
   delegates_.push_back(std::make_unique<HoldingSpacePersistenceDelegate>(
-      profile_, &holding_space_model_, &thumbnail_loader_,
-      /*item_restored_callback=*/
-      base::BindRepeating(&HoldingSpaceKeyedService::AddItem,
-                          weak_factory_.GetWeakPtr()),
+      this, &holding_space_model_, &thumbnail_loader_,
       /*persistence_restored_callback=*/
       base::BindOnce(&HoldingSpaceKeyedService::OnPersistenceRestored,
                      weak_factory_.GetWeakPtr())));

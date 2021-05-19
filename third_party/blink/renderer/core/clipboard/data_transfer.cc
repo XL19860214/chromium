@@ -27,8 +27,8 @@
 
 #include <memory>
 
-#include "base/optional.h"
 #include "build/build_config.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/common/widget/screen_info.h"
 #include "third_party/blink/renderer/core/clipboard/clipboard_mime_types.h"
 #include "third_party/blink/renderer/core/clipboard/clipboard_utilities.h"
@@ -60,6 +60,7 @@
 #include "third_party/blink/renderer/platform/graphics/unaccelerated_static_bitmap_image.h"
 #include "third_party/blink/renderer/platform/network/mime/mime_type_registry.h"
 #include "third_party/skia/include/core/SkSurface.h"
+#include "ui/base/dragdrop/mojom/drag_drop_types.mojom-blink.h"
 
 namespace blink {
 
@@ -158,10 +159,8 @@ class DraggedNodeImageBuilder {
 #endif
 };
 
-}  // namespace
-
-static base::Optional<DragOperation> ConvertEffectAllowedToDragOperation(
-    const String& op) {
+absl::optional<DragOperationsMask> ConvertEffectAllowedToDragOperationsMask(
+    const AtomicString& op) {
   // Values specified in
   // https://html.spec.whatwg.org/multipage/dnd.html#dom-datatransfer-effectallowed
   if (op == "uninitialized")
@@ -174,18 +173,24 @@ static base::Optional<DragOperation> ConvertEffectAllowedToDragOperation(
     return kDragOperationLink;
   if (op == "move")
     return kDragOperationMove;
-  if (op == "copyLink")
-    return static_cast<DragOperation>(kDragOperationCopy | kDragOperationLink);
-  if (op == "copyMove")
-    return static_cast<DragOperation>(kDragOperationCopy | kDragOperationMove);
-  if (op == "linkMove")
-    return static_cast<DragOperation>(kDragOperationLink | kDragOperationMove);
+  if (op == "copyLink") {
+    return static_cast<DragOperationsMask>(kDragOperationCopy |
+                                           kDragOperationLink);
+  }
+  if (op == "copyMove") {
+    return static_cast<DragOperationsMask>(kDragOperationCopy |
+                                           kDragOperationMove);
+  }
+  if (op == "linkMove") {
+    return static_cast<DragOperationsMask>(kDragOperationLink |
+                                           kDragOperationMove);
+  }
   if (op == "all")
     return kDragOperationEvery;
-  return base::nullopt;
+  return absl::nullopt;
 }
 
-static String ConvertDragOperationToEffectAllowed(DragOperation op) {
+AtomicString ConvertDragOperationsMaskToEffectAllowed(DragOperationsMask op) {
   if (((op & kDragOperationMove) && (op & kDragOperationCopy) &&
        (op & kDragOperationLink)) ||
       (op == kDragOperationEvery))
@@ -208,8 +213,7 @@ static String ConvertDragOperationToEffectAllowed(DragOperation op) {
 // We provide the IE clipboard types (URL and Text), and the clipboard types
 // specified in the HTML spec. See
 // https://html.spec.whatwg.org/multipage/dnd.html#the-datatransfer-interface
-static String NormalizeType(const String& type,
-                            bool* convert_to_url = nullptr) {
+String NormalizeType(const String& type, bool* convert_to_url = nullptr) {
   String clean_type = type.StripWhiteSpace().LowerASCII();
   if (clean_type == kMimeTypeText ||
       clean_type.StartsWith(kMimeTypeTextPlainEtc))
@@ -221,6 +225,8 @@ static String NormalizeType(const String& type,
   }
   return clean_type;
 }
+
+}  // namespace
 
 // static
 DataTransfer* DataTransfer::Create() {
@@ -240,7 +246,7 @@ DataTransfer* DataTransfer::Create(DataTransferType type,
 
 DataTransfer::~DataTransfer() = default;
 
-void DataTransfer::setDropEffect(const String& effect) {
+void DataTransfer::setDropEffect(const AtomicString& effect) {
   if (!IsForDragAndDrop())
     return;
 
@@ -255,11 +261,11 @@ void DataTransfer::setDropEffect(const String& effect) {
   drop_effect_ = effect;
 }
 
-void DataTransfer::setEffectAllowed(const String& effect) {
+void DataTransfer::setEffectAllowed(const AtomicString& effect) {
   if (!IsForDragAndDrop())
     return;
 
-  if (!ConvertEffectAllowedToDragOperation(effect)) {
+  if (!ConvertEffectAllowedToDragOperationsMask(effect)) {
     // This means that there was no conversion, and the effectAllowed that
     // we are passed isn't a valid effectAllowed, so we should ignore it,
     // and not set |effect_allowed_|.
@@ -556,30 +562,27 @@ bool DataTransfer::CanSetDragImage() const {
          policy_ == DataTransferAccessPolicy::kWritable;
 }
 
-DragOperation DataTransfer::SourceOperation() const {
-  base::Optional<DragOperation> op =
-      ConvertEffectAllowedToDragOperation(effect_allowed_);
+DragOperationsMask DataTransfer::SourceOperation() const {
+  absl::optional<DragOperationsMask> op =
+      ConvertEffectAllowedToDragOperationsMask(effect_allowed_);
   DCHECK(op);
   return *op;
 }
 
-DragOperation DataTransfer::DestinationOperation() const {
-  base::Optional<DragOperation> op =
-      ConvertEffectAllowedToDragOperation(drop_effect_);
-  DCHECK(op == kDragOperationCopy || op == kDragOperationNone ||
-         op == kDragOperationLink || op == kDragOperationMove ||
-         op == kDragOperationEvery);
-  return *op;
+ui::mojom::blink::DragOperation DataTransfer::DestinationOperation() const {
+  DCHECK(DropEffectIsInitialized());
+  absl::optional<DragOperationsMask> op =
+      ConvertEffectAllowedToDragOperationsMask(drop_effect_);
+  return static_cast<ui::mojom::blink::DragOperation>(*op);
 }
 
-void DataTransfer::SetSourceOperation(DragOperation op) {
-  effect_allowed_ = ConvertDragOperationToEffectAllowed(op);
+void DataTransfer::SetSourceOperation(DragOperationsMask op) {
+  effect_allowed_ = ConvertDragOperationsMaskToEffectAllowed(op);
 }
 
-void DataTransfer::SetDestinationOperation(DragOperation op) {
-  DCHECK(op == kDragOperationCopy || op == kDragOperationNone ||
-         op == kDragOperationLink || op == kDragOperationMove);
-  drop_effect_ = ConvertDragOperationToEffectAllowed(op);
+void DataTransfer::SetDestinationOperation(ui::mojom::blink::DragOperation op) {
+  drop_effect_ = ConvertDragOperationsMaskToEffectAllowed(
+      static_cast<DragOperationsMask>(op));
 }
 
 DataTransferItemList* DataTransfer::items() {
@@ -598,7 +601,6 @@ DataTransfer::DataTransfer(DataTransferType type,
                            DataTransferAccessPolicy policy,
                            DataObject* data_object)
     : policy_(policy),
-      drop_effect_("uninitialized"),
       effect_allowed_("uninitialized"),
       transfer_type_(type),
       data_object_(data_object),

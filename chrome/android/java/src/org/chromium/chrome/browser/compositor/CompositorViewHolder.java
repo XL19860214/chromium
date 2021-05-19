@@ -40,8 +40,6 @@ import org.chromium.base.SysUtils;
 import org.chromium.base.TraceEvent;
 import org.chromium.base.compat.ApiHelperForN;
 import org.chromium.base.compat.ApiHelperForO;
-import org.chromium.base.supplier.ObservableSupplier;
-import org.chromium.base.supplier.ObservableSupplierImpl;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.browser_controls.BrowserControlsStateProvider;
 import org.chromium.chrome.browser.browser_controls.BrowserControlsUtils;
@@ -58,18 +56,16 @@ import org.chromium.chrome.browser.tab.EmptyTabObserver;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tab.TabCreationState;
 import org.chromium.chrome.browser.tab.TabObserver;
-import org.chromium.chrome.browser.tabmodel.EmptyTabModelSelectorObserver;
 import org.chromium.chrome.browser.tabmodel.TabCreatorManager;
 import org.chromium.chrome.browser.tabmodel.TabModel;
 import org.chromium.chrome.browser.tabmodel.TabModelSelector;
+import org.chromium.chrome.browser.tabmodel.TabModelSelectorObserver;
 import org.chromium.chrome.browser.theme.TopUiThemeColorProvider;
 import org.chromium.chrome.browser.toolbar.ControlContainer;
 import org.chromium.chrome.browser.ui.TabObscuringHandler;
 import org.chromium.chrome.browser.util.ChromeAccessibilityUtil;
 import org.chromium.components.browser_ui.widget.InsetObserverView;
-import org.chromium.components.content_capture.ContentCaptureConsumer;
-import org.chromium.components.content_capture.ContentCaptureConsumerImpl;
-import org.chromium.components.content_capture.ExperimentContentCaptureConsumer;
+import org.chromium.components.content_capture.OnscreenContentProvider;
 import org.chromium.components.embedder_support.view.ContentView;
 import org.chromium.content_public.browser.ImeAdapter;
 import org.chromium.content_public.browser.WebContents;
@@ -166,8 +162,6 @@ public class CompositorViewHolder extends FrameLayout
 
     private TabModelSelector mTabModelSelector;
     private @Nullable BrowserControlsManager mBrowserControlsManager;
-    private ObservableSupplierImpl<BrowserControlsManager> mBrowserControlsManagerSupplier =
-            new ObservableSupplierImpl<>();
     private View mAccessibilityView;
     private CompositorAccessibilityProvider mNodeProvider;
 
@@ -215,11 +209,7 @@ public class CompositorViewHolder extends FrameLayout
      */
     private boolean mHasKeyboardGeometryChangeFired;
 
-    // Indicates if ContentCaptureConsumer should be created, we only try to create it once.
-    private boolean mShouldCreateContentCaptureConsumer = true;
-    // TODO: (crbug.com/1119663) Move consumers out of this class while support multiple consumers.
-    private ArrayList<ContentCaptureConsumer> mContentCaptureConsumers =
-            new ArrayList<ContentCaptureConsumer>();
+    private OnscreenContentProvider mOnscreenContentProvider;
 
     private Set<Runnable> mOnCompositorLayoutCallbacks = new HashSet<>();
     private Set<Runnable> mDidSwapFrameCallbacks = new HashSet<>();
@@ -572,10 +562,7 @@ public class CompositorViewHolder extends FrameLayout
             mInsetObserverView.removeObserver(this);
             mInsetObserverView = null;
         }
-        for (ContentCaptureConsumer consumer : mContentCaptureConsumers) {
-            consumer.onWebContentsChanged(null);
-        }
-        mContentCaptureConsumers.clear();
+        if (mOnscreenContentProvider != null) mOnscreenContentProvider.destroy();
         if (mContentView != null) {
             mContentView.removeOnHierarchyChangeListener(this);
         }
@@ -984,7 +971,7 @@ public class CompositorViewHolder extends FrameLayout
      */
     private void updateViewportSize() {
         if (mInGesture || mContentViewScrolling) return;
-
+        boolean controlsResizeViewChanged = false;
         if (mBrowserControlsManager != null) {
             // Update content viewport size only if the browser controls are not moving, i.e. not
             // scrolling or animating.
@@ -994,12 +981,17 @@ public class CompositorViewHolder extends FrameLayout
                     BrowserControlsUtils.controlsResizeView(mBrowserControlsManager);
             if (controlsResizeView != mControlsResizeView) {
                 mControlsResizeView = controlsResizeView;
-                onControlsResizeViewChanged(getWebContents(), mControlsResizeView);
+                controlsResizeViewChanged = true;
             }
         }
         // Reflect the changes that may have happened in in view/control size.
         Point viewportSize = getViewportSize();
         setSize(getWebContents(), getContentView(), viewportSize.x, viewportSize.y);
+        if (controlsResizeViewChanged) {
+            // Send this after setSize, so that RenderWidgetHost doesn't SynchronizeVisualProperties
+            // in a partly-updated state.
+            onControlsResizeViewChanged(getWebContents(), mControlsResizeView);
+        }
     }
 
     // View.OnHierarchyChangeListener implementation
@@ -1236,11 +1228,6 @@ public class CompositorViewHolder extends FrameLayout
     }
 
     @Override
-    public ObservableSupplier<BrowserControlsManager> getBrowserControlsManagerSupplier() {
-        return mBrowserControlsManagerSupplier;
-    }
-
-    @Override
     public FullscreenManager getFullscreenManager() {
         return mBrowserControlsManager.getFullscreenManager();
     }
@@ -1252,7 +1239,6 @@ public class CompositorViewHolder extends FrameLayout
     public void setBrowserControlsManager(BrowserControlsManager manager) {
         mBrowserControlsManager = manager;
         mBrowserControlsManager.addObserver(this);
-        mBrowserControlsManagerSupplier.set(mBrowserControlsManager);
         onViewportChanged();
     }
 
@@ -1272,6 +1258,13 @@ public class CompositorViewHolder extends FrameLayout
     public int getBottomControlsHeightPixels() {
         return mBrowserControlsManager != null ? mBrowserControlsManager.getBottomControlsHeight()
                                                : 0;
+    }
+
+    /**
+     * @return {@code true} if browser controls shrink Blink view's size.
+     */
+    public boolean controlsResizeView() {
+        return mControlsResizeView;
     }
 
     @Override
@@ -1337,10 +1330,11 @@ public class CompositorViewHolder extends FrameLayout
             TabModelSelector tabModelSelector, TabCreatorManager tabCreatorManager) {
         assert mLayoutManager != null;
         mLayoutManager.init(tabModelSelector, tabCreatorManager, mControlContainer,
-                mCompositorView.getResourceManager().getDynamicResourceLoader());
+                mCompositorView.getResourceManager().getDynamicResourceLoader(),
+                mTopUiThemeColorProvider);
 
         mTabModelSelector = tabModelSelector;
-        tabModelSelector.addObserver(new EmptyTabModelSelectorObserver() {
+        tabModelSelector.addObserver(new TabModelSelectorObserver() {
             @Override
             public void onChange() {
                 onContentChanged();
@@ -1433,20 +1427,11 @@ public class CompositorViewHolder extends FrameLayout
 
         if (mTabVisible != null) initializeTab(mTabVisible);
 
-        if (mShouldCreateContentCaptureConsumer) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                ContentCaptureConsumer consumer =
-                        ContentCaptureConsumerImpl.create(getContext(), this, getWebContents());
-                if (consumer != null) mContentCaptureConsumers.add(consumer);
-            }
-            ContentCaptureConsumer consumer =
-                    ExperimentContentCaptureConsumer.create(getWebContents());
-            if (consumer != null) mContentCaptureConsumers.add(consumer);
-            mShouldCreateContentCaptureConsumer = false;
+        if (mOnscreenContentProvider == null) {
+            mOnscreenContentProvider =
+                    new OnscreenContentProvider(getContext(), this, getWebContents());
         } else {
-            for (ContentCaptureConsumer consumer : mContentCaptureConsumers) {
-                consumer.onWebContentsChanged(getWebContents());
-            }
+            mOnscreenContentProvider.onWebContentsChanged(getWebContents());
         }
     }
 

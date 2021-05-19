@@ -49,6 +49,13 @@ source_set("deprecated_experimental_mojo") {
     "socket.h",
   ]
 
+  if (is_chromeos || is_linux) {
+    sources += [
+      "bluez/metrics_recorder.cc",
+      "bluez/metrics_recorder.h",
+    ]
+  }
+
   deps = [
     ":bluetooth",
     "//device/bluetooth/public/mojom:deprecated_experimental_interfaces",
@@ -62,7 +69,7 @@ source_set("deprecated_experimental_mojo") {
 
     # Approved clients:
     "//chrome/browser/ui/webui/bluetooth_internals:*",
-    "//chrome/browser/chromeos/nearby:bluetooth_adapter_util",
+    "//chrome/browser/chromeos/nearby:*",
 
     # Implementation tests
     # Ideally only device_unittests, however android & fushia generate
@@ -189,7 +196,7 @@ component("bluetooth") {
   }
 
   if (is_chromeos_ash) {
-    deps += [ "//chromeos/constants" ]
+    deps += [ "//ash/constants" ]
   }
 
   if (is_mac) {
@@ -337,6 +344,8 @@ component("bluetooth") {
         "bluez/bluetooth_socket_bluez.h",
         "dbus/bluetooth_adapter_client.cc",
         "dbus/bluetooth_adapter_client.h",
+        "dbus/bluetooth_admin_policy_client.cc",
+        "dbus/bluetooth_admin_policy_client.h",
         "dbus/bluetooth_agent_manager_client.cc",
         "dbus/bluetooth_agent_manager_client.h",
         "dbus/bluetooth_agent_service_provider.cc",
@@ -411,6 +420,8 @@ component("bluetooth") {
         sources += [
           "dbus/fake_bluetooth_adapter_client.cc",
           "dbus/fake_bluetooth_adapter_client.h",
+          "dbus/fake_bluetooth_admin_policy_client.cc",
+          "dbus/fake_bluetooth_admin_policy_client.h",
           "dbus/fake_bluetooth_agent_manager_client.cc",
           "dbus/fake_bluetooth_agent_manager_client.h",
           "dbus/fake_bluetooth_agent_service_provider.cc",
@@ -540,7 +551,6 @@ if (is_android) {
     sources = java_sources_needing_jni
     deps = [
       "//base:base_java",
-      "//base:jni_java",
       "//components/location/android:location_java",
     ]
     annotation_processor_deps = [ "//base/android/jni_generator:jni_processor" ]

@@ -5,6 +5,9 @@
 #ifndef COMPONENTS_SUBRESOURCE_FILTER_CONTENT_BROWSER_PROFILE_INTERACTION_MANAGER_H_
 #define COMPONENTS_SUBRESOURCE_FILTER_CONTENT_BROWSER_PROFILE_INTERACTION_MANAGER_H_
 
+#include "build/build_config.h"
+#include "components/subresource_filter/content/browser/subresource_filter_safe_browsing_activation_throttle.h"
+#include "components/subresource_filter/core/common/activation_decision.h"
 #include "components/subresource_filter/core/mojom/subresource_filter.mojom.h"
 #include "content/public/browser/web_contents_observer.h"
 
@@ -20,7 +23,9 @@ class SubresourceFilterProfileContext;
 // Class that manages interaction between interaction between the
 // per-navigation/per-tab subresource filter objects (i.e., the throttles and
 // throttle manager) and the per-profile objects (e.g., content settings).
-class ProfileInteractionManager : public content::WebContentsObserver {
+class ProfileInteractionManager
+    : public content::WebContentsObserver,
+      public SubresourceFilterSafeBrowsingActivationThrottle::Delegate {
  public:
   ProfileInteractionManager(content::WebContents* web_contents,
                             SubresourceFilterProfileContext* profile_context);
@@ -41,6 +46,19 @@ class ProfileInteractionManager : public content::WebContentsObserver {
   // Invoked when an ads violation is triggered.
   void OnAdsViolationTriggered(content::RenderFrameHost* rfh,
                                mojom::AdsViolation triggered_violation);
+
+  // Invoked when a notification should potentially be shown to the user that
+  // ads are being blocked on this page. Will make the final determination as to
+  // whether the notification should be shown. On Android this will show an
+  // infobar if appropriate and if an infobar::ContentInfoBarManager instance
+  // has been installed in web_contents() by the embedder.
+  void MaybeShowNotification();
+
+  // SubresourceFilterSafeBrowsingActivationThrottle::Delegate:
+  mojom::ActivationLevel OnPageActivationComputed(
+      content::NavigationHandle* navigation_handle,
+      mojom::ActivationLevel initial_activation_level,
+      ActivationDecision* decision) override;
 
  private:
   // Unowned and must outlive this object.

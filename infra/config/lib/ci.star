@@ -15,7 +15,7 @@ to set the default value. Can also be accessed through `ci.defaults`.
 
 load("./args.star", "args")
 load("./branches.star", "branches")
-load("./builders.star", "builders")
+load("./builders.star", "builders", "os", "os_category")
 
 defaults = args.defaults(
     extends = builders.defaults,
@@ -96,6 +96,18 @@ def ci_builder(
     experiments = experiments or {}
     experiments.setdefault("chromium.resultdb.result_sink", 100)
     experiments.setdefault("chromium.resultdb.result_sink.junit_tests", 100)
+    experiments.setdefault("chromium.resultdb.result_sink.gtests_local", 100)
+
+    # Migrate executable to bbagent incrementally.
+    experiments.setdefault("luci.buildbucket.use_bbagent", 100)
+
+    goma_enable_ats = defaults.get_value_from_kwargs("goma_enable_ats", kwargs)
+    if goma_enable_ats == args.COMPUTE:
+        os = defaults.get_value_from_kwargs("os", kwargs)
+
+        # in CI, enable ATS on windows.
+        if os and os.category == os_category.WINDOWS:
+            kwargs["goma_enable_ats"] = True
 
     # Define the builder first so that any validation of luci.builder arguments
     # (e.g. bucket) occurs before we try to use it
@@ -106,6 +118,7 @@ def ci_builder(
         resultdb_bigquery_exports = merged_resultdb_bigquery_exports,
         notifies = notifies,
         experiments = experiments,
+        resultdb_index_by_timestamp = True,
         **kwargs
     )
 
@@ -156,6 +169,7 @@ def android_builder(
         # goma_jobs=goma.jobs.MANY_JOBS_FOR_CI
         goma_jobs = builders.goma.jobs.J150,
         **kwargs):
+    kwargs.setdefault("os", os.LINUX_BIONIC_REMOVE)
     return ci_builder(
         name = name,
         builder_group = "chromium.android",
@@ -165,10 +179,89 @@ def android_builder(
     )
 
 def android_fyi_builder(*, name, **kwargs):
+    kwargs.setdefault("os", os.LINUX_BIONIC_REMOVE)
     return ci_builder(
         name = name,
         builder_group = "chromium.android.fyi",
         goma_backend = builders.goma.backend.RBE_PROD,
+        **kwargs
+    )
+
+def angle_builder(*, name, **kwargs):
+    return ci.builder(
+        name = name,
+        builder_group = "chromium.angle",
+        executable = "recipe:angle_chromium",
+        service_account =
+            "chromium-ci-gpu-builder@chops-service-accounts.iam.gserviceaccount.com",
+        properties = {
+            "perf_dashboard_machine_group": "ChromiumANGLE",
+        },
+        **kwargs
+    )
+
+def angle_linux_builder(
+        *,
+        name,
+        goma_backend = builders.goma.backend.RBE_PROD,
+        **kwargs):
+    return angle_builder(
+        name = name,
+        goma_backend = goma_backend,
+        os = builders.os.LINUX_BIONIC_SWITCH_TO_DEFAULT,
+        pool = "luci.chromium.gpu.ci",
+        **kwargs
+    )
+
+def angle_mac_builder(*, name, **kwargs):
+    return angle_builder(
+        name = name,
+        builderless = False,
+        cores = None,
+        goma_backend = builders.goma.backend.RBE_PROD,
+        os = builders.os.MAC_ANY,
+        **kwargs
+    )
+
+# ANGLE testers are thin testers, they use linux VMs regardless of the
+# actual OS that the tests are built for
+def angle_thin_tester(
+        *,
+        name,
+        **kwargs):
+    return angle_linux_builder(
+        name = name,
+        cores = 2,
+        # Setting goma_backend for testers is a no-op, but better to be explicit
+        # here and also leave the generated configs unchanged for these testers.
+        goma_backend = None,
+        **kwargs
+    )
+
+def angle_windows_builder(*, name, **kwargs):
+    return angle_builder(
+        name = name,
+        builderless = True,
+        goma_backend = builders.goma.backend.RBE_PROD,
+        os = builders.os.WINDOWS_ANY,
+        pool = "luci.chromium.gpu.ci",
+        **kwargs
+    )
+
+def cipd_builder(*, name, **kwargs):
+    return ci_builder(
+        name = name,
+        builder_group = "chromium.packager",
+        service_account = "chromium-cipd-builder@chops-service-accounts.iam.gserviceaccount.com",
+        **kwargs
+    )
+
+def cipd_3pp_builder(*, name, os, properties, **kwargs):
+    return cipd_builder(
+        name = name,
+        executable = "recipe:chromium_3pp",
+        os = os,
+        properties = properties,
         **kwargs
     )
 
@@ -182,6 +275,7 @@ def chromium_builder(*, name, tree_closing = True, **kwargs):
     )
 
 def chromiumos_builder(*, name, tree_closing = True, **kwargs):
+    kwargs.setdefault("os", os.LINUX_BIONIC_REMOVE)
     return ci_builder(
         name = name,
         builder_group = "chromium.chromiumos",
@@ -218,7 +312,7 @@ def clang_mac_builder(*, name, cores = 24, **kwargs):
             # The Chromium build doesn't need system Xcode, but the ToT clang
             # bots also build clang and llvm and that build does need system
             # Xcode.
-            "xcode_build_version": "12a7209",
+            "xcode_build_version": "12d4e",
         },
         **kwargs
     )
@@ -241,7 +335,7 @@ def dawn_linux_builder(
         name = name,
         builderless = True,
         goma_backend = goma_backend,
-        os = builders.os.LINUX_DEFAULT,
+        os = builders.os.LINUX_BIONIC_SWITCH_TO_DEFAULT,
         pool = "luci.chromium.gpu.ci",
         **kwargs
     )
@@ -302,6 +396,7 @@ def fyi_builder(
         execution_timeout = 10 * time.hour,
         goma_backend = builders.goma.backend.RBE_PROD,
         **kwargs):
+    kwargs.setdefault("os", os.LINUX_BIONIC_REMOVE)
     return ci.builder(
         name = name,
         builder_group = "chromium.fyi",
@@ -347,7 +442,7 @@ def fyi_ios_builder(
         executable = "recipe:chromium",
         goma_backend = builders.goma.backend.RBE_PROD,
         os = builders.os.MAC_10_15,
-        xcode = builders.xcode.x12a7209,
+        xcode = builders.xcode.x12d4e,
         **kwargs):
     return fyi_builder(
         name = name,
@@ -405,7 +500,7 @@ def gpu_fyi_linux_builder(
         name = name,
         execution_timeout = execution_timeout,
         goma_backend = goma_backend,
-        os = builders.os.LINUX_DEFAULT,
+        os = builders.os.LINUX_BIONIC_SWITCH_TO_DEFAULT,
         pool = "luci.chromium.gpu.ci",
         **kwargs
     )
@@ -468,7 +563,7 @@ def gpu_linux_builder(
         name = name,
         builderless = True,
         goma_backend = goma_backend,
-        os = builders.os.LINUX_DEFAULT,
+        os = builders.os.LINUX_BIONIC_SWITCH_TO_DEFAULT,
         pool = "luci.chromium.gpu.ci",
         **kwargs
     )
@@ -514,6 +609,7 @@ def linux_builder(
         notifies = ("chromium.linux",),
         extra_notifies = None,
         **kwargs):
+    kwargs.setdefault("os", builders.os.LINUX_BIONIC_REMOVE)
     return ci.builder(
         name = name,
         builder_group = "chromium.linux",
@@ -547,7 +643,7 @@ def mac_ios_builder(
         name,
         executable = "recipe:chromium",
         goma_backend = builders.goma.backend.RBE_PROD,
-        xcode = builders.xcode.x12a7209,
+        xcode = builders.xcode.x12d4e,
         **kwargs):
     return mac_builder(
         name = name,
@@ -566,6 +662,7 @@ def memory_builder(
         tree_closing = True,
         **kwargs):
     if name.startswith("Linux"):
+        kwargs.setdefault("os", builders.os.LINUX_BIONIC_REMOVE)
         notifies = (notifies or []) + ["linux-memory"]
 
     return ci.builder(
@@ -612,7 +709,7 @@ def swangle_linux_builder(
     return swangle_builder(
         name = name,
         goma_backend = builders.goma.backend.RBE_PROD,
-        os = builders.os.LINUX_DEFAULT,
+        os = builders.os.LINUX_BIONIC_SWITCH_TO_DEFAULT,
         pool = "luci.chromium.gpu.ci",
         **kwargs
     )
@@ -644,6 +741,7 @@ def thin_tester(
         name,
         triggered_by,
         builder_group,
+        os = builders.os.LINUX_BIONIC_SWITCH_TO_DEFAULT,
         tree_closing = True,
         **kwargs):
     return ci.builder(
@@ -651,6 +749,7 @@ def thin_tester(
         builder_group = builder_group,
         triggered_by = triggered_by,
         goma_backend = None,
+        os = os,
         tree_closing = tree_closing,
         **kwargs
     )
@@ -659,6 +758,7 @@ def updater_builder(
         *,
         name,
         **kwargs):
+    kwargs.setdefault("os", os.LINUX_BIONIC_REMOVE)
     return ci.builder(
         name = name,
         builder_group = "chromium.updater",
@@ -691,8 +791,14 @@ ci = struct(
     # More specific builder wrapper functions
     android_builder = android_builder,
     android_fyi_builder = android_fyi_builder,
+    angle_linux_builder = angle_linux_builder,
+    angle_mac_builder = angle_mac_builder,
+    angle_thin_tester = angle_thin_tester,
+    angle_windows_builder = angle_windows_builder,
     chromium_builder = chromium_builder,
     chromiumos_builder = chromiumos_builder,
+    cipd_3pp_builder = cipd_3pp_builder,
+    cipd_builder = cipd_builder,
     clang_builder = clang_builder,
     clang_mac_builder = clang_mac_builder,
     dawn_linux_builder = dawn_linux_builder,

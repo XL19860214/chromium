@@ -85,7 +85,7 @@ class StandaloneTrustedVaultBackend
 
   // Sets/resets |primary_account_|.
   void SetPrimaryAccount(
-      const base::Optional<CoreAccountInfo>& primary_account);
+      const absl::optional<CoreAccountInfo>& primary_account);
 
   // Returns whether recoverability of the keys is degraded and user action is
   // required to add a new method.
@@ -95,14 +95,17 @@ class StandaloneTrustedVaultBackend
   // Registers a new trusted recovery method that can be used to retrieve keys.
   void AddTrustedRecoveryMethod(const std::string& gaia_id,
                                 const std::vector<uint8_t>& public_key,
+                                int method_type_hint,
                                 base::OnceClosure cb);
 
-  base::Optional<CoreAccountInfo> GetPrimaryAccountForTesting() const;
+  absl::optional<CoreAccountInfo> GetPrimaryAccountForTesting() const;
 
   sync_pb::LocalDeviceRegistrationInfo GetDeviceRegistrationInfoForTesting(
       const std::string& gaia_id);
 
   void SetRecoverabilityDegradedForTesting();
+
+  std::vector<uint8_t> GetLastAddedRecoveryMethodPublicKeyForTesting() const;
 
   void SetClockForTesting(base::Clock* clock);
 
@@ -120,12 +123,13 @@ class StandaloneTrustedVaultBackend
   void MaybeRegisterDevice(const std::string& gaia_id);
 
   // Called when device registration for |gaia_id| is completed (either
-  // successfully or not).
+  // successfully or not). |data_| must contain LocalTrustedVaultPerUser for
+  // given |gaia_id|.
   void OnDeviceRegistered(const std::string& gaia_id,
-                          TrustedVaultRequestStatus status);
+                          TrustedVaultRegistrationStatus status);
 
   void OnKeysDownloaded(const std::string& gaia_id,
-                        TrustedVaultRequestStatus status,
+                        TrustedVaultDownloadKeysStatus status,
                         const std::vector<std::vector<uint8_t>>& vault_keys,
                         int last_vault_key_version);
 
@@ -158,13 +162,13 @@ class StandaloneTrustedVaultBackend
 
   // Only current |primary_account_| can be used for communication with trusted
   // vault server.
-  base::Optional<CoreAccountInfo> primary_account_;
+  absl::optional<CoreAccountInfo> primary_account_;
 
   // Used to plumb FetchKeys() result to the caller.
   FetchKeysCallback ongoing_fetch_keys_callback_;
 
   // Account used in last FetchKeys() call.
-  base::Optional<std::string> ongoing_fetch_keys_gaia_id_;
+  absl::optional<std::string> ongoing_fetch_keys_gaia_id_;
 
   // Destroying this will cancel the ongoing request.
   std::unique_ptr<TrustedVaultConnection::Request> ongoing_connection_request_;
@@ -174,6 +178,7 @@ class StandaloneTrustedVaultBackend
   base::Clock* clock_;
 
   bool is_recoverability_degraded_for_testing_ = false;
+  std::vector<uint8_t> last_added_recovery_method_public_key_for_testing_;
 };
 
 }  // namespace syncer

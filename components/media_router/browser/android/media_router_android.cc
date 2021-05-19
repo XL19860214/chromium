@@ -198,10 +198,8 @@ void MediaRouterAndroid::UnregisterMediaSinksObserver(
 
   // If we are removing the final observer for the source, then stop
   // observing sinks for it.
-  // might_have_observers() is reliable here on the assumption that this call
-  // is not inside the ObserverList iteration.
   it->second->RemoveObserver(observer);
-  if (!it->second->might_have_observers()) {
+  if (it->second->empty()) {
     sinks_observers_.erase(source_id);
     bridge_->StopObservingMediaSinks(source_id);
   }
@@ -311,7 +309,7 @@ void MediaRouterAndroid::OnRouteTerminated(const MediaRoute::Id& route_id) {
 
 void MediaRouterAndroid::OnRouteClosed(
     const MediaRoute::Id& route_id,
-    const base::Optional<std::string>& error) {
+    const absl::optional<std::string>& error) {
   RemoveRoute(route_id);
   // TODO(crbug.com/882690): When the sending context is destroyed, tell MRP to
   // clean up the connection.

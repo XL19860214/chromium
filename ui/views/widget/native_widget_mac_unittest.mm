@@ -28,6 +28,7 @@
 #import "ui/base/cocoa/constrained_window/constrained_window_animation.h"
 #import "ui/base/cocoa/window_size_constants.h"
 #import "ui/base/test/scoped_fake_full_keyboard_access.h"
+#include "ui/compositor/layer.h"
 #include "ui/compositor/recyclable_compositor_mac.h"
 #import "ui/events/test/cocoa_test_event_utils.h"
 #include "ui/events/test/event_generator.h"
@@ -44,6 +45,11 @@
 #include "ui/views/widget/native_widget_mac.h"
 #include "ui/views/widget/native_widget_private.h"
 #include "ui/views/window/dialog_delegate.h"
+
+namespace {
+// "{}" in base64encode, to create some dummy restoration data.
+const std::string kDummyWindowRestorationData = "e30=";
+}  // namespace
 
 // Donates an implementation of -[NSAnimation stopAnimation] which calls the
 // original implementation, then quits a nested run loop.
@@ -107,6 +113,10 @@ class BridgedNativeWidgetTestApi {
   NSAnimation* show_animation() {
     return base::mac::ObjCCastStrict<NSAnimation>(
         bridge_->show_animation_.get());
+  }
+
+  bool HasWindowRestorationData() {
+    return bridge_->HasWindowRestorationData();
   }
 
  private:
@@ -246,11 +256,11 @@ class SimpleBubbleView : public BubbleDialogDelegateView {
 
 class CustomTooltipView : public View {
  public:
-  CustomTooltipView(const base::string16& tooltip, View* tooltip_handler)
+  CustomTooltipView(const std::u16string& tooltip, View* tooltip_handler)
       : tooltip_(tooltip), tooltip_handler_(tooltip_handler) {}
 
   // View:
-  base::string16 GetTooltipText(const gfx::Point& p) const override {
+  std::u16string GetTooltipText(const gfx::Point& p) const override {
     return tooltip_;
   }
 
@@ -259,7 +269,7 @@ class CustomTooltipView : public View {
   }
 
  private:
-  base::string16 tooltip_;
+  std::u16string tooltip_;
   View* tooltip_handler_;  // Weak
 
   DISALLOW_COPY_AND_ASSIGN(CustomTooltipView);
@@ -573,8 +583,10 @@ TEST_F(NativeWidgetMacTest, SetCursor) {
 
   Widget* widget = CreateTopLevelPlatformWidget();
   widget->SetBounds(gfx::Rect(0, 0, 300, 300));
-  widget->GetContentsView()->AddChildView(new CursorView(0, hand));
-  widget->GetContentsView()->AddChildView(new CursorView(100, ibeam));
+  widget->non_client_view()->frame_view()->AddChildView(
+      new CursorView(0, hand));
+  widget->non_client_view()->frame_view()->AddChildView(
+      new CursorView(100, ibeam));
   widget->Show();
   NSWindow* widget_window = widget->GetNativeWindow().GetNativeNSWindow();
 
@@ -629,7 +641,7 @@ TEST_F(NativeWidgetMacTest, AccessibilityIntegration) {
   gfx::Rect screen_rect(50, 50, 100, 100);
   widget->SetBounds(screen_rect);
 
-  const base::string16 test_string = base::ASCIIToUTF16("Green");
+  const std::u16string test_string = u"Green";
   views::Label* label = new views::Label(test_string);
   label->SetBounds(0, 0, 100, 100);
   widget->GetContentsView()->AddChildView(label);
@@ -662,6 +674,7 @@ Widget* AttachPopupToNativeParent(NSWindow* native_parent) {
   Widget* child = new Widget;
   Widget::InitParams init_params;
   init_params.parent = anchor_view.get();
+  init_params.child = true;
   init_params.type = Widget::InitParams::TYPE_POPUP;
   child->Init(std::move(init_params));
   return child;
@@ -678,6 +691,7 @@ TEST_F(NativeWidgetMacTest, NonWidgetParent) {
   EXPECT_EQ(1u, children.size());
 
   Widget* child = AttachPopupToNativeParent(native_parent);
+  EXPECT_FALSE(child->is_top_level());
   TestWidgetObserver child_observer(child);
 
   // GetTopLevelNativeWidget() will go up through |native_parent|'s Widget.
@@ -852,7 +866,7 @@ TEST_F(NativeWidgetMacTest, VisibleAfterNativeParentDeminiaturize) {
 
 // Use Native APIs to query the tooltip text that would be shown once the
 // tooltip delay had elapsed.
-base::string16 TooltipTextForWidget(Widget* widget) {
+std::u16string TooltipTextForWidget(Widget* widget) {
   // For Mac, the actual location doesn't matter, since there is only one native
   // view and it fills the window. This just assumes the window is at least big
   // big enough for a constant coordinate to be within it.
@@ -872,21 +886,23 @@ TEST_F(NativeWidgetMacTest, Tooltips) {
   gfx::Rect screen_rect(50, 50, 100, 100);
   widget->SetBounds(screen_rect);
 
-  const base::string16 tooltip_back = base::ASCIIToUTF16("Back");
-  const base::string16 tooltip_front = base::ASCIIToUTF16("Front");
-  const base::string16 long_tooltip(2000, 'W');
+  const std::u16string tooltip_back = u"Back";
+  const std::u16string tooltip_front = u"Front";
+  const std::u16string long_tooltip(2000, 'W');
 
   // Create a nested layout to test corner cases.
-  LabelButton* back =
-      widget->GetContentsView()->AddChildView(std::make_unique<LabelButton>());
+  LabelButton* back = widget->non_client_view()->frame_view()->AddChildView(
+      std::make_unique<LabelButton>());
   back->SetBounds(10, 10, 80, 80);
   widget->Show();
 
   ui::test::EventGenerator event_generator(GetContext(),
                                            widget->GetNativeWindow());
+  event_generator.set_assume_window_at_origin(false);
 
   // Initially, there should be no tooltip.
-  event_generator.MoveMouseTo(gfx::Point(50, 50));
+  const gfx::Rect widget_bounds = widget->GetClientAreaBoundsInScreen();
+  event_generator.MoveMouseTo(widget_bounds.CenterPoint());
   EXPECT_TRUE(TooltipTextForWidget(widget).empty());
 
   // Create a new button for the "front", and set the tooltip, but don't add it
@@ -912,11 +928,11 @@ TEST_F(NativeWidgetMacTest, Tooltips) {
   EXPECT_EQ(long_tooltip, TooltipTextForWidget(widget));
 
   // Move the mouse to a different view - tooltip should change.
-  event_generator.MoveMouseTo(gfx::Point(15, 15));
+  event_generator.MoveMouseTo(back->GetBoundsInScreen().origin());
   EXPECT_EQ(tooltip_back, TooltipTextForWidget(widget));
 
   // Move the mouse off of any view, tooltip should clear.
-  event_generator.MoveMouseTo(gfx::Point(5, 5));
+  event_generator.MoveMouseTo(widget_bounds.origin());
   EXPECT_TRUE(TooltipTextForWidget(widget).empty());
 
   widget->CloseNow();
@@ -935,15 +951,15 @@ TEST_F(NativeWidgetMacTest, TwoWidgetTooltips) {
       CreateChildPlatformWidget(widget_below->GetNativeView());
   widget_above->SetBounds(gfx::Rect(100, 0, 100, 200));
 
-  const base::string16 tooltip_above = base::ASCIIToUTF16("Front");
-  CustomTooltipView* view_above = new CustomTooltipView(tooltip_above, nullptr);
+  const std::u16string tooltip_above = u"Front";
+  CustomTooltipView* view_above = widget_above->GetContentsView()->AddChildView(
+      std::make_unique<CustomTooltipView>(tooltip_above, nullptr));
   view_above->SetBoundsRect(widget_above->GetContentsView()->bounds());
-  widget_above->GetContentsView()->AddChildView(view_above);
 
   CustomTooltipView* view_below =
-      new CustomTooltipView(base::ASCIIToUTF16("Back"), view_above);
+      widget_below->non_client_view()->frame_view()->AddChildView(
+          std::make_unique<CustomTooltipView>(u"Back", view_above));
   view_below->SetBoundsRect(widget_below->GetContentsView()->bounds());
-  widget_below->GetContentsView()->AddChildView(view_below);
 
   widget_below->Show();
   widget_above->Show();
@@ -952,7 +968,9 @@ TEST_F(NativeWidgetMacTest, TwoWidgetTooltips) {
   // for second. Despite that event was handled in the first one.
   ui::test::EventGenerator event_generator(GetContext(),
                                            widget_below->GetNativeWindow());
-  event_generator.MoveMouseTo(gfx::Point(120, 60));
+  event_generator.set_assume_window_at_origin(false);
+  event_generator.MoveMouseTo(
+      widget_above->GetWindowBoundsInScreen().CenterPoint());
   EXPECT_EQ(tooltip_above, TooltipTextForWidget(widget_below));
 
   widget_above->CloseNow();
@@ -1165,6 +1183,55 @@ TEST_F(NativeWidgetMacTest, NativeWindowChildModalShowHide) {
   }
 }
 
+// Tests that the first call into SetVisibilityState() restores the window state
+// for windows that start off miniaturized in the dock.
+TEST_F(NativeWidgetMacTest, ConfirmMinimizedWindowRestoration) {
+  Widget* widget = new Widget;
+  Widget::InitParams params = CreateParams(Widget::InitParams::TYPE_WINDOW);
+  params.native_widget =
+      CreatePlatformNativeWidgetImpl(widget, kStubCapture, nullptr);
+  // Start the window off in the dock.
+  params.show_state = ui::SHOW_STATE_MINIMIZED;
+  params.workspace = kDummyWindowRestorationData;
+  widget->Init(std::move(params));
+
+  BridgedNativeWidgetTestApi test_api(
+      widget->GetNativeWindow().GetNativeNSWindow());
+
+  EXPECT_TRUE(test_api.HasWindowRestorationData());
+
+  // Show() ultimately invokes SetVisibilityState().
+  widget->Show();
+
+  EXPECT_FALSE(test_api.HasWindowRestorationData());
+
+  widget->CloseNow();
+}
+
+// Tests that the first call into SetVisibilityState() restores the window state
+// for windows that start off visible.
+TEST_F(NativeWidgetMacTest, ConfirmVisibleWindowRestoration) {
+  Widget* widget = new Widget;
+  Widget::InitParams params = CreateParams(Widget::InitParams::TYPE_WINDOW);
+  params.native_widget =
+      CreatePlatformNativeWidgetImpl(widget, kStubCapture, nullptr);
+  params.show_state = ui::SHOW_STATE_NORMAL;
+  params.workspace = kDummyWindowRestorationData;
+  widget->Init(std::move(params));
+
+  BridgedNativeWidgetTestApi test_api(
+      widget->GetNativeWindow().GetNativeNSWindow());
+
+  EXPECT_TRUE(test_api.HasWindowRestorationData());
+
+  // Show() ultimately invokes SetVisibilityState().
+  widget->Show();
+
+  EXPECT_FALSE(test_api.HasWindowRestorationData());
+
+  widget->CloseNow();
+}
+
 // Tests that calls to Hide() a Widget cancel any in-progress show animation,
 // and that clients can control the triggering of the animation.
 TEST_F(NativeWidgetMacTest, ShowAnimationControl) {
@@ -1223,19 +1290,6 @@ TEST_F(NativeWidgetMacTest, ShowAnimationControl) {
   EXPECT_TRUE([retained_animation isAnimating]);
   [native_parent close];
   EXPECT_FALSE([retained_animation isAnimating]);
-}
-
-// Expect that |children|, the list of child windows of a window that has a
-// sheet open, is logically empty. "Logically empty" accounts for the
-// AppKit-created visual effect window that shows atop windows with open sheets
-// on macOS 11.
-void AssertNoChildrenForWindowWithSheet(NSArray<NSWindow*>* children) {
-  if (base::mac::IsAtLeastOS11()) {
-    ASSERT_EQ(1u, children.count);
-    EXPECT_NSEQ(@"NSSheetEffectDimmingWindow", children[0].className);
-  } else {
-    ASSERT_EQ(0u, children.count);
-  }
 }
 
 // Tests behavior of window-modal dialogs, displayed as sheets.
@@ -1301,7 +1355,7 @@ TEST_F(NativeWidgetMacTest, MAYBE_WindowModalSheet) {
   ASSERT_EQ(2u, children.size());
   EXPECT_TRUE(children.count(sheet_widget));
 
-  AssertNoChildrenForWindowWithSheet(native_parent.childWindows);
+  ASSERT_EQ(0U, native_parent.childWindows.count);
 
   // Modal, so the close button in the parent window should get disabled.
   EXPECT_FALSE([parent_close_button isEnabled]);
@@ -1324,7 +1378,7 @@ TEST_F(NativeWidgetMacTest, MAYBE_WindowModalSheet) {
   widget_observer.WaitForVisibleCounts(1, 1);
   EXPECT_FALSE(sheet_widget->IsVisible());
   [native_parent makeKeyAndOrderFront:nil];
-  AssertNoChildrenForWindowWithSheet(native_parent.childWindows);
+  ASSERT_EQ(0u, native_parent.childWindows.count);
   widget_observer.WaitForVisibleCounts(2, 1);
   EXPECT_TRUE(sheet_widget->IsVisible());
 
@@ -1693,18 +1747,18 @@ class CustomTitleWidgetDelegate : public WidgetDelegate {
   CustomTitleWidgetDelegate(Widget* widget)
       : widget_(widget), should_show_title_(true) {}
 
-  void set_title(const base::string16& title) { title_ = title; }
+  void set_title(const std::u16string& title) { title_ = title; }
   void set_should_show_title(bool show) { should_show_title_ = show; }
 
   // WidgetDelegate:
-  base::string16 GetWindowTitle() const override { return title_; }
+  std::u16string GetWindowTitle() const override { return title_; }
   bool ShouldShowWindowTitle() const override { return should_show_title_; }
   Widget* GetWidget() override { return widget_; }
   const Widget* GetWidget() const override { return widget_; }
 
  private:
   Widget* widget_;
-  base::string16 title_;
+  std::u16string title_;
   bool should_show_title_;
 
   DISALLOW_COPY_AND_ASSIGN(CustomTitleWidgetDelegate);
@@ -1727,11 +1781,11 @@ TEST_F(NativeWidgetMacTest, DISABLED_DoesHideTitle) {
   // Disable color correction so we can read unmodified values from the bitmap.
   [ns_window setColorSpace:[NSColorSpace sRGBColorSpace]];
 
-  EXPECT_EQ(base::string16(), delegate.GetWindowTitle());
+  EXPECT_EQ(std::u16string(), delegate.GetWindowTitle());
   EXPECT_NSEQ(@"", [ns_window title]);
   NSData* empty_title_data = WindowContentsAsTIFF(ns_window);
 
-  delegate.set_title(base::ASCIIToUTF16("This is a title"));
+  delegate.set_title(u"This is a title");
   widget->UpdateWindowTitle();
   NSData* this_title_data = WindowContentsAsTIFF(ns_window);
 
@@ -1740,7 +1794,7 @@ TEST_F(NativeWidgetMacTest, DISABLED_DoesHideTitle) {
   EXPECT_NSNE(empty_title_data, this_title_data);
 
   delegate.set_should_show_title(false);
-  delegate.set_title(base::ASCIIToUTF16("This is another title"));
+  delegate.set_title(u"This is another title");
   widget->UpdateWindowTitle();
   NSData* hidden_title_data = WindowContentsAsTIFF(ns_window);
 
@@ -2349,4 +2403,3 @@ TEST_F(NativeWidgetMacTest, InitCallback) {
   return YES;
 }
 @end
-

@@ -40,12 +40,6 @@ const float kDisplayRotationStickyAngleDegrees = 60.0f;
 // to gravity, with the current value requiring at least a 25 degree rise.
 const float kMinimumAccelerationScreenRotation = 4.2f;
 
-// Return true if auto-rotation is allowed which happens when the device is in a
-// physical tablet state.
-bool IsAutoRotationAllowed() {
-  return Shell::Get()->tablet_mode_controller()->is_in_tablet_physical_state();
-}
-
 OrientationLockType GetDisplayNaturalOrientation() {
   if (!display::Display::HasInternalDisplay())
     return OrientationLockType::kLandscape;
@@ -229,8 +223,7 @@ ScreenOrientationController::ScreenOrientationController()
   SplitViewController::Get(Shell::GetPrimaryRootWindow())->AddObserver(this);
   display::Screen::GetScreen()->AddObserver(this);
   Shell::Get()->window_tree_host_manager()->AddObserver(this);
-
-  OnTabletPhysicalStateChanged();
+  AccelerometerReader::GetInstance()->AddObserver(this);
 }
 
 ScreenOrientationController::~ScreenOrientationController() {
@@ -340,6 +333,14 @@ OrientationLockType ScreenOrientationController::GetCurrentOrientation() const {
   return RotationToOrientation(natural_orientation_, current_rotation_);
 }
 
+bool ScreenOrientationController::IsAutoRotationAllowed() const {
+  return Shell::Get()
+             ->tablet_mode_controller()
+             ->is_in_tablet_physical_state() ||
+         base::CommandLine::ForCurrentProcess()->HasSwitch(
+             switches::kSupportsClamshellAutoRotation);
+}
+
 void ScreenOrientationController::OnWindowActivated(
     ::wm::ActivationChangeObserver::ActivationReason reason,
     aura::Window* gained_active,
@@ -393,18 +394,18 @@ void ScreenOrientationController::OnWindowVisibilityChanged(
 }
 
 void ScreenOrientationController::OnAccelerometerUpdated(
-    scoped_refptr<const AccelerometerUpdate> update) {
+    const AccelerometerUpdate& update) {
   if (!IsAutoRotationAllowed())
     return;
 
   if (rotation_locked_ && !CanRotateInLockedState())
     return;
-  if (!update->has(ACCELEROMETER_SOURCE_SCREEN))
+  if (!update.has(ACCELEROMETER_SOURCE_SCREEN))
     return;
   // Ignore the reading if it appears unstable. The reading is considered
   // unstable if it deviates too much from gravity
-  if (update->IsReadingStable(ACCELEROMETER_SOURCE_SCREEN))
-    HandleScreenRotation(update->get(ACCELEROMETER_SOURCE_SCREEN));
+  if (update.IsReadingStable(ACCELEROMETER_SOURCE_SCREEN))
+    HandleScreenRotation(update.get(ACCELEROMETER_SOURCE_SCREEN));
 }
 
 void ScreenOrientationController::OnDisplayConfigurationChanged() {
@@ -456,8 +457,6 @@ void ScreenOrientationController::OnTabletPhysicalStateChanged() {
   auto* shell = Shell::Get();
 
   if (IsAutoRotationAllowed()) {
-    AccelerometerReader::GetInstance()->AddObserver(this);
-
     // Do not exit early, as the internal display can be determined after
     // Maximize Mode has started. (chrome-os-partner:38796) Always start
     // observing.
@@ -473,8 +472,6 @@ void ScreenOrientationController::OnTabletPhysicalStateChanged() {
       return;
     ApplyLockForTopMostWindowOnInternalDisplay();
   } else {
-    AccelerometerReader::GetInstance()->RemoveObserver(this);
-
     if (!display::Display::HasInternalDisplay())
       return;
 
@@ -686,7 +683,7 @@ void ScreenOrientationController::ApplyLockForTopMostWindowOnInternalDisplay() {
     return;
   }
 
-  current_app_requested_orientation_lock_ = base::nullopt;
+  current_app_requested_orientation_lock_ = absl::nullopt;
   if (!display::Display::HasInternalDisplay())
     return;
 
@@ -762,7 +759,7 @@ bool ScreenOrientationController::ApplyLockForWindowIfPossible(
         }
       }
       current_app_requested_orientation_lock_ =
-          base::make_optional<OrientationLockType>(lock_info.orientation_lock);
+          absl::make_optional<OrientationLockType>(lock_info.orientation_lock);
       return true;
     }
   }

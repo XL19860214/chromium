@@ -9,8 +9,8 @@
 #include <string>
 
 #include "base/gtest_prod_util.h"
-#include "base/optional.h"
 #include "net/base/net_export.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "url/origin.h"
 
 class GURL;
@@ -76,7 +76,7 @@ class NET_EXPORT SchemefulSite {
   static bool FromWire(const url::Origin& site_as_origin, SchemefulSite* out);
 
   // Creates a SchemefulSite iff the passed-in origin has a registerable domain.
-  static base::Optional<SchemefulSite> CreateIfHasRegisterableDomain(
+  static absl::optional<SchemefulSite> CreateIfHasRegisterableDomain(
       const url::Origin&);
 
   // If the scheme is ws or wss, it is converted to http or https, respectively.
@@ -97,15 +97,25 @@ class NET_EXPORT SchemefulSite {
 
   std::string GetDebugString() const;
 
+  // Gets the underlying site as a GURL. If the internal Origin is opaque,
+  // returns an empty GURL.
+  GURL GetURL() const;
+
   bool opaque() const { return site_as_origin_.opaque(); }
 
   bool has_registrable_domain_or_host() const {
-    return !site_as_origin_.host().empty();
+    return !registrable_domain_or_host().empty();
   }
 
   // Testing only function which allows tests to access the underlying
   // `site_as_origin_` in order to verify behavior.
   const url::Origin& GetInternalOriginForTesting() const;
+
+  // Testing-only function which allows access to the private
+  // `registrable_domain_or_host` method.
+  std::string registrable_domain_or_host_for_testing() const {
+    return registrable_domain_or_host();
+  }
 
   bool operator==(const SchemefulSite& other) const;
 
@@ -132,6 +142,9 @@ class NET_EXPORT SchemefulSite {
   // in this case, and unfriend IsolationInfo.
   friend class IsolationInfo;
 
+  // Needed because cookies do not account for scheme.
+  friend class CookieMonster;
+
   FRIEND_TEST_ALL_PREFIXES(SchemefulSiteTest, OpaqueSerialization);
 
   struct ObtainASiteResult {
@@ -145,19 +158,28 @@ class NET_EXPORT SchemefulSite {
 
   // Deserializes a string obtained from `SerializeWithNonce()` to a
   // `SchemefulSite`. Returns nullopt if the value was invalid in any way.
-  static base::Optional<SchemefulSite> DeserializeWithNonce(
+  static absl::optional<SchemefulSite> DeserializeWithNonce(
       const std::string& value);
 
   // Returns a serialized version of `site_as_origin_`. For an opaque
   // `site_as_origin_`, this serializes with the nonce.  See
   // `url::origin::SerializeWithNonce()` for usage information.
-  base::Optional<std::string> SerializeWithNonce();
+  absl::optional<std::string> SerializeWithNonce();
 
   // Returns whether `this` and `other` share a host or registrable domain.
   // Should NOT be used to check equality or equivalence. This is only used
   // for legacy same-site cookie logic that does not check schemes. Private to
   // restrict usage.
   bool SchemelesslyEqual(const SchemefulSite& other) const;
+
+  // Returns the host of the underlying `origin`, which will usually be the
+  // registrable domain. This is private because if it were public, it would
+  // trivially allow circumvention of the "Schemeful"-ness of this class.
+  // However, the CookieMonster currently needs access to this, since it ignores
+  // the schemes of domains.
+  std::string registrable_domain_or_host() const {
+    return site_as_origin_.host();
+  }
 
   // Origin which stores the result of running the steps documented at
   // https://html.spec.whatwg.org/multipage/origin.html#obtain-a-site.

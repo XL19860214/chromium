@@ -7,6 +7,7 @@
 #include <stddef.h>
 
 #include <list>
+#include <memory>
 #include <vector>
 
 #include "base/atomic_sequence_num.h"
@@ -56,8 +57,7 @@ const double kDefaultVolumeMultiplier = 1.0;
 const double kDuckingVolumeMultiplier = 0.2;
 const double kDifferentDuckingVolumeMultiplier = 0.018;
 
-const base::string16 kExpectedSourceTitlePrefix =
-    base::ASCIIToUTF16("http://example.com:");
+const std::u16string kExpectedSourceTitlePrefix = u"http://example.com:";
 
 constexpr gfx::Size kDefaultFaviconSize = gfx::Size(16, 16);
 
@@ -82,12 +82,12 @@ class MockAudioFocusDelegate : public content::AudioFocusDelegate {
     }
   }
 
-  base::Optional<AudioFocusType> GetCurrentFocusType() const {
+  absl::optional<AudioFocusType> GetCurrentFocusType() const {
     return audio_focus_type_;
   }
 
   void MediaSessionInfoChanged(
-      media_session::mojom::MediaSessionInfoPtr session_info) override {}
+      const media_session::mojom::MediaSessionInfoPtr& session_info) override {}
 
   MOCK_CONST_METHOD0(request_id, const base::UnguessableToken&());
 
@@ -116,7 +116,7 @@ class MockAudioFocusDelegate : public content::AudioFocusDelegate {
   const bool async_mode_ = false;
 
   std::list<AudioFocusType> requests_;
-  base::Optional<AudioFocusType> audio_focus_type_;
+  absl::optional<AudioFocusType> audio_focus_type_;
 };
 
 }  // namespace
@@ -196,7 +196,7 @@ class MediaSessionImplBrowserTest : public ContentBrowserTest {
 
   bool IsActive() { return media_session_->IsActive(); }
 
-  base::Optional<AudioFocusType> GetSessionAudioFocusType() {
+  absl::optional<AudioFocusType> GetSessionAudioFocusType() {
     return mock_audio_focus_delegate_->GetCurrentFocusType();
   }
 
@@ -225,6 +225,12 @@ class MediaSessionImplBrowserTest : public ContentBrowserTest {
     media_session_->Seek(base::TimeDelta::FromSeconds(-1));
   }
 
+  void UISeekTo() { media_session_->SeekTo(base::TimeDelta::FromSeconds(10)); }
+
+  void UIScrubTo() {
+    media_session_->ScrubTo(base::TimeDelta::FromSeconds(10));
+  }
+
   void UISetAudioSink(const std::string& sink_id) {
     media_session_->SetAudioSinkId(sink_id);
   }
@@ -234,8 +240,9 @@ class MediaSessionImplBrowserTest : public ContentBrowserTest {
   void SystemStopDucking() { media_session_->StopDucking(); }
 
   void EnsureMediaSessionService() {
-    mock_media_session_service_.reset(new NiceMock<MockMediaSessionServiceImpl>(
-        shell()->web_contents()->GetMainFrame()));
+    mock_media_session_service_ =
+        std::make_unique<NiceMock<MockMediaSessionServiceImpl>>(
+            shell()->web_contents()->GetMainFrame());
   }
 
   void SetPlaybackState(blink::mojom::MediaSessionPlaybackState state) {
@@ -279,8 +286,8 @@ class MediaSessionImplBrowserTest : public ContentBrowserTest {
 
   bool IsDucking() const { return media_session_->is_ducking_; }
 
-  base::string16 GetExpectedSourceTitle() {
-    base::string16 expected_title =
+  std::u16string GetExpectedSourceTitle() {
+    std::u16string expected_title =
         base::StrCat({kExpectedSourceTitlePrefix,
                       base::NumberToString16(embedded_test_server()->port())});
 
@@ -682,6 +689,7 @@ IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
   EXPECT_EQ(0, player_observer->received_resume_calls());
   EXPECT_EQ(0, player_observer->received_seek_forward_calls());
   EXPECT_EQ(0, player_observer->received_seek_backward_calls());
+  EXPECT_EQ(0, player_observer->received_seek_to_calls());
 
   SystemSuspend(true);
   EXPECT_EQ(3, player_observer->received_suspend_calls());
@@ -694,6 +702,12 @@ IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
 
   UISeekBackward();
   EXPECT_EQ(3, player_observer->received_seek_backward_calls());
+
+  UISeekTo();
+  EXPECT_EQ(3, player_observer->received_seek_to_calls());
+
+  UIScrubTo();
+  EXPECT_EQ(6, player_observer->received_seek_to_calls());
 }
 
 IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
@@ -724,6 +738,7 @@ IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
   EXPECT_EQ(0, player_observer->received_resume_calls());
   EXPECT_EQ(0, player_observer->received_seek_forward_calls());
   EXPECT_EQ(0, player_observer->received_seek_backward_calls());
+  EXPECT_EQ(0, player_observer->received_seek_to_calls());
 
   SystemSuspend(true);
   EXPECT_EQ(3, player_observer->received_suspend_calls());
@@ -736,6 +751,12 @@ IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
 
   UISeekBackward();
   EXPECT_EQ(3, player_observer->received_seek_backward_calls());
+
+  UISeekTo();
+  EXPECT_EQ(3, player_observer->received_seek_to_calls());
+
+  UIScrubTo();
+  EXPECT_EQ(6, player_observer->received_seek_to_calls());
 }
 
 IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
@@ -1554,7 +1575,7 @@ IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
 }
 
 IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
-                       ControlsDontShowWhenOneShotIsPresent) {
+                       ControlsDontShowWhenOnlyOneShotIsPresent) {
   auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
 
   {
@@ -1576,9 +1597,9 @@ IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
     StartNewPlayer(player_observer.get(), media::MediaContentType::Transient);
 
     observer.WaitForState(MediaSessionInfo::SessionState::kActive);
-    observer.WaitForControllable(false);
+    observer.WaitForControllable(true);
 
-    EXPECT_FALSE(IsControllable());
+    EXPECT_TRUE(IsControllable());
     EXPECT_TRUE(IsActive());
   }
 
@@ -1588,9 +1609,9 @@ IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
     StartNewPlayer(player_observer.get(), media::MediaContentType::Persistent);
 
     observer.WaitForState(MediaSessionInfo::SessionState::kActive);
-    observer.WaitForControllable(false);
+    observer.WaitForControllable(true);
 
-    EXPECT_FALSE(IsControllable());
+    EXPECT_TRUE(IsControllable());
     EXPECT_TRUE(IsActive());
   }
 }
@@ -1650,7 +1671,22 @@ IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
 }
 
 IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
-                       DontSuspendWhenOneShotIsPresent) {
+                       DontSuspendWhenOnlyOneShotIsPresent) {
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
+
+  StartNewPlayer(player_observer.get(), media::MediaContentType::OneShot);
+  ResolveAudioFocusSuccess();
+
+  SystemSuspend(false);
+
+  EXPECT_FALSE(IsControllable());
+  EXPECT_TRUE(IsActive());
+
+  EXPECT_EQ(0, player_observer->received_suspend_calls());
+}
+
+IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
+                       SuspendWhenOneShotAndNormalArePresent) {
   auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>();
 
   StartNewPlayer(player_observer.get(), media::MediaContentType::OneShot);
@@ -1661,9 +1697,9 @@ IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
   SystemSuspend(false);
 
   EXPECT_FALSE(IsControllable());
-  EXPECT_TRUE(IsActive());
+  EXPECT_FALSE(IsActive());
 
-  EXPECT_EQ(0, player_observer->received_suspend_calls());
+  EXPECT_EQ(2, player_observer->received_suspend_calls());
 }
 
 IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
@@ -2250,16 +2286,16 @@ IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
   EnsureMediaSessionService();
 
   media_session::MediaMetadata expected_metadata;
-  expected_metadata.title = base::ASCIIToUTF16("title");
-  expected_metadata.artist = base::ASCIIToUTF16("artist");
-  expected_metadata.album = base::ASCIIToUTF16("album");
+  expected_metadata.title = u"title";
+  expected_metadata.artist = u"artist";
+  expected_metadata.album = u"album";
   expected_metadata.source_title = GetExpectedSourceTitle();
 
   blink::mojom::SpecMediaMetadataPtr spec_metadata(
       blink::mojom::SpecMediaMetadata::New());
-  spec_metadata->title = base::ASCIIToUTF16("title");
-  spec_metadata->artist = base::ASCIIToUTF16("artist");
-  spec_metadata->album = base::ASCIIToUTF16("album");
+  spec_metadata->title = u"title";
+  spec_metadata->artist = u"artist";
+  spec_metadata->album = u"album";
   mock_media_session_service_->SetMetadata(std::move(spec_metadata));
 
   // Make sure the service is routed,
@@ -2511,7 +2547,7 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest, MetadataWhenFileUrlScheme) {
 
   media_session::MediaMetadata expected_metadata;
   expected_metadata.title = shell()->web_contents()->GetTitle();
-  expected_metadata.source_title = base::ASCIIToUTF16("Local File");
+  expected_metadata.source_title = u"Local File";
   observer.WaitForExpectedMetadata(expected_metadata);
 }
 
@@ -2675,11 +2711,11 @@ IN_PROC_BROWSER_TEST_F(MediaSessionFaviconBrowserTest, StartupInitalization) {
       new FaviconWaiter(shell()->web_contents()));
 
   // Insert the favicon dynamically.
-  ASSERT_TRUE(content::ExecuteScript(
-      shell()->web_contents(),
-      "let l = document.createElement('link'); "
-      "l.rel='icon'; l.type='image/png'; l.href='single_face.jpg'; "
-      "document.head.appendChild(l)"));
+  ASSERT_TRUE(
+      ExecJs(shell()->web_contents(),
+             "let l = document.createElement('link'); "
+             "l.rel='icon'; l.type='image/png'; l.href='single_face.jpg'; "
+             "document.head.appendChild(l)"));
 
   // Wait until it's received by the browser process.
   favicon_waiter->Wait();
@@ -2837,8 +2873,7 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
     // With one normal player we should use the position that one provides.
     media_session::test::MockMediaSessionMojoObserver observer(*media_session_);
 
-    ASSERT_TRUE(
-        ExecuteScript(main_frame, "document.getElementById('video').play()"));
+    ASSERT_TRUE(ExecJs(main_frame, "document.getElementById('video').play()"));
 
     observer.WaitForExpectedPosition(
         media_session::MediaPosition(1.0, duration, base::TimeDelta()));
@@ -2848,8 +2883,8 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
     // If we seek the player then the position should be updated.
     media_session::test::MockMediaSessionMojoObserver observer(*media_session_);
 
-    ASSERT_TRUE(ExecuteScript(
-        main_frame, "document.getElementById('video').currentTime = 1"));
+    ASSERT_TRUE(
+        ExecJs(main_frame, "document.getElementById('video').currentTime = 1"));
 
     // We might only learn about the rate going back to 1.0 when the media time
     // has already progressed a bit.
@@ -2862,8 +2897,7 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
     // If we pause the player then the rate should be updated.
     media_session::test::MockMediaSessionMojoObserver observer(*media_session_);
 
-    ASSERT_TRUE(
-        ExecuteScript(main_frame, "document.getElementById('video').pause()"));
+    ASSERT_TRUE(ExecJs(main_frame, "document.getElementById('video').pause()"));
 
     // Media time may have progressed since the time we seeked to 1s.
     paused_position =
@@ -2876,8 +2910,7 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
     // If we resume the player then the rate should be updated.
     media_session::test::MockMediaSessionMojoObserver observer(*media_session_);
 
-    ASSERT_TRUE(
-        ExecuteScript(main_frame, "document.getElementById('video').play()"));
+    ASSERT_TRUE(ExecJs(main_frame, "document.getElementById('video').play()"));
 
     // We might only learn about the rate going back to 1.0 when the media time
     // has already progressed a bit.
@@ -2889,8 +2922,8 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
     // If we change the playback rate then the MediaPosition should be updated.
     media_session::test::MockMediaSessionMojoObserver observer(*media_session_);
 
-    ASSERT_TRUE(ExecuteScript(
-        main_frame, "document.getElementById('video').playbackRate = 2"));
+    ASSERT_TRUE(ExecJs(main_frame,
+                       "document.getElementById('video').playbackRate = 2"));
 
     // Media time may have progressed since the time we resumed playback.
     observer.WaitForExpectedPositionAtLeast(
@@ -2902,7 +2935,7 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
     media_session::test::MockMediaSessionMojoObserver observer(*media_session_);
 
     ASSERT_TRUE(
-        ExecuteScript(main_frame, "document.getElementById('video').src = ''"));
+        ExecJs(main_frame, "document.getElementById('video').src = ''"));
 
     observer.WaitForEmptyPosition();
   }

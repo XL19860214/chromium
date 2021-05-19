@@ -16,7 +16,6 @@
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
 #include "base/no_destructor.h"
-#include "base/optional.h"
 #include "base/rand_util.h"
 #include "base/ranges/algorithm.h"
 #include "base/task/sequence_manager/real_time_domain.h"
@@ -31,6 +30,7 @@
 #include "base/time/tick_clock.h"
 #include "base/trace_event/base_tracing.h"
 #include "build/build_config.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace base {
 namespace sequence_manager {
@@ -725,7 +725,7 @@ TimeDelta SequenceManagerImpl::GetDelayTillNextDelayedTask(
 
   TimeDelta delay_till_next_task = TimeDelta::Max();
   for (TimeDomain* time_domain : main_thread_only().time_domains) {
-    Optional<TimeDelta> delay = time_domain->DelayTillNextTask(lazy_now);
+    absl::optional<TimeDelta> delay = time_domain->DelayTillNextTask(lazy_now);
     if (!delay)
       continue;
 
@@ -774,7 +774,7 @@ TimeRecordingPolicy SequenceManagerImpl::ShouldRecordTaskTiming(
   if (task_queue->RequiresTaskTiming())
     return TimeRecordingPolicy::DoRecord;
   if (main_thread_only().nesting_depth == 0 &&
-      main_thread_only().task_time_observers.might_have_observers()) {
+      !main_thread_only().task_time_observers.empty()) {
     return TimeRecordingPolicy::DoRecord;
   }
   return TimeRecordingPolicy::DoNotRecord;
@@ -854,13 +854,17 @@ void SequenceManagerImpl::NotifyDidProcessTask(ExecutingTask* executing_task,
     }
   }
 
+  bool has_valid_start =
+      task_timing.state() != TaskQueue::TaskTiming::State::NotStarted;
   TimeRecordingPolicy recording_policy =
       ShouldRecordTaskTiming(executing_task->task_queue);
   // Record end time ASAP to avoid bias due to the overhead of observers.
-  if (recording_policy == TimeRecordingPolicy::DoRecord)
+  if (recording_policy == TimeRecordingPolicy::DoRecord && has_valid_start) {
     task_timing.RecordTaskEnd(time_after_task);
+  }
 
-  if (task_timing.has_wall_time() && main_thread_only().nesting_depth == 0) {
+  if (has_valid_start && task_timing.has_wall_time() &&
+      main_thread_only().nesting_depth == 0) {
     TRACE_EVENT0(TRACE_DISABLED_BY_DEFAULT("sequence_manager"),
                  "SequenceManager.DidProcessTaskTimeObservers");
     for (auto& observer : main_thread_only().task_time_observers) {
@@ -1058,38 +1062,6 @@ bool SequenceManagerImpl::ShouldRecordCPUTimeForTask() {
 const SequenceManager::MetricRecordingSettings&
 SequenceManagerImpl::GetMetricRecordingSettings() const {
   return metric_recording_settings_;
-}
-
-// TODO(altimin): Ensure that this removes all pending tasks.
-void SequenceManagerImpl::DeletePendingTasks() {
-  DCHECK(main_thread_only().task_execution_stack.empty())
-      << "Tasks should be deleted outside RunLoop";
-
-  for (TaskQueueImpl* task_queue : main_thread_only().active_queues)
-    task_queue->DeletePendingTasks();
-  for (const auto& it : main_thread_only().queues_to_gracefully_shutdown)
-    it.first->DeletePendingTasks();
-  for (const auto& it : main_thread_only().queues_to_delete)
-    it.first->DeletePendingTasks();
-}
-
-bool SequenceManagerImpl::HasTasks() {
-  DCHECK_CALLED_ON_VALID_THREAD(associated_thread_->thread_checker);
-  RemoveAllCanceledTasksFromFrontOfWorkQueues();
-
-  for (TaskQueueImpl* task_queue : main_thread_only().active_queues) {
-    if (task_queue->HasTasks())
-      return true;
-  }
-  for (const auto& it : main_thread_only().queues_to_gracefully_shutdown) {
-    if (it.first->HasTasks())
-      return true;
-  }
-  for (const auto& it : main_thread_only().queues_to_delete) {
-    if (it.first->HasTasks())
-      return true;
-  }
-  return false;
 }
 
 MessagePumpType SequenceManagerImpl::GetType() const {

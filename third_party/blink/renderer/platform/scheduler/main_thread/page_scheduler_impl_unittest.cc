@@ -117,7 +117,7 @@ class PageSchedulerImplTest : public testing::Test {
     scheduler_ = std::make_unique<MainThreadSchedulerImpl>(
         base::sequence_manager::SequenceManagerForTest::Create(
             nullptr, test_task_runner_, test_task_runner_->GetMockTickClock()),
-        base::nullopt);
+        absl::nullopt);
     agent_group_scheduler_ = scheduler_->CreateAgentGroupScheduler();
     page_scheduler_delegate_ = std::make_unique<MockPageSchedulerDelegate>();
     page_scheduler_ =
@@ -1352,23 +1352,19 @@ TEST_F(PageSchedulerImplTest, PageSchedulerDestroyedWhileAudioChangePending) {
 
 TEST_F(PageSchedulerImplTest, AudiblePagesAreNotThrottled) {
   page_scheduler_->SetPageVisible(false);
-  EXPECT_TRUE(scheduler_->task_queue_throttler()->IsThrottled(
-      ThrottleableTaskQueue()->GetTaskQueue()));
+  EXPECT_TRUE(ThrottleableTaskQueue()->IsThrottled());
 
   // No throttling when the page is audible.
   page_scheduler_->AudioStateChanged(true);
-  EXPECT_FALSE(scheduler_->task_queue_throttler()->IsThrottled(
-      ThrottleableTaskQueue()->GetTaskQueue()));
+  EXPECT_FALSE(ThrottleableTaskQueue()->IsThrottled());
 
   // No throttling for some time after audio signal disappears.
   page_scheduler_->AudioStateChanged(false);
-  EXPECT_FALSE(scheduler_->task_queue_throttler()->IsThrottled(
-      ThrottleableTaskQueue()->GetTaskQueue()));
+  EXPECT_FALSE(ThrottleableTaskQueue()->IsThrottled());
 
   // Eventually throttling is reenabled again.
   test_task_runner_->FastForwardUntilNoTasksRemain();
-  EXPECT_TRUE(scheduler_->task_queue_throttler()->IsThrottled(
-      ThrottleableTaskQueue()->GetTaskQueue()));
+  EXPECT_TRUE(ThrottleableTaskQueue()->IsThrottled());
 }
 
 TEST_F(PageSchedulerImplTest, BudgetBasedThrottlingForPageScheduler) {

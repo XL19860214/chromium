@@ -63,6 +63,22 @@ mac_app_bundle("updater_bundle") {
     ":network_fetcher_sources",
     ":updater_setup_sources",
     "//chrome/updater:lib",
+    "//chrome/updater:updater_version_cc",
+  ]
+}
+
+mac_app_bundle("updater_bundle_test_v2") {
+  info_plist_target = ":updater_plist"
+  output_name = updater_product_full_name + "_Test_V2"
+  extra_substitutions =
+      [ "MAC_BUNDLE_IDENTIFIER=$mac_updater_bundle_identifier" ]
+
+  sources = [ "main.cc" ]
+  deps = [
+    ":network_fetcher_sources",
+    ":updater_setup_sources",
+    "//chrome/updater:lib",
+    "//chrome/updater:updater_version_cc_offset",
   ]
 }
 
@@ -74,21 +90,7 @@ source_set("xpc_names") {
 
   deps = [
     "//base",
-    "//chrome/updater:version_header",
-  ]
-
-  frameworks = [ "Foundation.framework" ]
-}
-
-source_set("util") {
-  sources = [
-    "util.h",
-    "util.mm",
-  ]
-
-  deps = [
-    "//base",
-    "//chrome/updater:base",
+    "//chrome/updater:branding_header",
     "//chrome/updater:version_header",
   ]
 
@@ -103,11 +105,11 @@ source_set("updater_setup_sources") {
 
   deps = [
     ":network_fetcher_sources",
-    ":util",
     ":xpc_names",
     "//base",
     "//chrome/common/mac:launchd",
     "//chrome/updater:base",
+    "//chrome/updater:branding_header",
     "//chrome/updater:version_header",
     "//components/crash/core/common:crash_key_lib",
     "//mojo/public/cpp/platform",

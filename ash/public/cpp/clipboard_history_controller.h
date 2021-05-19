@@ -6,17 +6,27 @@
 #define ASH_PUBLIC_CPP_CLIPBOARD_HISTORY_CONTROLLER_H_
 
 #include <memory>
+#include <set>
 
 #include "ash/public/cpp/ash_public_export.h"
 #include "base/observer_list_types.h"
+#include "chromeos/crosapi/mojom/clipboard_history.mojom.h"
 #include "ui/base/ui_base_types.h"
+
+namespace base {
+class Value;
+class UnguessableToken;
+}  // namespace base
 
 namespace gfx {
 class Rect;
 }  // namespace gfx
 
-namespace ash {
+namespace ui {
+class ClipboardData;
+}  // namespace ui
 
+namespace ash {
 class ScopedClipboardHistoryPause;
 
 // An interface implemented in Ash to enable the Chrome side to show the
@@ -26,9 +36,16 @@ class ASH_PUBLIC_EXPORT ClipboardHistoryController {
   class Observer : public base::CheckedObserver {
    public:
     // Called when the clipboard history menu is shown.
-    virtual void OnClipboardHistoryMenuShown() {}
+    virtual void OnClipboardHistoryMenuShown(
+        crosapi::mojom::ClipboardHistoryControllerShowSource show_source) {}
     // Called when the user pastes from the clipboard history menu.
     virtual void OnClipboardHistoryPasted() {}
+    // Called when the clipboard history changes.
+    virtual void OnClipboardHistoryItemListAddedOrRemoved() {}
+    // Called when existing clipboard items in the history have changes.
+    // virtual void OnClipboardHistoryItemsUpdated(
+    virtual void OnClipboardHistoryItemsUpdated(
+        const std::vector<base::UnguessableToken>& menu_item_ids) {}
   };
 
   // Returns the singleton instance.
@@ -42,12 +59,40 @@ class ASH_PUBLIC_EXPORT ClipboardHistoryController {
 
   // Shows the clipboard history menu triggered by `source_type` at the
   // specified position.
-  virtual void ShowMenu(const gfx::Rect& anchor_rect,
-                        ui::MenuSourceType source_type) = 0;
+  virtual void ShowMenu(
+      const gfx::Rect& anchor_rect,
+      ui::MenuSourceType source_type,
+      crosapi::mojom::ClipboardHistoryControllerShowSource show_source) = 0;
+
+  // Whether 'new' feature badge should be applied to clipboard menu.
+  virtual bool ShouldShowNewFeatureBadge() const = 0;
+  // Increment the 'new' feature badge shown count.
+  virtual void MarkNewFeatureBadgeShown() = 0;
+
+  // Increment the screenshot notification nudge shown count.
+  virtual void MarkScreenshotNotificationNudgeShown() = 0;
 
   // Creates a ScopedClipboardHistoryPause, which pauses ClipboardHistory for
   // its lifetime.
   virtual std::unique_ptr<ScopedClipboardHistoryPause> CreateScopedPause() = 0;
+
+  // Returns the history which tracks what is being copied to the clipboard.
+  // Only the items listed in |item_id_filter| are returned. If |item_id_filter|
+  // is empty, then all items in the history are returned.
+  virtual base::Value GetHistoryValues(
+      const std::set<std::string>& item_id_filter) const = 0;
+
+  // Returns a list of item ids for items contained in the clipboard history.
+  virtual std::vector<std::string> GetHistoryItemIds() const = 0;
+
+  // Pastes the clipboard item specified by the item id.
+  virtual bool PasteClipboardItemById(const std::string& item_id) = 0;
+
+  // Deletes the clipboard item specified by the item id.
+  virtual bool DeleteClipboardItemById(const std::string& item_id) = 0;
+
+  // Deletes the clipboard item that matches `data`.
+  virtual bool DeleteClipboardItemByClipboardData(ui::ClipboardData* data) = 0;
 
  protected:
   ClipboardHistoryController();

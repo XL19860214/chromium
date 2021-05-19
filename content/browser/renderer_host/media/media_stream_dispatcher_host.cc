@@ -34,7 +34,7 @@ void BindMediaStreamDeviceObserverReceiver(
 
   RenderFrameHost* render_frame_host =
       RenderFrameHost::FromID(render_process_id, render_frame_id);
-  if (render_frame_host)
+  if (render_frame_host && render_frame_host->IsRenderFrameCreated())
     render_frame_host->GetRemoteInterfaces()->GetInterface(std::move(receiver));
 }
 
@@ -196,7 +196,7 @@ void MediaStreamDispatcherHost::CancelRequest(int page_request_id) {
 
 void MediaStreamDispatcherHost::StopStreamDevice(
     const std::string& device_id,
-    const base::Optional<base::UnguessableToken>& session_id) {
+    const absl::optional<base::UnguessableToken>& session_id) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
   media_stream_manager_->StopStreamDevice(
@@ -254,7 +254,7 @@ void MediaStreamDispatcherHost::CloseDevice(const std::string& label) {
 }
 
 void MediaStreamDispatcherHost::SetCapturingLinkSecured(
-    const base::Optional<base::UnguessableToken>& session_id,
+    const absl::optional<base::UnguessableToken>& session_id,
     blink::mojom::MediaStreamType type,
     bool is_secure) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);

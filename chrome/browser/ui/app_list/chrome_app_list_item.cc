@@ -12,13 +12,14 @@
 #include "chrome/browser/ui/app_list/app_list_client_impl.h"
 #include "chrome/browser/ui/app_list/app_list_syncable_service_factory.h"
 #include "chrome/browser/ui/app_list/chrome_app_list_model_updater.h"
+#include "chrome/browser/ui/ash/notification_badge_color_cache.h"
 #include "extensions/browser/app_sorting.h"
 #include "extensions/browser/extension_system.h"
 #include "ui/gfx/color_utils.h"
 #include "ui/gfx/image/image_skia_operations.h"
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-#include "chrome/browser/chromeos/login/demo_mode/demo_session.h"
+#include "chrome/browser/ash/login/demo_mode/demo_session.h"
 #endif
 
 namespace {
@@ -86,8 +87,8 @@ std::unique_ptr<ash::AppListItemMetadata> ChromeAppListItem::CloneMetadata()
 void ChromeAppListItem::PerformActivate(int event_flags) {
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   // Handle recording app launch source from the AppList in Demo Mode.
-  chromeos::DemoSession::RecordAppLaunchSourceIfInDemoMode(
-      chromeos::DemoSession::AppLaunchSource::kAppList);
+  ash::DemoSession::RecordAppLaunchSourceIfInDemoMode(
+      ash::DemoSession::AppLaunchSource::kAppList);
 #endif
   Activate(event_flags);
   MaybeDismissAppList();
@@ -168,9 +169,15 @@ void ChromeAppListItem::SetDefaultPositionIfApplicable(
 void ChromeAppListItem::SetIcon(const gfx::ImageSkia& icon) {
   metadata_->icon = icon;
   metadata_->icon.EnsureRepsForSupportedScales();
+  metadata_->badge_color =
+      ash::NotificationBadgeColorCache::GetInstance().GetBadgeColorForApp(id(),
+                                                                          icon);
+
   AppListModelUpdater* updater = model_updater();
-  if (updater)
+  if (updater) {
     updater->SetItemIcon(id(), metadata_->icon);
+    updater->SetNotificationBadgeColor(id(), metadata_->badge_color);
+  }
 }
 
 void ChromeAppListItem::SetName(const std::string& name) {

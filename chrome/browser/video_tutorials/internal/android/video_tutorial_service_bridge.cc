@@ -31,7 +31,7 @@ void RunGetMultipleTutorialsCallback(const JavaRef<jobject>& j_callback,
 }
 
 void RunGetSingleTutorialCallback(const JavaRef<jobject>& j_callback,
-                                  base::Optional<Tutorial> tutorial) {
+                                  absl::optional<Tutorial> tutorial) {
   JNIEnv* env = AttachCurrentThread();
   RunObjectCallbackAndroid(
       j_callback, TutorialConversionBridge::CreateJavaTutorial(env, tutorial));
@@ -98,10 +98,20 @@ VideoTutorialServiceBridge::GetSupportedLanguages(
       env, video_tutorial_service_->GetSupportedLanguages());
 }
 
+ScopedJavaLocalRef<jobjectArray>
+VideoTutorialServiceBridge::GetAvailableLanguagesForTutorial(
+    JNIEnv* env,
+    const JavaParamRef<jobject>& jcaller,
+    jint j_feature) {
+  return base::android::ToJavaArrayOfStrings(
+      env, video_tutorial_service_->GetAvailableLanguagesForTutorial(
+               static_cast<FeatureType>(j_feature)));
+}
+
 ScopedJavaLocalRef<jstring> VideoTutorialServiceBridge::GetPreferredLocale(
     JNIEnv* env,
     const JavaParamRef<jobject>& jcaller) {
-  base::Optional<std::string> locale =
+  absl::optional<std::string> locale =
       video_tutorial_service_->GetPreferredLocale();
   return locale.has_value()
              ? base::android::ConvertUTF8ToJavaString(env, locale.value())

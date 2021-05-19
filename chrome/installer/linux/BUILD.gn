@@ -8,6 +8,7 @@ import("//build/config/chromeos/ui_mode.gni")
 import("//build/config/features.gni")
 import("//build/config/sanitizers/sanitizers.gni")
 import("//build/config/sysroot.gni")
+import("//build/linux/strip_binary.gni")
 import("//build/util/lastchange.gni")
 import("//build/util/process_version.gni")
 import("//build/util/version.gni")
@@ -70,6 +71,7 @@ if (enable_swiftshader) {
   packaging_files_shlibs += [
     "$root_out_dir/swiftshader_libEGL.so",
     "$root_out_dir/swiftshader_libGLESv2.so",
+    "$root_out_dir/libvk_swiftshader.so",
   ]
 }
 
@@ -90,6 +92,7 @@ copy("swiftshader_libs") {
 # TODO(mmoss) Any convenient way to get all the relevant build files?
 # (e.g. all locales, resources, etc.)
 packaging_files = packaging_files_binaries + [
+                    "$root_out_dir/vk_swiftshader_icd.json",
                     "$root_out_dir/xdg-mime",
                     "$root_out_dir/xdg-settings",
                     "$root_out_dir/locales/en-US.pak",
@@ -169,29 +172,11 @@ action("merge_rpm_dependencies") {
                       root_build_dir)
 }
 
-action("strip_chrome_binary") {
-  prog_name = "$root_out_dir/chrome"
-  debug_file = prog_name + ".debug"
-  stripped_file = prog_name + ".stripped"
+strip_binary("strip_chrome_binary") {
+  binary_input = "$root_out_dir/chrome"
+  symbol_output = "$root_out_dir/chrome.debug"
+  stripped_binary_output = "$root_out_dir/chrome.stripped"
   deps = [ "//chrome" ]
-  script = "//build/gn_run_binary.py"
-  sources = [
-    "//buildtools/third_party/eu-strip/bin/eu-strip",
-    prog_name,
-  ]
-  outputs = [
-    debug_file,
-    stripped_file,
-  ]
-  args = [
-    rebase_path("//buildtools/third_party/eu-strip/bin/eu-strip",
-                root_build_dir),
-    "-o",
-    rebase_path(stripped_file, root_build_dir),
-    "-f",
-    rebase_path(debug_file, root_build_dir),
-    rebase_path(prog_name, root_build_dir),
-  ]
 }
 
 # This target builds all "normal" Linux installers.  You must set
@@ -356,7 +341,11 @@ group("installer_deps") {
     ]
   }
   if (enable_swiftshader) {
-    public_deps += [ ":swiftshader_libs" ]
+    public_deps += [
+      ":swiftshader_libs",
+      "//third_party/swiftshader/src/Vulkan:icd_file",
+      "//third_party/swiftshader/src/Vulkan:swiftshader_libvulkan",
+    ]
   }
   if (!is_chromeos_ash) {
     public_deps += [ ":rpm_packaging_files" ]

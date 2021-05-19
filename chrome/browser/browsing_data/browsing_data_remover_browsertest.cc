@@ -64,6 +64,7 @@
 #include "content/public/browser/storage_partition.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/content_paths.h"
+#include "content/public/common/content_switches.h"
 #include "content/public/common/network_service_util.h"
 #include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
@@ -85,7 +86,6 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/common/features.h"
 #include "third_party/leveldatabase/env_chromium.h"
-#include "third_party/leveldatabase/leveldb_features.h"
 #include "third_party/re2/src/re2/re2.h"
 #include "url/gurl.h"
 
@@ -101,8 +101,8 @@
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_process_platform_part.h"
+#include "chrome/browser/chromeos/net/system_proxy_manager.h"
 #include "chrome/browser/chromeos/policy/browser_policy_connector_chromeos.h"
-#include "chrome/browser/chromeos/policy/system_proxy_manager.h"
 #include "chromeos/dbus/system_proxy/system_proxy_client.h"
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
@@ -287,7 +287,7 @@ bool SetGaiaCookieForProfile(Profile* profile) {
         loop.Quit();
       });
   network::mojom::CookieManager* cookie_manager =
-      content::BrowserContext::GetDefaultStoragePartition(profile)
+      profile->GetDefaultStoragePartition()
           ->GetCookieManagerForBrowserProcess();
   cookie_manager->SetCanonicalCookie(*cookie, google_url,
                                      net::CookieOptions::MakeAllInclusive(),
@@ -303,8 +303,7 @@ class BrowsingDataRemoverBrowserTest
     : public BrowsingDataRemoverBrowserTestBase {
  public:
   BrowsingDataRemoverBrowserTest() {
-    std::vector<base::Feature> enabled_features = {
-        leveldb::kLevelDBRewriteFeature};
+    std::vector<base::Feature> enabled_features = {};
 #if BUILDFLAG(ENABLE_LIBRARY_CDMS)
     enabled_features.push_back(media::kExternalClearKeyForTesting);
 #endif
@@ -327,8 +326,7 @@ class BrowsingDataRemoverBrowserTest
                      base::Time delete_begin,
                      base::Time delete_end) {
     content::BrowsingDataRemover* remover =
-        content::BrowserContext::GetBrowsingDataRemover(
-            GetBrowser()->profile());
+        GetBrowser()->profile()->GetBrowsingDataRemover();
     content::BrowsingDataRemoverCompletionObserver completion_observer(remover);
     remover->RemoveAndReply(
         delete_begin, delete_end, remove_mask,
@@ -341,8 +339,7 @@ class BrowsingDataRemoverBrowserTest
       uint64_t remove_mask,
       std::unique_ptr<BrowsingDataFilterBuilder> filter_builder) {
     content::BrowsingDataRemover* remover =
-        content::BrowserContext::GetBrowsingDataRemover(
-            GetBrowser()->profile());
+        GetBrowser()->profile()->GetBrowsingDataRemover();
     content::BrowsingDataRemoverCompletionObserver completion_observer(remover);
     remover->RemoveWithFilterAndReply(
         base::Time(), base::Time::Max(), remove_mask,
@@ -395,14 +392,12 @@ class BrowsingDataRemoverBrowserTest
     ExpectCookieTreeModelCount(0);
   }
 
-
 #if BUILDFLAG(ENABLE_LIBRARY_CDMS)
   int GetMediaLicenseCount() {
     base::RunLoop run_loop;
     int count = -1;
     content::StoragePartition* partition =
-        content::BrowserContext::GetDefaultStoragePartition(
-            browser()->profile());
+        browser()->profile()->GetDefaultStoragePartition();
     scoped_refptr<BrowsingDataMediaLicenseHelper> media_license_helper =
         BrowsingDataMediaLicenseHelper::Create(
             partition->GetFileSystemContext());
@@ -437,8 +432,9 @@ class BrowsingDataRemoverBrowserTest
   }
 
   network::mojom::NetworkContext* network_context() const {
-    return content::BrowserContext::GetDefaultStoragePartition(
-               GetBrowser()->profile())
+    return GetBrowser()
+        ->profile()
+        ->GetDefaultStoragePartition()
         ->GetNetworkContext();
   }
 
@@ -460,13 +456,13 @@ class BrowsingDataRemoverBrowserTest
   std::unique_ptr<CookiesTreeModel> GetCookiesTreeModel() {
     Profile* profile = GetBrowser()->profile();
     content::StoragePartition* storage_partition =
-        content::BrowserContext::GetDefaultStoragePartition(profile);
+        profile->GetDefaultStoragePartition();
     content::ServiceWorkerContext* service_worker_context =
         storage_partition->GetServiceWorkerContext();
-    content::CacheStorageContext* cache_storage_context =
-        storage_partition->GetCacheStorageContext();
     storage::FileSystemContext* file_system_context =
         storage_partition->GetFileSystemContext();
+    content::NativeIOContext* native_io_context =
+        storage_partition->GetNativeIOContext();
     auto container = std::make_unique<LocalDataContainer>(
         new browsing_data::CookieHelper(
             storage_partition,
@@ -479,12 +475,12 @@ class BrowsingDataRemoverBrowserTest
         new browsing_data::IndexedDBHelper(storage_partition),
         browsing_data::FileSystemHelper::Create(
             file_system_context,
-            browsing_data_file_system_util::GetAdditionalFileSystemTypes()),
+            browsing_data_file_system_util::GetAdditionalFileSystemTypes(),
+            native_io_context),
         BrowsingDataQuotaHelper::Create(profile),
         new browsing_data::ServiceWorkerHelper(service_worker_context),
-        new browsing_data::SharedWorkerHelper(storage_partition,
-                                              profile->GetResourceContext()),
-        new browsing_data::CacheStorageHelper(cache_storage_context),
+        new browsing_data::SharedWorkerHelper(storage_partition),
+        new browsing_data::CacheStorageHelper(storage_partition),
         BrowsingDataMediaLicenseHelper::Create(file_system_context));
     base::RunLoop run_loop;
     CookiesTreeObserver observer(run_loop.QuitClosure());
@@ -502,6 +498,8 @@ class BrowsingDataRemoverBrowserTest
     // it uses the External Clear Key CDM.
     RegisterClearKeyCdm(command_line);
 #endif
+    command_line->AppendSwitchASCII(switches::kEnableBlinkFeatures,
+                                    "StorageFoundationAPI");
   }
 };
 
@@ -515,9 +513,10 @@ class DiceBrowsingDataRemoverBrowserTest
                                   bool is_primary) {
     auto* identity_manager = IdentityManagerFactory::GetForProfile(profile);
     if (is_primary) {
-      DCHECK(!identity_manager->HasPrimaryAccount());
+      DCHECK(!identity_manager->HasPrimaryAccount(signin::ConsentLevel::kSync));
       return signin::MakePrimaryAccountAvailable(identity_manager,
-                                                 account_id + "@gmail.com");
+                                                 account_id + "@gmail.com",
+                                                 signin::ConsentLevel::kSync);
     }
     auto account_info =
         signin::MakeAccountAvailable(identity_manager, account_id);
@@ -1100,6 +1099,10 @@ IN_PROC_BROWSER_TEST_P(BrowsingDataRemoverBrowserTestP,
   TestEmptySiteData("FileSystem", GetParam());
 }
 
+IN_PROC_BROWSER_TEST_P(BrowsingDataRemoverBrowserTestP, NativeIODeletion) {
+  TestSiteData("StorageFoundation", GetParam());
+}
+
 IN_PROC_BROWSER_TEST_P(BrowsingDataRemoverBrowserTestP, WebSqlDeletion) {
   TestSiteData("WebSql", GetParam());
 }
@@ -1303,9 +1306,8 @@ IN_PROC_BROWSER_TEST_F(BrowsingDataRemoverBrowserTest,
 #endif  // BUILDFLAG(ENABLE_LIBRARY_CDMS)
 
 const std::vector<std::string> kStorageTypes{
-    "Cookie",    "LocalStorage", "FileSystem",    "SessionStorage",
-    "IndexedDb", "WebSql",       "ServiceWorker", "CacheStorage",
-};
+    "Cookie", "LocalStorage",  "FileSystem",   "SessionStorage",   "IndexedDb",
+    "WebSql", "ServiceWorker", "CacheStorage", "StorageFoundation"};
 
 // Test that storage doesn't leave any traces on disk.
 IN_PROC_BROWSER_TEST_F(BrowsingDataRemoverBrowserTest,
@@ -1347,9 +1349,10 @@ IN_PROC_BROWSER_TEST_F(BrowsingDataRemoverBrowserTest,
 IN_PROC_BROWSER_TEST_F(BrowsingDataRemoverBrowserTest,
                        MAYBE_PRE_StorageRemovedFromDisk) {
   EXPECT_EQ(1, GetSiteDataCount());
-  // Expect all datatypes from above except SessionStorage. SessionStorage is
-  // not supported by the CookieTreeModel yet.
-  ExpectCookieTreeModelCount(kStorageTypes.size() - 1);
+  // Expect all datatypes from above except SessionStorage and NativeIO.
+  // SessionStorage is not supported by the CookieTreeModel yet. NativeIO is
+  // shown as FileSystem in the CookieTree model.
+  ExpectCookieTreeModelCount(kStorageTypes.size() - 2);
   RemoveAndWait(chrome_browsing_data_remover::DATA_TYPE_SITE_DATA |
                 content::BrowsingDataRemover::DATA_TYPE_CACHE |
                 chrome_browsing_data_remover::DATA_TYPE_HISTORY |
@@ -1427,10 +1430,7 @@ IN_PROC_BROWSER_TEST_F(BrowsingDataRemoverBrowserTest,
 // sends a request to System-proxy to clear the cached user credentials.
 IN_PROC_BROWSER_TEST_F(BrowsingDataRemoverBrowserTest,
                        SystemProxyClearsUserCredentials) {
-  g_browser_process->platform_part()
-      ->browser_policy_connector_chromeos()
-      ->GetSystemProxyManager()
-      ->SetSystemProxyEnabledForTest(true);
+  chromeos::SystemProxyManager::Get()->SetSystemProxyEnabledForTest(true);
   EXPECT_EQ(0, chromeos::SystemProxyClient::Get()
                    ->GetTestInterface()
                    ->GetClearUserCredentialsCount());

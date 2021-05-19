@@ -30,7 +30,10 @@ class RenderFrameHost;
 namespace autofill_assistant {
 class DevtoolsClient;
 
-// Worker class to find element(s) matching a selector.
+// Worker class to find element(s) matching a selector. This will keep entering
+// iFrames until the element is found in the last frame, then returns the
+// element together with the owning frame. All subsequent operations should
+// be performed on that frame.
 class ElementFinder : public WebControllerWorker {
  public:
   enum ResultType {
@@ -301,17 +304,6 @@ class ElementFinder : public WebControllerWorker {
                               std::unique_ptr<dom::DescribeNodeResult> result);
   void OnResolveNode(const DevtoolsClient::ReplyStatus& reply_status,
                      std::unique_ptr<dom::ResolveNodeResult> result);
-
-  // Handle TaskType::PROXIMITY
-  void ApplyProximityFilter(int filter_index,
-                            const std::string& array_object_id);
-  void OnProximityFilterTarget(int filter_index,
-                               const std::string& array_object_id,
-                               const ClientStatus& status,
-                               std::unique_ptr<Result> result);
-  void OnProximityFilterJs(
-      const DevtoolsClient::ReplyStatus& reply_status,
-      std::unique_ptr<runtime::CallFunctionOnResult> result);
 
   // Fill |current_matches_js_array_| with the values in |current_matches_|
   // starting from |index|, then clear |current_matches_| and call

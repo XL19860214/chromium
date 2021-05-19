@@ -41,8 +41,8 @@
 #include "media/fuchsia/cdm/fuchsia_decryptor.h"
 #include "media/fuchsia/cdm/fuchsia_stream_decryptor.h"
 #include "media/fuchsia/common/stream_processor_helper.h"
-#include "media/fuchsia/common/sysmem_buffer_pool.h"
-#include "media/fuchsia/common/sysmem_buffer_writer_queue.h"
+#include "media/fuchsia/common/sysmem_client.h"
+#include "media/fuchsia/common/vmo_buffer_writer_queue.h"
 #include "third_party/libyuv/include/libyuv/video_common.h"
 #include "ui/gfx/buffer_types.h"
 #include "ui/gfx/client_native_pixmap_factory.h"
@@ -123,7 +123,7 @@ class OutputMailbox {
         coded_size, visible_rect, natural_size, timestamp);
 
     // Request a fence we'll wait on before reusing the buffer.
-    frame->metadata()->read_lock_fences_enabled = true;
+    frame->metadata().read_lock_fences_enabled = true;
 
     return frame;
   }
@@ -196,7 +196,7 @@ class FuchsiaVideoDecoder : public VideoDecoder,
   // Decoder implementation.
   bool IsPlatformDecoder() const override;
   bool SupportsDecryption() const override;
-  std::string GetDisplayName() const override;
+  VideoDecoderType GetDecoderType() const override;
 
   // VideoDecoder implementation.
   void Initialize(const VideoDecoderConfig& config,
@@ -243,11 +243,14 @@ class FuchsiaVideoDecoder : public VideoDecoder,
   // Called on errors to shutdown the decoder and notify the client.
   void OnError();
 
-  // Callback for |input_buffer_collection_creator_->Create()|.
-  void OnInputBufferPoolCreated(std::unique_ptr<SysmemBufferPool> pool);
+  // Callback for |input_buffer_collection_->GetSharedToken()|.
+  void SetInputBufferCollection(
+      fuchsia::sysmem::BufferCollectionTokenPtr token);
 
-  // Callback for |input_buffer_collection_->CreateWriter()|.
-  void OnWriterCreated(std::unique_ptr<SysmemBufferWriter> writer);
+  // Callback for |input_buffer_collection_->AcquireBuffers()|.
+  void OnInputBuffersAcquired(
+      std::vector<VmoBuffer> buffers,
+      const fuchsia::sysmem::SingleBufferSettings& buffer_settings);
 
   // Callbacks for |input_writer_|.
   void SendInputPacket(const DecoderBuffer* buffer,
@@ -287,10 +290,10 @@ class FuchsiaVideoDecoder : public VideoDecoder,
   // TODO(crbug.com/1131175): Use StreamProcessorHelper.
   fuchsia::media::StreamProcessorPtr decoder_;
 
-  base::Optional<fuchsia::media::StreamBufferConstraints>
+  absl::optional<fuchsia::media::StreamBufferConstraints>
       decoder_input_constraints_;
 
-  BufferAllocator sysmem_allocator_;
+  SysmemAllocatorClient sysmem_allocator_;
   std::unique_ptr<gfx::ClientNativePixmapFactory> client_native_pixmap_factory_;
 
   uint64_t stream_lifetime_ordinal_ = 1;
@@ -304,12 +307,11 @@ class FuchsiaVideoDecoder : public VideoDecoder,
 
   // Buffer queue for |decoder_|. Used only for clear streams, i.e. when there
   // is no |decryptor_|.
-  SysmemBufferWriterQueue input_writer_queue_;
+  VmoBufferWriterQueue input_writer_queue_;
 
   // Input buffers for |decoder_|.
   uint64_t input_buffer_lifetime_ordinal_ = 1;
-  std::unique_ptr<SysmemBufferPool::Creator> input_buffer_collection_creator_;
-  std::unique_ptr<SysmemBufferPool> input_buffer_collection_;
+  std::unique_ptr<SysmemCollectionClient> input_buffer_collection_;
   base::flat_map<size_t, InputDecoderPacket> in_flight_input_packets_;
 
   // Output buffers for |decoder_|.
@@ -334,6 +336,7 @@ FuchsiaVideoDecoder::FuchsiaVideoDecoder(
       enable_sw_decoding_(enable_sw_decoding),
       use_overlays_for_video_(base::CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kUseOverlaysForVideo)),
+      sysmem_allocator_("CrFuchsiaVideoDecoder"),
       client_native_pixmap_factory_(ui::CreateClientNativePixmapFactoryOzone()),
       weak_factory_(this) {
   DCHECK(raster_context_provider_);
@@ -357,8 +360,8 @@ bool FuchsiaVideoDecoder::SupportsDecryption() const {
   return true;
 }
 
-std::string FuchsiaVideoDecoder::GetDisplayName() const {
-  return "FuchsiaVideoDecoder";
+VideoDecoderType FuchsiaVideoDecoder::GetDecoderType() const {
+  return VideoDecoderType::kFuchsia;
 }
 
 void FuchsiaVideoDecoder::Initialize(const VideoDecoderConfig& config,
@@ -587,14 +590,20 @@ void FuchsiaVideoDecoder::OnInputConstraints(
 
   ReleaseInputBuffers();
 
-  // Create buffer constrains for the input buffer collection.
-  size_t num_tokens;
-  fuchsia::sysmem::BufferCollectionConstraints buffer_constraints;
+  input_buffer_collection_ = sysmem_allocator_.AllocateNewCollection();
+
+  input_buffer_collection_->CreateSharedToken(base::BindOnce(
+      &FuchsiaVideoDecoder::SetInputBufferCollection, base::Unretained(this)));
 
   if (decryptor_) {
-    // For encrypted streams the sysmem buffer collection is used for decryptor
-    // output and decoder input. It is not used directly.
-    num_tokens = 2;
+    input_buffer_collection_->CreateSharedToken(base::BindOnce(
+        &FuchsiaSecureStreamDecryptor::SetOutputBufferCollectionToken,
+        base::Unretained(decryptor_.get())));
+  }
+
+  // Create buffer constrains for the input buffer collection.
+  fuchsia::sysmem::BufferCollectionConstraints buffer_constraints;
+  if (decryptor_) {
     buffer_constraints.usage.none = fuchsia::sysmem::noneUsage;
     buffer_constraints.min_buffer_count = kNumInputBuffers;
     buffer_constraints.has_buffer_memory_constraints = true;
@@ -605,60 +614,39 @@ void FuchsiaVideoDecoder::OnInputConstraints(
     buffer_constraints.buffer_memory_constraints.inaccessible_domain_supported =
         true;
   } else {
-    num_tokens = 1;
-    auto writer_constraints = SysmemBufferWriter::GetRecommendedConstraints(
-        kNumInputBuffers, kInputBufferSize);
-    if (!writer_constraints.has_value()) {
-      OnError();
-      return;
-    }
-    buffer_constraints = std::move(writer_constraints).value();
+    buffer_constraints = VmoBuffer::GetRecommendedConstraints(
+        kNumInputBuffers, kInputBufferSize, /*writable=*/true);
   }
 
-  input_buffer_collection_creator_ =
-      sysmem_allocator_.MakeBufferPoolCreator(num_tokens);
-  input_buffer_collection_creator_->Create(
-      std::move(buffer_constraints),
-      base::BindOnce(&FuchsiaVideoDecoder::OnInputBufferPoolCreated,
-                     base::Unretained(this)));
+  input_buffer_collection_->Initialize(std::move(buffer_constraints),
+                                       "CrVideoDecoderInput");
+
+  if (!decryptor_) {
+    input_buffer_collection_->AcquireBuffers(base::BindOnce(
+        &FuchsiaVideoDecoder::OnInputBuffersAcquired, base::Unretained(this)));
+  }
 }
 
-void FuchsiaVideoDecoder::OnInputBufferPoolCreated(
-    std::unique_ptr<SysmemBufferPool> pool) {
-  if (!pool) {
-    DLOG(ERROR) << "Fail to allocate input buffers for the codec.";
-    OnError();
-    return;
-  }
-
-  input_buffer_collection_ = std::move(pool);
-
+void FuchsiaVideoDecoder::SetInputBufferCollection(
+    fuchsia::sysmem::BufferCollectionTokenPtr token) {
   fuchsia::media::StreamBufferPartialSettings settings;
   settings.set_buffer_lifetime_ordinal(input_buffer_lifetime_ordinal_);
   settings.set_buffer_constraints_version_ordinal(
       decoder_input_constraints_->buffer_constraints_version_ordinal());
-  settings.set_single_buffer_mode(false);
-  settings.set_sysmem_token(input_buffer_collection_->TakeToken());
+  settings.set_sysmem_token(std::move(token));
   decoder_->SetInputBufferPartialSettings(std::move(settings));
-
-  if (decryptor_) {
-    decryptor_->SetOutputBufferCollectionToken(
-        input_buffer_collection_->TakeToken());
-  } else {
-    input_buffer_collection_->CreateWriter(base::BindOnce(
-        &FuchsiaVideoDecoder::OnWriterCreated, base::Unretained(this)));
-  }
 }
 
-void FuchsiaVideoDecoder::OnWriterCreated(
-    std::unique_ptr<SysmemBufferWriter> writer) {
-  if (!writer) {
+void FuchsiaVideoDecoder::OnInputBuffersAcquired(
+    std::vector<VmoBuffer> buffers,
+    const fuchsia::sysmem::SingleBufferSettings& buffer_settings) {
+  if (buffers.empty()) {
     OnError();
     return;
   }
 
   input_writer_queue_.Start(
-      std::move(writer),
+      std::move(buffers),
       base::BindRepeating(&FuchsiaVideoDecoder::SendInputPacket,
                           base::Unretained(this)),
       base::BindRepeating(&FuchsiaVideoDecoder::ProcessEndOfStream,
@@ -723,7 +711,7 @@ void FuchsiaVideoDecoder::OnFreeInputPacket(
 
   {
     // The packet should be destroyed only after it's removed from
-    // |in_flight_input_packets_|. Otherwise SysmemBufferWriter may call
+    // |in_flight_input_packets_|. Otherwise VmoBufferWriter may call
     // SendInputPacket() while the packet is still in
     // |in_flight_input_packets_|.
     auto packet = std::move(it->second.packet);
@@ -949,11 +937,11 @@ void FuchsiaVideoDecoder::OnOutputPacket(fuchsia::media::Packet output_packet,
   // codec may still decode on hardware even when |enable_sw_decoding_| is set
   // (i.e. power_efficient flag would not be set correctly in that case). It
   // doesn't matter because software decoders can be enabled only for tests.
-  frame->metadata()->power_efficient = !enable_sw_decoding_;
+  frame->metadata().power_efficient = !enable_sw_decoding_;
 
   // Allow this video frame to be promoted as an overlay, because it was
   // registered with an ImagePipe.
-  frame->metadata()->allow_overlay = use_overlays_for_video_;
+  frame->metadata().allow_overlay = use_overlays_for_video_;
 
   output_cb_.Run(std::move(frame));
 }
@@ -1058,7 +1046,6 @@ void FuchsiaVideoDecoder::InitializeOutputBufferCollection(
 
 void FuchsiaVideoDecoder::ReleaseInputBuffers() {
   input_writer_queue_.ResetBuffers();
-  input_buffer_collection_creator_.reset();
   input_buffer_collection_.reset();
 
   // |in_flight_input_packets_| must be destroyed after

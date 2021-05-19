@@ -6,6 +6,7 @@
 
 #include <lib/sys/cpp/component_context.h>
 #include <lib/sys/cpp/outgoing_directory.h>
+#include <lib/sys/inspect/cpp/component.h>
 
 #include "base/command_line.h"
 #include "base/fuchsia/process_context.h"
@@ -62,13 +63,14 @@ int ContextProviderMain() {
   // Publish the ContextProvider and Debug services.
   sys::OutgoingDirectory* const directory =
       base::ComponentContextForProcess()->outgoing().get();
-  base::fuchsia::ScopedServiceBinding<fuchsia::web::ContextProvider> binding(
+  base::ScopedServiceBinding<fuchsia::web::ContextProvider> binding(
       directory, &context_provider);
-  base::fuchsia::ScopedServiceBinding<fuchsia::web::Debug> debug_binding(
+  base::ScopedServiceBinding<fuchsia::web::Debug> debug_binding(
       directory->debug_dir(), &context_provider);
 
   // Publish version information for this component to Inspect.
-  cr_fuchsia::PublishVersionInfoToInspect(base::ComponentInspectorForProcess());
+  sys::ComponentInspector inspect(base::ComponentContextForProcess());
+  cr_fuchsia::PublishVersionInfoToInspect(&inspect);
 
   // Publish the Lifecycle service, used by the framework to request that the
   // service terminate.

@@ -18,20 +18,22 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
+import org.chromium.base.Log;
 import org.chromium.base.test.util.Batch;
 import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.CommandLineFlags;
-import org.chromium.base.test.util.DisabledTest;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
+import org.chromium.chrome.browser.tab.EmptyTabObserver;
 import org.chromium.chrome.browser.tab.Tab;
+import org.chromium.chrome.browser.tab.TabObserver;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
 import org.chromium.chrome.test.util.browser.Features;
 import org.chromium.components.embedder_support.util.UrlConstants;
 import org.chromium.content_public.browser.LoadUrlParams;
-import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.content_public.common.ContentSwitches;
+import org.chromium.net.NetError;
 import org.chromium.net.test.EmbeddedTestServer;
 import org.chromium.url.GURL;
 
@@ -53,6 +55,7 @@ import java.util.concurrent.TimeoutException;
         "ignore-certificate-errors", ContentSwitches.HOST_RESOLVER_RULES + "=MAP * 127.0.0.1"})
 @Batch(PER_CLASS)
 public class ContinuousSearchTabHelperTest {
+    private static final String TAG = "CSTHT";
     private static final String TEST_SERVER_DIR = "chrome/browser/continuous_search/testdata";
     private static final String TEST_URL = "/search";
 
@@ -60,6 +63,13 @@ public class ContinuousSearchTabHelperTest {
     public ChromeTabbedActivityTestRule mActivityTestRule = new ChromeTabbedActivityTestRule();
 
     private EmbeddedTestServer mServer;
+
+    /**
+     * Whether the device had a proxy error while running the test. If this happens we skip the rest
+     * of the test as it only happens on some devices on specific bots.
+     * TODO(crbug/1176268): Find out why this failure happens and remove this condition.
+     */
+    private boolean mHadProxyError;
 
     /**
      * Fake implementation of {@link SearchResultProducer} that returns the data passed to it and no
@@ -78,9 +88,9 @@ public class ContinuousSearchTabHelperTest {
             mSearchUrl = url;
             mQuery = query;
             new Handler().postDelayed(() -> {
-                mListener.onResult(new SearchResultMetadata(
-                        mSearchUrl, mQuery, 0, new ArrayList<SearchResultGroup>()));
-            }, 50);
+                mListener.onResult(new ContinuousNavigationMetadata(
+                        mSearchUrl, mQuery, 0, new ArrayList<PageGroup>()));
+            }, 300);
         }
 
         @Override
@@ -88,13 +98,15 @@ public class ContinuousSearchTabHelperTest {
     }
 
     /**
-     * A {@link SearchResultUserDataObserver} used to wait on events.
+     * A {@link ContinuousNavigationUserDataObserver} used to wait on events.
      */
-    public class WaitableSearchResultUserDataObserver implements SearchResultUserDataObserver {
+    public class WaitableContinuousNavigationUserDataObserver
+            implements ContinuousNavigationUserDataObserver {
         public CallbackHelper mInvalidateCallbackHelper = new CallbackHelper();
         public CallbackHelper mOnUpdateCallbackHelper = new CallbackHelper();
-        public SearchResultMetadata mMetadata;
+        public ContinuousNavigationMetadata mMetadata;
         public GURL mUrl;
+        public boolean mOnSrp;
 
         @Override
         public void onInvalidate() {
@@ -102,29 +114,30 @@ public class ContinuousSearchTabHelperTest {
         }
 
         @Override
-        public void onUpdate(SearchResultMetadata metadata, GURL url) {
+        public void onUpdate(ContinuousNavigationMetadata metadata) {
             mMetadata = metadata;
-            mUrl = url;
             mOnUpdateCallbackHelper.notifyCalled();
         }
 
         @Override
-        public void onUrlChanged(GURL url) {
+        public void onUrlChanged(GURL url, boolean onSrp) {
             mUrl = url;
+            mOnSrp = onSrp;
         }
     }
 
     @Before
     public void setUp() {
+        mHadProxyError = false;
         SearchResultProducerFactory.overrideFactory((Tab tab, SearchResultListener listener) -> {
             return new FakeSearchResultProducer(tab, listener);
         });
-        mActivityTestRule.startMainActivityOnBlankPage();
         mServer = new EmbeddedTestServer();
         mServer.initializeNative(InstrumentationRegistry.getContext(),
-                EmbeddedTestServer.ServerHTTPSSetting.USE_HTTPS);
+                EmbeddedTestServer.ServerHTTPSSetting.USE_HTTP);
         mServer.addDefaultHandlers(TEST_SERVER_DIR);
-        mServer.start();
+        Assert.assertTrue(mServer.start());
+        mActivityTestRule.startMainActivityOnBlankPage();
     }
 
     @After
@@ -132,34 +145,105 @@ public class ContinuousSearchTabHelperTest {
         mServer.stopAndDestroyServer();
     }
 
+    /**
+     * Loads a tab with a provided set of params. Will exit via {@link Assert#fail()} if the tab
+     * fails to load, crashes, or exceeds the a certain timeout window. Otherwise, the tab will
+     * be successfully loaded upon returning.
+     * @param tab The tab to load.
+     * @param params The URL and loading type for the tab.
+     */
+    private void loadUrl(Tab tab, LoadUrlParams params) {
+        final CallbackHelper startedCallback = new CallbackHelper();
+        final CallbackHelper loadedCallback = new CallbackHelper();
+
+        TabObserver observer = new EmptyTabObserver() {
+            @Override
+            public void onPageLoadStarted(Tab tab, GURL url) {
+                startedCallback.notifyCalled();
+            }
+
+            @Override
+            public void onPageLoadFinished(Tab tab, GURL url) {
+                loadedCallback.notifyCalled();
+            }
+
+            @Override
+            public void onPageLoadFailed(Tab tab, int errorCode) {
+                if (errorCode == NetError.ERR_PROXY_CONNECTION_FAILED) {
+                    Log.e(TAG, "Page load failed due to proxy connection.");
+                    mHadProxyError = true;
+                } else {
+                    Assert.fail("Tab failed to load: " + errorCode);
+                }
+            }
+
+            @Override
+            public void onCrash(Tab tab) {
+                Assert.fail("Tab never started loading.");
+            }
+        };
+        tab.addObserver(observer);
+
+        InstrumentationRegistry.getInstrumentation().runOnMainSync(() -> { tab.loadUrl(params); });
+
+        // Ensure the tab loads.
+        try {
+            startedCallback.waitForCallback(0, 1);
+        } catch (TimeoutException e) {
+            Assert.fail("Tab never started loading.");
+        }
+        try {
+            loadedCallback.waitForCallback(0, 1);
+        } catch (TimeoutException e) {
+            Assert.fail("Tab timed out while loading.");
+        }
+
+        tab.removeObserver(observer);
+    }
+
     @Test
     @MediumTest
-    @DisabledTest(message = "https://crbug.com/1157325")
     public void testContinuousSearchFakeResults() throws TimeoutException {
-        WaitableSearchResultUserDataObserver observer = new WaitableSearchResultUserDataObserver();
+        WaitableContinuousNavigationUserDataObserver observer =
+                new WaitableContinuousNavigationUserDataObserver();
 
-        TestThreadUtils.runOnUiThreadBlocking(() -> {
-            Tab tab = mActivityTestRule.getActivity().getActivityTab();
-            SearchResultUserData searchResultUserData = SearchResultUserData.getForTab(tab);
-            Assert.assertNotNull(searchResultUserData);
-            searchResultUserData.addObserver(observer);
-            tab.loadUrl(new LoadUrlParams(
-                    mServer.getURLWithHostName("www.google.com", TEST_URL + "?q=cat+dog")));
+        // Load a SRP URL.
+        final Tab tab = mActivityTestRule.getActivity().getActivityTab();
+        InstrumentationRegistry.getInstrumentation().runOnMainSync(() -> {
+            ContinuousNavigationUserDataImpl continuousNavigationUserData =
+                    ContinuousNavigationUserDataImpl.getOrCreateForTab(tab);
+            Assert.assertNotNull(continuousNavigationUserData);
+            continuousNavigationUserData.addObserver(observer);
         });
+        loadUrl(tab,
+                new LoadUrlParams(
+                        mServer.getURLWithHostName("www.google.com", TEST_URL + "?q=cat+dog")));
+        // TODO(crbug/1176268): Find out why the proxy connection fails for some
+        // android-arm-official-tests only.
+        if (mHadProxyError) {
+            Log.e(TAG, "Tab failed to load due to proxy error. Skipping...");
+            return;
+        }
+        observer.mOnUpdateCallbackHelper.waitForFirst(
+                "Timed out waiting for SearchResultUserDataObserver#onUpdate", 5000,
+                TimeUnit.MILLISECONDS);
 
-        observer.mOnUpdateCallbackHelper.waitForFirst(5000, TimeUnit.MILLISECONDS);
+        // Check the retuned data.
         Assert.assertEquals("cat dog", observer.mMetadata.getQuery());
-
-        TestThreadUtils.runOnUiThreadBlocking(() -> {
-            Tab tab = mActivityTestRule.getActivity().getActivityTab();
-            SearchResultUserData searchResultUserData = SearchResultUserData.getForTab(tab);
-            Assert.assertTrue(searchResultUserData.isValid());
+        InstrumentationRegistry.getInstrumentation().runOnMainSync(() -> {
+            ContinuousNavigationUserDataImpl continuousNavigationUserData =
+                    ContinuousNavigationUserDataImpl.getOrCreateForTab(tab);
+            Assert.assertTrue(continuousNavigationUserData.isValid());
             String url = mServer.getURLWithHostName("www.google.com", TEST_URL + "?q=cat+dog");
-            Assert.assertTrue(observer.mMetadata.getResultUrl().getSpec().startsWith(url));
+            Assert.assertTrue(observer.mMetadata.getRootUrl().getSpec().startsWith(url));
             Assert.assertTrue(observer.mUrl.getSpec().startsWith(url));
-            tab.loadUrl(new LoadUrlParams(UrlConstants.ABOUT_URL));
+            Assert.assertTrue(observer.mOnSrp);
         });
 
-        observer.mInvalidateCallbackHelper.waitForFirst(5000, TimeUnit.MILLISECONDS);
+        // Invalidate the data.
+        loadUrl(tab, new LoadUrlParams(UrlConstants.ABOUT_URL));
+        observer.mInvalidateCallbackHelper.waitForFirst(
+                "Timed out waiting for SearchResultUserDataObserver#onInvalidate", 5000,
+                TimeUnit.MILLISECONDS);
     }
 }

@@ -19,10 +19,10 @@ class CORE_EXPORT NGBoxFragment final : public NGFragment {
                 const NGPhysicalBoxFragment& physical_fragment)
       : NGFragment(writing_direction, physical_fragment) {}
 
-  base::Optional<LayoutUnit> FirstBaseline() const {
+  absl::optional<LayoutUnit> FirstBaseline() const {
     if (writing_direction_.GetWritingMode() !=
         physical_fragment_.Style().GetWritingMode())
-      return base::nullopt;
+      return absl::nullopt;
 
     return To<NGPhysicalBoxFragment>(physical_fragment_).Baseline();
   }
@@ -35,10 +35,10 @@ class CORE_EXPORT NGBoxFragment final : public NGFragment {
   // return a null baseline if:
   //  - The fragment has no baseline.
   //  - The writing modes differ.
-  base::Optional<LayoutUnit> Baseline() const {
+  absl::optional<LayoutUnit> Baseline() const {
     if (writing_direction_.GetWritingMode() !=
         physical_fragment_.Style().GetWritingMode())
-      return base::nullopt;
+      return absl::nullopt;
 
     if (auto last_baseline =
             To<NGPhysicalBoxFragment>(physical_fragment_).LastBaseline())
@@ -71,10 +71,7 @@ class CORE_EXPORT NGBoxFragment final : public NGFragment {
   bool HasDescendantsForTablePart() const {
     const NGPhysicalBoxFragment& box_fragment =
         To<NGPhysicalBoxFragment>(physical_fragment_);
-    DCHECK(physical_fragment_.IsTableNGPart() || box_fragment.IsTableNGCell());
-    return !box_fragment.Children().empty() ||
-           box_fragment.HasOutOfFlowPositionedFragmentainerDescendants() ||
-           box_fragment.HasOutOfFlowPositionedDescendants();
+    return box_fragment.HasDescendantsForTablePart();
   }
 };
 

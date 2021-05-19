@@ -130,10 +130,10 @@ class LayoutTableCol final : public LayoutTableBoxComponent {
 template <>
 struct DowncastTraits<LayoutTableCol> {
   static bool AllowFrom(const LayoutObject& object) {
-    return object.IsLayoutTableCol();
+    return object.IsLayoutTableCol() && !object.IsLayoutNGObject();
   }
 };
 
 }  // namespace blink
 
-#endif
+#endif  // THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_LAYOUT_TABLE_COL_H_

@@ -17,6 +17,10 @@ namespace aura {
 class Window;
 }
 
+namespace views {
+class Widget;
+}
+
 namespace full_restore {
 
 // FullRestoreInfo is responsible for providing the information for
@@ -35,9 +39,31 @@ class COMPONENT_EXPORT(FULL_RESTORE) FullRestoreInfo {
     virtual void OnRestoreFlagChanged(const AccountId& account_id,
                                       bool should_restore) {}
 
-    // Notifies when |window| is ready to be restored, after we have the app
-    // launch information, e.g. a task id for an ARC app.
+    // Notifies when |window| is ready to save the window info.
+    //
+    // When |window| is created, we might not have the app launch info yet. For
+    // example, if the ARC task is not created, we don't have the launch info.
+    // When the task is created, OnAppLaunched is called to notify observers to
+    // save the window info.
     virtual void OnAppLaunched(aura::Window* window) {}
+
+    // If |window| is restored from the full restore file, notifies observers to
+    // restore |window|, when |window| has been initialized.
+    //
+    // For ARC app windows, when |window| is initialized, the task might not be
+    // created yet, so we don't have the window info, |window| might be parent
+    // to a hidden container based on the property kParentToHiddenContainerKey.
+    virtual void OnWindowInitialized(aura::Window* window) {}
+
+    // Called once the widget associated with a full restored window is
+    // initialized. This is called sometime after OnWindowInitialized, and the
+    // ARC task also may not be created yet at this point.
+    virtual void OnWidgetInitialized(views::Widget* widget) {}
+
+    // Called once a window which was created without an associated task is now
+    // associated with a ARC task. Will not be called for non-ARC windows, or
+    // ARC windows created with an associated task.
+    virtual void OnARCTaskReadyForUnparentedWindow(aura::Window* window) {}
 
    protected:
     ~Observer() override = default;
@@ -61,6 +87,20 @@ class COMPONENT_EXPORT(FULL_RESTORE) FullRestoreInfo {
   // Sets whether we should restore apps and pages, based on the restore setting
   // and the user's choice from the notification for |account_id|.
   void SetRestoreFlag(const AccountId& account_id, bool should_restore);
+
+  // Notifies observers to observe |window| and restore or save the window info
+  // for |window|.
+  void OnAppLaunched(aura::Window* window);
+
+  // Notifies observers that |window| has been initialized.
+  void OnWindowInitialized(aura::Window* window);
+
+  // Notifies observers that |widget| has been initialized.
+  void OnWidgetInitialized(views::Widget* widget);
+
+  // Notifies observers that `window`, which previously had no associated task,
+  // now has one.
+  void OnARCTaskReadyForUnparentedWindow(aura::Window* window);
 
  private:
   base::ObserverList<Observer> observers_;

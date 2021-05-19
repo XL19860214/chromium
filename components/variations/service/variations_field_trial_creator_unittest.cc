@@ -12,10 +12,10 @@
 #include "base/callback_helpers.h"
 #include "base/feature_list.h"
 #include "base/macros.h"
-#include "base/strings/stringprintf.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/version.h"
 #include "build/build_config.h"
+#include "components/metrics/clean_exit_beacon.h"
 #include "components/prefs/testing_pref_service.h"
 #include "components/variations/platform_field_trials.h"
 #include "components/variations/pref_names.h"
@@ -119,7 +119,7 @@ class TestPlatformFieldTrials : public PlatformFieldTrials {
   void SetupFieldTrials() override {}
   void SetupFeatureControllingFieldTrials(
       bool has_seed,
-      const base::FieldTrial::EntropyProvider& low_entropy_provider,
+      const base::FieldTrial::EntropyProvider* low_entropy_provider,
       base::FeatureList* feature_list) override {}
 
  private:
@@ -129,7 +129,7 @@ class TestPlatformFieldTrials : public PlatformFieldTrials {
 class MockSafeSeedManager : public SafeSeedManager {
  public:
   explicit MockSafeSeedManager(PrefService* local_state)
-      : SafeSeedManager(true, local_state) {}
+      : SafeSeedManager(local_state) {}
   ~MockSafeSeedManager() override = default;
 
   MOCK_CONST_METHOD0(ShouldRunInSafeMode, bool());
@@ -152,6 +152,7 @@ class MockSafeSeedManager : public SafeSeedManager {
   DISALLOW_COPY_AND_ASSIGN(MockSafeSeedManager);
 };
 
+// TODO(crbug.com/1167566): Remove when fake VariationsServiceClient created.
 class TestVariationsServiceClient : public VariationsServiceClient {
  public:
   TestVariationsServiceClient() = default;
@@ -250,7 +251,7 @@ class TestVariationsFieldTrialCreator : public VariationsFieldTrialCreator {
         "", "", "", std::vector<std::string>(),
         std::vector<base::FeatureList::FeatureOverrideInfo>(), nullptr,
         std::make_unique<base::FeatureList>(), &platform_field_trials,
-        safe_seed_manager_, base::nullopt);
+        safe_seed_manager_, absl::nullopt);
   }
 
   TestVariationsSeedStore* seed_store() { return &seed_store_; }
@@ -269,6 +270,7 @@ class TestVariationsFieldTrialCreator : public VariationsFieldTrialCreator {
 class FieldTrialCreatorTest : public ::testing::Test {
  protected:
   FieldTrialCreatorTest() {
+    metrics::CleanExitBeacon::RegisterPrefs(prefs_.registry());
     VariationsService::RegisterPrefs(prefs_.registry());
     global_feature_list_ = base::FeatureList::ClearInstanceForTesting();
   }
@@ -501,7 +503,7 @@ TEST_F(FieldTrialCreatorTest, SetupFieldTrials_LoadsCountryOnFirstRun) {
       "", "", "", std::vector<std::string>(),
       std::vector<base::FeatureList::FeatureOverrideInfo>(), nullptr,
       std::make_unique<base::FeatureList>(), &platform_field_trials,
-      &safe_seed_manager, base::nullopt));
+      &safe_seed_manager, absl::nullopt));
 
   EXPECT_EQ(kTestSeedExperimentName,
             base::FieldTrialList::FindFullName(kTestSeedStudyName));

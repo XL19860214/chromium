@@ -7,6 +7,7 @@
 #include <algorithm>
 
 #include "base/check_op.h"
+#include "base/containers/contains.h"
 #include "chrome/browser/bookmarks/bookmark_model_factory.h"
 #include "chrome/browser/content_settings/cookie_settings_factory.h"
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
@@ -21,7 +22,7 @@
 #include "content/public/browser/child_process_security_policy.h"
 #include "content/public/common/origin_util.h"
 #include "net/base/registry_controlled_domains/registry_controlled_domain.h"
-#include "third_party/blink/public/mojom/feature_policy/feature_policy_feature.mojom-shared.h"
+#include "third_party/blink/public/mojom/permissions_policy/permissions_policy_feature.mojom-shared.h"
 #include "url/gurl.h"
 
 using bookmarks::BookmarkModel;
@@ -30,7 +31,8 @@ DurableStoragePermissionContext::DurableStoragePermissionContext(
     content::BrowserContext* browser_context)
     : PermissionContextBase(browser_context,
                             ContentSettingsType::DURABLE_STORAGE,
-                            blink::mojom::FeaturePolicyFeature::kNotFound) {}
+                            blink::mojom::PermissionsPolicyFeature::kNotFound) {
+}
 
 void DurableStoragePermissionContext::DecidePermission(
     content::WebContents* web_contents,

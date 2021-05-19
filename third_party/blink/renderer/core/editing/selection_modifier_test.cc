@@ -6,6 +6,7 @@
 
 #include "third_party/blink/renderer/core/editing/editing_behavior.h"
 #include "third_party/blink/renderer/core/editing/editor.h"
+#include "third_party/blink/renderer/core/editing/frame_selection.h"
 #include "third_party/blink/renderer/core/editing/testing/editing_test_base.h"
 #include "third_party/blink/renderer/core/editing/visible_position.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
@@ -66,6 +67,38 @@ TEST_F(SelectionModifierTest, MoveByLineHorizontal) {
   EXPECT_EQ("<p>abc<br>d<br>|<br>ghi</p>", MoveBackwardByLine(modifier));
   EXPECT_EQ("<p>abc<br>d|<br><br>ghi</p>", MoveBackwardByLine(modifier));
   EXPECT_EQ("<p>ab|c<br>d<br><br>ghi</p>", MoveBackwardByLine(modifier));
+}
+
+TEST_F(SelectionModifierTest, MoveByLineMultiColumnSingleText) {
+  RuntimeEnabledFeaturesTestHelpers::ScopedLayoutNGBlockFragmentation
+      block_fragmentation(RuntimeEnabledFeatures::LayoutNGEnabled());
+  LoadAhem();
+  InsertStyleElement(
+      "div { font: 10px/15px Ahem; column-count: 3; width: 20ch; }");
+  const SelectionInDOMTree selection =
+      SetSelectionTextToBody("<div>|abc def ghi jkl mno pqr</div>");
+  // This HTML is rendered as:
+  //    abc ghi mno
+  //    def jkl pqr
+  SelectionModifier modifier(GetFrame(), selection);
+
+  EXPECT_EQ("<div>abc |def ghi jkl mno pqr</div>", MoveForwardByLine(modifier));
+  EXPECT_EQ("<div>abc def |ghi jkl mno pqr</div>", MoveForwardByLine(modifier));
+  EXPECT_EQ("<div>abc def ghi |jkl mno pqr</div>", MoveForwardByLine(modifier));
+  EXPECT_EQ("<div>abc def ghi jkl |mno pqr</div>", MoveForwardByLine(modifier));
+  EXPECT_EQ("<div>abc def ghi jkl mno |pqr</div>", MoveForwardByLine(modifier));
+  EXPECT_EQ("<div>abc def ghi jkl mno pqr|</div>", MoveForwardByLine(modifier));
+
+  EXPECT_EQ("<div>abc def ghi jkl |mno pqr</div>",
+            MoveBackwardByLine(modifier));
+  EXPECT_EQ("<div>abc def ghi |jkl mno pqr</div>",
+            MoveBackwardByLine(modifier));
+  EXPECT_EQ("<div>abc def |ghi jkl mno pqr</div>",
+            MoveBackwardByLine(modifier));
+  EXPECT_EQ("<div>abc |def ghi jkl mno pqr</div>",
+            MoveBackwardByLine(modifier));
+  EXPECT_EQ("<div>|abc def ghi jkl mno pqr</div>",
+            MoveBackwardByLine(modifier));
 }
 
 TEST_F(SelectionModifierTest, MoveByLineVertical) {
@@ -290,6 +323,55 @@ TEST_F(SelectionModifierTest, PreviousParagraphOfObject) {
                   TextGranularity::kParagraph);
   EXPECT_EQ("|<object></object>",
             GetSelectionTextFromBody(modifier.Selection().AsSelection()));
+}
+
+// For https://crbug.com/1177295
+TEST_F(SelectionModifierTest, PositionDisconnectedInFlatTree1) {
+  const SelectionInDOMTree selection = SetSelectionTextToBody(
+      "<div id=a><div id=b><div id=c>^x|</div></div></div>");
+  SetShadowContent("", "a");
+  SetShadowContent("", "b");
+  SetShadowContent("", "c");
+  SelectionModifier modifier(GetFrame(), selection);
+  modifier.Modify(SelectionModifyAlteration::kMove,
+                  SelectionModifyDirection::kBackward,
+                  TextGranularity::kParagraph);
+  EXPECT_EQ("<div id=\"a\"><div id=\"b\"><div id=\"c\">x</div></div></div>",
+            GetSelectionTextFromBody(modifier.Selection().AsSelection()));
+}
+
+// For https://crbug.com/1177295
+TEST_F(SelectionModifierTest, PositionDisconnectedInFlatTree2) {
+  SetBodyContent("<div id=host>x</div>y");
+  SetShadowContent("", "host");
+  Element* host = GetElementById("host");
+  Node* text = host->firstChild();
+  Position positions[] = {
+      Position::BeforeNode(*host),         Position::FirstPositionInNode(*host),
+      Position::LastPositionInNode(*host), Position::AfterNode(*host),
+      Position::BeforeNode(*text),         Position::FirstPositionInNode(*text),
+      Position::LastPositionInNode(*text), Position::AfterNode(*text)};
+  for (const Position& base : positions) {
+    EXPECT_TRUE(base.IsConnected());
+    bool flat_base_is_connected = ToPositionInFlatTree(base).IsConnected();
+    EXPECT_EQ(base.AnchorNode() == host, flat_base_is_connected);
+    for (const Position& extent : positions) {
+      const SelectionInDOMTree& selection =
+          SelectionInDOMTree::Builder().SetBaseAndExtent(base, extent).Build();
+      Selection().SetSelection(selection, SetSelectionOptions());
+      SelectionModifier modifier(GetFrame(), selection);
+      modifier.Modify(SelectionModifyAlteration::kExtend,
+                      SelectionModifyDirection::kForward,
+                      TextGranularity::kParagraph);
+      EXPECT_TRUE(extent.IsConnected());
+      bool flat_extent_is_connected =
+          ToPositionInFlatTree(selection.Extent()).IsConnected();
+      EXPECT_EQ(flat_base_is_connected || flat_extent_is_connected
+                    ? "<div id=\"host\">x</div>^y|"
+                    : "<div id=\"host\">x</div>y",
+                GetSelectionTextFromBody(modifier.Selection().AsSelection()));
+    }
+  }
 }
 
 }  // namespace blink

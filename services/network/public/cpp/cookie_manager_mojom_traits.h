@@ -5,7 +5,6 @@
 #ifndef SERVICES_NETWORK_PUBLIC_CPP_COOKIE_MANAGER_MOJOM_TRAITS_H_
 #define SERVICES_NETWORK_PUBLIC_CPP_COOKIE_MANAGER_MOJOM_TRAITS_H_
 
-#include "ipc/ipc_message_utils.h"
 #include "mojo/public/cpp/bindings/enum_traits.h"
 #include "net/cookies/canonical_cookie.h"
 #include "net/cookies/cookie_access_result.h"
@@ -129,6 +128,10 @@ struct StructTraits<network::mojom::CookieOptionsDataView, net::CookieOptions> {
     return o.full_party_context_size();
   }
 
+  static bool is_in_nontrivial_first_party_set(const net::CookieOptions& o) {
+    return o.is_in_nontrivial_first_party_set();
+  }
+
   static bool Read(network::mojom::CookieOptionsDataView mojo_options,
                    net::CookieOptions* cookie_options);
 };
@@ -195,7 +198,7 @@ struct StructTraits<network::mojom::CookieInclusionStatusDataView,
 template <>
 struct StructTraits<network::mojom::CookieAndLineWithAccessResultDataView,
                     net::CookieAndLineWithAccessResult> {
-  static const base::Optional<net::CanonicalCookie>& cookie(
+  static const absl::optional<net::CanonicalCookie>& cookie(
       const net::CookieAndLineWithAccessResult& c) {
     return c.cookie;
   }

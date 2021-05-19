@@ -17,7 +17,7 @@
 #include "chrome/browser/browser_about_handler.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/platform_util.h"
-#include "chrome/browser/prefetch/no_state_prefetch/prerender_manager_factory.h"
+#include "chrome/browser/prefetch/no_state_prefetch/no_state_prefetch_manager_factory.h"
 #include "chrome/browser/prefs/incognito_mode_prefs.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/renderer_host/chrome_navigation_ui_data.h"
@@ -38,7 +38,7 @@
 #include "chrome/browser/web_applications/components/web_app_helpers.h"
 #include "chrome/common/url_constants.h"
 #include "components/captive_portal/core/buildflags.h"
-#include "components/no_state_prefetch/browser/prerender_manager.h"
+#include "components/no_state_prefetch/browser/no_state_prefetch_manager.h"
 #include "components/prefs/pref_service.h"
 #include "content/public/browser/browser_url_handler.h"
 #include "content/public/browser/navigation_entry.h"
@@ -53,8 +53,11 @@
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "ash/public/cpp/multi_user_window_manager.h"
 #include "chrome/browser/ui/ash/multi_user/multi_user_window_manager_helper.h"
-#include "chrome/browser/ui/settings_window_manager_chromeos.h"
 #include "components/account_id/account_id.h"
+#endif
+
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+#include "chrome/browser/lacros/lacros_url_handling.h"
 #endif
 
 #if defined(USE_AURA)
@@ -87,8 +90,6 @@ class BrowserNavigatorWebContentsAdoption {
 
 namespace {
 
-bool allow_os_settings_in_tab = false;
-
 // Returns true if |params.browser| exists and can open a new tab for
 // |params.url|. Not all browsers support multiple tabs, such as app frames and
 // popups. TYPE_APP will only open a new tab if the URL is within the app scope.
@@ -109,9 +110,12 @@ bool WindowCanOpenTabs(const NavigateParams& params) {
 // such Browser is located.
 Browser* GetOrCreateBrowser(Profile* profile, bool user_gesture) {
   Browser* browser = chrome::FindTabbedBrowser(profile, false);
-  return browser
-             ? browser
-             : Browser::Create(Browser::CreateParams(profile, user_gesture));
+
+  if (!browser && Browser::GetCreationStatusForProfile(profile) ==
+                      Browser::CreationStatus::kOk) {
+    browser = Browser::Create(Browser::CreateParams(profile, user_gesture));
+  }
+  return browser;
 }
 
 // Change some of the navigation parameters based on the particular URL.
@@ -160,17 +164,20 @@ std::pair<Browser*, int> GetBrowserAndTabForDisposition(
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
   if (params.open_pwa_window_if_possible) {
-    base::Optional<web_app::AppId> app_id =
+    absl::optional<web_app::AppId> app_id =
         web_app::FindInstalledAppWithUrlInScope(profile, params.url,
                                                 /*window_only=*/true);
     if (app_id) {
       std::string app_name = web_app::GenerateApplicationNameFromAppId(*app_id);
-      return {
-          Browser::Create(Browser::CreateParams::CreateForApp(
-              app_name,
-              true,  // trusted_source. Installed PWAs are considered trusted.
-              params.window_bounds, profile, params.user_gesture)),
-          -1};
+      Browser* browser = nullptr;
+      if (Browser::GetCreationStatusForProfile(profile) ==
+          Browser::CreationStatus::kOk) {
+        browser = Browser::Create(Browser::CreateParams::CreateForApp(
+            app_name,
+            true,  // trusted_source. Installed PWAs are considered trusted.
+            params.window_bounds, profile, params.user_gesture));
+      }
+      return {browser, -1};
     }
   }
 #endif
@@ -231,6 +238,10 @@ std::pair<Browser*, int> GetBrowserAndTabForDisposition(
         app_name = params.browser->app_name();
       }
 #endif
+      if (Browser::GetCreationStatusForProfile(profile) !=
+          Browser::CreationStatus::kOk) {
+        return {nullptr, -1};
+      }
       if (app_name.empty()) {
         Browser::CreateParams browser_params(Browser::TYPE_POPUP, profile,
                                              params.user_gesture);
@@ -243,15 +254,21 @@ std::pair<Browser*, int> GetBrowserAndTabForDisposition(
                   profile, params.user_gesture)),
               -1};
     }
-    case WindowOpenDisposition::NEW_WINDOW:
+    case WindowOpenDisposition::NEW_WINDOW: {
       // Make a new normal browser window.
-      return {
-          Browser::Create(Browser::CreateParams(profile, params.user_gesture)),
-          -1};
+      Browser* browser = nullptr;
+      if (Browser::GetCreationStatusForProfile(profile) ==
+          Browser::CreationStatus::kOk) {
+        browser = Browser::Create(
+            Browser::CreateParams(profile, params.user_gesture));
+      }
+      return {browser, -1};
+    }
     case WindowOpenDisposition::OFF_THE_RECORD:
       // Make or find an incognito window.
-      return {GetOrCreateBrowser(profile->GetPrimaryOTRProfile(),
-                                 params.user_gesture),
+      return {GetOrCreateBrowser(
+                  profile->GetPrimaryOTRProfile(/*create_if_needed=*/true),
+                  params.user_gesture),
               -1};
     // The following types result in no navigation.
     case WindowOpenDisposition::SAVE_TO_DISK:
@@ -357,7 +374,8 @@ void LoadURLInContents(WebContents* target_contents,
       content::RenderFrameHost::kNoFrameTreeNodeId) {
     load_url_params.navigation_ui_data =
         ChromeNavigationUIData::CreateForMainFrameNavigation(
-            target_contents, params->disposition);
+            target_contents, params->disposition,
+            params->is_using_https_as_default_scheme);
   }
 
   if (params->post_data) {
@@ -475,18 +493,20 @@ void Navigate(NavigateParams* params) {
   // Open System Apps in their standalone window if necessary.
   // TODO(crbug.com/1096345): Remove this code after we integrate with intent
   // handling.
-  const base::Optional<web_app::SystemAppType> capturing_system_app_type =
+  const absl::optional<web_app::SystemAppType> capturing_system_app_type =
       web_app::GetCapturingSystemAppForURL(params->initiating_profile,
                                            params->url);
   if (capturing_system_app_type &&
       (!params->browser ||
        !web_app::IsBrowserForSystemWebApp(params->browser,
                                           capturing_system_app_type.value()))) {
-    params->browser = web_app::LaunchSystemWebApp(
-        params->initiating_profile, capturing_system_app_type.value(),
-        params->url);
+    web_app::SystemAppLaunchParams swa_params;
+    swa_params.url = params->url;
+    web_app::LaunchSystemWebAppAsync(params->initiating_profile,
+                                     capturing_system_app_type.value(),
+                                     swa_params);
 
-    // It's okay to early return here, because LaunchSystemWebApp uses a
+    // It's okay to early return here, because LaunchSystemWebAppAsync uses a
     // different logic to choose (and create if necessary) a browser window for
     // system apps.
     //
@@ -539,48 +559,36 @@ void Navigate(NavigateParams* params) {
     // preserve. Fallback to the behavior used for singletons: overwrite the
     // current tab if it's the NTP, otherwise open a new tab.
     params->disposition = WindowOpenDisposition::SINGLETON_TAB;
-    // Copy to a local variable first to avoid std::move from clearing
-    // |params->browser|.
-    Browser* browser = params->browser;
-    ShowSingletonTabOverwritingNTP(browser, std::move(*params));
+    ShowSingletonTabOverwritingNTP(params->browser, params);
     return;
   }
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-  if (source_browser) {
-    // Open OS settings in PWA, even when user types in URL bar.
-    if (params->url.GetOrigin() ==
-            GURL(chrome::kChromeUIOSSettingsURL).GetOrigin() &&
-        !allow_os_settings_in_tab) {
-      chrome::SettingsWindowManager* settings_window_manager =
-          chrome::SettingsWindowManager::GetInstance();
-      if (!settings_window_manager->IsSettingsBrowser(source_browser)) {
-        settings_window_manager->ShowChromePageForProfile(
-            GetSourceProfile(params), params->url);
-        return;
+  if (source_browser && source_browser != params->browser) {
+    // When the newly created browser was spawned by a browser which visits
+    // another user's desktop, it should be shown on the same desktop as the
+    // originating one. (This is part of the desktop separation per profile).
+    auto* window_manager = MultiUserWindowManagerHelper::GetWindowManager();
+    // Some unit tests have no client instantiated.
+    if (window_manager) {
+      aura::Window* src_window = source_browser->window()->GetNativeWindow();
+      aura::Window* new_window = params->browser->window()->GetNativeWindow();
+      const AccountId& src_account_id =
+          window_manager->GetUserPresentingWindow(src_window);
+      if (src_account_id !=
+          window_manager->GetUserPresentingWindow(new_window)) {
+        // Once the window gets presented, it should be shown on the same
+        // desktop as the desktop of the creating browser. Note that this
+        // command will not show the window if it wasn't shown yet by the
+        // browser creation.
+        window_manager->ShowWindowForUser(new_window, src_account_id);
       }
     }
-
-    if (source_browser != params->browser) {
-      // When the newly created browser was spawned by a browser which visits
-      // another user's desktop, it should be shown on the same desktop as the
-      // originating one. (This is part of the desktop separation per profile).
-      auto* window_manager = MultiUserWindowManagerHelper::GetWindowManager();
-      // Some unit tests have no client instantiated.
-      if (window_manager) {
-        aura::Window* src_window = source_browser->window()->GetNativeWindow();
-        aura::Window* new_window = params->browser->window()->GetNativeWindow();
-        const AccountId& src_account_id =
-            window_manager->GetUserPresentingWindow(src_window);
-        if (src_account_id !=
-            window_manager->GetUserPresentingWindow(new_window)) {
-          // Once the window gets presented, it should be shown on the same
-          // desktop as the desktop of the creating browser. Note that this
-          // command will not show the window if it wasn't shown yet by the
-          // browser creation.
-          window_manager->ShowWindowForUser(new_window, src_account_id);
-        }
-      }
-    }
+  }
+#endif
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+  if (source_browser &&
+      lacros_url_handling::MaybeInterceptNavigation(params->url)) {
+    return;
   }
 #endif
 
@@ -719,8 +727,6 @@ void Navigate(NavigateParams* params) {
             (params->source_contents->GetLastCommittedURL().spec() !=
                  chrome::kChromeUINewTabURL &&
              params->source_contents->GetLastCommittedURL().spec() !=
-                 chrome::kChromeSearchLocalNtpUrl &&
-             params->source_contents->GetLastCommittedURL().spec() !=
                  url::kAboutBlankURL)) {
           // Blur location bar before state save in ActivateTabAt() below.
           params->source_contents->Focus();
@@ -745,7 +751,6 @@ bool IsHostAllowedInIncognito(const GURL& url) {
   if (scheme == chrome::kChromeSearchScheme) {
     return host != chrome::kChromeUIThumbnailHost &&
            host != chrome::kChromeUIThumbnailHost2 &&
-           host != chrome::kChromeUIThumbnailListHost &&
            host != chrome::kChromeUISuggestionsHost;
   }
 
@@ -759,7 +764,7 @@ bool IsHostAllowedInIncognito(const GURL& url) {
     // option is only available on Windows for use with Google Credential
     // Provider for Windows.
     return signin::GetSigninReasonForEmbeddedPromoURL(url) ==
-           signin_metrics::Reason::REASON_FETCH_LST_ONLY;
+           signin_metrics::Reason::kFetchLstOnly;
 #else
     return false;
 #endif  // defined(OS_WIN)
@@ -779,7 +784,6 @@ bool IsHostAllowedInIncognito(const GURL& url) {
          host != chrome::kChromeUIBookmarksHost &&
          host != chrome::kChromeUIThumbnailHost &&
          host != chrome::kChromeUIThumbnailHost2 &&
-         host != chrome::kChromeUIThumbnailListHost &&
          host != chrome::kChromeUISuggestionsHost &&
          host != chrome::kChromeUIDevicesHost &&
          host != chrome::kChromeUINewTabPageHost;
@@ -800,8 +804,4 @@ bool IsURLAllowedInIncognito(const GURL& url,
   }
 
   return IsHostAllowedInIncognito(url);
-}
-
-void SetAllowOsSettingsInTabForTesting(bool is_allowed) {
-  allow_os_settings_in_tab = is_allowed;
 }

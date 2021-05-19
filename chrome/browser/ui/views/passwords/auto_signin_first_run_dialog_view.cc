@@ -13,6 +13,7 @@
 #include "components/constrained_window/constrained_window_views.h"
 #include "components/strings/grit/components_strings.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/views/border.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/layout/fill_layout.h"
@@ -64,7 +65,7 @@ void AutoSigninFirstRunDialogView::ControllerGone() {
   controller_ = nullptr;
 }
 
-base::string16 AutoSigninFirstRunDialogView::GetWindowTitle() const {
+std::u16string AutoSigninFirstRunDialogView::GetWindowTitle() const {
   return controller_->GetAutoSigninPromoTitle();
 }
 
@@ -75,7 +76,7 @@ void AutoSigninFirstRunDialogView::WindowClosing() {
 
 void AutoSigninFirstRunDialogView::InitWindow() {
   set_margins(ChromeLayoutProvider::Get()->GetDialogInsetsForContentType(
-      views::TEXT, views::TEXT));
+      views::DialogContentType::kText, views::DialogContentType::kText));
   SetLayoutManager(std::make_unique<views::FillLayout>());
 
   auto label = std::make_unique<views::Label>(
@@ -85,6 +86,9 @@ void AutoSigninFirstRunDialogView::InitWindow() {
   label->SetHorizontalAlignment(gfx::ALIGN_LEFT);
   AddChildView(label.release());
 }
+
+BEGIN_METADATA(AutoSigninFirstRunDialogView, views::DialogDelegateView)
+END_METADATA
 
 AutoSigninFirstRunPrompt* CreateAutoSigninPromptView(
     CredentialManagerDialogController* controller,

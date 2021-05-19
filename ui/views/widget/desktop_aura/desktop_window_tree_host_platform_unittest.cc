@@ -7,9 +7,13 @@
 #include <memory>
 #include <utility>
 
+#include "base/command_line.h"
 #include "base/run_loop.h"
 #include "ui/aura/window_tree_host.h"
 #include "ui/aura/window_tree_host_observer.h"
+#include "ui/compositor/layer.h"
+#include "ui/display/display_switches.h"
+#include "ui/platform_window/platform_window.h"
 #include "ui/views/test/views_test_base.h"
 #include "ui/views/widget/desktop_aura/desktop_native_widget_aura.h"
 #include "ui/views/widget/widget_observer.h"
@@ -165,6 +169,36 @@ TEST_F(DesktopWindowTreeHostPlatformTest,
   // Pretend a PlatformWindow exits the minimized state.
   host_platform->OnWindowStateChanged(ui::PlatformWindowState::kNormal);
   EXPECT_TRUE(widget->GetNativeWindow()->IsVisible());
+}
+
+// Tests that the window shape is updated from the
+// |NonClientView::GetWindowMask|.
+TEST_F(DesktopWindowTreeHostPlatformTest, UpdateWindowShapeFromWindowMask) {
+  std::unique_ptr<Widget> widget = CreateWidgetWithNativeWidget();
+  widget->Show();
+
+  auto* host_platform = DesktopWindowTreeHostPlatform::GetHostForWidget(
+      widget->GetNativeWindow()->GetHost()->GetAcceleratedWidget());
+  ASSERT_TRUE(host_platform);
+  if (!host_platform->platform_window()->ShouldUpdateWindowShape())
+    return;
+
+  auto* content_window =
+      DesktopWindowTreeHostPlatform::GetContentWindowForWidget(
+          widget->GetNativeWindow()->GetHost()->GetAcceleratedWidget());
+  ASSERT_TRUE(content_window);
+  EXPECT_FALSE(host_platform->GetWindowMaskForWindowShapeInPixels().isEmpty());
+  // SetClipPath for the layer of the content window is updated from it.
+  EXPECT_TRUE(host_platform->ShouldWindowContentsBeTransparent());
+  EXPECT_FALSE(widget->GetLayer()->FillsBoundsCompletely());
+
+  // When fullscreen mode, clip_path_ is set to empty since there is no
+  // |NonClientView::GetWindowMask|.
+  host_platform->SetFullscreen(true);
+  widget->SetBounds(gfx::Rect(800, 800));
+  EXPECT_TRUE(host_platform->GetWindowMaskForWindowShapeInPixels().isEmpty());
+  EXPECT_FALSE(host_platform->ShouldWindowContentsBeTransparent());
+  EXPECT_TRUE(widget->GetLayer()->FillsBoundsCompletely());
 }
 
 // A Widget that allows setting the min/max size for the widget.

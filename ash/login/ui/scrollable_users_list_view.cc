@@ -15,12 +15,12 @@
 #include "ash/shell.h"
 #include "ash/style/ash_color_provider.h"
 #include "ash/style/default_color_constants.h"
-#include "ash/style/default_colors.h"
 #include "ash/wallpaper/wallpaper_controller_impl.h"
 #include "base/bind.h"
 #include "base/numerics/ranges.h"
-#include "base/optional.h"
 #include "base/timer/timer.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
+#include "ui/compositor/layer.h"
 #include "ui/compositor/scoped_layer_animation_settings.h"
 #include "ui/display/screen.h"
 #include "ui/gfx/canvas.h"
@@ -103,6 +103,7 @@ class ScrollBarThumb : public views::BaseScrollBarThumb {
   gfx::Size CalculatePreferredSize() const override {
     return gfx::Size(kScrollThumbThicknessDp, kScrollThumbThicknessDp);
   }
+
   void OnPaint(gfx::Canvas* canvas) override {
     cc::PaintFlags fill_flags;
     fill_flags.setStyle(cc::PaintFlags::kFill_Style);
@@ -332,13 +333,13 @@ ScrollableUsersListView::ScrollableUsersListView(
       ->set_main_axis_alignment(views::BoxLayout::MainAxisAlignment::kCenter);
   ensure_min_height->AddChildView(user_view_host_);
   SetContents(std::move(ensure_min_height));
-  SetBackgroundColor(base::nullopt);
+  SetBackgroundColor(absl::nullopt);
   SetDrawOverflowIndicator(false);
 
   SetVerticalScrollBar(std::make_unique<UsersListScrollBar>(false));
   SetHorizontalScrollBar(std::make_unique<UsersListScrollBar>(true));
 
-  observer_.Add(Shell::Get()->wallpaper_controller());
+  observation_.Observe(Shell::Get()->wallpaper_controller());
 }
 
 ScrollableUsersListView::~ScrollableUsersListView() = default;
@@ -429,6 +430,11 @@ void ScrollableUsersListView::OnPaintBackground(gfx::Canvas* canvas) {
         render_bounds, login_constants::kNonBlurredWallpaperBackgroundRadiusDp,
         flags);
   }
+}
+
+void ScrollableUsersListView::OnThemeChanged() {
+  views::View::OnThemeChanged();
+  gradient_params_ = GradientParams::BuildForStyle(display_style_);
 }
 
 // When the active user is updated, the wallpaper changes. The gradient color

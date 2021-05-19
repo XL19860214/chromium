@@ -12,7 +12,9 @@
 #include "content/public/common/origin_util.h"
 #include "extensions/common/constants.h"
 #include "net/base/escape.h"
+#include "services/network/public/cpp/is_potentially_trustworthy.h"
 #include "third_party/blink/public/common/custom_handlers/protocol_handler_utils.h"
+#include "third_party/blink/public/common/security/protocol_handler_security_level.h"
 #include "ui/base/l10n/l10n_util.h"
 
 ProtocolHandler::ProtocolHandler(
@@ -25,6 +27,9 @@ ProtocolHandler::ProtocolHandler(
       last_modified_(last_modified),
       security_level_(security_level) {}
 
+ProtocolHandler::ProtocolHandler(const ProtocolHandler&) = default;
+ProtocolHandler::~ProtocolHandler() = default;
+
 ProtocolHandler ProtocolHandler::CreateProtocolHandler(
     const std::string& protocol,
     const GURL& url,
@@ -32,8 +37,28 @@ ProtocolHandler ProtocolHandler::CreateProtocolHandler(
   return ProtocolHandler(protocol, url, base::Time::Now(), security_level);
 }
 
-ProtocolHandler::ProtocolHandler() {
+ProtocolHandler::ProtocolHandler(
+    const std::string& protocol,
+    const GURL& url,
+    const std::string& app_id,
+    base::Time last_modified,
+    blink::ProtocolHandlerSecurityLevel security_level)
+    : protocol_(base::ToLowerASCII(protocol)),
+      url_(url),
+      web_app_id_(app_id),
+      last_modified_(last_modified),
+      security_level_(security_level) {}
+
+// static
+ProtocolHandler ProtocolHandler::CreateWebAppProtocolHandler(
+    const std::string& protocol,
+    const GURL& url,
+    const std::string& app_id) {
+  return ProtocolHandler(protocol, url, app_id, base::Time::Now(),
+                         blink::ProtocolHandlerSecurityLevel::kStrict);
 }
+
+ProtocolHandler::ProtocolHandler() = default;
 
 bool ProtocolHandler::IsValidDict(const base::DictionaryValue* value) {
   // Note that "title" parameter is ignored.
@@ -42,16 +67,15 @@ bool ProtocolHandler::IsValidDict(const base::DictionaryValue* value) {
 }
 
 bool ProtocolHandler::IsValid() const {
-  // TODO(https://crbug.com/977083): Consider limiting to secure contexts.
-
   // This matches VerifyCustomHandlerURLSecurity() in blink's
   // NavigatorContentUtils.
+  // https://html.spec.whatwg.org/multipage/system-state.html#normalize-protocol-handler-parameters
   bool has_valid_scheme =
       url_.SchemeIsHTTPOrHTTPS() ||
       (security_level_ ==
            blink::ProtocolHandlerSecurityLevel::kExtensionFeatures &&
        url_.SchemeIs(extensions::kExtensionScheme));
-  if (!has_valid_scheme)
+  if (!has_valid_scheme || !network::IsUrlPotentiallyTrustworthy(url_))
     return false;
 
   bool has_custom_scheme_prefix = false;
@@ -84,17 +108,24 @@ ProtocolHandler ProtocolHandler::CreateProtocolHandler(
       blink::ProtocolHandlerSecurityLevel::kStrict;
   value->GetString("protocol", &protocol);
   value->GetString("url", &url);
-  base::Optional<base::Time> time_value =
+  absl::optional<base::Time> time_value =
       util::ValueToTime(value->FindKey("last_modified"));
   // Treat invalid times as the default value.
   if (time_value)
     time = *time_value;
-  base::Optional<int> security_level_value =
+  absl::optional<int> security_level_value =
       value->FindIntPath("security_level");
   if (security_level_value) {
     security_level =
         blink::ProtocolHandlerSecurityLevelFrom(*security_level_value);
   }
+
+  if (value->HasKey("app_id")) {
+    std::string app_id;
+    value->GetString("app_id", &app_id);
+    return ProtocolHandler(protocol, GURL(url), app_id, time, security_level);
+  }
+
   return ProtocolHandler(protocol, GURL(url), time, security_level);
 }
 
@@ -112,10 +143,14 @@ std::unique_ptr<base::DictionaryValue> ProtocolHandler::Encode() const {
   d->SetString("url", url_.spec());
   d->SetKey("last_modified", util::TimeToValue(last_modified_));
   d->SetIntPath("security_level", static_cast<int>(security_level_));
+
+  if (web_app_id_.has_value())
+    d->SetString("app_id", web_app_id_.value());
+
   return d;
 }
 
-base::string16 ProtocolHandler::GetProtocolDisplayName(
+std::u16string ProtocolHandler::GetProtocolDisplayName(
     const std::string& protocol) {
   if (protocol == "mailto")
     return l10n_util::GetStringUTF16(IDS_REGISTER_PROTOCOL_HANDLER_MAILTO_NAME);
@@ -124,7 +159,7 @@ base::string16 ProtocolHandler::GetProtocolDisplayName(
   return base::UTF8ToUTF16(protocol);
 }
 
-base::string16 ProtocolHandler::GetProtocolDisplayName() const {
+std::u16string ProtocolHandler::GetProtocolDisplayName() const {
   return GetProtocolDisplayName(protocol_);
 }
 

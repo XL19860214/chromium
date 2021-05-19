@@ -10,6 +10,7 @@
 #include <utility>
 #include <vector>
 
+#include "base/callback.h"
 #include "base/compiler_specific.h"
 #include "base/files/file_enumerator.h"
 #include "base/files/file_util.h"
@@ -99,14 +100,14 @@ class PrefStoreReadObserver : public PrefStore::Observer {
   void OnPrefValueChanged(const std::string& key) override {}
 
   void OnInitializationCompleted(bool succeeded) override {
-    if (!stop_waiting_.is_null()) {
+    if (stop_waiting_) {
       std::move(stop_waiting_).Run();
     }
   }
 
  private:
   scoped_refptr<PersistentPrefStore> pref_store_;
-  base::Closure stop_waiting_;
+  base::OnceClosure stop_waiting_;
 
   DISALLOW_COPY_AND_ASSIGN(PrefStoreReadObserver);
 };
@@ -174,8 +175,8 @@ class ProfilePrefStoreManagerTest : public testing::Test,
   }
 
   void ReloadConfiguration() {
-    manager_.reset(new ProfilePrefStoreManager(profile_dir_.GetPath(), seed_,
-                                               "device_id"));
+    manager_ = std::make_unique<ProfilePrefStoreManager>(profile_dir_.GetPath(),
+                                                         seed_, "device_id");
   }
 
   void TearDown() override {

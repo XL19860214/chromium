@@ -65,8 +65,10 @@ class NET_EXPORT ParsedCookie {
   // The cookie needs to be assigned a name/value before setting the other
   // attributes.
   //
-  // TODO(chlily): Ideally, we can remove these mutators once we remove the
-  // single callsite.
+  // These functions should only be used if you need to modify a response's
+  // Set-Cookie string. The resulting ParsedCookie and its Set-Cookie string
+  // should still go through the regular cookie parsing process before entering
+  // the cookie jar.
   bool SetName(const std::string& name);
   bool SetValue(const std::string& value);
   bool SetPath(const std::string& path);
@@ -138,6 +140,12 @@ class NET_EXPORT ParsedCookie {
   // Removes the key/value pair from a cookie that is identified by |index|.
   // |index| refers to a position in |pairs_|.
   void ClearAttributePair(size_t index);
+
+  // Records metrics on cookie name+value and attribute value lengths.
+  // This is being recorded to evaluate whether to change length limits for
+  // cookies, such that limits are applied to name+value, and individual
+  // attribute lengths, rather than to the whole set-cookie line.
+  void RecordCookieAttributeValueLengthHistograms() const;
 
   PairList pairs_;
   // These will default to 0, but that should never be valid since the

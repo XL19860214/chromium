@@ -21,12 +21,9 @@ namespace blink {
 // We enable LayoutNGFragmentTraversal here, so that we get the "first/last for
 // node" bits set as appropriate.
 class NGFragmentItemTest : public NGLayoutTest,
-                           ScopedLayoutNGFragmentItemForTest,
                            ScopedLayoutNGFragmentTraversalForTest {
  public:
-  NGFragmentItemTest()
-      : ScopedLayoutNGFragmentItemForTest(true),
-        ScopedLayoutNGFragmentTraversalForTest(true) {}
+  NGFragmentItemTest() : ScopedLayoutNGFragmentTraversalForTest(true) {}
 
   void ForceLayout() { RunDocumentLifecycle(); }
 
@@ -369,6 +366,32 @@ TEST_F(NGFragmentItemTest, SelfPaintingInlineBox) {
   NGInlineCursor cursor;
   for (cursor.MoveTo(*text); cursor; cursor.MoveToNextForSameLayoutObject())
     EXPECT_TRUE(cursor.Current()->IsInkOverflowComputed());
+}
+
+TEST_F(NGFragmentItemTest, StartOffsetInContainer) {
+  SetBodyInnerHTML(R"HTML(
+    <style>
+    atomic {
+      display: inline-block;
+      width: 3ch;
+    }
+    </style>
+    <div id="container" style="font-size: 10px; width: 3ch">
+      012&shy;456&shy;<span>8</span>90&shy;<atomic></atomic>
+    </div>
+  )HTML");
+  auto* container =
+      To<LayoutBlockFlow>(GetLayoutObjectByElementId("container"));
+  NGInlineCursor cursor(*container);
+  while (!cursor.Current()->IsLayoutGeneratedText())
+    cursor.MoveToNext();
+  EXPECT_EQ(4u, cursor.Current()->StartOffsetInContainer(cursor));
+  for (cursor.MoveToNext(); !cursor.Current()->IsLayoutGeneratedText();)
+    cursor.MoveToNext();
+  EXPECT_EQ(8u, cursor.Current()->StartOffsetInContainer(cursor));
+  for (cursor.MoveToNext(); !cursor.Current()->IsLayoutGeneratedText();)
+    cursor.MoveToNext();
+  EXPECT_EQ(12u, cursor.Current()->StartOffsetInContainer(cursor));
 }
 
 // Various nodes/elements to test insertions.

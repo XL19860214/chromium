@@ -14,7 +14,6 @@
 #include "extensions/browser/api/declarative_net_request/ruleset_matcher.h"
 #include "extensions/browser/api/declarative_net_request/utils.h"
 #include "extensions/common/api/declarative_net_request/constants.h"
-#include "extensions/common/api/declarative_net_request/utils.h"
 #include "extensions/common/extension.h"
 #include "third_party/flatbuffers/src/include/flatbuffers/flatbuffers.h"
 #include "url/gurl.h"
@@ -55,7 +54,7 @@ ParseInfo RulesetSource::IndexRules(
 
       IndexedRule indexed_rule;
       ParseResult parse_result = IndexedRule::CreateIndexedRule(
-          std::move(rule), base_url, &indexed_rule);
+          std::move(rule), base_url, id(), &indexed_rule);
 
       if (parse_result == ParseResult::ERROR_REGEX_TOO_LARGE) {
         large_regex_rule_ids.push_back(rule_id);

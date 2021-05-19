@@ -82,6 +82,7 @@ TEST_F(IntersectionObserverTest, NotificationSentWhenRootRemoved) {
       <div id='target'></div>
     </div>
   )HTML");
+  Compositor().BeginFrame();
 
   Element* root = GetDocument().getElementById("root");
   ASSERT_TRUE(root);
@@ -126,6 +127,7 @@ TEST_F(IntersectionObserverTest, DocumentRootClips) {
     <div id='target'>Hello, world!</div>
     <div id='spacer' style='height:2000px'></div>
   )HTML");
+  Compositor().BeginFrame();
 
   Document* iframe_document = To<WebLocalFrameImpl>(MainFrame().FirstChild())
                                   ->GetFrame()
@@ -172,6 +174,7 @@ TEST_F(IntersectionObserverTest, ReportsFractionOfTargetOrRoot) {
     </style>
     <div id='target'></div>
   )HTML");
+  Compositor().BeginFrame();
 
   Element* target = GetDocument().getElementById("target");
   ASSERT_TRUE(target);
@@ -189,7 +192,8 @@ TEST_F(IntersectionObserverTest, ReportsFractionOfTargetOrRoot) {
           *target_observer_delegate, nullptr, Vector<Length>(),
           Vector<float>{kExpectedFractionOfTarget / 2},
           IntersectionObserver::kFractionOfTarget, 0, false, false,
-          IntersectionObserver::kApplyMarginToRoot);
+          IntersectionObserver::kApplyMarginToRoot,
+          /* use_overflow_clip_edge */ false);
   DummyExceptionStateForTesting exception_state;
   target_observer->observe(target, exception_state);
   ASSERT_FALSE(exception_state.HadException());
@@ -201,7 +205,8 @@ TEST_F(IntersectionObserverTest, ReportsFractionOfTargetOrRoot) {
           *root_observer_delegate, nullptr, Vector<Length>(),
           Vector<float>{kExpectedFractionOfRoot / 2},
           IntersectionObserver::kFractionOfRoot, 0, false, false,
-          IntersectionObserver::kApplyMarginToRoot);
+          IntersectionObserver::kApplyMarginToRoot,
+          /* use_overflow_clip_edge */ false);
   root_observer->observe(target, exception_state);
   ASSERT_FALSE(exception_state.HadException());
 
@@ -246,6 +251,7 @@ TEST_F(IntersectionObserverTest, TargetRectIsEmptyAfterMapping) {
       </div>
     </div>
   )HTML");
+  Compositor().BeginFrame();
 
   Element* target = GetDocument().getElementById("target");
   ASSERT_TRUE(target);
@@ -257,7 +263,8 @@ TEST_F(IntersectionObserverTest, TargetRectIsEmptyAfterMapping) {
           *target_observer_delegate, nullptr, Vector<Length>(),
           Vector<float>{std::numeric_limits<float>::min()},
           IntersectionObserver::kFractionOfTarget, 0, false, false,
-          IntersectionObserver::kApplyMarginToRoot);
+          IntersectionObserver::kApplyMarginToRoot,
+          /* use_overflow_clip_edge */ false);
   DummyExceptionStateForTesting exception_state;
   target_observer->observe(target, exception_state);
   ASSERT_FALSE(exception_state.HadException());
@@ -801,6 +808,7 @@ TEST_F(IntersectionObserverV2Test, BasicOcclusion) {
     </div>
     <div id='occluder'></div>
   )HTML");
+  Compositor().BeginFrame();
 
   IntersectionObserverInit* observer_init = IntersectionObserverInit::Create();
   observer_init->setTrackVisibility(true);
@@ -859,6 +867,7 @@ TEST_F(IntersectionObserverV2Test, BasicOpacity) {
       <div id='target'></div>
     </div>
   )HTML");
+  Compositor().BeginFrame();
 
   IntersectionObserverInit* observer_init = IntersectionObserverInit::Create();
   observer_init->setTrackVisibility(true);
@@ -908,6 +917,7 @@ TEST_F(IntersectionObserverV2Test, BasicTransform) {
       <div id='target'></div>
     </div>
   )HTML");
+  Compositor().BeginFrame();
 
   IntersectionObserverInit* observer_init = IntersectionObserverInit::Create();
   observer_init->setTrackVisibility(true);
@@ -968,6 +978,7 @@ TEST_F(IntersectionObserverTest, ApplyMarginToTarget) {
       <div id=target></div>
     </div>
   )HTML");
+  Compositor().BeginFrame();
 
   Element* target = GetDocument().getElementById("target");
   ASSERT_TRUE(target);
@@ -979,7 +990,8 @@ TEST_F(IntersectionObserverTest, ApplyMarginToTarget) {
           *root_margin_delegate, nullptr, Vector<Length>{Length::Fixed(10)},
           Vector<float>{std::numeric_limits<float>::min()},
           IntersectionObserver::kFractionOfTarget, 0, false, false,
-          IntersectionObserver::kApplyMarginToRoot);
+          IntersectionObserver::kApplyMarginToRoot,
+          /* use_overflow_clip_edge */ false);
 
   DummyExceptionStateForTesting exception_state;
   root_margin_observer->observe(target, exception_state);
@@ -993,7 +1005,8 @@ TEST_F(IntersectionObserverTest, ApplyMarginToTarget) {
           *target_margin_delegate, nullptr, Vector<Length>{Length::Fixed(10)},
           Vector<float>{std::numeric_limits<float>::min()},
           IntersectionObserver::kFractionOfTarget, 0, false, false,
-          IntersectionObserver::kApplyMarginToTarget);
+          IntersectionObserver::kApplyMarginToTarget,
+          /* use_overflow_clip_edge */ false);
 
   target_margin_observer->observe(target, exception_state);
   ASSERT_FALSE(exception_state.HadException());
@@ -1031,6 +1044,7 @@ TEST_F(IntersectionObserverTest, TargetMarginPercentResolvesAgainstRoot) {
       <div id=target></div>
     </div>
   )HTML");
+  Compositor().BeginFrame();
 
   Element* target = GetDocument().getElementById("target");
   ASSERT_TRUE(target);
@@ -1046,7 +1060,8 @@ TEST_F(IntersectionObserverTest, TargetMarginPercentResolvesAgainstRoot) {
           *target_margin_delegate, nullptr, Vector<Length>{Length::Percent(10)},
           Vector<float>{std::numeric_limits<float>::min()},
           IntersectionObserver::kFractionOfTarget, 0, false, false,
-          IntersectionObserver::kApplyMarginToTarget);
+          IntersectionObserver::kApplyMarginToTarget,
+          /* use_overflow_clip_edge */ false);
 
   DummyExceptionStateForTesting exception_state;
   target_margin_observer->observe(target, exception_state);

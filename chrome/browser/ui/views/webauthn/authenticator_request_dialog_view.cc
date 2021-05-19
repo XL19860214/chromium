@@ -4,8 +4,9 @@
 
 #include "chrome/browser/ui/views/webauthn/authenticator_request_dialog_view.h"
 
+#include <string>
+
 #include "base/logging.h"
-#include "base/strings/string16.h"
 #include "chrome/browser/ui/views/chrome_layout_provider.h"
 #include "chrome/browser/ui/views/chrome_typography.h"
 #include "chrome/browser/ui/views/md_text_button_with_down_arrow.h"
@@ -18,6 +19,7 @@
 #include "components/web_modal/web_contents_modal_dialog_manager.h"
 #include "components/web_modal/web_contents_modal_dialog_manager_delegate.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/gfx/color_utils.h"
 #include "ui/gfx/geometry/insets.h"
 #include "ui/gfx/paint_vector_icon.h"
@@ -200,11 +202,12 @@ views::View* AuthenticatorRequestDialogView::GetInitiallyFocusedView() {
   return nullptr;
 }
 
-base::string16 AuthenticatorRequestDialogView::GetWindowTitle() const {
+std::u16string AuthenticatorRequestDialogView::GetWindowTitle() const {
   return sheet()->model()->GetStepTitle();
 }
 
-void AuthenticatorRequestDialogView::OnModelDestroyed() {
+void AuthenticatorRequestDialogView::OnModelDestroyed(
+    AuthenticatorRequestDialogModel* model) {
   NOTREACHED();
 }
 
@@ -255,7 +258,6 @@ AuthenticatorRequestDialogView::AuthenticatorRequestDialogView(
     std::unique_ptr<AuthenticatorRequestDialogModel> model)
     : content::WebContentsObserver(web_contents),
       model_(std::move(model)),
-      sheet_(nullptr),
       other_transports_button_(
           SetExtraView(std::make_unique<views::MdTextButtonWithDownArrow>(
               base::BindRepeating(
@@ -348,3 +350,6 @@ void AuthenticatorRequestDialogView::OnDialogClosing() {
   if (!model_->should_dialog_be_closed())
     Cancel();
 }
+
+BEGIN_METADATA(AuthenticatorRequestDialogView, views::DialogDelegateView)
+END_METADATA

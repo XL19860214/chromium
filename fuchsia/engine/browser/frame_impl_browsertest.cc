@@ -11,6 +11,7 @@
 #include <string>
 
 #include "base/bind.h"
+#include "base/callback_helpers.h"
 #include "base/containers/span.h"
 #include "base/fuchsia/process_context.h"
 #include "base/macros.h"
@@ -22,13 +23,14 @@
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "content/public/test/browser_test.h"
-#include "fuchsia/base/fit_adapter.h"
-#include "fuchsia/base/frame_test_util.h"
 #include "fuchsia/base/mem_buffer_util.h"
-#include "fuchsia/base/result_receiver.h"
 #include "fuchsia/base/string_util.h"
-#include "fuchsia/base/test_navigation_listener.h"
-#include "fuchsia/base/url_request_rewrite_test_util.h"
+#include "fuchsia/base/test/fit_adapter.h"
+#include "fuchsia/base/test/frame_test_util.h"
+#include "fuchsia/base/test/result_receiver.h"
+#include "fuchsia/base/test/test_navigation_listener.h"
+#include "fuchsia/base/test/url_request_rewrite_test_util.h"
+#include "fuchsia/engine/browser/context_impl.h"
 #include "fuchsia/engine/browser/fake_semantics_manager.h"
 #include "fuchsia/engine/browser/frame_impl.h"
 #include "fuchsia/engine/browser/frame_impl_browser_test_base.h"
@@ -115,7 +117,7 @@ std::string StringFromMemBufferOrDie(const fuchsia::mem::Buffer& buffer) {
 class FrameImplTest : public FrameImplTestBase {
  public:
   FrameImplTest() = default;
-  ~FrameImplTest() = default;
+  ~FrameImplTest() override = default;
 
   FrameImplTest(const FrameImplTest&) = delete;
   FrameImplTest& operator=(const FrameImplTest&) = delete;
@@ -128,7 +130,7 @@ class FrameImplTest : public FrameImplTestBase {
   // TODO(crbug.com/1155378): Remove |navigation_listener_| and use the parent's
   // implementation of this method after updating all tests to use the
   // appropriate base.
-  fuchsia::web::FramePtr CreateFrame() {
+  fuchsia::web::FramePtr CreateFrame() override {
     return WebEngineBrowserTest::CreateFrame(&navigation_listener_);
   }
 
@@ -1991,7 +1993,7 @@ IN_PROC_BROWSER_TEST_F(RequestMonitoringFrameImplBrowserTest,
   std::vector<fuchsia::web::UrlRequestRewrite> rewrites;
   rewrites.push_back(cr_fuchsia::CreateRewriteAddHeaders("Test", "Value"));
   rewrites.push_back(
-      cr_fuchsia::CreateRewriteRemoveHeader(base::nullopt, "Test"));
+      cr_fuchsia::CreateRewriteRemoveHeader(absl::nullopt, "Test"));
   fuchsia::web::UrlRequestRewriteRule rule;
   rule.set_rewrites(std::move(rewrites));
   std::vector<fuchsia::web::UrlRequestRewriteRule> rules;
@@ -2031,7 +2033,7 @@ IN_PROC_BROWSER_TEST_F(RequestMonitoringFrameImplBrowserTest,
   std::vector<fuchsia::web::UrlRequestRewrite> rewrites;
   rewrites.push_back(cr_fuchsia::CreateRewriteAddHeaders("Test", "Value"));
   rewrites.push_back(cr_fuchsia::CreateRewriteRemoveHeader(
-      base::make_optional("[pattern]"), "Test"));
+      absl::make_optional("[pattern]"), "Test"));
   fuchsia::web::UrlRequestRewriteRule rule;
   rule.set_rewrites(std::move(rewrites));
   std::vector<fuchsia::web::UrlRequestRewriteRule> rules;

@@ -20,9 +20,9 @@
 #include "testing/gtest/include/gtest/gtest.h"
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-#include "chrome/browser/chromeos/drive/drive_integration_service.h"
-#include "chrome/browser/chromeos/login/users/fake_chrome_user_manager.h"
-#include "chrome/browser/chromeos/profiles/profile_helper.h"
+#include "chrome/browser/ash/drive/drive_integration_service.h"
+#include "chrome/browser/ash/login/users/fake_chrome_user_manager.h"
+#include "chrome/browser/ash/profiles/profile_helper.h"
 #include "components/drive/drive_pref_names.h"
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
@@ -432,7 +432,7 @@ TEST(DownloadPrefsTest, DownloadDirSanitization) {
   {
     // Create new profile for enabled feature to work.
     TestingProfile profile2(base::FilePath("/home/chronos/u-0123456789abcdef"));
-    chromeos::FakeChromeUserManager user_manager;
+    ash::FakeChromeUserManager user_manager;
     DownloadPrefs prefs2(&profile2);
     AccountId account_id =
         AccountId::FromUserEmailGaiaId(profile2.GetProfileUserName(), "12345");
@@ -494,6 +494,33 @@ TEST(DownloadPrefsTest, DownloadLaterPrefs) {
       static_cast<int>(DownloadLaterPromptStatus::kDontShow));
   EXPECT_FALSE(prefs.PromptDownloadLater());
   EXPECT_TRUE(prefs.HasDownloadLaterPromptShown());
+}
+
+// Verfies the returned value of PromptForDownload() and PromptDownloadLater()
+// when prefs::kPromptForDownload is managed by enterprise policy,
+TEST(DownloadPrefsTest, ManagedPromptForDownload) {
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitAndEnableFeature(download::features::kDownloadLater);
+
+  content::BrowserTaskEnvironment task_environment_;
+  TestingProfile profile;
+  profile.GetTestingPrefService()->SetManagedPref(
+      prefs::kPromptForDownload, std::make_unique<base::Value>(true));
+  DownloadPrefs prefs(&profile);
+
+  profile.GetPrefs()->SetInteger(
+      prefs::kDownloadLaterPromptStatus,
+      static_cast<int>(DownloadLaterPromptStatus::kShowPreference));
+  profile.GetPrefs()->SetInteger(
+      prefs::kPromptForDownloadAndroid,
+      static_cast<int>(DownloadPromptStatus::DONT_SHOW));
+  EXPECT_FALSE(prefs.PromptDownloadLater());
+  EXPECT_TRUE(prefs.PromptForDownload());
+
+  profile.GetTestingPrefService()->SetManagedPref(
+      prefs::kPromptForDownload, std::make_unique<base::Value>(false));
+  EXPECT_FALSE(prefs.PromptDownloadLater());
+  EXPECT_FALSE(prefs.PromptForDownload());
 }
 
 #endif  // OS_ANDROID

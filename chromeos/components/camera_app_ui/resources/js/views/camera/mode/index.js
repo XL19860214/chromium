@@ -29,19 +29,17 @@ import {
 } from './mode_base.js';
 import {
   PhotoFactory,
-  PhotoHandler,
-  PhotoResult,
+  PhotoHandler,  // eslint-disable-line no-unused-vars
 } from './photo.js';
 import {PortraitFactory} from './portrait.js';
 import {SquareFactory} from './square.js';
 import {
-  Video,
   VideoFactory,
-  VideoHandler,
-  VideoResult,
+  VideoHandler,  // eslint-disable-line no-unused-vars
 } from './video.js';
 
-export {PhotoHandler, PhotoResult, Video, VideoHandler, VideoResult};
+export {PhotoHandler, PhotoResult} from './photo.js';
+export {setAvc1Parameters, Video, VideoHandler, VideoResult} from './video.js';
 
 /**
  * Callback to trigger mode switching.
@@ -66,12 +64,20 @@ class ModeConfig {
   async isSupported(deviceId) {}
 
   /**
-   * Get stream constraints for HALv1 of this mode.
+   * @param {!Resolution} captureResolution
+   * @param {!Resolution} previewResolution
+   * @return {boolean}
+   * @abstract
+   */
+  isSupportPTZ(captureResolution, previewResolution) {}
+
+  /**
+   * Get general stream constraints of this mode for fake cameras.
    * @param {?string} deviceId
    * @return {!Array<!MediaStreamConstraints>}
    * @abstract
    */
-  getV1Constraints(deviceId) {}
+  getConstraintsForFakeCamera(deviceId) {}
 
   /* eslint-disable getter-return */
 
@@ -135,13 +141,13 @@ export class Modes {
     this.modesGroup_ = dom.get('#modes-group', HTMLElement);
 
     /**
-     * Returns a set of available constraints for HALv1 device.
+     * Returns a set of general constraints for fake cameras.
      * @param {boolean} videoMode Is getting constraints for video mode.
      * @param {?string} deviceId Id of video device.
      * @return {!Array<!MediaStreamConstraints>} Result of
      *     constraints-candidates.
      */
-    const getV1Constraints = function(videoMode, deviceId) {
+    const getConstraintsForFakeCamera = function(videoMode, deviceId) {
       const /** !Array<!MediaTrackConstraints> */ baseConstraints = [
         {
           aspectRatio: {ideal: videoMode ? 1.7777777778 : 1.3333333333},
@@ -157,10 +163,7 @@ export class Modes {
         if (deviceId) {
           constraint.deviceId = {exact: deviceId};
         } else {
-          // HALv1 devices are unable to know facing before stream
-          // configuration, deviceId is set to null for requesting camera with
-          // default facing.
-          constraint.facingMode = {exact: util.getDefaultFacing()};
+          constraint.facingMode = {ideal: util.getDefaultFacing()};
         }
         return {
           audio: videoMode ? {echoCancellation: false} : false,
@@ -168,6 +171,12 @@ export class Modes {
         };
       });
     };
+
+    // Workaround for b/184089334 on PTZ camera to use preview frame as photo
+    // result.
+    const checkSupportPTZForPhotoMode =
+        (captureResolution, previewResolution) =>
+            captureResolution.equals(previewResolution);
 
     /**
      * Mode classname and related functions and attributes.
@@ -178,22 +187,28 @@ export class Modes {
       [Mode.VIDEO]: {
         captureFactory: new VideoFactory(videoHandler),
         isSupported: async () => true,
+        isSupportPTZ: () => true,
         constraintsPreferrer: videoPreferrer,
-        getV1Constraints: getV1Constraints.bind(this, true),
+        getConstraintsForFakeCamera:
+            getConstraintsForFakeCamera.bind(this, true),
         nextMode: Mode.PHOTO,
       },
       [Mode.PHOTO]: {
         captureFactory: new PhotoFactory(photoHandler),
         isSupported: async () => true,
+        isSupportPTZ: checkSupportPTZForPhotoMode,
         constraintsPreferrer: photoPreferrer,
-        getV1Constraints: getV1Constraints.bind(this, false),
+        getConstraintsForFakeCamera:
+            getConstraintsForFakeCamera.bind(this, false),
         nextMode: Mode.SQUARE,
       },
       [Mode.SQUARE]: {
         captureFactory: new SquareFactory(photoHandler),
         isSupported: async () => true,
+        isSupportPTZ: checkSupportPTZForPhotoMode,
         constraintsPreferrer: photoPreferrer,
-        getV1Constraints: getV1Constraints.bind(this, false),
+        getConstraintsForFakeCamera:
+            getConstraintsForFakeCamera.bind(this, false),
         nextMode: Mode.PHOTO,
       },
       [Mode.PORTRAIT]: {
@@ -208,8 +223,10 @@ export class Modes {
           }
           return await deviceOperator.isPortraitModeSupported(deviceId);
         },
+        isSupportPTZ: checkSupportPTZForPhotoMode,
         constraintsPreferrer: photoPreferrer,
-        getV1Constraints: getV1Constraints.bind(this, false),
+        getConstraintsForFakeCamera:
+            getConstraintsForFakeCamera.bind(this, false),
         nextMode: Mode.PHOTO,
       },
     };
@@ -234,7 +251,9 @@ export class Modes {
 
     [state.State.EXPERT, state.State.SAVE_METADATA].forEach(
         (/** !state.State */ s) => {
-          state.addObserver(s, this.updateSaveMetadata_.bind(this));
+          state.addObserver(s, () => {
+            this.updateSaveMetadata_();
+          });
         });
 
     // Set default mode when app started.
@@ -289,7 +308,7 @@ export class Modes {
 
   /**
    * Gets all available capture resolution and its corresponding preview
-   * constraints for the given mode.
+   * constraints for the given |mode| and |deviceId|.
    * @param {!Mode} mode
    * @param {string} deviceId
    * @return {!Array<!CaptureCandidate>}
@@ -300,14 +319,16 @@ export class Modes {
   }
 
   /**
-   * Gets capture resolution and its corresponding preview constraints for the
-   * given mode on camera HALv1 device.
+   * Gets a general set of resolution candidates given by |mode| and |deviceId|
+   * for fake cameras. If |deviceId| is null, prefer facing will be used instead
+   * in the constraints.
    * @param {!Mode} mode
    * @param {?string} deviceId
    * @return {!Array<!CaptureCandidate>}
    */
-  getResolutionCandidatesV1(mode, deviceId) {
-    const previewCandidates = this.allModes_[mode].getV1Constraints(deviceId);
+  getFakeResolutionCandidates(mode, deviceId) {
+    const previewCandidates =
+        this.allModes_[mode].getConstraintsForFakeCamera(deviceId);
     return [{resolution: null, previewCandidates}];
   }
 
@@ -338,24 +359,46 @@ export class Modes {
   }
 
   /**
+   * @param {!Mode} mode
+   * @param {!Resolution} captureResolution
+   * @param {!Resolution} previewResolution
+   * @return {boolean}
+   */
+  isSupportPTZ(mode, captureResolution, previewResolution) {
+    return this.allModes_[mode].isSupportPTZ(
+        captureResolution, previewResolution);
+  }
+
+  /**
    * Updates mode selection UI according to given device id.
    * @param {?string} deviceId
    * @return {!Promise}
    */
   async updateModeSelectionUI(deviceId) {
     const supportedModes = await this.getSupportedModes(deviceId);
-    dom.getAll('div.mode-item', HTMLDivElement).forEach((element) => {
-      const radio = dom.getFrom(element, 'input[type=radio]', HTMLInputElement);
-      element.classList.toggle(
-          'hide',
-          !supportedModes.includes(
-              /** @type {!Mode} */ (radio.dataset['mode'])));
+    const items = dom.getAll('div.mode-item', HTMLDivElement);
+    let first = null;
+    let last = null;
+    items.forEach((el) => {
+      const radio = dom.getFrom(el, 'input[type=radio]', HTMLInputElement);
+      const supported =
+          supportedModes.includes(/** @type {!Mode} */ (radio.dataset['mode']));
+      el.classList.toggle('hide', !supported);
+      if (supported) {
+        if (first === null) {
+          first = el;
+        }
+        last = el;
+      }
     });
-    this.modesGroup_.classList.remove('hide');
+    items.forEach((el) => {
+      el.classList.toggle('first', el === first);
+      el.classList.toggle('last', el === last);
+    });
   }
 
   /**
-   * Creates and updates new current mode object.
+   * Creates and updates current mode object.
    * @param {!Mode} mode Classname of mode to be updated.
    * @param {!ModeFactory} factory The factory ready for producing mode capture
    *     object.
@@ -368,7 +411,8 @@ export class Modes {
    */
   async updateMode(mode, factory, stream, facing, deviceId, captureResolution) {
     if (this.current !== null) {
-      await this.current.stopCapture();
+      await this.current.clear();
+      await this.disableSaveMetadata_();
     }
     this.updateModeUI_(mode);
     this.current = factory.produce();
@@ -377,6 +421,18 @@ export class Modes {
           deviceId, stream, facing, captureResolution);
     }
     await this.updateSaveMetadata_();
+  }
+
+  /**
+   * Clears everything when mode is not needed anymore.
+   * @return {!Promise}
+   */
+  async clear() {
+    if (this.current !== null) {
+      await this.current.clear();
+      await this.disableSaveMetadata_();
+    }
+    this.current = null;
   }
 
   /**

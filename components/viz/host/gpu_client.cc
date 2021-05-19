@@ -4,6 +4,8 @@
 
 #include "components/viz/host/gpu_client.h"
 
+#include <utility>
+
 #include "base/bind.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/numerics/checked_math.h"
@@ -22,6 +24,7 @@ bool IsSizeValid(const gfx::Size& size) {
   bytes *= size.height();
   return bytes.IsValid();
 }
+
 }  // namespace
 
 GpuClient::GpuClient(std::unique_ptr<GpuClientDelegate> delegate,
@@ -91,7 +94,6 @@ void GpuClient::OnEstablishGpuChannel(
             status == GpuHostImpl::EstablishChannelStatus::kSuccess);
   gpu_channel_requested_ = false;
   EstablishGpuChannelCallback callback = std::move(callback_);
-  DCHECK(!callback_);
 
   if (status == GpuHostImpl::EstablishChannelStatus::kGpuHostInvalid) {
     // GPU process may have crashed or been killed. Try again.
@@ -124,7 +126,6 @@ void GpuClient::ClearCallback() {
   EstablishGpuChannelCallback callback = std::move(callback_);
   std::move(callback).Run(client_id_, mojo::ScopedMessagePipeHandle(),
                           gpu::GPUInfo(), gpu::GpuFeatureInfo());
-  DCHECK(!callback_);
 }
 
 void GpuClient::EstablishGpuChannel(EstablishGpuChannelCallback callback) {
@@ -160,7 +161,7 @@ void GpuClient::EstablishGpuChannel(EstablishGpuChannelCallback callback) {
   gpu_channel_requested_ = true;
   const bool is_gpu_host = false;
   gpu_host->EstablishGpuChannel(
-      client_id_, client_tracing_id_, is_gpu_host,
+      client_id_, client_tracing_id_, is_gpu_host, false,
       base::BindOnce(&GpuClient::OnEstablishGpuChannel,
                      weak_factory_.GetWeakPtr()));
 }
@@ -211,6 +212,21 @@ void GpuClient::DestroyGpuMemoryBuffer(gfx::GpuMemoryBufferId id,
     gpu_memory_buffer_manager->DestroyGpuMemoryBuffer(id, client_id_,
                                                       sync_token);
   }
+}
+
+void GpuClient::CopyGpuMemoryBuffer(
+    gfx::GpuMemoryBufferHandle buffer_handle,
+    base::UnsafeSharedMemoryRegion shared_memory,
+    CopyGpuMemoryBufferCallback callback) {
+  auto* gpu_memory_buffer_manager = delegate_->GetGpuMemoryBufferManager();
+
+  if (!gpu_memory_buffer_manager) {
+    std::move(callback).Run(false);
+    return;
+  }
+
+  gpu_memory_buffer_manager->CopyGpuMemoryBufferAsync(
+      std::move(buffer_handle), std::move(shared_memory), std::move(callback));
 }
 
 void GpuClient::CreateGpuMemoryBufferFactory(

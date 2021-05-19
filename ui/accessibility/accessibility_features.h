@@ -13,6 +13,13 @@
 
 namespace features {
 
+AX_BASE_EXPORT extern const base::Feature
+    kEnableAccessibilityAriaVirtualContent;
+
+// Returns true if "aria-virtualcontent" should be recognized as a valid aria
+// property.
+AX_BASE_EXPORT bool IsAccessibilityAriaVirtualContentEnabled();
+
 AX_BASE_EXPORT extern const base::Feature kEnableAccessibilityExposeDisplayNone;
 
 // Returns true if "display: none" nodes should be exposed to the
@@ -54,6 +61,13 @@ AX_BASE_EXPORT extern const base::Feature kAccessibilityFocusHighlight;
 // briefly whenever focus changes.
 AX_BASE_EXPORT bool IsAccessibilityFocusHighlightEnabled();
 
+AX_BASE_EXPORT extern const base::Feature kAutoDisableAccessibility;
+
+// Returns true if accessibility will be auto-disabled after a certain
+// number of user input events spanning a minimum amount of time with no
+// accessibility API usage in that time.
+AX_BASE_EXPORT bool IsAutoDisableAccessibilityEnabled();
+
 #if defined(OS_WIN)
 // Enables an experimental Chrome-specific accessibility COM API
 AX_BASE_EXPORT extern const base::Feature kIChromeAccessible;
@@ -64,18 +78,38 @@ AX_BASE_EXPORT bool IsIChromeAccessibleEnabled();
 #endif  // defined(OS_WIN)
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-AX_BASE_EXPORT extern const base::Feature kAccessibilityCursorColor;
+// Enables new magnifier panning improvements feature, which adds
+// additional keyboard and mouse panning functionality in Magnifier.
+AX_BASE_EXPORT extern const base::Feature kMagnifierPanningImprovements;
 
-// Returns true if the accessibility cursor color feature is enabled, letting
-// users pick a custom cursor color.
-AX_BASE_EXPORT bool IsAccessibilityCursorColorEnabled();
+// Returns true if the new magnifier panning improvements feature is enabled.
+AX_BASE_EXPORT bool IsMagnifierPanningImprovementsEnabled();
 
-// Enables new magnifier focus following feature, which provides a richer
-// focus following experience.
-AX_BASE_EXPORT extern const base::Feature kMagnifierNewFocusFollowing;
+// Enables ability to choose new continuous mouse following mode in Magnifier
+// settings.
+AX_BASE_EXPORT extern const base::Feature
+    kMagnifierContinuousMouseFollowingModeSetting;
 
-// Returns true if the new magnifier focus following feature is enabled.
-AX_BASE_EXPORT bool IsMagnifierNewFocusFollowingEnabled();
+// Returns true if the feature to allow choosing the new continuous mouse
+// following mode in Magnifier settings is enabled.
+AX_BASE_EXPORT bool IsMagnifierContinuousMouseFollowingModeSettingEnabled();
+
+// Enables ability to choose point scanning mode in switch access.
+AX_BASE_EXPORT extern const base::Feature kEnableSwitchAccessPointScanning;
+
+// Returns true if the feature to allow point scanning in switch access is
+// enabled.
+AX_BASE_EXPORT bool IsSwitchAccessPointScanningEnabled();
+
+// Enables dictation using web speech to listen for a longer duration and
+// allow profanity, and for dictation with web speech or on-device speech
+// to continue listening after speech is finalized.
+AX_BASE_EXPORT extern const base::Feature
+    kExperimentalAccessibilityDictationListening;
+
+// Returns true if the feature to allow experimental listening features for
+// Dictation is enabled.
+AX_BASE_EXPORT bool IsExperimentalAccessibilityDictationListeningEnabled();
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 // Enables Get Image Descriptions to augment existing images labels,
@@ -112,6 +146,15 @@ AX_BASE_EXPORT extern const base::Feature kSelectToSpeakNavigationControl;
 // Returns true if enhanced Select-to-speak features are enabled.
 AX_BASE_EXPORT bool IsSelectToSpeakNavigationControlEnabled();
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+
+#if defined(OS_ANDROID)
+// Compute the AXMode based on AccessibilityServiceInfo. If disabled,
+// the AXMode is either entirely on or entirely off.
+AX_BASE_EXPORT extern const base::Feature kComputeAXMode;
+
+// Returns true if the IChromeAccessible COM API is enabled.
+AX_BASE_EXPORT bool IsComputeAXModeEnabled();
+#endif  // defined(OS_ANDROID)
 
 }  // namespace features
 

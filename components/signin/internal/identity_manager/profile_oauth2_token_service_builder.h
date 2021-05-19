@@ -40,10 +40,16 @@ class TokenWebData;
 #endif
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-namespace chromeos {
+namespace ash {
 class AccountManager;
 }
-#endif
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+
+#if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
+namespace account_manager {
+class AccountManagerFacade;
+}
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
 
 std::unique_ptr<ProfileOAuth2TokenService> BuildProfileOAuth2TokenService(
     PrefService* pref_service,
@@ -51,9 +57,12 @@ std::unique_ptr<ProfileOAuth2TokenService> BuildProfileOAuth2TokenService(
     network::NetworkConnectionTracker* network_connection_tracker,
     signin::AccountConsistencyMethod account_consistency,
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-    chromeos::AccountManager* account_manager,
+    ash::AccountManager* account_manager,
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
+    account_manager::AccountManagerFacade* account_manager_facade,
     bool is_regular_profile,
-#endif
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
 #if !defined(OS_ANDROID)
     bool delete_signin_cookies_on_exit,
     scoped_refptr<TokenWebData> token_web_data,

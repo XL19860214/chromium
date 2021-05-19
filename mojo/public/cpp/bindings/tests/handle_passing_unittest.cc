@@ -211,7 +211,7 @@ TEST_P(HandlePassingTest, Basic) {
                                       run_loop.QuitClosure());
 
   sample::RequestPtr request(sample::Request::New(
-      1, std::move(pipe1.handle0), base::nullopt, std::move(imported)));
+      1, std::move(pipe1.handle0), absl::nullopt, std::move(imported)));
   bool got_response = false;
   std::string got_text_reply;
   base::RunLoop run_loop2;
@@ -235,7 +235,7 @@ TEST_P(HandlePassingTest, PassInvalid) {
   SampleFactoryImpl factory_impl(factory.BindNewPipeAndPassReceiver());
 
   sample::RequestPtr request(sample::Request::New(1, ScopedMessagePipeHandle(),
-                                                  base::nullopt, NullRemote()));
+                                                  absl::nullopt, NullRemote()));
 
   bool got_response = false;
   std::string got_text_reply;
@@ -264,7 +264,7 @@ TEST_P(HandlePassingTest, DataPipe) {
                                        MOJO_CREATE_DATA_PIPE_FLAG_NONE, 1,
                                        1024};
   ASSERT_EQ(MOJO_RESULT_OK,
-            CreateDataPipe(&options, &producer_handle, &consumer_handle));
+            CreateDataPipe(&options, producer_handle, consumer_handle));
   std::string expected_text_reply = "got it";
   // +1 for \0.
   uint32_t data_size = static_cast<uint32_t>(expected_text_reply.size() + 1);

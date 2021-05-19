@@ -18,7 +18,7 @@
 #include "extensions/browser/extension_prefs_observer.h"
 #include "extensions/browser/extensions_browser_api_provider.h"
 #include "extensions/common/extension_id.h"
-#include "extensions/common/view_type.h"
+#include "extensions/common/mojom/view_type.mojom.h"
 #include "mojo/public/cpp/bindings/binder_map.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
@@ -287,11 +287,15 @@ class ExtensionsBrowserClient {
                               int embedder_process_id,
                               int view_instance_id) {}
 
+  // Clears the back-forward cache for all active tabs across all browser
+  // contexts.
+  virtual void ClearBackForwardCache() {}
+
   // Attaches the task manager extension tag to |web_contents|, if needed based
   // on |view_type|, so that its corresponding task shows up in the task
   // manager.
   virtual void AttachExtensionTaskManagerTag(content::WebContents* web_contents,
-                                             ViewType view_type) {}
+                                             mojom::ViewType view_type) {}
 
   // Returns a new UpdateClient.
   virtual scoped_refptr<update_client::UpdateClient> CreateUpdateClient(
@@ -342,6 +346,10 @@ class ExtensionsBrowserClient {
   virtual network::mojom::NetworkContext* GetSystemNetworkContext();
 
   virtual UserScriptListener* GetUserScriptListener();
+
+  // Called when all initial script loads from extensions have been completed
+  // for the given BrowserContext.
+  virtual void SignalContentScriptsLoaded(content::BrowserContext* context);
 
   // Returns the user agent used by the content module.
   virtual std::string GetUserAgent() const;

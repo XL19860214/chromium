@@ -12,18 +12,18 @@ import androidx.annotation.VisibleForTesting;
 
 import org.chromium.base.metrics.RecordUserAction;
 import org.chromium.base.task.PostTask;
-import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.invalidation.SessionsInvalidationManager;
 import org.chromium.chrome.browser.ntp.ForeignSessionHelper.ForeignSession;
 import org.chromium.chrome.browser.ntp.ForeignSessionHelper.ForeignSessionTab;
 import org.chromium.chrome.browser.profiles.Profile;
-import org.chromium.chrome.browser.signin.SigninPromoController;
-import org.chromium.chrome.browser.signin.SigninPromoUtil;
+import org.chromium.chrome.browser.signin.SyncConsentActivityLauncherImpl;
 import org.chromium.chrome.browser.signin.services.IdentityServicesProvider;
 import org.chromium.chrome.browser.signin.services.ProfileDataCache;
 import org.chromium.chrome.browser.signin.services.SigninManager;
 import org.chromium.chrome.browser.signin.services.SigninManager.SignInStateObserver;
 import org.chromium.chrome.browser.signin.ui.PersonalizedSigninPromoView;
+import org.chromium.chrome.browser.signin.ui.SigninPromoController;
+import org.chromium.chrome.browser.signin.ui.SigninPromoUtil;
 import org.chromium.chrome.browser.sync.ProfileSyncService;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.ui.favicon.FaviconHelper;
@@ -33,6 +33,7 @@ import org.chromium.components.signin.AccountsChangeObserver;
 import org.chromium.components.signin.identitymanager.ConsentLevel;
 import org.chromium.components.signin.metrics.SigninAccessPoint;
 import org.chromium.content_public.browser.UiThreadTaskTraits;
+import org.chromium.url.GURL;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -108,8 +109,9 @@ public class RecentTabsManager implements ProfileSyncService.SyncStateChangedLis
                 : new RecentlyClosedBridge(profile);
         mSignInManager = IdentityServicesProvider.get().getSigninManager(mProfile);
 
-        mProfileDataCache = ProfileDataCache.createProfileDataCache(context);
-        mSigninPromoController = new SigninPromoController(SigninAccessPoint.RECENT_TABS);
+        mProfileDataCache = ProfileDataCache.createWithDefaultImageSizeAndNoBadge(context);
+        mSigninPromoController = new SigninPromoController(
+                SigninAccessPoint.RECENT_TABS, SyncConsentActivityLauncherImpl.get());
         mProfileSyncService = ProfileSyncService.get();
 
         mRecentlyClosedTabManager.setTabsUpdatedRunnable(() -> {
@@ -255,7 +257,7 @@ public class RecentTabsManager implements ProfileSyncService.SyncStateChangedLis
      * @return favicon or null if favicon unavailable.
      */
     public boolean getForeignFaviconForUrl(
-            String url, int size, FaviconImageCallback faviconCallback) {
+            GURL url, int size, FaviconImageCallback faviconCallback) {
         return mFaviconHelper.getForeignFaviconImageForURL(mProfile, url, size, faviconCallback);
     }
 
@@ -268,8 +270,7 @@ public class RecentTabsManager implements ProfileSyncService.SyncStateChangedLis
      *
      * @return may return false if we could not fetch the favicon.
      */
-    public boolean getLocalFaviconForUrl(String url, int size,
-            FaviconImageCallback faviconCallback) {
+    public boolean getLocalFaviconForUrl(GURL url, int size, FaviconImageCallback faviconCallback) {
         return mFaviconHelper.getLocalFaviconImageForURL(mProfile, url, size, faviconCallback);
     }
 
@@ -372,10 +373,8 @@ public class RecentTabsManager implements ProfileSyncService.SyncStateChangedLis
             if (!mSignInManager.isSignInAllowed()) {
                 return PromoState.PROMO_NONE;
             }
-            if (ChromeFeatureList.isEnabled(ChromeFeatureList.MOBILE_IDENTITY_CONSISTENCY)
-                    && mSignInManager.getIdentityManager().getPrimaryAccountInfo(
-                               ConsentLevel.NOT_REQUIRED)
-                            != null) {
+            if (mSignInManager.getIdentityManager().getPrimaryAccountInfo(ConsentLevel.SIGNIN)
+                    != null) {
                 return PromoState.PROMO_SYNC_PERSONALIZED;
             }
             return PromoState.PROMO_SIGNIN_PERSONALIZED;

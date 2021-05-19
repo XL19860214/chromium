@@ -13,6 +13,7 @@
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
 #include "base/numerics/safe_conversions.h"
+#include "base/strings/stringprintf.h"
 #include "base/trace_event/trace_event.h"
 #include "base/trace_event/traced_value.h"
 #include "build/build_config.h"
@@ -28,7 +29,7 @@
 #include "components/viz/common/quads/solid_color_draw_quad.h"
 #include "components/viz/common/quads/surface_draw_quad.h"
 #include "components/viz/common/quads/texture_draw_quad.h"
-#include "components/viz/common/resources/single_release_callback.h"
+#include "components/viz/common/resources/resource_id.h"
 #include "third_party/khronos/GLES2/gl2.h"
 #include "third_party/skia/include/core/SkPath.h"
 #include "ui/aura/client/aura_constants.h"
@@ -121,7 +122,7 @@ bool IsDeskContainer(aura::Window* container) {
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   return ash::desks_util::IsDeskContainer(container);
 #else
-  return container->id() == ash::kShellWindowId_DefaultContainerDeprecated;
+  return container->GetId() == ash::kShellWindowId_DefaultContainerDeprecated;
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 }
 
@@ -166,7 +167,7 @@ class CustomWindowDelegate : public aura::WindowDelegate {
   void OnWindowDestroyed(aura::Window* window) override { delete this; }
   void OnWindowTargetVisibilityChanged(bool visible) override {}
   void OnWindowOcclusionChanged(
-      aura::Window::OcclusionState occlusion_state) override {
+      aura::Window::OcclusionState GetOcclusionState) override {
     surface_->OnWindowOcclusionChanged();
   }
   bool HasHitTestMask() const override { return true; }
@@ -231,6 +232,10 @@ int surface_id = 0;
 
 DEFINE_OWNED_UI_CLASS_PROPERTY_KEY(std::string, kClientSurfaceIdKey, nullptr)
 
+// A property key to store the window session Id set by client or full_restore
+// component.
+DEFINE_UI_CLASS_PROPERTY_KEY(int32_t, kWindowSessionId, -1)
+
 ScopedSurface::ScopedSurface(Surface* surface, SurfaceObserver* observer)
     : surface_(surface), observer_(observer) {
   surface_->AddSurfaceObserver(observer_);
@@ -289,9 +294,10 @@ void Surface::Attach(Buffer* buffer) {
 }
 
 void Surface::Attach(Buffer* buffer, gfx::Vector2d offset) {
-  TRACE_EVENT2("exo", "Surface::Attach", "buffer_id",
-               buffer ? buffer->gfx_buffer() : nullptr, "app_id",
-               GetApplicationId(window_.get()));
+  TRACE_EVENT2(
+      "exo", "Surface::Attach", "buffer_id",
+      buffer ? static_cast<const void*>(buffer->gfx_buffer()) : nullptr,
+      "app_id", GetApplicationId(window_.get()));
   has_pending_contents_ = true;
   pending_state_.buffer.Reset(buffer ? buffer->AsWeakPtr()
                                      : base::WeakPtr<Buffer>());
@@ -340,7 +346,7 @@ void Surface::SetInputRegion(const cc::Region& region) {
 void Surface::ResetInputRegion() {
   TRACE_EVENT0("exo", "Surface::ResetInputRegion");
 
-  pending_state_.basic_state.input_region = base::nullopt;
+  pending_state_.basic_state.input_region = absl::nullopt;
 }
 
 void Surface::SetInputOutset(int outset) {
@@ -524,6 +530,12 @@ void Surface::SetFrame(SurfaceFrameType type) {
     delegate_->OnSetFrame(type);
 }
 
+void Surface::SetServerStartResize() {
+  if (delegate_)
+    delegate_->OnSetServerStartResize();
+  SetFrame(SurfaceFrameType::SHADOW);
+}
+
 void Surface::SetFrameColors(SkColor active_color, SkColor inactive_color) {
   TRACE_EVENT2("exo", "Surface::SetFrameColors", "active_color", active_color,
                "inactive_color", inactive_color);
@@ -552,6 +564,46 @@ void Surface::SetUseImmersiveForFullscreen(bool value) {
 
   if (delegate_)
     delegate_->SetUseImmersiveForFullscreen(value);
+}
+
+void Surface::ShowSnapPreviewToRight() {
+  if (delegate_)
+    delegate_->ShowSnapPreviewToRight();
+}
+
+void Surface::ShowSnapPreviewToLeft() {
+  if (delegate_)
+    delegate_->ShowSnapPreviewToLeft();
+}
+
+void Surface::HideSnapPreview() {
+  if (delegate_)
+    delegate_->HideSnapPreview();
+}
+
+void Surface::SetSnappedToRight() {
+  if (delegate_)
+    delegate_->SetSnappedToRight();
+}
+
+void Surface::SetSnappedToLeft() {
+  if (delegate_)
+    delegate_->SetSnappedToLeft();
+}
+
+void Surface::UnsetSnap() {
+  if (delegate_)
+    delegate_->UnsetSnap();
+}
+
+void Surface::SetCanGoBack() {
+  if (delegate_)
+    delegate_->SetCanGoBack();
+}
+
+void Surface::UnsetCanGoBack() {
+  if (delegate_)
+    delegate_->UnsetCanGoBack();
 }
 
 void Surface::SetColorSpace(gfx::ColorSpace color_space) {
@@ -589,6 +641,17 @@ std::string Surface::GetClientSurfaceId() const {
   return value ? *value : std::string();
 }
 
+void Surface::SetWindowSessionId(int32_t window_session_id) {
+  if (window_session_id > 0)
+    window_->SetProperty(kWindowSessionId, window_session_id);
+  else
+    window_->ClearProperty(kWindowSessionId);
+}
+
+int32_t Surface::GetWindowSessionId() {
+  return window_->GetProperty(kWindowSessionId);
+}
+
 void Surface::SetEmbeddedSurfaceId(
     base::RepeatingCallback<viz::SurfaceId()> surface_id_callback) {
   get_current_surface_id_ = std::move(surface_id_callback);
@@ -614,9 +677,10 @@ bool Surface::HasPendingAcquireFence() const {
 
 void Surface::Commit() {
   TRACE_EVENT1("exo", "Surface::Commit", "buffer_id",
-               pending_state_.buffer.buffer()
-                   ? pending_state_.buffer.buffer()->gfx_buffer()
-                   : nullptr);
+               static_cast<const void*>(
+                   pending_state_.buffer.buffer()
+                       ? pending_state_.buffer.buffer()->gfx_buffer()
+                       : nullptr));
 
   for (auto& observer : observers_)
     observer.OnCommit(this);
@@ -1042,14 +1106,14 @@ void Surface::UpdateResource(FrameSinkResourceManager* resource_manager) {
         current_resource_.color_space = state_.basic_state.color_space;
       }
     } else {
-      current_resource_.id = 0;
+      current_resource_.id = viz::kInvalidResourceId;
       // Use the buffer's size, so the AppendContentsToFrame() will append
       // a SolidColorDrawQuad with the buffer's size.
       current_resource_.size = state_.buffer.size();
       current_resource_has_alpha_ = false;
     }
   } else {
-    current_resource_.id = 0;
+    current_resource_.id = viz::kInvalidResourceId;
     current_resource_.size = gfx::Size();
     current_resource_has_alpha_ = false;
   }
@@ -1160,13 +1224,12 @@ void Surface::AppendContentsToFrame(const gfx::Point& origin,
   viz::SharedQuadState* quad_state =
       render_pass->CreateAndAppendSharedQuadState();
 
-  quad_state->SetAll(quad_to_target_transform, quad_rect /*quad_layer_rect=*/,
-                     quad_rect /*visible_quad_layer_rect=*/,
-                     gfx::MaskFilterInfo() /*mask_filter_info=*/,
-                     gfx::Rect() /*clip_rect=*/, false /*is_clipped=*/,
-                     are_contents_opaque, state_.basic_state.alpha /*opacity=*/,
-                     SkBlendMode::kSrcOver /*blend_mode=*/,
-                     0 /*sorting_context_id=*/);
+  quad_state->SetAll(
+      quad_to_target_transform, quad_rect /*quad_layer_rect=*/,
+      quad_rect /*visible_quad_layer_rect=*/,
+      gfx::MaskFilterInfo() /*mask_filter_info=*/, absl::nullopt /*clip_rect=*/,
+      are_contents_opaque, state_.basic_state.alpha /*opacity=*/,
+      SkBlendMode::kSrcOver /*blend_mode=*/, 0 /*sorting_context_id=*/);
   quad_state->no_damage = damage_rect.IsEmpty();
 
   if (current_resource_.id) {
@@ -1204,7 +1267,6 @@ void Surface::AppendContentsToFrame(const gfx::Point& origin,
       if (latest_embedded_surface_id_.is_valid() &&
           !embedded_surface_size_.IsEmpty()) {
         if (!state_.basic_state.crop.IsEmpty()) {
-          quad_state->is_clipped = true;
           quad_state->clip_rect = output_rect;
         }
         viz::SurfaceDrawQuad* surface_quad =
@@ -1275,6 +1337,11 @@ void Surface::UpdateContentSize() {
     for (SurfaceObserver& observer : observers_)
       observer.OnContentSizeChanged(this);
   }
+}
+
+void Surface::SetFrameLocked(bool lock) {
+  for (SurfaceObserver& observer : observers_)
+    observer.OnFrameLockingChanged(this, lock);
 }
 
 void Surface::OnWindowOcclusionChanged() {

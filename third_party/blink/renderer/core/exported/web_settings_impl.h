@@ -162,6 +162,8 @@ class CORE_EXPORT WebSettingsImpl final : public WebSettings {
   void SetSupportDeprecatedTargetDensityDPI(bool) override;
   void SetSupportsMultipleWindows(bool) override;
   void SetSyncXHRInDocumentsEnabled(bool) override;
+  void SetTargetBlankImpliesNoOpenerEnabledWillBeRemoved(bool) override;
+  void SetAllowNonEmptyNavigatorPlugins(bool) override;
   void SetTextAreasAreResizable(bool) override;
   void SetTextAutosizingEnabled(bool) override;
   void SetAccessibilityFontScaleFactor(float) override;
@@ -230,6 +232,7 @@ class CORE_EXPORT WebSettingsImpl final : public WebSettings {
   void SetUseAXMenuList(bool) override;
   void SetSelectionClipboardBufferAvailable(bool) override;
   void SetAccessibilityIncludeSvgGElement(bool) override;
+  void SetWebXRImmersiveArAllowed(bool webxr_immersive_ar_allowed) override;
 
   bool RenderVSyncNotificationEnabled() const {
     return render_v_sync_notification_enabled_;
@@ -270,4 +273,4 @@ class CORE_EXPORT WebSettingsImpl final : public WebSettings {
 
 }  // namespace blink
 
-#endif
+#endif  // THIRD_PARTY_BLINK_RENDERER_CORE_EXPORTED_WEB_SETTINGS_IMPL_H_

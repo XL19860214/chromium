@@ -12,9 +12,9 @@
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/browser/ui/views/permission_bubble/permission_prompt_bubble_view.h"
 #include "components/permissions/features.h"
-#include "components/permissions/notification_permission_ui_selector.h"
 #include "components/permissions/permission_request.h"
 #include "components/permissions/permission_request_manager.h"
+#include "components/permissions/permission_ui_selector.h"
 #include "components/permissions/permission_uma_util.h"
 #include "content/public/browser/web_contents.h"
 #include "ui/views/bubble/bubble_frame_view.h"
@@ -38,7 +38,8 @@ PermissionPromptImpl::PermissionPromptImpl(Browser* browser,
     : prompt_bubble_(nullptr),
       web_contents_(web_contents),
       delegate_(delegate),
-      browser_(browser) {
+      browser_(browser),
+      permission_requested_time_(base::TimeTicks::Now()) {
   permissions::PermissionRequestManager* manager =
       permissions::PermissionRequestManager::FromWebContents(web_contents_);
   if (manager->ShouldCurrentRequestUseQuietUI()) {
@@ -64,19 +65,18 @@ void PermissionPromptImpl::OnWidgetClosing(views::Widget* widget) {
 PermissionPromptImpl::~PermissionPromptImpl() {
   switch (prompt_style_) {
     case PermissionPromptStyle::kBubbleOnly:
-      DCHECK(!permission_chip_);
+      DCHECK(!chip_);
       if (prompt_bubble_)
         prompt_bubble_->GetWidget()->Close();
       break;
     case PermissionPromptStyle::kChip:
       DCHECK(!prompt_bubble_);
-      DCHECK(permission_chip_);
-      permission_chip_->FinalizeRequest();
-      permission_chip_ = nullptr;
+      DCHECK(chip_);
+      FinalizeChip();
       break;
     case PermissionPromptStyle::kQuiet:
       DCHECK(!prompt_bubble_);
-      DCHECK(!permission_chip_);
+      DCHECK(!chip_);
       content_settings::UpdateLocationBarUiForWebContents(web_contents_);
       break;
   }
@@ -84,32 +84,54 @@ PermissionPromptImpl::~PermissionPromptImpl() {
   CHECK(!IsInObserverList());
 }
 
-void PermissionPromptImpl::UpdateAnchorPosition() {
+void PermissionPromptImpl::UpdateAnchor() {
+  Browser* current_browser = chrome::FindBrowserWithWebContents(web_contents_);
+  // Browser for |web_contents_| might change when for example the tab was
+  // dragged to another window.
+  bool was_browser_changed = false;
+  if (current_browser != browser_) {
+    browser_ = current_browser;
+    was_browser_changed = true;
+  }
   LocationBarView* lbv = GetLocationBarView();
   const bool is_location_bar_drawn = lbv && lbv->IsDrawn();
   switch (prompt_style_) {
     case PermissionPromptStyle::kBubbleOnly:
-      DCHECK(prompt_bubble_);
-      DCHECK(!permission_chip_);
+      DCHECK(!chip_);
+      // TODO(crbug.com/1175231): Investigate why prompt_bubble_ can be null
+      // here. Early return is preventing the crash from happening but we still
+      // don't know the reason why it is null here and cannot reproduce it.
+      if (!prompt_bubble_)
+        return;
+
       if (ShouldCurrentRequestUseChipUI() && is_location_bar_drawn) {
         // Change prompt style to chip to avoid dismissing request while
         // switching UI style.
         prompt_bubble_->SetPromptStyle(PermissionPromptStyle::kChip);
         prompt_bubble_->GetWidget()->Close();
         ShowChipUI();
-        permission_chip_->OpenBubble();
+        chip_->OpenBubble();
       } else {
-        prompt_bubble_->UpdateAnchorPosition();
+        // If |browser_| changed, recreate bubble for correct browser.
+        if (was_browser_changed) {
+          prompt_bubble_->GetWidget()->CloseWithReason(
+              views::Widget::ClosedReason::kUnspecified);
+          ShowBubble();
+        } else {
+          prompt_bubble_->UpdateAnchorPosition();
+        }
       }
       break;
     case PermissionPromptStyle::kChip:
       DCHECK(!prompt_bubble_);
-      DCHECK(permission_chip_);
+
+      if (!lbv->chip()) {
+        chip_ = lbv->DisplayChip(delegate_);
+      }
       // If there is fresh pending request shown as chip UI and location bar
       // isn't visible anymore, show bubble UI instead.
-      if (!permission_chip_->is_collapsed() && !is_location_bar_drawn) {
-        permission_chip_->FinalizeRequest();
-        permission_chip_ = nullptr;
+      if (!chip_->is_fully_collapsed() && !is_location_bar_drawn) {
+        FinalizeChip();
         ShowBubble();
       }
       break;
@@ -127,15 +149,14 @@ void PermissionPromptImpl::ShowChipUI() {
   LocationBarView* lbv = GetLocationBarView();
   DCHECK(lbv);
 
-  permission_chip_ = lbv->permission_chip();
-  permission_chip_->DisplayRequest(delegate_);
+  chip_ = lbv->DisplayChip(delegate_);
   prompt_style_ = PermissionPromptStyle::kChip;
 }
 
 void PermissionPromptImpl::ShowBubble() {
   prompt_style_ = PermissionPromptStyle::kBubbleOnly;
   prompt_bubble_ = new PermissionPromptBubbleView(
-      browser_, delegate_, base::TimeTicks::Now(), prompt_style_);
+      browser_, delegate_, permission_requested_time_, prompt_style_);
   prompt_bubble_->Show();
   prompt_bubble_->GetWidget()->AddObserver(this);
 }
@@ -148,6 +169,11 @@ bool PermissionPromptImpl::ShouldCurrentRequestUseChipUI() {
   return std::all_of(requests.begin(), requests.end(), [](auto* request) {
     return request->GetChipText().has_value();
   });
+}
+
+void PermissionPromptImpl::FinalizeChip() {
+  GetLocationBarView()->FinalizeChip();
+  chip_ = nullptr;
 }
 
 permissions::PermissionPrompt::TabSwitchingBehavior
@@ -166,8 +192,8 @@ PermissionPromptImpl::GetPromptDisposition() const {
     case PermissionPromptStyle::kQuiet: {
       permissions::PermissionRequestManager* manager =
           permissions::PermissionRequestManager::FromWebContents(web_contents_);
-      return permissions::NotificationPermissionUiSelector::
-                     ShouldSuppressAnimation(manager->ReasonForUsingQuietUi())
+      return permissions::PermissionUiSelector::ShouldSuppressAnimation(
+                 manager->ReasonForUsingQuietUi())
                  ? permissions::PermissionPromptDisposition::
                        LOCATION_BAR_RIGHT_STATIC_ICON
                  : permissions::PermissionPromptDisposition::

@@ -15,6 +15,7 @@ component("shared_typemap_traits") {
     "bitmap_skbitmap_mojom_traits.h",
     "image_info_mojom_traits.cc",
     "image_info_mojom_traits.h",
+    "surface_origin_mojom_traits.h",
   ]
 
   defines = [ "IS_SKIA_SHARED_TRAITS_IMPL" ]
@@ -32,9 +33,10 @@ mojom("mojom") {
   generate_java = true
   sources = [
     "bitmap.mojom",
-    "blur_image_filter_tile_mode.mojom",
     "image_info.mojom",
     "skcolor.mojom",
+    "surface_origin.mojom",
+    "tile_mode.mojom",
   ]
 
   public_deps = [ "//mojo/public/mojom/base" ]
@@ -43,11 +45,11 @@ mojom("mojom") {
     {
       types = [
         {
-          mojom = "skia.mojom.BlurTileMode"
-          cpp = "::SkBlurImageFilter::TileMode"
+          mojom = "skia.mojom.TileMode"
+          cpp = "::SkTileMode"
         },
       ]
-      traits_headers = [ "blur_image_filter_tile_mode_mojom_traits.h" ]
+      traits_headers = [ "tile_mode_mojom_traits.h" ]
       traits_public_deps = [ "//skia" ]
     },
     {
@@ -119,6 +121,16 @@ mojom("mojom") {
         ":shared_typemap_traits",
         "//skia",
       ]
+    },
+    {
+      types = [
+        {
+          mojom = "skia.mojom.SurfaceOrigin"
+          cpp = "::GrSurfaceOrigin"
+        },
+      ]
+      traits_headers = [ "surface_origin_mojom_traits.h" ]
+      traits_public_deps = [ ":shared_typemap_traits" ]
     },
   ]
 

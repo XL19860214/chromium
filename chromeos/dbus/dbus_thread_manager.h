@@ -32,8 +32,6 @@ class ArcMidisClient;
 class ArcObbMounterClient;
 class CecServiceClient;
 class ChunneldClient;
-class CiceroneClient;
-class ConciergeClient;
 class CrosDisksClient;
 class DBusClientsBrowser;
 class DBusThreadManagerSetter;
@@ -46,7 +44,6 @@ class LorgnetteManagerClient;
 class ModemMessagingClient;
 class OobeConfigurationClient;
 class RuntimeProbeClient;
-class SeneschalClient;
 class ShillDeviceClient;
 class ShillIPConfigClient;
 class ShillManagerClient;
@@ -125,8 +122,6 @@ class COMPONENT_EXPORT(CHROMEOS_DBUS) DBusThreadManager {
   ArcObbMounterClient* GetArcObbMounterClient();
   CecServiceClient* GetCecServiceClient();
   ChunneldClient* GetChunneldClient();
-  CiceroneClient* GetCiceroneClient();
-  ConciergeClient* GetConciergeClient();
   CrosDisksClient* GetCrosDisksClient();
   DebugDaemonClient* GetDebugDaemonClient();
   EasyUnlockClient* GetEasyUnlockClient();
@@ -136,7 +131,6 @@ class COMPONENT_EXPORT(CHROMEOS_DBUS) DBusThreadManager {
   LorgnetteManagerClient* GetLorgnetteManagerClient();
   OobeConfigurationClient* GetOobeConfigurationClient();
   RuntimeProbeClient* GetRuntimeProbeClient();
-  SeneschalClient* GetSeneschalClient();
   SmbProviderClient* GetSmbProviderClient();
   UpdateEngineClient* GetUpdateEngineClient();
   VirtualFileProviderClient* GetVirtualFileProviderClient();
@@ -183,14 +177,11 @@ class COMPONENT_EXPORT(CHROMEOS_DBUS) DBusThreadManagerSetter {
   ~DBusThreadManagerSetter();
 
   void SetChunneldClient(std::unique_ptr<ChunneldClient> client);
-  void SetCiceroneClient(std::unique_ptr<CiceroneClient> client);
-  void SetConciergeClient(std::unique_ptr<ConciergeClient> client);
   void SetCrosDisksClient(std::unique_ptr<CrosDisksClient> client);
   void SetDebugDaemonClient(std::unique_ptr<DebugDaemonClient> client);
   void SetGnubbyClient(std::unique_ptr<GnubbyClient> client);
   void SetImageBurnerClient(std::unique_ptr<ImageBurnerClient> client);
   void SetImageLoaderClient(std::unique_ptr<ImageLoaderClient> client);
-  void SetSeneschalClient(std::unique_ptr<SeneschalClient> client);
   void SetRuntimeProbeClient(std::unique_ptr<RuntimeProbeClient> client);
   void SetSmbProviderClient(std::unique_ptr<SmbProviderClient> client);
   void SetUpdateEngineClient(std::unique_ptr<UpdateEngineClient> client);
@@ -204,5 +195,10 @@ class COMPONENT_EXPORT(CHROMEOS_DBUS) DBusThreadManagerSetter {
 };
 
 }  // namespace chromeos
+
+// TODO(https://crbug.com/1164001): remove after moved to ash.
+namespace ash {
+using ::chromeos::DBusThreadManager;
+}
 
 #endif  // CHROMEOS_DBUS_DBUS_THREAD_MANAGER_H_

@@ -5,8 +5,6 @@
 #ifndef COMPONENTS_PERFORMANCE_MANAGER_DECORATORS_FREEZING_VOTE_DECORATOR_H_
 #define COMPONENTS_PERFORMANCE_MANAGER_DECORATORS_FREEZING_VOTE_DECORATOR_H_
 
-#include <memory>
-
 #include "components/performance_manager/freezing/freezing_vote_aggregator.h"
 #include "components/performance_manager/public/freezing/freezing.h"
 #include "components/performance_manager/public/graph/graph.h"
@@ -53,7 +51,7 @@ class FreezingVoteDecorator : public GraphOwnedDefaultImpl,
   void OnVoteInvalidated(freezing::FreezingVoterId voter_id,
                          const PageNode* page_node) override;
 
-  freezing::FreezingVoteConsumerDefaultImpl vote_consumer_default_impl_{this};
+  freezing::FreezingVotingChannelFactory freezing_voting_channel_factory_{this};
   freezing::FreezingVoteAggregator freezing_vote_aggregator_;
 };
 

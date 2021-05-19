@@ -23,8 +23,10 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/trace_event/trace_event.h"
+#include "components/device_event_log/device_event_log.h"
 #include "media/base/bind_to_current_loop.h"
 #include "media/capture/video/chromeos/mojom/camera_common.mojom.h"
+#include "media/capture/video/chromeos/video_capture_features_chromeos.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/platform/named_platform_channel.h"
 #include "mojo/public/cpp/platform/platform_channel.h"
@@ -36,8 +38,10 @@ namespace media {
 namespace {
 
 const base::FilePath::CharType kArcCamera3SocketPath[] =
-    "/var/run/camera/camera3.sock";
+    "/run/camera/camera3.sock";
 const char kArcCameraGroup[] = "arc-camera";
+const base::FilePath::CharType kForceEnableAePath[] =
+    "/run/camera/force_enable_ae";
 
 std::string GenerateRandomToken() {
   char random_bytes[16];
@@ -163,6 +167,18 @@ bool CameraHalDispatcherImpl::Start(
   TRACE_EVENT0("camera", "CameraHalDispatcherImpl");
   base::trace_event::TraceLog::GetInstance()->AddEnabledStateObserver(this);
 
+  base::FilePath file_path(kForceEnableAePath);
+  if (base::FeatureList::IsEnabled(media::features::kForceEnableFaceAe)) {
+    if (!base::PathExists(file_path)) {
+      base::File file(file_path, base::File::FLAG_CREATE_ALWAYS);
+      file.Close();
+    }
+  } else {
+    if (base::PathExists(file_path)) {
+      base::DeleteFile(file_path);
+    }
+  }
+
   jda_factory_ = std::move(jda_factory);
   jea_factory_ = std::move(jea_factory);
   base::WaitableEvent started(base::WaitableEvent::ResetPolicy::MANUAL,
@@ -266,7 +282,7 @@ CameraHalDispatcherImpl::~CameraHalDispatcherImpl() {
     proxy_thread_.Stop();
   }
   blocking_io_thread_.Stop();
-  VLOG(1) << "CameraHalDispatcherImpl stopped";
+  CAMERA_LOG(EVENT) << "CameraHalDispatcherImpl stopped";
 }
 
 void CameraHalDispatcherImpl::RegisterServer(
@@ -298,7 +314,7 @@ void CameraHalDispatcherImpl::RegisterServerWithToken(
   camera_hal_server_.set_disconnect_handler(
       base::BindOnce(&CameraHalDispatcherImpl::OnCameraHalServerConnectionError,
                      base::Unretained(this)));
-  VLOG(1) << "Camera HAL server registered";
+  CAMERA_LOG(EVENT) << "Camera HAL server registered";
   std::move(callback).Run(
       0, camera_hal_server_callbacks_.BindNewPipeAndPassRemote());
 
@@ -331,7 +347,7 @@ void CameraHalDispatcherImpl::RegisterClientWithToken(
           media::BindToCurrentLoop(std::move(callback))));
 }
 
-void CameraHalDispatcherImpl::GetJpegDecodeAccelerator(
+void CameraHalDispatcherImpl::GetMjpegDecodeAccelerator(
     mojo::PendingReceiver<chromeos_camera::mojom::MjpegDecodeAccelerator>
         jda_receiver) {
   jda_factory_.Run(std::move(jda_receiver));
@@ -394,6 +410,8 @@ void CameraHalDispatcherImpl::CameraPrivacySwitchStateChange(
       FROM_HERE,
       &CameraPrivacySwitchObserver::OnCameraPrivacySwitchStatusChanged,
       current_privacy_switch_state_);
+  CAMERA_LOG(EVENT) << "Camera privacy switch state changed: "
+                    << current_privacy_switch_state_;
 }
 
 base::UnguessableToken CameraHalDispatcherImpl::GetTokenForTrustedClient(
@@ -565,7 +583,7 @@ void CameraHalDispatcherImpl::AddClientObserverOnProxyThread(
   }
   client_observers_.insert(std::move(observer));
   std::move(result_callback).Run(0);
-  VLOG(1) << "Camera HAL client registered";
+  CAMERA_LOG(EVENT) << "Camera HAL client registered";
 }
 
 void CameraHalDispatcherImpl::EstablishMojoChannel(
@@ -573,7 +591,7 @@ void CameraHalDispatcherImpl::EstablishMojoChannel(
   DCHECK(proxy_task_runner_->BelongsToCurrentThread());
   mojo::PendingRemote<cros::mojom::CameraModule> camera_module;
   const auto& type = client_observer->GetType();
-  VLOG(1) << "Establishing server channel for " << type;
+  CAMERA_LOG(EVENT) << "Establishing server channel for " << type;
   camera_hal_server_->CreateChannel(
       camera_module.InitWithNewPipeAndPassReceiver(), type);
   client_observer->OnChannelCreated(std::move(camera_module));
@@ -591,7 +609,7 @@ void CameraHalDispatcherImpl::OnPeerConnected(
 void CameraHalDispatcherImpl::OnCameraHalServerConnectionError() {
   DCHECK(proxy_task_runner_->BelongsToCurrentThread());
   base::AutoLock lock(opened_camera_id_map_lock_);
-  VLOG(1) << "Camera HAL server connection lost";
+  CAMERA_LOG(EVENT) << "Camera HAL server connection lost";
   camera_hal_server_.reset();
   camera_hal_server_callbacks_.reset();
   for (auto& opened_camera_id_pair : opened_camera_id_map_) {
@@ -635,7 +653,7 @@ void CameraHalDispatcherImpl::OnCameraHalClientConnectionError(
   auto it = client_observers_.find(client_observer);
   if (it != client_observers_.end()) {
     client_observers_.erase(it);
-    VLOG(1) << "Camera HAL client connection lost";
+    CAMERA_LOG(EVENT) << "Camera HAL client connection lost";
   }
 }
 

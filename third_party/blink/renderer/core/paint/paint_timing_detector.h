@@ -213,7 +213,7 @@ class CORE_EXPORT PaintTimingDetector
   // opacity layer.
   void ReportIgnoredContent();
 
-  base::Optional<PaintTimingVisualizer>& Visualizer() { return visualizer_; }
+  absl::optional<PaintTimingVisualizer>& Visualizer() { return visualizer_; }
   void Trace(Visitor* visitor) const;
 
  private:
@@ -240,7 +240,7 @@ class CORE_EXPORT PaintTimingDetector
 
   Member<PaintTimingCallbackManagerImpl> callback_manager_;
 
-  base::Optional<PaintTimingVisualizer> visualizer_;
+  absl::optional<PaintTimingVisualizer> visualizer_;
 
   base::TimeTicks largest_image_paint_time_;
   uint64_t largest_image_paint_size_ = 0;
@@ -298,7 +298,7 @@ class ScopedPaintTimingDetectorBlockPaintHook {
       top_->data_->aggregated_visual_rect_.Unite(visual_rect);
   }
 
-  base::Optional<base::AutoReset<ScopedPaintTimingDetectorBlockPaintHook*>>
+  absl::optional<base::AutoReset<ScopedPaintTimingDetectorBlockPaintHook*>>
       reset_top_;
   struct Data {
     STACK_ALLOCATED();
@@ -313,7 +313,7 @@ class ScopedPaintTimingDetectorBlockPaintHook {
     TextPaintTimingDetector* detector_;
     IntRect aggregated_visual_rect_;
   };
-  base::Optional<Data> data_;
+  absl::optional<Data> data_;
   static ScopedPaintTimingDetectorBlockPaintHook* top_;
 };
 
@@ -324,6 +324,27 @@ inline void PaintTimingDetector::NotifyTextPaint(
     return;
   ScopedPaintTimingDetectorBlockPaintHook::AggregateTextPaint(text_visual_rect);
 }
+
+class LCPRectInfo {
+ public:
+  LCPRectInfo(IntRect frame_rect_info, IntRect root_rect_info)
+      : frame_rect_info_(frame_rect_info), root_rect_info_(root_rect_info) {}
+
+  void OutputToTraceValue(TracedValue& value) {
+    value.SetInteger("frame_x", frame_rect_info_.X());
+    value.SetInteger("frame_y", frame_rect_info_.Y());
+    value.SetInteger("frame_width", frame_rect_info_.Width());
+    value.SetInteger("frame_height", frame_rect_info_.Height());
+    value.SetInteger("root_x", root_rect_info_.X());
+    value.SetInteger("root_y", root_rect_info_.Y());
+    value.SetInteger("root_width", root_rect_info_.Width());
+    value.SetInteger("root_height", root_rect_info_.Height());
+  }
+
+ private:
+  IntRect frame_rect_info_;
+  IntRect root_rect_info_;
+};
 
 }  // namespace blink
 

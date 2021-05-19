@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {PostMessageAPIServer} from '../../chromeos/add_supervision/post_message_api.m.js';
+import {PostMessageAPIServer} from '../../chromeos/add_supervision/post_message_api.js';
 import {AuthCompletedCredentials, Authenticator, AuthParams} from '../../gaia_auth_host/authenticator.m.js';
 import {EduCoexistenceBrowserProxyImpl} from './edu_coexistence_browser_proxy.js';
 
@@ -10,10 +10,16 @@ import {EduCoexistenceBrowserProxyImpl} from './edu_coexistence_browser_proxy.js
  * The methods to expose to the hosted content via the PostMessageAPI.
  */
 const METHOD_LIST = [
-  'consentValid', 'consentLogged', 'requestClose', 'saveGuestFlowState',
-  'fetchGuestFlowState', 'error'
+  'consentValid',
+  'consentLogged',
+  'requestClose',
+  'saveGuestFlowState',
+  'fetchGuestFlowState',
+  'error',
+  'getTimeDeltaSinceSigninSeconds',
 ];
 
+const MILLISECONDS_PER_SECOND = 1000;
 
 /**
  * @typedef {{
@@ -29,6 +35,8 @@ const METHOD_LIST = [
  *   deviceId: (string),
  *   email: (string|undefined),
  *   readOnlyEmail: (string|undefined),
+ *   signinTime: (number),
+ *   newOobeLayoutEnabled: (boolean),
  * }}
  */
 export let EduCoexistenceParams;
@@ -75,6 +83,8 @@ export class EduCoexistenceController extends PostMessageAPIServer {
     super(webview, METHOD_LIST, originURLPrefix, originURLPrefix);
 
     this.ui = ui;
+    this.newOobeLayoutEnabled_ = params.newOobeLayoutEnabled;
+    this.isOobe_ = params.sourceUi === 'oobe';
     this.flowURL_ = flowURL;
     this.originURLPrefix_ = originURLPrefix;
     this.webview_ = webview;
@@ -82,6 +92,7 @@ export class EduCoexistenceController extends PostMessageAPIServer {
     this.authCompletedReceived_ = false;
     this.browserProxy_ = EduCoexistenceBrowserProxyImpl.getInstance();
     this.eduCoexistenceAccessToken_ = params.eduCoexistenceAccessToken;
+    this.signinTime_ = new Date(params.signinTime);
 
     this.webview_.request.onBeforeSendHeaders.addListener(
         (details) => {
@@ -132,6 +143,17 @@ export class EduCoexistenceController extends PostMessageAPIServer {
         ['Error initializing communication channel with origin:' + origin]);
   }
 
+  /** @return {boolean} */
+  getNewOobeLayoutEnabled() {
+    return this.newOobeLayoutEnabled_;
+  }
+
+  /** @return {boolean} */
+  getIsOobe() {
+    return this.isOobe_;
+  }
+
+
   /**
    * Returns the hostname of the origin of the flow's URL (the one it was
    * initialized with, not its current URL).
@@ -155,6 +177,9 @@ export class EduCoexistenceController extends PostMessageAPIServer {
         'fetchGuestFlowState', this.fetchGuestFlowState_.bind(this));
     this.registerMethod(
         'getEduAccountEmail', this.getEduAccountEmail_.bind(this));
+    this.registerMethod(
+        'getTimeDeltaSinceSigninSeconds',
+        this.getTimeDeltaSinceSigninSeconds_.bind(this));
 
     // Add listeners for Authenticator.
     this.addAuthExtHostListeners_();
@@ -289,5 +314,14 @@ export class EduCoexistenceController extends PostMessageAPIServer {
 
     // Send the error strings to C++ handler so they are logged.
     this.browserProxy_.onError(error);
+  }
+
+  /**
+   * @private
+   * @return {number} Returns the number of seconds that have elapsed since
+   * the user's initial signin.
+   */
+  getTimeDeltaSinceSigninSeconds_() {
+    return (Date.now() - this.signinTime_) / MILLISECONDS_PER_SECOND;
   }
 }

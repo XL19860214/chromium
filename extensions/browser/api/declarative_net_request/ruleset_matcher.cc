@@ -12,8 +12,8 @@
 #include "base/memory/ptr_util.h"
 #include "extensions/browser/api/declarative_net_request/constants.h"
 #include "extensions/browser/api/declarative_net_request/request_action.h"
+#include "extensions/browser/api/declarative_net_request/rules_count_pair.h"
 #include "extensions/browser/api/declarative_net_request/utils.h"
-#include "extensions/common/api/declarative_net_request/utils.h"
 
 namespace extensions {
 namespace declarative_net_request {
@@ -35,7 +35,7 @@ RulesetMatcher::RulesetMatcher(std::string ruleset_data,
 
 RulesetMatcher::~RulesetMatcher() = default;
 
-base::Optional<RequestAction> RulesetMatcher::GetBeforeRequestAction(
+absl::optional<RequestAction> RulesetMatcher::GetBeforeRequestAction(
     const RequestParams& params) const {
   return GetMaxPriorityAction(
       url_pattern_index_matcher_.GetBeforeRequestAction(params),
@@ -44,7 +44,7 @@ base::Optional<RequestAction> RulesetMatcher::GetBeforeRequestAction(
 
 std::vector<RequestAction> RulesetMatcher::GetModifyHeadersActions(
     const RequestParams& params,
-    base::Optional<uint64_t> min_priority) const {
+    absl::optional<uint64_t> min_priority) const {
   std::vector<RequestAction> modify_header_actions =
       url_pattern_index_matcher_.GetModifyHeadersActions(params, min_priority);
 
@@ -73,6 +73,10 @@ size_t RulesetMatcher::GetRegexRulesCount() const {
   return regex_matcher_.GetRulesCount();
 }
 
+RulesCountPair RulesetMatcher::GetRulesCountPair() const {
+  return RulesCountPair(GetRulesCount(), GetRegexRulesCount());
+}
+
 void RulesetMatcher::OnRenderFrameCreated(content::RenderFrameHost* host) {
   url_pattern_index_matcher_.OnRenderFrameCreated(host);
   regex_matcher_.OnRenderFrameCreated(host);
@@ -83,12 +87,13 @@ void RulesetMatcher::OnRenderFrameDeleted(content::RenderFrameHost* host) {
   regex_matcher_.OnRenderFrameDeleted(host);
 }
 
-void RulesetMatcher::OnDidFinishNavigation(content::RenderFrameHost* host) {
-  url_pattern_index_matcher_.OnDidFinishNavigation(host);
-  regex_matcher_.OnDidFinishNavigation(host);
+void RulesetMatcher::OnDidFinishNavigation(
+    content::NavigationHandle* navigation_handle) {
+  url_pattern_index_matcher_.OnDidFinishNavigation(navigation_handle);
+  regex_matcher_.OnDidFinishNavigation(navigation_handle);
 }
 
-base::Optional<RequestAction>
+absl::optional<RequestAction>
 RulesetMatcher::GetAllowlistedFrameActionForTesting(
     content::RenderFrameHost* host) const {
   return GetMaxPriorityAction(

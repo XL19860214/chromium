@@ -21,7 +21,6 @@
 #include "third_party/blink/renderer/platform/graphics/graphics_context.h"
 #include "third_party/blink/renderer/platform/graphics/paint/drawing_recorder.h"
 #include "third_party/blink/renderer/platform/graphics/scoped_interpolation_quality.h"
-#include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 
 namespace blink {
 
@@ -42,9 +41,9 @@ void SVGImagePainter::Paint(const PaintInfo& paint_info) {
   ScopedSVGTransformState transform_state(paint_info, layout_svg_image_);
   {
     ScopedSVGPaintState paint_state(layout_svg_image_, paint_info);
+    SVGModelObjectPainter::RecordHitTestData(layout_svg_image_, paint_info);
     if (!DrawingRecorder::UseCachedDrawingIfPossible(
             paint_info.context, layout_svg_image_, paint_info.phase)) {
-      SVGModelObjectPainter::RecordHitTestData(layout_svg_image_, paint_info);
       SVGDrawingRecorder recorder(paint_info.context, layout_svg_image_,
                                   paint_info.phase);
       PaintForeground(paint_info);
@@ -107,8 +106,7 @@ void SVGImagePainter::PaintForeground(const PaintInfo& paint_info) {
       layout_svg_image_, image->Size(), *image_content,
       paint_info.context.GetPaintController().CurrentPaintChunkProperties(),
       EnclosingIntRect(dest_rect));
-  PaintTiming& timing = PaintTiming::From(
-      layout_svg_image_.GetElement()->GetDocument().TopDocument());
+  PaintTiming& timing = PaintTiming::From(layout_svg_image_.GetDocument());
   timing.MarkFirstContentfulPaint();
 }
 

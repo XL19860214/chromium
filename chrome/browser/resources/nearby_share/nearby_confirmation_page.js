@@ -23,6 +23,8 @@ import './strings.m.js';
 import {I18nBehavior} from 'chrome://resources/js/i18n_behavior.m.js';
 import {html, Polymer} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
+import {getDiscoveryManager} from './discovery_manager.js';
+
 /** @implements {nearbyShare.mojom.TransferUpdateListenerInterface} */
 class TransferUpdateListener {
   /**
@@ -139,6 +141,14 @@ Polymer({
       type: Boolean,
       value: false,
     },
+
+    /**
+     * @private {?nearbyShare.mojom.TransferStatus}
+     */
+    lastTransferStatus_: {
+      type: nearbyShare.mojom.TransferStatus,
+      value: null,
+    },
   },
 
   listeners: {
@@ -149,6 +159,19 @@ Polymer({
 
   /** @private {?TransferUpdateListener} */
   transferUpdateListener_: null,
+
+  /**
+   * @return {!Object} The transferStatus, errorTitle, and errorDescription.
+   * @public
+   */
+  getTransferInfoForTesting() {
+    return {
+      confirmationToken: this.confirmationToken_,
+      transferStatus: this.lastTransferStatus_,
+      errorTitle: this.errorTitle_,
+      errorDescription: this.errorDescription_,
+    };
+  },
 
   /**
    * @param {?nearbyShare.mojom.TransferUpdateListenerPendingReceiver}
@@ -172,6 +195,7 @@ Polymer({
     if (token) {
       this.confirmationToken_ = token;
     }
+    this.lastTransferStatus_ = status;
 
     switch (status) {
       case nearbyShare.mojom.TransferStatus.kAwaitingLocalConfirmation:
@@ -182,7 +206,7 @@ Polymer({
         break;
       case nearbyShare.mojom.TransferStatus.kInProgress:
       case nearbyShare.mojom.TransferStatus.kComplete:
-        this.fire('close');
+        getDiscoveryManager().stopDiscovery().then(() => this.fire('close'));
         break;
       case nearbyShare.mojom.TransferStatus.kRejected:
         this.errorTitle_ = this.i18n('nearbyShareErrorCantShare');
@@ -201,6 +225,19 @@ Polymer({
       case nearbyShare.mojom.TransferStatus.kNotEnoughSpace:
       case nearbyShare.mojom.TransferStatus.kFailed:
       case nearbyShare.mojom.TransferStatus.kAwaitingRemoteAcceptanceFailed:
+      case nearbyShare.mojom.TransferStatus.kDecodeAdvertisementFailed:
+      case nearbyShare.mojom.TransferStatus.kMissingTransferUpdateCallback:
+      case nearbyShare.mojom.TransferStatus.kMissingShareTarget:
+      case nearbyShare.mojom.TransferStatus.kMissingEndpointId:
+      case nearbyShare.mojom.TransferStatus.kMissingPayloads:
+      case nearbyShare.mojom.TransferStatus.kPairedKeyVerificationFailed:
+      case nearbyShare.mojom.TransferStatus.kInvalidIntroductionFrame:
+      case nearbyShare.mojom.TransferStatus.kIncompletePayloads:
+      case nearbyShare.mojom.TransferStatus.kFailedToCreateShareTarget:
+      case nearbyShare.mojom.TransferStatus.kFailedToInitiateOutgoingConnection:
+      case nearbyShare.mojom.TransferStatus
+          .kFailedToReadOutgoingConnectionResponse:
+      case nearbyShare.mojom.TransferStatus.kUnexpectedDisconnection:
         this.errorTitle_ = this.i18n('nearbyShareErrorCantShare');
         this.errorDescription_ = this.i18n('nearbyShareErrorSomethingWrong');
         break;

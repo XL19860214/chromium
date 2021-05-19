@@ -5,6 +5,8 @@
 # This is more akin to a .pyl/JSON file, so it's expected to be long.
 # pylint: disable=too-many-lines
 
+from __future__ import print_function
+
 import os
 
 from gpu_tests import common_browser_args as cba
@@ -330,6 +332,10 @@ class PixelTestPages(object):
                       base_name + '_OffscreenCanvasIBRCWebGLWorker',
                       test_rect=[0, 0, 300, 300],
                       optional_action='RunOffscreenCanvasIBRCWebGLTest'),
+        PixelTestPage('pixel_webgl_preserved_after_tab_switch.html',
+                      base_name + '_WebGLPreservedAfterTabSwitch',
+                      test_rect=[0, 0, 300, 300],
+                      optional_action='SwitchTabsAndCopyImage'),
     ]
 
   # Pages that should be run with GPU rasterization enabled.

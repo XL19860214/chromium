@@ -28,10 +28,11 @@
 
 #include <memory>
 
-#include "base/optional.h"
+#include "base/logging.h"
 #include "build/build_config.h"
 #include "components/paint_preview/common/paint_preview_tracker.h"
 #include "skia/ext/platform_canvas.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/mojom/frame/color_scheme.mojom-blink.h"
 #include "third_party/blink/renderer/platform/fonts/text_run_paint_info.h"
 #include "third_party/blink/renderer/platform/geometry/float_rect.h"
@@ -48,7 +49,6 @@
 #include "third_party/blink/renderer/platform/graphics/path.h"
 #include "third_party/blink/renderer/platform/instrumentation/tracing/trace_event.h"
 #include "third_party/blink/renderer/platform/weborigin/kurl.h"
-#include "third_party/blink/renderer/platform/wtf/assertions.h"
 #include "third_party/blink/renderer/platform/wtf/math_extras.h"
 #include "third_party/skia/include/core/SkAnnotation.h"
 #include "third_party/skia/include/core/SkColorFilter.h"
@@ -110,11 +110,13 @@ class GraphicsContext::DarkModeFlags final {
     flags_ = &flags;
   }
 
+  bool applied_dark_mode() const { return !!dark_mode_flags_; }
+
   operator const PaintFlags&() const { return *flags_; }
 
  private:
   const PaintFlags* flags_;
-  base::Optional<PaintFlags> dark_mode_flags_;
+  absl::optional<PaintFlags> dark_mode_flags_;
 };
 
 GraphicsContext::GraphicsContext(PaintController& paint_controller)
@@ -224,32 +226,6 @@ DOMNodeId GraphicsContext::GetDOMNodeId() const {
   return dom_node_id_;
 }
 
-void GraphicsContext::SetShadow(
-    const FloatSize& offset,
-    float blur,
-    const Color& color,
-    DrawLooperBuilder::ShadowTransformMode shadow_transform_mode,
-    DrawLooperBuilder::ShadowAlphaMode shadow_alpha_mode,
-    ShadowMode shadow_mode) {
-  DrawLooperBuilder draw_looper_builder;
-  if (!color.Alpha()) {
-    // When shadow-only but there is no shadow, we use an empty draw looper
-    // to disable rendering of the source primitive.  When not shadow-only, we
-    // clear the looper.
-    SetDrawLooper(shadow_mode != kDrawShadowOnly
-                      ? nullptr
-                      : draw_looper_builder.DetachDrawLooper());
-    return;
-  }
-
-  draw_looper_builder.AddShadow(offset, blur, color, shadow_transform_mode,
-                                shadow_alpha_mode);
-  if (shadow_mode == kDrawShadowAndForeground) {
-    draw_looper_builder.AddUnmodifiedContent();
-  }
-  SetDrawLooper(draw_looper_builder.DetachDrawLooper());
-}
-
 void GraphicsContext::SetDrawLooper(sk_sp<SkDrawLooper> draw_looper) {
   MutableState()->SetDrawLooper(std::move(draw_looper));
 }
@@ -339,17 +315,17 @@ void GraphicsContext::CompositeRecord(sk_sp<PaintRecord> record,
 
   PaintFlags flags;
   flags.setBlendMode(op);
-  flags.setFilterQuality(
-      static_cast<SkFilterQuality>(ImageInterpolationQuality()));
+  SkSamplingOptions sampling(
+      static_cast<SkFilterQuality>(ImageInterpolationQuality()),
+      SkSamplingOptions::kMedium_asMipmapLinear);
   canvas_->save();
-  canvas_->concat(
-      SkMatrix::MakeRectToRect(src, dest, SkMatrix::kFill_ScaleToFit));
+  canvas_->concat(SkMatrix::RectToRect(src, dest));
   canvas_->drawImage(PaintImageBuilder::WithDefault()
                          .set_paint_record(record, RoundedIntRect(src),
                                            PaintImage::GetNextContentId())
                          .set_id(PaintImage::GetNextId())
                          .TakePaintImage(),
-                     0, 0, &flags);
+                     0, 0, sampling, &flags);
   canvas_->restore();
 }
 
@@ -455,9 +431,7 @@ void GraphicsContext::DrawFocusRing(const Vector<IntRect>& rects,
                                     const Color& color,
                                     mojom::blink::ColorScheme color_scheme) {
 #if defined(OS_MAC)
-  const Color& inner_color = color_scheme == mojom::blink::ColorScheme::kDark
-                                 ? SkColorSetRGB(0x99, 0xC8, 0xFF)
-                                 : color;
+  const Color& inner_color = color;
 #else
   const Color& inner_color =
       color_scheme == mojom::blink::ColorScheme::kDark ? SK_ColorWHITE : color;
@@ -485,84 +459,6 @@ void GraphicsContext::DrawFocusRing(const Vector<IntRect>& rects,
   } else {
     DrawFocusRingInternal(rects, width, offset, border_radius, inner_color);
   }
-}
-
-static inline FloatRect AreaCastingShadowInHole(
-    const FloatRect& hole_rect,
-    float shadow_blur,
-    float shadow_spread,
-    const FloatSize& shadow_offset) {
-  FloatRect bounds(hole_rect);
-
-  bounds.Inflate(shadow_blur);
-
-  if (shadow_spread < 0)
-    bounds.Inflate(-shadow_spread);
-
-  FloatRect offset_bounds = bounds;
-  offset_bounds.Move(-shadow_offset);
-  return UnionRect(bounds, offset_bounds);
-}
-
-void GraphicsContext::DrawInnerShadow(const FloatRoundedRect& rect,
-                                      const Color& orig_shadow_color,
-                                      const FloatSize& shadow_offset,
-                                      float shadow_blur,
-                                      float shadow_spread,
-                                      Edges clipped_edges) {
-  SkColor shadow_color = DarkModeFilterHelper::ApplyToColorIfNeeded(
-      this, orig_shadow_color.Rgb(), DarkModeFilter::ElementRole::kBackground);
-
-  FloatRect hole_rect(rect.Rect());
-  hole_rect.Inflate(-shadow_spread);
-
-  if (hole_rect.IsEmpty()) {
-    FillRoundedRect(rect, Color(shadow_color));
-    return;
-  }
-
-  if (clipped_edges & kLeftEdge) {
-    hole_rect.Move(-std::max(shadow_offset.Width(), 0.0f) - shadow_blur, 0);
-    hole_rect.SetWidth(hole_rect.Width() +
-                       std::max(shadow_offset.Width(), 0.0f) + shadow_blur);
-  }
-  if (clipped_edges & kTopEdge) {
-    hole_rect.Move(0, -std::max(shadow_offset.Height(), 0.0f) - shadow_blur);
-    hole_rect.SetHeight(hole_rect.Height() +
-                        std::max(shadow_offset.Height(), 0.0f) + shadow_blur);
-  }
-  if (clipped_edges & kRightEdge)
-    hole_rect.SetWidth(hole_rect.Width() -
-                       std::min(shadow_offset.Width(), 0.0f) + shadow_blur);
-  if (clipped_edges & kBottomEdge)
-    hole_rect.SetHeight(hole_rect.Height() -
-                        std::min(shadow_offset.Height(), 0.0f) + shadow_blur);
-
-  Color fill_color(SkColorGetR(shadow_color), SkColorGetG(shadow_color),
-                   SkColorGetB(shadow_color), 255);
-
-  FloatRect outer_rect = AreaCastingShadowInHole(rect.Rect(), shadow_blur,
-                                                 shadow_spread, shadow_offset);
-  FloatRoundedRect rounded_hole(hole_rect, rect.GetRadii());
-
-  GraphicsContextStateSaver state_saver(*this);
-  if (rect.IsRounded()) {
-    ClipRoundedRect(rect);
-    if (shadow_spread < 0)
-      rounded_hole.ExpandRadii(-shadow_spread);
-    else
-      rounded_hole.ShrinkRadii(shadow_spread);
-  } else {
-    Clip(rect.Rect());
-  }
-
-  DrawLooperBuilder draw_looper_builder;
-  draw_looper_builder.AddShadow(FloatSize(shadow_offset), shadow_blur,
-                                shadow_color,
-                                DrawLooperBuilder::kShadowRespectsTransforms,
-                                DrawLooperBuilder::kShadowIgnoresAlpha);
-  SetDrawLooper(draw_looper_builder.DetachDrawLooper());
-  FillRectWithRoundedHole(outer_rect, rounded_hole, fill_color);
 }
 
 static void EnforceDotsAtEndpoints(GraphicsContext& context,
@@ -765,7 +661,9 @@ void GraphicsContext::DrawText(const Font& font,
                                const PaintFlags& flags,
                                DOMNodeId node_id) {
   font.DrawText(canvas_, text_info, point, device_scale_factor_, node_id,
-                DarkModeFlags(this, flags, DarkModeFilter::ElementRole::kText));
+                DarkModeFlags(this, flags, DarkModeFilter::ElementRole::kText),
+                printing_ ? Font::DrawType::kGlyphsAndClusters
+                          : Font::DrawType::kGlyphsOnly);
 }
 
 template <typename DrawTextFunc>
@@ -773,17 +671,25 @@ void GraphicsContext::DrawTextPasses(const DrawTextFunc& draw_text) {
   TextDrawingModeFlags mode_flags = TextDrawingMode();
 
   if (mode_flags & kTextModeFill) {
-    draw_text(ImmutableState()->FillFlags());
+    const PaintFlags& flags = ImmutableState()->FillFlags();
+    DarkModeFlags dark_flags(this, flags, DarkModeFilter::ElementRole::kText);
+    if (UNLIKELY(ShouldDrawDarkModeTextContrastOutline(flags, dark_flags))) {
+      PaintFlags outline_flags(flags);
+      outline_flags.setStyle(PaintFlags::kStroke_Style);
+      outline_flags.setStrokeWidth(1);
+      draw_text(outline_flags);
+    }
+    draw_text(dark_flags);
   }
 
   if ((mode_flags & kTextModeStroke) && GetStrokeStyle() != kNoStroke &&
       StrokeThickness() > 0) {
-    PaintFlags stroke_flags(ImmutableState()->StrokeFlags());
+    PaintFlags flags(ImmutableState()->StrokeFlags());
     if (mode_flags & kTextModeFill) {
       // shadow was already applied during fill pass
-      stroke_flags.setLooper(nullptr);
+      flags.setLooper(nullptr);
     }
-    draw_text(stroke_flags);
+    draw_text(DarkModeFlags(this, flags, DarkModeFilter::ElementRole::kText));
   }
 }
 
@@ -793,10 +699,29 @@ void GraphicsContext::DrawTextInternal(const Font& font,
                                        const FloatPoint& point,
                                        DOMNodeId node_id) {
   DrawTextPasses([&](const PaintFlags& flags) {
-    font.DrawText(
-        canvas_, text_info, point, device_scale_factor_, node_id,
-        DarkModeFlags(this, flags, DarkModeFilter::ElementRole::kText));
+    font.DrawText(canvas_, text_info, point, device_scale_factor_, node_id,
+                  flags,
+                  printing_ ? Font::DrawType::kGlyphsAndClusters
+                            : Font::DrawType::kGlyphsOnly);
   });
+}
+
+bool GraphicsContext::ShouldDrawDarkModeTextContrastOutline(
+    const PaintFlags& original_flags,
+    const DarkModeFlags& dark_flags) const {
+  if (!dark_flags.applied_dark_mode())
+    return false;
+  if (!GetCurrentDarkModeSettings().increase_text_contrast)
+    return false;
+
+  // To avoid outlining all text, only draw an outline that improves contrast.
+  // 90000 represents a difference of roughly 175 in all three channels.
+  // TODO(pdr): Calculate a contrast ratio using luminance (see:
+  // https://www.w3.org/WAI/WCAG21/Understanding/contrast-minimum.html).
+  constexpr int kMinimumDifferenceSq = 90000;
+  Color dark_color(static_cast<const PaintFlags&>(dark_flags).getColor());
+  Color original_color(original_flags.getColor());
+  return DifferenceSquared(dark_color, original_color) > kMinimumDifferenceSq;
 }
 
 void GraphicsContext::DrawText(const Font& font,
@@ -851,7 +776,9 @@ void GraphicsContext::DrawBidiText(
     if (font.DrawBidiText(
             canvas_, run_info, point, custom_font_not_ready_action,
             device_scale_factor_,
-            DarkModeFlags(this, flags, DarkModeFilter::ElementRole::kText))) {
+            DarkModeFlags(this, flags, DarkModeFilter::ElementRole::kText),
+            printing_ ? Font::DrawType::kGlyphsAndClusters
+                      : Font::DrawType::kGlyphsOnly)) {
       paint_controller_.SetTextPainted();
     }
   });
@@ -884,7 +811,6 @@ void GraphicsContext::DrawImage(
   PaintFlags image_flags = ImmutableState()->FillFlags();
   image_flags.setBlendMode(op);
   image_flags.setColor(SK_ColorBLACK);
-  image_flags.setFilterQuality(ComputeFilterQuality(image, dest, src));
 
   // Do not classify the image if the element has any CSS filters.
   if (!has_filter_property) {
@@ -892,8 +818,10 @@ void GraphicsContext::DrawImage(
                                                dest);
   }
 
-  image->Draw(canvas_, image_flags, dest, src, should_respect_image_orientation,
-              Image::kClampImageToSourceRect, decode_mode);
+  image->Draw(canvas_, image_flags, dest, src,
+              ComputeSamplingOptions(image, dest, src),
+              should_respect_image_orientation, Image::kClampImageToSourceRect,
+              decode_mode);
   paint_controller_.SetImagePainted();
 }
 
@@ -921,11 +849,11 @@ void GraphicsContext::DrawImageRRect(
   if (dest.IsEmpty() || visible_src.IsEmpty())
     return;
 
+  SkSamplingOptions sampling =
+      ComputeSamplingOptions(image, dest.Rect(), src_rect);
   PaintFlags image_flags = ImmutableState()->FillFlags();
   image_flags.setBlendMode(op);
   image_flags.setColor(SK_ColorBLACK);
-  image_flags.setFilterQuality(
-      ComputeFilterQuality(image, dest.Rect(), src_rect));
 
   DarkModeFilterHelper::ApplyToImageIfNeeded(this, image, &image_flags,
                                              src_rect, dest.Rect());
@@ -934,19 +862,24 @@ void GraphicsContext::DrawImageRRect(
                     (respect_orientation == kDoNotRespectImageOrientation ||
                      image->HasDefaultOrientation());
   if (use_shader) {
-    const SkMatrix local_matrix = SkMatrix::MakeRectToRect(
-        visible_src, dest.Rect(), SkMatrix::kFill_ScaleToFit);
+    const SkMatrix local_matrix =
+        SkMatrix::RectToRect(visible_src, dest.Rect());
     use_shader = image->ApplyShader(image_flags, local_matrix);
   }
 
   if (use_shader) {
+    // Temporarily set filter-quality for the shader. <reed>
+    // Should be replaced with explicit sampling parameter passed to
+    // ApplyShader()
+    image_flags.setFilterQuality(
+        ComputeFilterQuality(image, dest.Rect(), src_rect));
     // Shader-based fast path.
     canvas_->drawRRect(dest, image_flags);
   } else {
     // Clip-based fallback.
     PaintCanvasAutoRestore auto_restore(canvas_, true);
     canvas_->clipRRect(dest, image_flags.isAntiAlias());
-    image->Draw(canvas_, image_flags, dest.Rect(), src_rect,
+    image->Draw(canvas_, image_flags, dest.Rect(), src_rect, sampling,
                 respect_orientation, Image::kClampImageToSourceRect,
                 decode_mode);
   }
@@ -1155,6 +1088,16 @@ void GraphicsContext::FillDRRect(const FloatRoundedRect& outer,
   canvas_->drawRRect(stroke_r_rect, stroke_flags);
 }
 
+void GraphicsContext::FillRectWithRoundedHole(
+    const FloatRect& rect,
+    const FloatRoundedRect& rounded_hole_rect,
+    const Color& color) {
+  PaintFlags flags(ImmutableState()->FillFlags());
+  flags.setColor(DarkModeFilterHelper::ApplyToColorIfNeeded(
+      this, color.Rgb(), DarkModeFilter::ElementRole::kBackground));
+  canvas_->drawDRRect(SkRRect::MakeRect(rect), rounded_hole_rect, flags);
+}
+
 void GraphicsContext::FillEllipse(const FloatRect& ellipse) {
   DrawOval(ellipse, ImmutableState()->FillFlags());
 }
@@ -1296,16 +1239,6 @@ void GraphicsContext::SetURLDestinationLocation(const String& name,
 
 void GraphicsContext::ConcatCTM(const AffineTransform& affine) {
   Concat(AffineTransformToSkMatrix(affine));
-}
-
-void GraphicsContext::FillRectWithRoundedHole(
-    const FloatRect& rect,
-    const FloatRoundedRect& rounded_hole_rect,
-    const Color& color) {
-  PaintFlags flags(ImmutableState()->FillFlags());
-  flags.setColor(DarkModeFilterHelper::ApplyToColorIfNeeded(
-      this, color.Rgb(), DarkModeFilter::ElementRole::kBackground));
-  canvas_->drawDRRect(SkRRect::MakeRect(rect), rounded_hole_rect, flags);
 }
 
 void GraphicsContext::AdjustLineToPixelBoundaries(FloatPoint& p1,

@@ -10,6 +10,7 @@
 #include <utility>
 #include <vector>
 
+#include "base/callback_helpers.h"
 #include "base/containers/contains.h"
 #include "base/location.h"
 #include "base/logging.h"
@@ -33,6 +34,7 @@
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/page/chrome_client.h"
 #include "third_party/blink/renderer/modules/mediastream/local_media_stream_audio_source.h"
+#include "third_party/blink/renderer/modules/mediastream/local_video_capturer_source.h"
 #include "third_party/blink/renderer/modules/mediastream/media_stream_audio_processor.h"
 #include "third_party/blink/renderer/modules/mediastream/media_stream_constraints_util.h"
 #include "third_party/blink/renderer/modules/mediastream/media_stream_constraints_util_audio.h"
@@ -48,7 +50,6 @@
 #include "third_party/blink/renderer/platform/mediastream/media_stream_descriptor.h"
 #include "third_party/blink/renderer/platform/mediastream/webrtc_uma_histograms.h"
 #include "third_party/blink/renderer/platform/scheduler/public/post_cross_thread_task.h"
-#include "third_party/blink/renderer/platform/video_capture/local_video_capturer_source.h"
 #include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
 #include "third_party/blink/renderer/platform/wtf/wtf_size_t.h"
@@ -723,7 +724,7 @@ void UserMediaProcessor::SelectAudioSettings(
   SetupVideoInput();
 }
 
-base::Optional<base::UnguessableToken>
+absl::optional<base::UnguessableToken>
 UserMediaProcessor::DetermineExistingAudioSessionId() {
   DCHECK(current_request_info_->request()->Audio());
 
@@ -754,7 +755,7 @@ UserMediaProcessor::DetermineExistingAudioSessionId() {
     }
   }
 
-  return base::nullopt;
+  return absl::nullopt;
 }
 
 void UserMediaProcessor::SetupVideoInput() {
@@ -762,7 +763,7 @@ void UserMediaProcessor::SetupVideoInput() {
   DCHECK(current_request_info_);
 
   if (!current_request_info_->request()->Video()) {
-    base::Optional<base::UnguessableToken> audio_session_id =
+    absl::optional<base::UnguessableToken> audio_session_id =
         DetermineExistingAudioSessionId();
     GenerateStreamForCurrentRequestInfo(
         audio_session_id, audio_session_id.has_value()
@@ -847,9 +848,9 @@ void UserMediaProcessor::SelectVideoDeviceSettings(
   blink::VideoDeviceCaptureCapabilities capabilities;
   capabilities.device_capabilities =
       ToVideoInputDeviceCapabilities(video_input_capabilities);
-  capabilities.noise_reduction_capabilities = {base::Optional<bool>(),
-                                               base::Optional<bool>(true),
-                                               base::Optional<bool>(false)};
+  capabilities.noise_reduction_capabilities = {absl::optional<bool>(),
+                                               absl::optional<bool>(true),
+                                               absl::optional<bool>(false)};
   blink::VideoCaptureSettings settings = SelectSettingsVideoDeviceCapture(
       std::move(capabilities), user_media_request->VideoConstraints(),
       blink::MediaStreamVideoSource::kDefaultWidth,
@@ -870,7 +871,7 @@ void UserMediaProcessor::SelectVideoDeviceSettings(
       settings, false /* is_content_capture */);
 
   if (current_request_info_->request()->Audio()) {
-    base::Optional<base::UnguessableToken> audio_session_id =
+    absl::optional<base::UnguessableToken> audio_session_id =
         DetermineExistingAudioSessionId();
     GenerateStreamForCurrentRequestInfo(
         audio_session_id, audio_session_id.has_value()
@@ -916,7 +917,7 @@ void UserMediaProcessor::SelectVideoContentSettings() {
 }
 
 void UserMediaProcessor::GenerateStreamForCurrentRequestInfo(
-    base::Optional<base::UnguessableToken> requested_audio_capture_session_id,
+    absl::optional<base::UnguessableToken> requested_audio_capture_session_id,
     blink::mojom::StreamSelectionStrategy strategy) {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
   DCHECK(current_request_info_);
@@ -944,7 +945,8 @@ UserMediaProcessor::GetMediaStreamDeviceObserver() {
   auto* media_stream_device_observer =
       media_stream_device_observer_for_testing_;
   if (frame_) {  // Can be null for tests.
-    auto* web_frame = static_cast<WebLocalFrame*>(WebFrame::FromFrame(frame_));
+    auto* web_frame =
+        static_cast<WebLocalFrame*>(WebFrame::FromCoreFrame(frame_));
     if (!web_frame || !web_frame->Client())
       return nullptr;
 
@@ -1059,7 +1061,7 @@ gfx::Size UserMediaProcessor::GetScreenSize() {
   gfx::Size screen_size(blink::kDefaultScreenCastWidth,
                         blink::kDefaultScreenCastHeight);
   if (frame_) {  // Can be null in tests.
-    blink::ScreenInfo info = frame_->GetChromeClient().GetScreenInfo(*frame_);
+    const ScreenInfo& info = frame_->GetChromeClient().GetScreenInfo(*frame_);
     screen_size = info.rect.size();
   }
   return screen_size;
@@ -1400,6 +1402,8 @@ UserMediaProcessor::CreateAudioSource(
   if (blink::IsScreenCaptureMediaType(device.type) ||
       !blink::MediaStreamAudioProcessor::WouldModifyAudio(
           audio_processing_properties)) {
+    SendLogMessage(
+        base::StringPrintf("%s => (no audiprocessing is used)", __func__));
     return std::make_unique<blink::LocalMediaStreamAudioSource>(
         frame_, device,
         base::OptionalOrNullptr(current_request_info_->audio_capture_settings()
@@ -1410,9 +1414,13 @@ UserMediaProcessor::CreateAudioSource(
 
   // The audio device is not associated with screen capture and also requires
   // processing.
+  SendLogMessage(
+      base::StringPrintf("%s => (audiprocessing is required)", __func__));
   return std::make_unique<blink::ProcessedLocalAudioSource>(
-      frame_, device, stream_controls->disable_local_echo,
-      audio_processing_properties, std::move(source_ready), task_runner_);
+      *frame_, device, stream_controls->disable_local_echo,
+      audio_processing_properties,
+      current_request_info_->audio_capture_settings().num_channels(),
+      std::move(source_ready), task_runner_);
 }
 
 std::unique_ptr<blink::MediaStreamVideoSource>
@@ -1426,9 +1434,9 @@ UserMediaProcessor::CreateVideoSource(
   return std::make_unique<blink::MediaStreamVideoCapturerSource>(
       frame_, std::move(stop_callback), device,
       current_request_info_->video_capture_settings().capture_params(),
-      WTF::BindRepeating(
-          &blink::LocalVideoCapturerSource::Create,
-          frame_->GetTaskRunner(blink::TaskType::kInternalMedia)));
+      WTF::BindRepeating(&blink::LocalVideoCapturerSource::Create,
+                         frame_->GetTaskRunner(blink::TaskType::kInternalMedia),
+                         WrapWeakPersistent(frame_.Get())));
 }
 
 void UserMediaProcessor::StartTracks(const String& label) {

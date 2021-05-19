@@ -8,6 +8,7 @@
 #include "third_party/blink/renderer/bindings/core/v8/script_value.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
+#include "third_party/blink/renderer/platform/heap/visitor.h"
 #include "v8/include/v8.h"
 
 namespace blink {
@@ -17,7 +18,6 @@ class ReadableStreamDefaultController;
 class ScriptState;
 class StreamAlgorithm;
 class TransformStream;
-class Visitor;
 
 class CORE_EXPORT TransformStreamDefaultController : public ScriptWrappable {
   DEFINE_WRAPPERTYPEINFO();
@@ -27,7 +27,7 @@ class CORE_EXPORT TransformStreamDefaultController : public ScriptWrappable {
   ~TransformStreamDefaultController() override;
 
   // https://streams.spec.whatwg.org/#ts-default-controller-desired-size
-  base::Optional<double> desiredSize() const;
+  absl::optional<double> desiredSize() const;
 
   // https://streams.spec.whatwg.org/#ts-default-controller-enqueue
   void enqueue(ScriptState*, ExceptionState&);

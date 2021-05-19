@@ -10,7 +10,6 @@
 #include "base/command_line.h"
 #include "base/files/file_util.h"
 #include "base/json/json_writer.h"
-#include "base/strings/stringprintf.h"
 #include "media/base/bitstream_buffer.h"
 #include "media/base/media_util.h"
 #include "media/base/test_data_util.h"
@@ -23,6 +22,7 @@
 #include "media/gpu/test/video_frame_validator.h"
 #include "media/gpu/test/video_test_helpers.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace media {
 namespace test {
@@ -36,6 +36,7 @@ namespace {
 constexpr const char* usage_msg =
     "usage: video_encode_accelerator_perf_tests\n"
     "           [--codec=<codec>]\n"
+    "           [--bitrate=<bitrate>]\n"
     "           [-v=<level>] [--vmodule=<config>] [--output_folder]\n"
     "           [--gtest_help] [--help]\n"
     "           [<video path>] [<video metadata path>]\n";
@@ -51,6 +52,7 @@ constexpr const char* help_msg =
     "\nThe following arguments are supported:\n"
     "  --codec              codec profile to encode, \"h264 (baseline)\",\n"
     "                       \"h264main, \"h264high\", \"vp8\" and \"vp9\"\n"
+    "  --bitrate            bitrate (bits in second) of a produced bitstram.\n"
     "   -v                  enable verbose mode, e.g. -v=2.\n"
     "  --vmodule            enable verbose mode for the specified module,\n"
     "  --output_folder      overwrite the output folder used to store\n"
@@ -66,6 +68,10 @@ constexpr base::FilePath::CharType kDefaultTestVideoPath[] =
 media::test::VideoEncoderTestEnvironment* g_env;
 
 constexpr size_t kNumFramesToEncodeForPerformance = 300;
+
+// The event timeout used in perf tests because encoding 2160p
+// |kNumFramesToEncodeForPerformance| frames take much time.
+constexpr base::TimeDelta kPerfEventTimeout = base::TimeDelta::FromSeconds(180);
 
 // Default output folder used to store performance metrics.
 constexpr const base::FilePath::CharType* kDefaultOutputFolder =
@@ -500,6 +506,7 @@ class VideoEncoderTest : public ::testing::Test {
 TEST_F(VideoEncoderTest, MeasureUncappedPerformance) {
   auto encoder =
       CreateVideoEncoder(g_env->Video(), g_env->Profile(), g_env->Bitrate());
+  encoder->SetEventWaitTimeout(kPerfEventTimeout);
 
   performance_evaluator_->StartMeasuring();
   encoder->Encode();
@@ -521,6 +528,8 @@ TEST_F(VideoEncoderTest, MeasureCappedPerformance) {
   const uint32_t kEncodeRate = 30;
   auto encoder = CreateVideoEncoder(g_env->Video(), g_env->Profile(),
                                     g_env->Bitrate(), kEncodeRate);
+  encoder->SetEventWaitTimeout(kPerfEventTimeout);
+
   performance_evaluator_->StartMeasuring();
   encoder->Encode();
   EXPECT_TRUE(encoder->WaitForFlushDone());
@@ -537,6 +546,8 @@ TEST_F(VideoEncoderTest, MeasureCappedPerformance) {
 TEST_F(VideoEncoderTest, MeasureProducedBitstreamQuality) {
   auto encoder = CreateVideoEncoderForQualityPerformance(
       g_env->Video(), g_env->Profile(), g_env->Bitrate());
+  encoder->SetEventWaitTimeout(kPerfEventTimeout);
+
   encoder->Encode();
   EXPECT_TRUE(encoder->WaitForFlushDone());
   EXPECT_EQ(encoder->GetFlushDoneCount(), 1u);
@@ -572,6 +583,7 @@ int main(int argc, char** argv) {
   base::FilePath video_metadata_path =
       (args.size() >= 2) ? base::FilePath(args[1]) : base::FilePath();
   std::string codec = "h264";
+  absl::optional<uint32_t> encode_bitrate;
 
   // Parse command line arguments.
   base::FilePath::StringType output_folder = media::test::kDefaultOutputFolder;
@@ -587,6 +599,14 @@ int main(int argc, char** argv) {
       output_folder = it->second;
     } else if (it->first == "codec") {
       codec = it->second;
+    } else if (it->first == "bitrate") {
+      unsigned value;
+      if (!base::StringToUint(it->second, &value)) {
+        std::cout << "invalid bitrate " << it->second << "\n"
+                  << media::test::usage_msg;
+        return EXIT_FAILURE;
+      }
+      encode_bitrate = base::checked_cast<uint32_t>(value);
     } else {
       std::cout << "unknown option: --" << it->first << "\n"
                 << media::test::usage_msg;
@@ -600,7 +620,8 @@ int main(int argc, char** argv) {
   media::test::VideoEncoderTestEnvironment* test_environment =
       media::test::VideoEncoderTestEnvironment::Create(
           video_path, video_metadata_path, false, base::FilePath(output_folder),
-          codec, 1u /* num_temporal_layers */, false /* output_bitstream */);
+          codec, 1u /* num_temporal_layers */, false /* output_bitstream */,
+          encode_bitrate);
   if (!test_environment)
     return EXIT_FAILURE;
 

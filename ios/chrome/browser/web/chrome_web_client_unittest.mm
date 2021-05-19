@@ -46,6 +46,7 @@
 #include "net/ssl/ssl_info.h"
 #include "net/test/cert_test_util.h"
 #include "net/test/test_data_directory.h"
+#include "services/network/public/mojom/fetch_api.mojom.h"
 #include "services/network/test/test_url_loader_factory.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "testing/gtest_mac.h"
@@ -134,48 +135,6 @@ TEST_F(ChromeWebClientTest, UserAgent) {
   EXPECT_EQ(0u, product_str.find("CriOS/"));
 }
 
-// Tests that ChromeWebClient provides accessibility script for WKWebView.
-TEST_F(ChromeWebClientTest, WKWebViewEarlyPageScriptAccessibility) {
-  // Chrome scripts rely on __gCrWeb object presence.
-  WKWebView* web_view = web::BuildWKWebView(CGRectZero, browser_state());
-  web::test::ExecuteJavaScript(web_view, @"__gCrWeb = {};");
-
-  web::ScopedTestingWebClient web_client(std::make_unique<ChromeWebClient>());
-  NSString* script =
-      web_client.Get()->GetDocumentStartScriptForAllFrames(browser_state());
-  web::test::ExecuteJavaScript(web_view, script);
-  EXPECT_NSEQ(@"object", web::test::ExecuteJavaScript(
-                             web_view, @"typeof __gCrWeb.accessibility"));
-}
-
-// Tests that ChromeWebClient provides print script for WKWebView.
-TEST_F(ChromeWebClientTest, WKWebViewEarlyPageScriptPrint) {
-  // Chrome scripts rely on __gCrWeb object presence.
-  WKWebView* web_view = web::BuildWKWebView(CGRectZero, browser_state());
-  web::test::ExecuteJavaScript(web_view, @"__gCrWeb = {};");
-
-  web::ScopedTestingWebClient web_client(std::make_unique<ChromeWebClient>());
-  NSString* script =
-      web_client.Get()->GetDocumentStartScriptForAllFrames(browser_state());
-  web::test::ExecuteJavaScript(web_view, script);
-  EXPECT_NSEQ(@"object",
-              web::test::ExecuteJavaScript(web_view, @"typeof __gCrWeb.print"));
-}
-
-// Tests that ChromeWebClient provides autofill controller script for WKWebView.
-TEST_F(ChromeWebClientTest, WKWebViewEarlyPageScriptAutofillController) {
-  // Chrome scripts rely on __gCrWeb object presence.
-  WKWebView* web_view = web::BuildWKWebView(CGRectZero, browser_state());
-  web::test::ExecuteJavaScript(web_view, @"__gCrWeb = {};");
-
-  web::ScopedTestingWebClient web_client(std::make_unique<ChromeWebClient>());
-  NSString* script =
-      web_client.Get()->GetDocumentStartScriptForAllFrames(browser_state());
-  web::test::ExecuteJavaScript(web_view, script);
-  EXPECT_NSEQ(@"object", web::test::ExecuteJavaScript(
-                             web_view, @"typeof __gCrWeb.autofill"));
-}
-
 // Tests PrepareErrorPage wth non-post, not Off The Record error.
 TEST_F(ChromeWebClientTest, PrepareErrorPageNonPostNonOtr) {
   ChromeWebClient web_client;
@@ -192,7 +151,7 @@ TEST_F(ChromeWebClientTest, PrepareErrorPageNonPostNonOtr) {
   web_client.PrepareErrorPage(&web_state, GURL(kTestUrl), error,
                               /*is_post=*/false,
                               /*is_off_the_record=*/false,
-                              /*info=*/base::nullopt,
+                              /*info=*/absl::nullopt,
                               /*navigation_id=*/0, std::move(callback));
   EXPECT_TRUE(WaitUntilConditionOrTimeout(kWaitForActionTimeout, ^bool {
     base::RunLoop().RunUntilIdle();
@@ -219,7 +178,7 @@ TEST_F(ChromeWebClientTest, PrepareErrorPagePostNonOtr) {
   web_client.PrepareErrorPage(&web_state, GURL(kTestUrl), error,
                               /*is_post=*/true,
                               /*is_off_the_record=*/false,
-                              /*info=*/base::nullopt,
+                              /*info=*/absl::nullopt,
                               /*navigation_id=*/0, std::move(callback));
   EXPECT_TRUE(WaitUntilConditionOrTimeout(kWaitForActionTimeout, ^bool {
     base::RunLoop().RunUntilIdle();
@@ -246,7 +205,7 @@ TEST_F(ChromeWebClientTest, PrepareErrorPageNonPostOtr) {
   web_client.PrepareErrorPage(&web_state, GURL(kTestUrl), error,
                               /*is_post=*/false,
                               /*is_off_the_record=*/true,
-                              /*info=*/base::nullopt,
+                              /*info=*/absl::nullopt,
                               /*navigation_id=*/0, std::move(callback));
   EXPECT_TRUE(WaitUntilConditionOrTimeout(kWaitForActionTimeout, ^bool {
     base::RunLoop().RunUntilIdle();
@@ -273,7 +232,7 @@ TEST_F(ChromeWebClientTest, PrepareErrorPagePostOtr) {
   web_client.PrepareErrorPage(&web_state, GURL(kTestUrl), error,
                               /*is_post=*/true,
                               /*is_off_the_record=*/true,
-                              /*info=*/base::nullopt,
+                              /*info=*/absl::nullopt,
                               /*navigation_id=*/0, std::move(callback));
   EXPECT_TRUE(WaitUntilConditionOrTimeout(kWaitForActionTimeout, ^bool {
     base::RunLoop().RunUntilIdle();
@@ -292,8 +251,8 @@ TEST_F(ChromeWebClientTest, PrepareErrorPageWithSSLInfo) {
       net::ImportCertFromFile(net::GetTestCertsDirectory(), "ok_cert.pem");
   info.is_fatal_cert_error = false;
   info.cert_status = net::CERT_STATUS_COMMON_NAME_INVALID;
-  base::Optional<net::SSLInfo> ssl_info =
-      base::make_optional<net::SSLInfo>(info);
+  absl::optional<net::SSLInfo> ssl_info =
+      absl::make_optional<net::SSLInfo>(info);
   ChromeWebClient web_client;
   NSError* error =
       [NSError errorWithDomain:NSURLErrorDomain
@@ -351,7 +310,7 @@ TEST_F(ChromeWebClientTest, PrepareErrorPageForSafeBrowsingError) {
   security_interstitials::UnsafeResource resource;
   resource.threat_type = safe_browsing::SB_THREAT_TYPE_URL_PHISHING;
   resource.url = GURL("http://www.chromium.test");
-  resource.resource_type = safe_browsing::ResourceType::kMainFrame;
+  resource.request_destination = network::mojom::RequestDestination::kDocument;
   resource.web_state_getter = web_state.CreateDefaultGetter();
   SafeBrowsingUrlAllowList::FromWebState(&web_state)
       ->AddPendingUnsafeNavigationDecision(resource.url, resource.threat_type);
@@ -373,7 +332,7 @@ TEST_F(ChromeWebClientTest, PrepareErrorPageForSafeBrowsingError) {
   web_client.PrepareErrorPage(&web_state, GURL(kTestUrl), error,
                               /*is_post=*/false,
                               /*is_off_the_record=*/false,
-                              /*info=*/base::Optional<net::SSLInfo>(),
+                              /*info=*/absl::optional<net::SSLInfo>(),
                               /*navigation_id=*/0, std::move(callback));
 
   EXPECT_TRUE(callback_called);
@@ -411,7 +370,7 @@ TEST_F(ChromeWebClientTest, PrepareErrorPageForLookalikeUrlError) {
   web_client.PrepareErrorPage(&web_state, GURL(kTestUrl), error,
                               /*is_post=*/false,
                               /*is_off_the_record=*/false,
-                              /*info=*/base::Optional<net::SSLInfo>(),
+                              /*info=*/absl::optional<net::SSLInfo>(),
                               /*navigation_id=*/0, std::move(callback));
 
   EXPECT_TRUE(callback_called);
@@ -452,7 +411,7 @@ TEST_F(ChromeWebClientTest, PrepareErrorPageForLookalikeUrlErrorNoSuggestion) {
   web_client.PrepareErrorPage(&web_state, GURL(kTestUrl), error,
                               /*is_post=*/false,
                               /*is_off_the_record=*/false,
-                              /*info=*/base::Optional<net::SSLInfo>(),
+                              /*info=*/absl::optional<net::SSLInfo>(),
                               /*navigation_id=*/0, std::move(callback));
 
   EXPECT_TRUE(callback_called);
@@ -491,7 +450,7 @@ TEST_F(ChromeWebClientTest, PrepareErrorPageForLegacyTLSError) {
   web_client.PrepareErrorPage(&web_state, GURL(kTestUrl), error,
                               /*is_post=*/false,
                               /*is_off_the_record=*/false,
-                              /*info=*/base::Optional<net::SSLInfo>(),
+                              /*info=*/absl::optional<net::SSLInfo>(),
                               /*navigation_id=*/0, std::move(callback));
 
   EXPECT_TRUE(callback_called);
@@ -499,6 +458,37 @@ TEST_F(ChromeWebClientTest, PrepareErrorPageForLegacyTLSError) {
       l10n_util::GetNSString(IDS_LEGACY_TLS_PRIMARY_PARAGRAPH);
   EXPECT_TRUE([page containsString:error_string])
       << base::SysNSStringToUTF8(page);
+}
+
+// Tests PrepareErrorPage for a legacy TLS error in a WebState that doesn't
+// have an IOSBlockingPageTabHelper, ensuring that there is no crash.
+TEST_F(ChromeWebClientTest,
+       PrepareErrorPageForLegacyTLSErrorNotInWebStateList) {
+  web::FakeWebState web_state;
+  web_state.SetBrowserState(browser_state());
+  auto navigation_manager = std::make_unique<web::FakeNavigationManager>();
+  web_state.SetNavigationManager(std::move(navigation_manager));
+
+  NSError* error = [NSError errorWithDomain:net::kNSErrorDomain
+                                       code:net::ERR_SSL_OBSOLETE_VERSION
+                                   userInfo:nil];
+  __block bool callback_called = false;
+  __block NSString* page = nil;
+  base::OnceCallback<void(NSString*)> callback =
+      base::BindOnce(^(NSString* error_html) {
+        callback_called = true;
+        page = error_html;
+      });
+
+  ChromeWebClient web_client;
+  web_client.PrepareErrorPage(&web_state, GURL(kTestUrl), error,
+                              /*is_post=*/false,
+                              /*is_off_the_record=*/false,
+                              /*info=*/absl::optional<net::SSLInfo>(),
+                              /*navigation_id=*/0, std::move(callback));
+
+  EXPECT_TRUE(callback_called);
+  EXPECT_EQ(page.length, 0u);
 }
 
 // Tests the default user agent for different views.

@@ -12,6 +12,8 @@
 #include "chrome/browser/ui/web_applications/app_browser_controller.h"
 #include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/accessibility/ax_node_data.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
+#include "ui/compositor/layer.h"
 #include "ui/compositor/layer_animation_element.h"
 #include "ui/compositor/layer_animation_sequence.h"
 #include "ui/compositor/scoped_layer_animation_settings.h"
@@ -99,3 +101,6 @@ void WebAppOriginText::GetAccessibleNodeData(ui::AXNodeData* node_data) {
   node_data->role = ax::mojom::Role::kApplication;
   node_data->SetName(label_->GetText());
 }
+
+BEGIN_METADATA(WebAppOriginText, views::View)
+END_METADATA

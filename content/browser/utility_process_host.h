@@ -14,7 +14,6 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
-#include "base/optional.h"
 #include "base/process/launch.h"
 #include "build/build_config.h"
 #include "content/common/child_process.mojom.h"
@@ -25,6 +24,7 @@
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/system/message_pipe.h"
 #include "sandbox/policy/sandbox_type.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace base {
 class Thread;
@@ -79,8 +79,6 @@ class CONTENT_EXPORT UtilityProcessHost
   // SandboxType::kNoSandbox is specified.
   void SetSandboxType(sandbox::policy::SandboxType sandbox_type);
 
-  sandbox::policy::SandboxType sandbox_type() const { return sandbox_type_; }
-
   // Returns information about the utility child process.
   const ChildProcessData& GetData();
 #if defined(OS_POSIX)
@@ -93,13 +91,13 @@ class CONTENT_EXPORT UtilityProcessHost
   // Instructs the utility process to run an instance of the named service,
   // bound to |service_pipe|. This is DEPRECATED and should never be used.
   using RunServiceDeprecatedCallback =
-      base::OnceCallback<void(base::Optional<base::ProcessId>)>;
+      base::OnceCallback<void(absl::optional<base::ProcessId>)>;
   void RunServiceDeprecated(const std::string& service_name,
                             mojo::ScopedMessagePipeHandle service_pipe,
                             RunServiceDeprecatedCallback callback);
 
   // Sets the name of the process to appear in the task manager.
-  void SetName(const base::string16& name);
+  void SetName(const std::u16string& name);
 
   // Sets the name used for metrics reporting. This should not be a localized
   // name. This is recorded to metrics, so update UtilityProcessNameHash enum in
@@ -126,7 +124,7 @@ class CONTENT_EXPORT UtilityProcessHost
   void OnProcessLaunched() override;
   void OnProcessLaunchFailed(int error_code) override;
   void OnProcessCrashed(int exit_code) override;
-  base::Optional<std::string> GetServiceName() override;
+  absl::optional<std::string> GetServiceName() override;
   void BindHostReceiver(mojo::GenericPendingReceiver receiver) override;
 
   // Launch the child process with switches that will setup this sandbox type.
@@ -142,7 +140,7 @@ class CONTENT_EXPORT UtilityProcessHost
   bool started_;
 
   // The process name used to identify the process in task manager.
-  base::string16 name_;
+  std::u16string name_;
 
   // The non-localized name used for metrics reporting.
   std::string metrics_name_;

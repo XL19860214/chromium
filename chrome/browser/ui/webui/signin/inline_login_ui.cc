@@ -35,17 +35,19 @@
 #include "ui/resources/grit/webui_resources.h"
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-#include "chrome/browser/chromeos/profiles/profile_helper.h"
+#include "ash/constants/ash_features.h"
+#include "ash/constants/ash_pref_names.h"
+#include "chrome/browser/ash/profiles/profile_helper.h"
+#include "chrome/browser/prefs/incognito_mode_prefs.h"
 #include "chrome/browser/supervised_user/supervised_user_features.h"
 #include "chrome/browser/ui/chrome_pages.h"
 #include "chrome/browser/ui/webui/chromeos/edu_account_login_handler_chromeos.h"
-#include "chrome/browser/ui/webui/chromeos/edu_coexistence_login_handler_chromeos.h"
+#include "chrome/browser/ui/webui/chromeos/edu_coexistence/edu_coexistence_login_handler_chromeos.h"
 #include "chrome/browser/ui/webui/settings/chromeos/constants/routes.mojom.h"
 #include "chrome/browser/ui/webui/signin/inline_login_handler_chromeos.h"
-#include "chromeos/constants/chromeos_features.h"
-#include "chromeos/constants/chromeos_pref_names.h"
 #include "components/prefs/pref_service.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/chromeos/devicetype_utils.h"
 #include "ui/strings/grit/ui_strings.h"
 #else
 #include "chrome/browser/ui/webui/signin/inline_login_handler_impl.h"
@@ -55,7 +57,7 @@ namespace {
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 void AddEduStrings(content::WebUIDataSource* source,
-                   const base::string16& username) {
+                   const std::u16string& username) {
   source->AddLocalizedString("okButton", IDS_APP_OK);
   source->AddLocalizedString("backButton", IDS_EDU_LOGIN_BACK);
   source->AddLocalizedString("nextButton", IDS_EDU_LOGIN_NEXT);
@@ -105,6 +107,7 @@ void AddEduStrings(content::WebUIDataSource* source,
                              IDS_EDU_COEXISTENCE_ERROR_HEADING);
   source->AddLocalizedString("eduCoexistenceErrorDescription",
                              IDS_EDU_COEXISTENCE_ERROR_DESCRIPTION);
+  source->AddLocalizedString("loadingMessage", IDS_LOGIN_GAIA_LOADING_MESSAGE);
 }
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
@@ -128,6 +131,7 @@ content::WebUIDataSource* CreateWebUIDataSource(Profile* profile) {
   static constexpr webui::ResourcePath kResources[] = {
     {"inline_login_app.js", IDR_INLINE_LOGIN_APP_JS},
     {"inline_login_browser_proxy.js", IDR_INLINE_LOGIN_BROWSER_PROXY_JS},
+    {"webview_saml_injected.js", IDR_GAIA_AUTH_WEBVIEW_SAML_INJECTED_JS},
 #if BUILDFLAG(IS_CHROMEOS_ASH)
     {"welcome_page_app.js", IDR_INLINE_LOGIN_WELCOME_PAGE_APP_JS},
     {"account_manager_shared_css.js", IDR_ACCOUNT_MANAGER_SHARED_CSS_JS},
@@ -154,8 +158,8 @@ content::WebUIDataSource* CreateWebUIDataSource(Profile* profile) {
     {"edu_coexistence_ui.js", IDR_EDU_COEXISTENCE_EDU_COEXISTENCE_UI_JS},
     {"edu_coexistence_controller.js",
      IDR_EDU_COEXISTENCE_EDU_COEXISTENCE_CONTROLLER_JS},
-    {"chromeos/add_supervision/post_message_api.m.js",
-     IDR_ADD_SUPERVISION_POST_MESSAGE_API_M_JS},
+    {"chromeos/add_supervision/post_message_api.js",
+     IDR_ADD_SUPERVISION_POST_MESSAGE_API_JS},
     {"edu_coexistence_browser_proxy.js",
      IDR_EDU_COEXISTENCE_EDU_COEXISTENCE_BROWSER_PROXY_JS},
     {"edu_coexistence_button.js",
@@ -166,27 +170,26 @@ content::WebUIDataSource* CreateWebUIDataSource(Profile* profile) {
     {"edu_coexistence_template.js",
      IDR_EDU_COEXISTENCE_EDU_COEXISTENCE_TEMPLATE_JS},
     {"edu_coexistence_css.js", IDR_EDU_COEXISTENCE_EDU_COEXISTENCE_CSS_JS},
+    {"an_error_occurred.svg", IDR_CHROME_OS_AN_ERROR_OCCURRED_SVG},
+    {"no_network.svg", IDR_CHROME_OS_NO_NETWORK_SVG},
 
 #if BUILDFLAG(GOOGLE_CHROME_BRANDING)
     {"account_manager_welcome_1x.png", IDR_ACCOUNT_MANAGER_WELCOME_1X_PNG},
     {"account_manager_welcome_2x.png", IDR_ACCOUNT_MANAGER_WELCOME_2X_PNG},
     {"googleg.svg", IDR_ACCOUNT_MANAGER_WELCOME_GOOGLE_LOGO_SVG},
 #endif
-    {"family_link_logo.svg", IDR_FAMILY_LINK_LOGO_SVG},
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
   };
-  webui::AddResourcePathsBulk(source, kResources);
+  source->AddResourcePaths(kResources);
 
   static constexpr webui::LocalizedString kLocalizedStrings[] = {
-    {"title", IDS_CHROME_SIGNIN_TITLE},
     {"accessibleCloseButtonLabel", IDS_SIGNIN_ACCESSIBLE_CLOSE_BUTTON},
     {"accessibleBackButtonLabel", IDS_SIGNIN_ACCESSIBLE_BACK_BUTTON},
 #if BUILDFLAG(IS_CHROMEOS_ASH)
+    {"title", IDS_ACCOUNT_MANAGER_DIALOG_TITLE},
     {"ok", IDS_APP_OK},
     {"accountManagerDialogWelcomeTitle",
      IDS_ACCOUNT_MANAGER_DIALOG_WELCOME_TITLE},
-    {"accountManagerDialogWelcomeBody",
-     IDS_ACCOUNT_MANAGER_DIALOG_WELCOME_BODY},
     {"accountManagerDialogWelcomeCheckbox",
      IDS_ACCOUNT_MANAGER_DIALOG_WELCOME_CHECKBOX},
     {"accountManagerErrorNoInternetTitle",
@@ -197,9 +200,11 @@ content::WebUIDataSource* CreateWebUIDataSource(Profile* profile) {
      IDS_ACCOUNT_MANAGER_ERROR_CANNOT_ADD_ACCOUNT_TITLE},
     {"accountManagerErrorCannotAddAccountBody",
      IDS_ACCOUNT_MANAGER_ERROR_CANNOT_ADD_ACCOUNT_BODY},
+#else
+    {"title", IDS_CHROME_SIGNIN_TITLE},
 #endif
   };
-  AddLocalizedStringsBulk(source, kLocalizedStrings);
+  source->AddLocalizedStrings(kLocalizedStrings);
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   source->AddBoolean("isAccountManagementFlowsV2Enabled",
@@ -207,6 +212,22 @@ content::WebUIDataSource* CreateWebUIDataSource(Profile* profile) {
   source->AddBoolean("shouldSkipWelcomePage",
                      profile->GetPrefs()->GetBoolean(
                          chromeos::prefs::kShouldSkipInlineLoginWelcomePage));
+  bool is_incognito_enabled =
+      (IncognitoModePrefs::GetAvailability(profile->GetPrefs()) !=
+       IncognitoModePrefs::DISABLED);
+  int message_id =
+      is_incognito_enabled
+          ? IDS_ACCOUNT_MANAGER_DIALOG_WELCOME_BODY
+          : IDS_ACCOUNT_MANAGER_DIALOG_WELCOME_BODY_WITHOUT_INCOGNITO;
+  source->AddString(
+      "accountManagerDialogWelcomeBody",
+      l10n_util::GetStringFUTF16(
+          message_id,
+          base::UTF8ToUTF16(
+              chrome::GetOSSettingsUrl(
+                  chromeos::settings::mojom::kMyAccountsSubpagePath)
+                  .spec()),
+          ui::GetChromeOSDeviceName()));
 
   user_manager::User* user =
       chromeos::ProfileHelper::Get()->GetUserByProfile(profile);
@@ -221,8 +242,8 @@ content::WebUIDataSource* CreateWebUIDataSource(Profile* profile) {
   return source;
 }
 
-// Returns whether |url| can be displayed in a chrome://chrome-signin tab,
-// depending on the signin reason that is encoded in the url.
+// Returns whether |url| can be displayed in a chrome://chrome-signin web
+// contents, depending on the signin reason that is encoded in the url.
 bool IsValidChromeSigninReason(const GURL& url) {
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   return true;
@@ -231,24 +252,20 @@ bool IsValidChromeSigninReason(const GURL& url) {
       signin::GetSigninReasonForEmbeddedPromoURL(url);
 
   switch (reason) {
-    case signin_metrics::Reason::REASON_FORCED_SIGNIN_PRIMARY_ACCOUNT:
-    case signin_metrics::Reason::REASON_UNLOCK:
-      // Used by the user manager.
+    case signin_metrics::Reason::kForcedSigninPrimaryAccount:
+    case signin_metrics::Reason::kReauthentication:
+      // Used by the profile picker.
       return true;
-    case signin_metrics::Reason::REASON_FETCH_LST_ONLY:
+    case signin_metrics::Reason::kFetchLstOnly:
 #if defined(OS_WIN)
       // Used by the Google Credential Provider for Windows.
       return true;
 #else
       return false;
 #endif
-    case signin_metrics::Reason::REASON_SIGNIN_PRIMARY_ACCOUNT:
-    case signin_metrics::Reason::REASON_ADD_SECONDARY_ACCOUNT:
-    case signin_metrics::Reason::REASON_REAUTHENTICATION:
-    case signin_metrics::Reason::REASON_UNKNOWN_REASON:
-      return false;
-    case signin_metrics::Reason::REASON_MAX:
-      NOTREACHED();
+    case signin_metrics::Reason::kSigninPrimaryAccount:
+    case signin_metrics::Reason::kAddSecondaryAccount:
+    case signin_metrics::Reason::kUnknownReason:
       return false;
   }
   NOTREACHED();
@@ -264,7 +281,7 @@ InlineLoginUI::InlineLoginUI(content::WebUI* web_ui) : WebDialogUI(web_ui) {
   Profile* profile = Profile::FromWebUI(web_ui);
   content::WebUIDataSource* source = CreateWebUIDataSource(profile);
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-  base::string16 username =
+  std::u16string username =
       chromeos::ProfileHelper::Get()->GetUserByProfile(profile)->GetGivenName();
   AddEduStrings(source, username);
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)

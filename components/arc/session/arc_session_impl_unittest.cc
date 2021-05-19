@@ -9,18 +9,18 @@
 #include <memory>
 #include <utility>
 
+#include "ash/constants/ash_switches.h"
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/location.h"
-#include "base/optional.h"
 #include "base/path_service.h"
+#include "base/process/process_metrics.h"
 #include "base/run_loop.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/test/task_environment.h"
 #include "base/threading/thread_task_runner_handle.h"
-#include "chromeos/constants/chromeos_switches.h"
 #include "chromeos/system/scheduler_configuration_manager_base.h"
 #include "components/arc/arc_features.h"
 #include "components/arc/session/arc_client_adapter.h"
@@ -30,6 +30,7 @@
 #include "components/arc/test/fake_arc_bridge_host.h"
 #include "components/version_info/channel.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace cryptohome {
 class Identification;
@@ -85,6 +86,12 @@ class FakeArcClientAdapter : public ArcClientAdapter {
   void SetUserInfo(const cryptohome::Identification& cryptohome_id,
                    const std::string& hash,
                    const std::string& serial_number) override {}
+
+  void SetDemoModeDelegate(DemoModeDelegate* delegate) override {}
+  void TrimVmMemory(TrimVmMemoryCallback callback) override {
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE, base::BindOnce(std::move(callback), true, std::string()));
+  }
 
   // Notifies ArcSessionImpl of the ARC instance stop event.
   void NotifyArcInstanceStopped() {
@@ -228,7 +235,7 @@ class TestArcSessionObserver : public ArcSession::Observer {
 
   ~TestArcSessionObserver() override { arc_session_->RemoveObserver(this); }
 
-  const base::Optional<OnSessionStoppedArgs>& on_session_stopped_args() const {
+  const absl::optional<OnSessionStoppedArgs>& on_session_stopped_args() const {
     return on_session_stopped_args_;
   }
 
@@ -245,7 +252,7 @@ class TestArcSessionObserver : public ArcSession::Observer {
  private:
   ArcSession* const arc_session_;            // Not owned.
   base::RunLoop* const run_loop_ = nullptr;  // Not owned.
-  base::Optional<OnSessionStoppedArgs> on_session_stopped_args_;
+  absl::optional<OnSessionStoppedArgs> on_session_stopped_args_;
 
   DISALLOW_COPY_AND_ASSIGN(TestArcSessionObserver);
 };
@@ -272,12 +279,12 @@ class FakeSchedulerConfigurationManager
       obs.OnConfigurationSet(reply_->first, reply_->second);
   }
 
-  base::Optional<std::pair<bool, size_t>> GetLastReply() const override {
+  absl::optional<std::pair<bool, size_t>> GetLastReply() const override {
     return reply_;
   }
 
  private:
-  base::Optional<std::pair<bool, size_t>> reply_;
+  absl::optional<std::pair<bool, size_t>> reply_;
 
   DISALLOW_COPY_AND_ASSIGN(FakeSchedulerConfigurationManager);
 };
@@ -965,9 +972,6 @@ bool GetSystemMemoryInfo(const std::string& file_name,
 TEST_P(ArcSessionImplDalvikMemoryProfileTest, DalvikMemoryProfiles) {
   const DalvikMemoryProfileVariant& variant = GetParam();
 
-  base::test::ScopedFeatureList feature_list;
-  feature_list.InitWithFeatureState(arc::kUseHighMemoryDalvikProfile,
-                                    true /* use */);
   auto arc_session = CreateArcSession();
   arc_session->SetSystemMemoryInfoCallbackForTesting(
       base::BindRepeating(&GetSystemMemoryInfo, variant.file_name));

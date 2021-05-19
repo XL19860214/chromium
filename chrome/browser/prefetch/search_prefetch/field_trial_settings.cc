@@ -7,6 +7,8 @@
 #include <string>
 
 #include "base/command_line.h"
+#include "base/metrics/field_trial_params.h"
+#include "base/system/sys_info.h"
 
 // Enables the feature completely with a few skipped checks to make local
 // testing easier.
@@ -14,10 +16,10 @@ const char kSearchPrefetchServiceCommandLineFlag[] =
     "enable-search-prefetch-service";
 
 const base::Feature kSearchPrefetchService{"SearchPrefetchService",
-                                           base::FEATURE_DISABLED_BY_DEFAULT};
+                                           base::FEATURE_ENABLED_BY_DEFAULT};
 
 const base::Feature kSearchPrefetchServicePrefetching{
-    "SearchPrefetchServicePrefetching", base::FEATURE_DISABLED_BY_DEFAULT};
+    "SearchPrefetchServicePrefetching", base::FEATURE_ENABLED_BY_DEFAULT};
 
 bool SearchPrefetchServiceIsEnabled() {
   return base::CommandLine::ForCurrentProcess()->HasSwitch(
@@ -26,9 +28,19 @@ bool SearchPrefetchServiceIsEnabled() {
 }
 
 bool SearchPrefetchServicePrefetchingIsEnabled() {
-  return base::CommandLine::ForCurrentProcess()->HasSwitch(
-             kSearchPrefetchServiceCommandLineFlag) ||
-         base::FeatureList::IsEnabled(kSearchPrefetchServicePrefetching);
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          kSearchPrefetchServiceCommandLineFlag)) {
+    return true;
+  }
+
+  if (!base::FeatureList::IsEnabled(kSearchPrefetchServicePrefetching)) {
+    return false;
+  }
+
+  return base::SysInfo::AmountOfPhysicalMemoryMB() >
+         base::GetFieldTrialParamByFeatureAsInt(
+             kSearchPrefetchServicePrefetching, "device_memory_threshold_MB",
+             3000);
 }
 
 base::TimeDelta SearchPrefetchCachingLimit() {
@@ -45,7 +57,7 @@ size_t SearchPrefetchMaxAttemptsPerCachingDuration() {
   }
   return base::GetFieldTrialParamByFeatureAsInt(
       kSearchPrefetchServicePrefetching, "max_attempts_per_caching_duration",
-      2);
+      3);
 }
 
 base::TimeDelta SearchPrefetchErrorBackoffDuration() {
@@ -72,4 +84,9 @@ bool SearchPrefetchShouldCancelUneededInflightRequests() {
 bool StreamSearchPrefetchResponses() {
   return base::GetFieldTrialParamByFeatureAsBool(
       kSearchPrefetchServicePrefetching, "stream_responses", true);
+}
+
+size_t SearchPrefetchMaxCacheEntries() {
+  return base::GetFieldTrialParamByFeatureAsInt(
+      kSearchPrefetchServicePrefetching, "cache_size", 10);
 }

@@ -10,6 +10,7 @@
 #include "base/bind.h"
 #include "base/feature_list.h"
 #include "base/files/file_util.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/no_destructor.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
@@ -24,8 +25,6 @@
 #include "components/history/core/browser/url_database.h"
 #include "components/omnibox/browser/url_index_private_data.h"
 #include "components/omnibox/common/omnibox_features.h"
-
-using in_memory_url_index::InMemoryURLIndexCacheItem;
 
 // Initializes a allowlist of URL schemes.
 void InitializeSchemeAllowlist(SchemeSet* allowlist,
@@ -58,7 +57,10 @@ InMemoryURLIndex::SaveCacheObserver::~SaveCacheObserver() {
 InMemoryURLIndex::RebuildPrivateDataFromHistoryDBTask::
     RebuildPrivateDataFromHistoryDBTask(InMemoryURLIndex* index,
                                         const SchemeSet& scheme_allowlist)
-    : index_(index), scheme_allowlist_(scheme_allowlist), succeeded_(false) {}
+    : index_(index),
+      scheme_allowlist_(scheme_allowlist),
+      succeeded_(false),
+      task_creation_time_(base::TimeTicks::Now()) {}
 
 bool InMemoryURLIndex::RebuildPrivateDataFromHistoryDBTask::RunOnDBThread(
     history::HistoryBackend* backend,
@@ -73,6 +75,8 @@ bool InMemoryURLIndex::RebuildPrivateDataFromHistoryDBTask::RunOnDBThread(
 void InMemoryURLIndex::RebuildPrivateDataFromHistoryDBTask::
     DoneRunOnMainThread() {
   index_->DoneRebuidingPrivateDataFromHistoryDB(succeeded_, data_);
+  UMA_HISTOGRAM_TIMES("History.InMemoryURLIndexingTime.RoundTripTime",
+                      base::TimeTicks::Now() - task_creation_time_);
 }
 
 InMemoryURLIndex::RebuildPrivateDataFromHistoryDBTask::
@@ -102,7 +106,7 @@ InMemoryURLIndex::InMemoryURLIndex(bookmarks::BookmarkModel* bookmark_model,
   InitializeSchemeAllowlist(&scheme_allowlist_, client_schemes_to_allowlist);
   // TODO(mrossetti): Register for language change notifications.
   if (history_service_)
-    history_service_->AddObserver(this);
+    history_service_observation_.Observe(history_service_);
 
   base::trace_event::MemoryDumpManager::GetInstance()->RegisterDumpProvider(
       this, "InMemoryURLIndex", base::ThreadTaskRunnerHandle::Get());
@@ -137,7 +141,7 @@ bool InMemoryURLIndex::GetCacheFilePath(base::FilePath* file_path) {
 // Querying --------------------------------------------------------------------
 
 ScoredHistoryMatches InMemoryURLIndex::HistoryItemsForTerms(
-    const base::string16& term_string,
+    const std::u16string& term_string,
     size_t cursor_position,
     size_t max_matches) {
   return private_data_->HistoryItemsForTerms(
@@ -304,7 +308,7 @@ void InMemoryURLIndex::OnCacheLoadDone(
 
 void InMemoryURLIndex::Shutdown() {
   if (history_service_) {
-    history_service_->RemoveObserver(this);
+    history_service_observation_.Reset();
     history_service_ = nullptr;
   }
   cache_reader_tracker_.TryCancelAll();

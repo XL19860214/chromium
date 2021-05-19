@@ -136,17 +136,14 @@ bool TranslateService::IsTranslatableURL(const GURL& url) {
   // - empty (can happen for popups created with window.open(""))
   // - an internal URL:
   //   - chrome:// and chrome-native:// for all platforms
-  //   - file:// and content:// are Android-specific, and are thus impossible
-  //     on other platforms
   // - the devtools (which is considered UI)
   // - about:blank
   // - Chrome OS file manager extension
   // - an FTP page (as FTP pages tend to have long lists of filenames that may
   //   confuse the CLD)
+  // Note: Keep in sync with condition in TranslateAgent::PageCaptured.
   return !url.is_empty() && !url.SchemeIs(content::kChromeUIScheme) &&
          !url.SchemeIs(chrome::kChromeNativeScheme) &&
-         !url.SchemeIs(url::kFileScheme) &&
-         !url.SchemeIs(url::kContentScheme) &&
          !url.SchemeIs(content::kChromeDevToolsScheme) && !url.IsAboutBlank() &&
 #if BUILDFLAG(IS_CHROMEOS_ASH)
          !(url.SchemeIs(extensions::kExtensionScheme) &&

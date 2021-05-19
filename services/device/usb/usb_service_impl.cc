@@ -96,7 +96,7 @@ scoped_refptr<UsbContext> InitializeUsbContextBlocking() {
   return nullptr;
 }
 
-base::Optional<std::vector<ScopedLibusbDeviceRef>> GetDeviceListBlocking(
+absl::optional<std::vector<ScopedLibusbDeviceRef>> GetDeviceListBlocking(
     const std::wstring& new_device_path,
     scoped_refptr<UsbContext> usb_context) {
   base::ScopedBlockingCall scoped_blocking_call(FROM_HERE,
@@ -107,7 +107,7 @@ base::Optional<std::vector<ScopedLibusbDeviceRef>> GetDeviceListBlocking(
     if (!IsWinUsbInterface(new_device_path)) {
       // Wait to call libusb_get_device_list until libusb will be able to find
       // a WinUSB interface for the device.
-      return base::nullopt;
+      return absl::nullopt;
     }
   }
 #endif  // defined(OS_WIN)
@@ -118,7 +118,7 @@ base::Optional<std::vector<ScopedLibusbDeviceRef>> GetDeviceListBlocking(
   if (device_count < 0) {
     USB_LOG(ERROR) << "Failed to get device list: "
                    << ConvertPlatformUsbErrorToString(device_count);
-    return base::nullopt;
+    return absl::nullopt;
   }
 
   std::vector<ScopedLibusbDeviceRef> scoped_devices;
@@ -145,7 +145,7 @@ void SaveStringsAndRunContinuation(
     uint8_t product,
     uint8_t serial_number,
     base::OnceClosure continuation,
-    std::unique_ptr<std::map<uint8_t, base::string16>> string_map) {
+    std::unique_ptr<std::map<uint8_t, std::u16string>> string_map) {
   if (manufacturer != 0)
     device->set_manufacturer_string((*string_map)[manufacturer]);
   if (product != 0)
@@ -183,14 +183,14 @@ void OnDeviceOpenedReadDescriptors(
     base::OnceClosure completion_closure,
     scoped_refptr<UsbDeviceHandle> device_handle) {
   if (device_handle) {
-    std::unique_ptr<std::map<uint8_t, base::string16>> string_map(
-        new std::map<uint8_t, base::string16>());
+    std::unique_ptr<std::map<uint8_t, std::u16string>> string_map(
+        new std::map<uint8_t, std::u16string>());
     if (manufacturer != 0)
-      (*string_map)[manufacturer] = base::string16();
+      (*string_map)[manufacturer] = std::u16string();
     if (product != 0)
-      (*string_map)[product] = base::string16();
+      (*string_map)[product] = std::u16string();
     if (serial_number != 0)
-      (*string_map)[serial_number] = base::string16();
+      (*string_map)[serial_number] = std::u16string();
 
     int count = 0;
     if (!string_map->empty())
@@ -245,8 +245,7 @@ UsbServiceImpl::~UsbServiceImpl() {
     libusb_hotplug_deregister_callback(context_->context(), hotplug_handle_);
 }
 
-void UsbServiceImpl::GetDevices(bool allow_restricted_devices,
-                                GetDevicesCallback callback) {
+void UsbServiceImpl::GetDevices(GetDevicesCallback callback) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   if (usb_unavailable_) {
@@ -258,7 +257,7 @@ void UsbServiceImpl::GetDevices(bool allow_restricted_devices,
 
   if (hotplug_enabled_ && !enumeration_in_progress_) {
     // The device list is updated live when hotplug events are supported.
-    UsbService::GetDevices(allow_restricted_devices, std::move(callback));
+    UsbService::GetDevices(std::move(callback));
   } else {
     pending_enumeration_callbacks_.push_back(std::move(callback));
     RefreshDevices();
@@ -314,7 +313,7 @@ void UsbServiceImpl::OnUsbContext(scoped_refptr<UsbContext> context) {
 #if defined(OS_WIN)
   DeviceMonitorWin* device_monitor = DeviceMonitorWin::GetForAllInterfaces();
   if (device_monitor)
-    device_observer_.Add(device_monitor);
+    device_observation_.Observe(device_monitor);
 #endif  // OS_WIN
 }
 
@@ -341,7 +340,7 @@ void UsbServiceImpl::RefreshDevices() {
 }
 
 void UsbServiceImpl::OnDeviceList(
-    base::Optional<std::vector<ScopedLibusbDeviceRef>> devices) {
+    absl::optional<std::vector<ScopedLibusbDeviceRef>> devices) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   if (!devices) {
     RefreshDevicesComplete();
@@ -490,7 +489,7 @@ void UsbServiceImpl::AddDevice(scoped_refptr<UsbDeviceImpl> device) {
                 << device->serial_number() << "\", guid=" << device->guid();
 
   if (enumeration_ready_)
-    NotifyDeviceAdded(device, /*is_restricted_device=*/false);
+    NotifyDeviceAdded(device);
 }
 
 void UsbServiceImpl::RemoveDevice(scoped_refptr<UsbDeviceImpl> device) {
@@ -499,7 +498,7 @@ void UsbServiceImpl::RemoveDevice(scoped_refptr<UsbDeviceImpl> device) {
 
   USB_LOG(USER) << "USB device removed: guid=" << device->guid();
 
-  NotifyDeviceRemoved(device, /*is_restricted_device=*/false);
+  NotifyDeviceRemoved(device);
   device->OnDisconnect();
 }
 

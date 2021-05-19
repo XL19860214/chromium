@@ -6,7 +6,6 @@
 
 #include <memory>
 
-#include "base/callback_forward.h"
 #include "base/location.h"
 #include "base/run_loop.h"
 #include "base/task/post_task.h"
@@ -164,9 +163,7 @@ class SiteDataRecorderTest : public PerformanceManagerTestHarness {
   void TearDown() override {
     DeleteContents();
     recorder_ = nullptr;
-    base::RunLoop run_loop;
-    cache_factory_.ResetWithCallbackAfterDestruction(run_loop.QuitClosure());
-    run_loop.Run();
+    cache_factory_.SynchronouslyResetForTest();
     PerformanceManagerTestHarness::TearDown();
   }
 

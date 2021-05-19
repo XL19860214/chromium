@@ -11,8 +11,8 @@
 #include "base/command_line.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
-#include "chrome/browser/chromeos/certificate_provider/security_token_pin_dialog_host.h"
-#include "chrome/browser/chromeos/login/login_client_cert_usage_observer.h"
+#include "chrome/browser/ash/certificate_provider/security_token_pin_dialog_host.h"
+#include "chrome/browser/ash/login/login_client_cert_usage_observer.h"
 #include "chrome/browser/ui/webui/chromeos/login/base_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/core_oobe_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/network_state_informer.h"
@@ -26,8 +26,13 @@
 
 class AccountId;
 
+namespace ash {
+class GaiaScreen;
+}
+
 namespace base {
 class DictionaryValue;
+class ElapsedTimer;
 }  // namespace base
 
 namespace network {
@@ -36,10 +41,8 @@ class NSSTempCertsCacheChromeOS;
 
 namespace chromeos {
 
-class SamlPasswordAttributes;
 class SigninScreenHandler;
 class PublicSamlUrlFetcher;
-class GaiaScreen;
 
 class GaiaView {
  public:
@@ -67,7 +70,7 @@ class GaiaView {
   virtual void Show() = 0;
   virtual void Hide() = 0;
   // Binds `screen` to the view.
-  virtual void Bind(GaiaScreen* screen) = 0;
+  virtual void Bind(ash::GaiaScreen* screen) = 0;
   // Unbinds the screen from the view.
   virtual void Unbind() = 0;
   // Sets Gaia path for sign-in, child sign-in or child sign-up.
@@ -119,7 +122,7 @@ class GaiaScreenHandler : public BaseScreenHandler,
   void LoadGaiaAsync(const AccountId& account_id) override;
   void Show() override;
   void Hide() override;
-  void Bind(GaiaScreen* screen) override;
+  void Bind(ash::GaiaScreen* screen) override;
   void Unbind() override;
   void SetGaiaPath(GaiaPath gaia_path) override;
   void ShowSigninScreenForTest(const std::string& username,
@@ -133,7 +136,7 @@ class GaiaScreenHandler : public BaseScreenHandler,
       bool enable_user_input,
       security_token_pin::ErrorLabel error_label,
       int attempts_left,
-      const base::Optional<AccountId>& authenticating_user_account_id,
+      const absl::optional<AccountId>& authenticating_user_account_id,
       SecurityTokenPinEnteredCallback pin_entered_callback,
       SecurityTokenPinDialogClosedCallback pin_dialog_closed_callback) override;
   void CloseSecurityTokenPinDialog() override;
@@ -241,12 +244,11 @@ class GaiaScreenHandler : public BaseScreenHandler,
   void DoCompleteLogin(const std::string& gaia_id,
                        const std::string& typed_email,
                        const std::string& password,
-                       bool using_saml,
-                       const SamlPasswordAttributes& password_attributes);
+                       bool using_saml);
 
   // Kick off cookie / local storage cleanup.
-  void StartClearingCookies(const base::Closure& on_clear_callback);
-  void OnCookiesCleared(const base::Closure& on_clear_callback);
+  void StartClearingCookies(base::OnceClosure on_clear_callback);
+  void OnCookiesCleared(base::OnceClosure on_clear_callback);
 
   // Kick off DNS cache flushing.
   void StartClearingDnsCache();
@@ -401,6 +403,9 @@ class GaiaScreenHandler : public BaseScreenHandler,
 
   bool hidden_ = true;
 
+  // Used to record amount of time user needed for successful online login.
+  std::unique_ptr<base::ElapsedTimer> elapsed_timer_;
+
   std::string signin_partition_name_;
 
   // Handler for `samlChallengeMachineKey` request.
@@ -417,5 +422,11 @@ class GaiaScreenHandler : public BaseScreenHandler,
 };
 
 }  // namespace chromeos
+
+// TODO(https://crbug.com/1164001): remove when moved to ash.
+namespace ash {
+using ::chromeos::GaiaScreenHandler;
+using ::chromeos::GaiaView;
+}
 
 #endif  // CHROME_BROWSER_UI_WEBUI_CHROMEOS_LOGIN_GAIA_SCREEN_HANDLER_H_

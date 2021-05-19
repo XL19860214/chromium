@@ -11,10 +11,11 @@
 #include "ash/ash_export.h"
 #include "ash/public/cpp/holding_space/holding_space_controller.h"
 #include "ash/public/cpp/holding_space/holding_space_model.h"
+#include "ash/public/cpp/shelf_config.h"
 #include "ash/shell.h"
 #include "ash/shell_observer.h"
-#include "base/scoped_observer.h"
-#include "ui/views/metadata/metadata_header_macros.h"
+#include "base/scoped_observation.h"
+#include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/views/view.h"
 
 namespace ash {
@@ -24,7 +25,8 @@ class Shelf;
 
 // The icon used to represent holding space in its tray in the shelf.
 class ASH_EXPORT HoldingSpaceTrayIcon : public views::View,
-                                        public ShellObserver {
+                                        public ShellObserver,
+                                        public ShelfConfig::Observer {
  public:
   METADATA_HEADER(HoldingSpaceTrayIcon);
 
@@ -32,6 +34,12 @@ class ASH_EXPORT HoldingSpaceTrayIcon : public views::View,
   HoldingSpaceTrayIcon(const HoldingSpaceTrayIcon&) = delete;
   HoldingSpaceTrayIcon& operator=(const HoldingSpaceTrayIcon&) = delete;
   ~HoldingSpaceTrayIcon() override;
+
+  // Updates whether or not this holding space icon is in drop target state.
+  // If `did_drop_to_pin` is true, the user has just performed a drag-and-drop
+  // to pin action. Otherwise a drag may still be in progress or the user action
+  // did not result in an item being pinned to holding space.
+  void UpdateDropTargetState(bool is_drop_target, bool did_drop_to_pin);
 
   // Updates the list of previews shown in the icon. The icon will be changed to
   // show previews for holding space items in `items`. The order of previews in
@@ -43,14 +51,8 @@ class ASH_EXPORT HoldingSpaceTrayIcon : public views::View,
   // 4. Animate new items in.
   void UpdatePreviews(const std::vector<const HoldingSpaceItem*> items);
 
-  // Invoked when the system locale has changed.
-  void OnLocaleChanged();
-
   // Clears the icon.
   void Clear();
-
-  // Returns the shelf associated with this holding space tray icon.
-  Shelf* shelf() { return shelf_; }
 
   // Called from HoldingSpaceTray when holding space model changes:
   void OnHoldingSpaceModelAttached(HoldingSpaceModel* model);
@@ -59,36 +61,62 @@ class ASH_EXPORT HoldingSpaceTrayIcon : public views::View,
   void OnHoldingSpaceItemRemoved(const HoldingSpaceItem* item);
   void OnHoldingSpaceItemFinalized(const HoldingSpaceItem* item);
 
+  // Sets if updates should be animated.
+  void set_should_animate_updates(bool should_animate_updates) {
+    should_animate_updates_ = should_animate_updates;
+  }
+
  private:
+  class ResizeAnimation;
+
   // views::View:
-  base::string16 GetTooltipText(const gfx::Point& point) const override;
   int GetHeightForWidth(int width) const override;
+  gfx::Size CalculatePreferredSize() const override;
+  void OnThemeChanged() override;
 
   // ShellObserver:
+  void OnShellDestroying() override;
   void OnShelfAlignmentChanged(aura::Window* root_window,
                                ShelfAlignment old_alignment) override;
 
+  // ShelfConfigObserver:
+  void OnShelfConfigUpdated() override;
+
   void InitLayout();
-  void UpdatePreferredSize();
 
   // Invoked when the specified preview has completed animating out. At this
   // point it is owned by `removed_previews_` and should be destroyed.
   void OnOldItemAnimatedOut(HoldingSpaceTrayIconPreview*,
                             const base::RepeatingClosure& callback);
 
-  // Called when all obsolete previews have been animated out during previews
-  // update.
+  // Called when all obsolete previews have been removed during previews update.
   void OnOldItemsRemoved();
 
-  // Starts shift animation for existing items. Done while updating the previews
-  // shown in the icon.
-  void ShiftExistingItems();
+  // Defines parameters for how to animate a given `preview`.
+  struct PreviewAnimationParams {
+    HoldingSpaceTrayIconPreview* preview;
+    base::TimeDelta delay;
+  };
 
-  // Animates new items in. Done while updating the previews shown in the icon.
-  void AnimateInNewItems();
+  // Calculates parameters for how to animate shift/in existing/new items.
+  std::vector<PreviewAnimationParams> CalculateAnimateShiftParams();
+  std::vector<PreviewAnimationParams> CalculateAnimateInParams();
+
+  // Ensures that preview layers are stacked to match ordering in `item_ids_`.
+  void EnsurePreviewLayerStackingOrder();
 
   // The shelf associated with this holding space tray icon.
   Shelf* const shelf_;
+
+  // Whether or not this holding space tray icon is currently in drop target
+  // state. When in drop target state, preview indices are offset from their
+  // standard positions by a fixed amount.
+  bool is_drop_target_ = false;
+
+  // True if updates should be animated, false otherwise. Generally speaking,
+  // updates are animated only if they occur mid-session. Updates that occur
+  // during session start/unlock or on profile change should not be animated.
+  bool should_animate_updates_ = false;
 
   // A preview is added to the tray icon to visually represent each holding
   // space item. Upon creation, previews are added to `previews_by_id_` where
@@ -104,11 +132,21 @@ class ASH_EXPORT HoldingSpaceTrayIcon : public views::View,
   // (including items that are not currently visible).
   std::vector<std::string> item_ids_;
 
-  ScopedObserver<Shell,
-                 ShellObserver,
-                 &Shell::AddShellObserver,
-                 &Shell::RemoveShellObserver>
+  // A view that serves as a parent for previews' layers. Used to easily
+  // translate all the previews within the icon during resize animation.
+  views::View* previews_container_ = nullptr;
+
+  // Helper to run icon resize animation.
+  std::unique_ptr<ResizeAnimation> resize_animation_;
+
+  base::ScopedObservation<Shell,
+                          ShellObserver,
+                          &Shell::AddShellObserver,
+                          &Shell::RemoveShellObserver>
       shell_observer_{this};
+
+  base::ScopedObservation<ShelfConfig, ShelfConfig::Observer>
+      shelf_config_observer_{this};
 
   // The factory to which callbacks for stages of the previews list update are
   // bound to. The goal is to easily cancel in-progress updates if the list of

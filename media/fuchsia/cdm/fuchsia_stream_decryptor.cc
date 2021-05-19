@@ -15,8 +15,6 @@
 #include "media/base/decrypt_config.h"
 #include "media/base/encryption_pattern.h"
 #include "media/base/subsample_entry.h"
-#include "media/fuchsia/common/sysmem_buffer_reader.h"
-#include "media/fuchsia/common/sysmem_buffer_writer.h"
 
 namespace media {
 namespace {
@@ -101,7 +99,8 @@ FuchsiaStreamDecryptorBase::FuchsiaStreamDecryptorBase(
     fuchsia::media::StreamProcessorPtr processor,
     size_t min_buffer_size)
     : processor_(std::move(processor), this),
-      min_buffer_size_(min_buffer_size) {}
+      min_buffer_size_(min_buffer_size),
+      allocator_("CrFuchsiaStreamDecryptorBase") {}
 
 FuchsiaStreamDecryptorBase::~FuchsiaStreamDecryptorBase() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
@@ -132,21 +131,16 @@ void FuchsiaStreamDecryptorBase::AllocateInputBuffers(
     const fuchsia::media::StreamBufferConstraints& stream_constraints) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
-  base::Optional<fuchsia::sysmem::BufferCollectionConstraints>
-      buffer_constraints = SysmemBufferWriter::GetRecommendedConstraints(
-          kMinBufferCount, min_buffer_size_);
-
-  if (!buffer_constraints.has_value()) {
-    OnError();
-    return;
-  }
-
-  input_pool_creator_ =
-      allocator_.MakeBufferPoolCreator(1 /* num_shared_token */);
-
-  input_pool_creator_->Create(
-      std::move(buffer_constraints).value(),
-      base::BindOnce(&FuchsiaStreamDecryptorBase::OnInputBufferPoolCreated,
+  input_buffer_collection_ = allocator_.AllocateNewCollection();
+  input_buffer_collection_->CreateSharedToken(
+      base::BindOnce(&StreamProcessorHelper::CompleteInputBuffersAllocation,
+                     base::Unretained(&processor_)));
+  input_buffer_collection_->Initialize(
+      VmoBuffer::GetRecommendedConstraints(kMinBufferCount, min_buffer_size_,
+                                           /*writable=*/true),
+      "CrStreamDecryptorInput");
+  input_buffer_collection_->AcquireBuffers(
+      base::BindOnce(&FuchsiaStreamDecryptorBase::OnInputBuffersAcquired,
                      base::Unretained(this)));
 }
 
@@ -155,37 +149,18 @@ void FuchsiaStreamDecryptorBase::OnOutputFormat(
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 }
 
-void FuchsiaStreamDecryptorBase::OnInputBufferPoolCreated(
-    std::unique_ptr<SysmemBufferPool> pool) {
+void FuchsiaStreamDecryptorBase::OnInputBuffersAcquired(
+    std::vector<VmoBuffer> buffers,
+    const fuchsia::sysmem::SingleBufferSettings& buffer_settings) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
-  if (!pool) {
-    DLOG(ERROR) << "Fail to allocate input buffer.";
-    OnError();
-    return;
-  }
-
-  input_pool_ = std::move(pool);
-
-  // Provide token before enabling writer. Tokens must be provided to
-  // StreamProcessor before getting the allocated buffers.
-  processor_.CompleteInputBuffersAllocation(input_pool_->TakeToken());
-
-  input_pool_->CreateWriter(base::BindOnce(
-      &FuchsiaStreamDecryptorBase::OnWriterCreated, base::Unretained(this)));
-}
-
-void FuchsiaStreamDecryptorBase::OnWriterCreated(
-    std::unique_ptr<SysmemBufferWriter> writer) {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-
-  if (!writer) {
+  if (buffers.empty()) {
     OnError();
     return;
   }
 
   input_writer_queue_.Start(
-      std::move(writer),
+      std::move(buffers),
       base::BindRepeating(&FuchsiaStreamDecryptorBase::SendInputPacket,
                           base::Unretained(this)),
       base::BindRepeating(&FuchsiaStreamDecryptorBase::ProcessEndOfStream,
@@ -253,20 +228,16 @@ void FuchsiaClearStreamDecryptor::CancelDecrypt() {
 void FuchsiaClearStreamDecryptor::AllocateOutputBuffers(
     const fuchsia::media::StreamBufferConstraints& stream_constraints) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-
-  if (!stream_constraints.has_packet_count_for_client_max() ||
-      !stream_constraints.has_packet_count_for_client_min()) {
-    DLOG(ERROR) << "StreamBufferConstraints doesn't contain required fields.";
-    OnError();
-    return;
-  }
-
-  output_pool_creator_ =
-      allocator_.MakeBufferPoolCreator(1 /* num_shared_token */);
-  output_pool_creator_->Create(
-      SysmemBufferReader::GetRecommendedConstraints(kMinBufferCount,
-                                                    min_buffer_size_),
-      base::BindOnce(&FuchsiaClearStreamDecryptor::OnOutputBufferPoolCreated,
+  output_buffer_collection_ = allocator_.AllocateNewCollection();
+  output_buffer_collection_->CreateSharedToken(
+      base::BindOnce(&StreamProcessorHelper::CompleteOutputBuffersAllocation,
+                     base::Unretained(&processor_)));
+  output_buffer_collection_->Initialize(
+      VmoBuffer::GetRecommendedConstraints(kMinBufferCount, min_buffer_size_,
+                                           /*writable=*/false),
+      "CrFuchsiaStreamDecryptor");
+  output_buffer_collection_->AcquireBuffers(
+      base::BindOnce(&FuchsiaClearStreamDecryptor::OnOutputBuffersAcquired,
                      base::Unretained(this)));
 }
 
@@ -282,9 +253,11 @@ void FuchsiaClearStreamDecryptor::OnOutputPacket(
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(decrypt_cb_);
 
-  DCHECK(output_reader_);
-  if (!output_pool_->is_live()) {
-    DLOG(ERROR) << "Output buffer pool is dead.";
+  size_t buffer_index = packet.buffer_index();
+  if (buffer_index >= output_buffers_.size()) {
+    DLOG(ERROR) << "Received output packet with invalid buffer index: "
+                << buffer_index;
+    OnError();
     return;
   }
 
@@ -294,15 +267,15 @@ void FuchsiaClearStreamDecryptor::OnOutputPacket(
     size_t pos = output_data_.size();
     output_data_.resize(pos + packet.size());
 
-    bool read_success = output_reader_->Read(
-        packet.buffer_index(), packet.offset(),
+    size_t bytes_read = output_buffers_[buffer_index].Read(
+        packet.offset(),
         base::make_span(output_data_.data() + pos, packet.size()));
 
-    if (!read_success) {
+    if (bytes_read != packet.size()) {
       // If we've failed to read a partial packet then delay reporting the error
       // until we've received the last packet to make sure we consume all output
       // packets generated by the last Decrypt() call.
-      DLOG(ERROR) << "Fail to get decrypted result.";
+      DLOG(ERROR) << "Failed to get decrypted result.";
       current_status_ = Decryptor::kError;
       output_data_.clear();
     }
@@ -322,12 +295,12 @@ void FuchsiaClearStreamDecryptor::OnOutputPacket(
   output_data_.clear();
 
   // Copy data received in the last packet
-  bool read_success = output_reader_->Read(
-      packet.buffer_index(), packet.offset(),
+  size_t bytes_read = output_buffers_[buffer_index].Read(
+      packet.offset(),
       base::make_span(clear_buffer->writable_data() + output_data_.size(),
                       packet.size()));
 
-  if (!read_success) {
+  if (bytes_read != packet.size()) {
     DLOG(ERROR) << "Fail to get decrypted result.";
     current_status_ = Decryptor::kError;
   }
@@ -357,39 +330,19 @@ void FuchsiaClearStreamDecryptor::OnError() {
     std::move(decrypt_cb_).Run(Decryptor::kError, nullptr);
 }
 
-void FuchsiaClearStreamDecryptor::OnOutputBufferPoolCreated(
-    std::unique_ptr<SysmemBufferPool> pool) {
+void FuchsiaClearStreamDecryptor::OnOutputBuffersAcquired(
+    std::vector<VmoBuffer> buffers,
+    const fuchsia::sysmem::SingleBufferSettings& buffer_settings) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
-  if (!pool) {
+  if (buffers.empty()) {
     LOG(ERROR) << "Fail to allocate output buffer.";
     OnError();
     return;
   }
 
-  output_pool_ = std::move(pool);
-
-  // Provide token before enabling reader. Tokens must be provided to
-  // StreamProcessor before getting the allocated buffers.
-  processor_.CompleteOutputBuffersAllocation(output_pool_->TakeToken());
-
-  output_pool_->CreateReader(base::BindOnce(
-      &FuchsiaClearStreamDecryptor::OnOutputBufferPoolReaderCreated,
-      base::Unretained(this)));
-}
-
-void FuchsiaClearStreamDecryptor::OnOutputBufferPoolReaderCreated(
-    std::unique_ptr<SysmemBufferReader> reader) {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-
-  if (!reader) {
-    LOG(ERROR) << "Fail to enable output buffer reader.";
-    OnError();
-    return;
-  }
-
-  DCHECK(!output_reader_);
-  output_reader_ = std::move(reader);
+  DCHECK(output_buffers_.empty());
+  output_buffers_ = std::move(buffers);
 }
 
 FuchsiaSecureStreamDecryptor::FuchsiaSecureStreamDecryptor(

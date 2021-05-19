@@ -17,6 +17,7 @@
 #include "base/metrics/user_metrics.h"
 #include "base/strings/strcat.h"
 #include "base/strings/string_piece.h"
+#include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "content/public/browser/browser_context.h"
@@ -27,8 +28,8 @@
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/permission_controller_delegate.h"
+#include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
-#include "content/public/browser/render_view_host.h"
 #include "content/public/browser/render_widget_host.h"
 #include "content/public/browser/render_widget_host_view.h"
 #include "content/public/browser/renderer_preferences_util.h"
@@ -54,6 +55,7 @@
 #include "third_party/blink/public/common/messaging/web_message_port.h"
 #include "third_party/blink/public/mojom/loader/resource_load_info.mojom.h"
 #include "ui/aura/window.h"
+#include "ui/compositor/compositor.h"
 #include "ui/gfx/switches.h"
 #include "ui/ozone/public/ozone_switches.h"
 #include "ui/wm/core/base_focus_rules.h"
@@ -221,20 +223,20 @@ void HandleMediaPermissionsRequestResult(
       nullptr);
 }
 
-base::Optional<url::Origin> ParseAndValidateWebOrigin(
+absl::optional<url::Origin> ParseAndValidateWebOrigin(
     const std::string& origin_str) {
   GURL origin_url(origin_str);
   if (!origin_url.username().empty() || !origin_url.password().empty() ||
       !origin_url.query().empty() || !origin_url.ref().empty()) {
-    return base::nullopt;
+    return absl::nullopt;
   }
 
   if (!origin_url.path().empty() && origin_url.path() != "/")
-    return base::nullopt;
+    return absl::nullopt;
 
   auto origin = url::Origin::Create(origin_url);
   if (origin.opaque())
-    return base::nullopt;
+    return absl::nullopt;
 
   return origin;
 }
@@ -262,18 +264,25 @@ FrameImpl* FrameImpl::FromRenderFrameHost(
 FrameImpl::FrameImpl(std::unique_ptr<content::WebContents> web_contents,
                      ContextImpl* context,
                      fuchsia::web::CreateFrameParams params,
+                     inspect::Node inspect_node,
                      fidl::InterfaceRequest<fuchsia::web::Frame> frame_request)
     : web_contents_(std::move(web_contents)),
       context_(context),
-      console_log_tag_(params.has_debug_name()
-                           ? params.debug_name()
-                           : std::string()),
+      console_log_tag_(params.has_debug_name() ? params.debug_name()
+                                               : std::string()),
       params_for_popups_(std::move(params)),
       navigation_controller_(web_contents_.get()),
       url_request_rewrite_rules_manager_(web_contents_.get()),
+      permission_controller_(web_contents_.get()),
       binding_(this, std::move(frame_request)),
       media_blocker_(web_contents_.get()),
-      theme_manager_(web_contents_.get()) {
+      theme_manager_(web_contents_.get()),
+      inspect_node_(std::move(inspect_node)),
+      inspect_name_property_(
+          params_for_popups_.has_debug_name()
+              ? inspect_node_.CreateString("name",
+                                           params_for_popups_.debug_name())
+              : inspect::StringProperty()) {
   DCHECK(!WebContentsToFrameImplMap()[web_contents_.get()]);
   WebContentsToFrameImplMap()[web_contents_.get()] = this;
 
@@ -328,7 +337,7 @@ void FrameImpl::ExecuteJavaScriptInternal(std::vector<std::string> origins,
     return;
   }
 
-  base::string16 script_utf16;
+  std::u16string script_utf16;
   if (!cr_fuchsia::ReadUTF8FromVMOAsUTF16(script, &script_utf16)) {
     result.set_err(fuchsia::web::FrameError::BUFFER_NOT_UTF8);
     callback(std::move(result));
@@ -532,7 +541,7 @@ bool FrameImpl::MaybeHandleCastStreamingMessage(
     std::string* origin,
     fuchsia::web::WebMessage* message,
     PostMessageCallback* callback) {
-  if (!IsCastStreamingEnabled())
+  if (!context_->has_cast_streaming_enabled())
     return false;
 
   if (!IsCastStreamingAppOrigin(*origin))
@@ -557,7 +566,8 @@ bool FrameImpl::MaybeHandleCastStreamingMessage(
 
 void FrameImpl::MaybeStartCastStreaming(
     content::NavigationHandle* navigation_handle) {
-  if (!IsCastStreamingEnabled() || !cast_streaming_session_client_)
+  if (!context_->has_cast_streaming_enabled() ||
+      !cast_streaming_session_client_)
     return;
 
   mojo::AssociatedRemote<mojom::CastStreamingReceiver> cast_streaming_receiver;
@@ -720,11 +730,11 @@ void FrameImpl::PostMessage(std::string origin,
     return;
   }
 
-  base::Optional<base::string16> origin_utf16;
+  absl::optional<std::u16string> origin_utf16;
   if (origin != kWildcardOrigin)
     origin_utf16 = base::UTF8ToUTF16(origin);
 
-  base::string16 data_utf16;
+  std::u16string data_utf16;
   if (!cr_fuchsia::ReadUTF8FromVMOAsUTF16(message.data(), &data_utf16)) {
     result.set_err(fuchsia::web::FrameError::BUFFER_NOT_UTF8);
     callback(std::move(result));
@@ -757,7 +767,7 @@ void FrameImpl::PostMessage(std::string origin,
   }
 
   content::MessagePortProvider::PostMessageToFrame(
-      web_contents_.get(), base::string16(), origin_utf16,
+      web_contents_.get(), std::u16string(), origin_utf16,
       std::move(data_utf16), std::move(message_ports));
   result.set_response(fuchsia::web::Frame_PostMessage_Response());
   callback(std::move(result));
@@ -1005,9 +1015,9 @@ void FrameImpl::SetBlockMediaLoading(bool blocked) {
 bool FrameImpl::DidAddMessageToConsole(
     content::WebContents* source,
     blink::mojom::ConsoleMessageLevel log_level,
-    const base::string16& message,
+    const std::u16string& message,
     int32_t line_no,
-    const base::string16& source_id) {
+    const std::u16string& source_id) {
   fx_log_severity_t severity =
       BlinkConsoleMessageLevelToFxLogSeverity(log_level);
   if (severity < log_level_) {
@@ -1103,6 +1113,13 @@ bool FrameImpl::CheckMediaAccessPermission(
          blink::mojom::PermissionStatus::GRANTED;
 }
 
+bool FrameImpl::CanOverscrollContent() {
+  // Don't process "overscroll" events (e.g. pull-to-refresh, swipe back,
+  // swipe forward).
+  // TODO(crbug/1177399): Add overscroll toggle to Frame API.
+  return false;
+}
+
 void FrameImpl::ReadyToCommitNavigation(
     content::NavigationHandle* navigation_handle) {
   if (!navigation_handle->IsInMainFrame() ||
@@ -1121,21 +1138,11 @@ void FrameImpl::DidFinishLoad(content::RenderFrameHost* render_frame_host,
   context_->devtools_controller()->OnFrameLoaded(web_contents_.get());
 }
 
-void FrameImpl::RenderViewCreated(content::RenderViewHost* render_view_host) {
-  render_view_host->GetWidget()->GetView()->SetBackgroundColor(
-      SK_AlphaTRANSPARENT);
-}
-
-void FrameImpl::RenderViewReady() {
-  web_contents_->GetRenderViewHost()
-      ->GetWidget()
-      ->GetView()
-      ->SetBackgroundColor(SK_AlphaTRANSPARENT);
-
-  // Setting the background color doesn't necessarily apply it right away, so
-  // request a redraw if there is a view connected to this Frame.
-  if (window_tree_host_)
-    window_tree_host_->compositor()->ScheduleDraw();
+void FrameImpl::RenderFrameCreated(content::RenderFrameHost* frame_host) {
+  // The top-level frame is given a transparent background color.
+  // GetView() is guaranteed to be non-null until |frame_host| teardown.
+  if (frame_host == web_contents()->GetMainFrame())
+    frame_host->GetView()->SetBackgroundColor(SK_AlphaTRANSPARENT);
 }
 
 void FrameImpl::DidFirstVisuallyNonEmptyPaint() {

@@ -39,7 +39,7 @@
 #include "ios/chrome/browser/web/chrome_web_client.h"
 #import "ios/chrome/browser/web/chrome_web_test.h"
 #include "ios/chrome/browser/web/features.h"
-#import "ios/chrome/browser/web/font_size_tab_helper.h"
+#import "ios/chrome/browser/web/font_size/font_size_tab_helper.h"
 #include "ios/chrome/browser/web_state_list/fake_web_state_list_delegate.h"
 #include "ios/chrome/browser/web_state_list/web_state_list.h"
 #import "ios/chrome/browser/web_state_list/web_state_list_observer_bridge.h"
@@ -404,8 +404,8 @@ TEST_F(PopupMenuMediatorTest, TestItemsStatusOnNTP) {
   EXPECT_TRUE(HasItem(consumer, kToolsMenuSiteInformation, /*enabled=*/YES));
 }
 
-// Tests that the "Read Later" button is disabled while overlay UI is displayed
-// in OverlayModality::kWebContentArea.
+// Tests that the "Add to Reading List" button is disabled while overlay UI is
+// displayed in OverlayModality::kWebContentArea.
 TEST_F(PopupMenuMediatorTest, TestReadLaterDisabled) {
   const GURL kUrl("https://chromium.test");
   web_state_->SetCurrentURL(kUrl);
@@ -431,7 +431,8 @@ TEST_F(PopupMenuMediatorTest, TestReadLaterDisabled) {
       /*default_text_field_value=*/nil));
   EXPECT_TRUE(HasItem(consumer, kToolsMenuReadLater, /*enabled=*/NO));
 
-  // Cancel the request and verify that the "Read Later" button is enabled.
+  // Cancel the request and verify that the "Add to Reading List" button is
+  // enabled.
   queue->CancelAllRequests();
   EXPECT_TRUE(HasItem(consumer, kToolsMenuReadLater, /*enabled=*/YES));
 }
@@ -537,9 +538,6 @@ TEST_F(PopupMenuMediatorTest, TestBookmarksToolsMenuButtons) {
 // Tests that the bookmark button is disabled when EditBookmarksEnabled pref is
 // changed to false.
 TEST_F(PopupMenuMediatorTest, TestDisableBookmarksButton) {
-  base::test::ScopedFeatureList feature_list;
-  feature_list.InitAndEnableFeature(kEditBookmarksIOS);
-
   CreateMediator(PopupMenuTypeToolsMenu, /*is_incognito=*/NO,
                  /*trigger_incognito_hint=*/NO);
   CreatePrefs();

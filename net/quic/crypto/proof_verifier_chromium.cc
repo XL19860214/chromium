@@ -8,6 +8,7 @@
 
 #include "base/bind.h"
 #include "base/callback_helpers.h"
+#include "base/containers/contains.h"
 #include "base/logging.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
@@ -225,7 +226,7 @@ quic::QuicAsyncStatus ProofVerifierChromium::Job::VerifyProof(
     return quic::QUIC_FAILURE;
   }
 
-  verify_details_.reset(new ProofVerifyDetailsChromium);
+  verify_details_ = std::make_unique<ProofVerifyDetailsChromium>();
 
   // Converts |certs| to |cert_|.
   if (!GetX509Certificate(certs, error_details, verify_details))
@@ -267,7 +268,7 @@ quic::QuicAsyncStatus ProofVerifierChromium::Job::VerifyCertChain(
     return quic::QUIC_FAILURE;
   }
 
-  verify_details_.reset(new ProofVerifyDetailsChromium);
+  verify_details_ = std::make_unique<ProofVerifyDetailsChromium>();
 
   // Converts |certs| to |cert_|.
   if (!GetX509Certificate(certs, error_details, verify_details))

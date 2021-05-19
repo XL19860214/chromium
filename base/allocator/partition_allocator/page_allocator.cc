@@ -12,10 +12,8 @@
 #include "base/allocator/partition_allocator/page_allocator_internal.h"
 #include "base/allocator/partition_allocator/partition_alloc_check.h"
 #include "base/bits.h"
-#include "base/check_op.h"
 #include "base/lazy_instance.h"
 #include "base/no_destructor.h"
-#include "base/numerics/checked_math.h"
 #include "base/synchronization/lock.h"
 #include "build/build_config.h"
 
@@ -225,6 +223,20 @@ void RecommitSystemPages(
   PA_DCHECK(accessibility != PageInaccessible);
   RecommitSystemPagesInternal(address, length, accessibility,
                               accessibility_disposition);
+}
+
+bool TryRecommitSystemPages(
+    void* address,
+    size_t length,
+    PageAccessibilityConfiguration accessibility,
+    PageAccessibilityDisposition accessibility_disposition) {
+  // Duplicated because we want errors to be reported at a lower level in the
+  // crashing case.
+  PA_DCHECK(!(reinterpret_cast<uintptr_t>(address) & SystemPageOffsetMask()));
+  PA_DCHECK(!(length & SystemPageOffsetMask()));
+  PA_DCHECK(accessibility != PageInaccessible);
+  return TryRecommitSystemPagesInternal(address, length, accessibility,
+                                        accessibility_disposition);
 }
 
 void DiscardSystemPages(void* address, size_t length) {

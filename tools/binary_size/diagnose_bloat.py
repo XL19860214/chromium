@@ -127,9 +127,10 @@ class ResourceSizesDiff(BaseDiff):
   _AGGREGATE_SECTIONS = (
       'InstallBreakdown', 'Breakdown', 'MainLibInfo', 'Uncompressed')
 
-  def __init__(self, filename='results-chart.json'):
+  def __init__(self, filename='results-chart.json', include_sections=None):
     self._diff = None  # Set by |ProduceDiff()|
     self._filename = filename
+    self._include_sections = include_sections
     super(ResourceSizesDiff, self).__init__('Resource Sizes Diff')
 
   @property
@@ -140,6 +141,13 @@ class ResourceSizesDiff(BaseDiff):
           full_name = '{} {}'.format(section_name, subsection_name)
           return _DiffResult(full_name, value, units)
     raise Exception('Could not find "normalized" in: ' + repr(self._diff))
+
+  def CombinedSizeChangeForSection(self, section):
+    for subsection_name, value, _ in self._diff[section]:
+      if 'Combined' in subsection_name:
+        return value
+    raise Exception('Could not find "Combined" in: ' +
+                    repr(self._diff[section]))
 
   def DetailedResults(self):
     return self._ResultLines()
@@ -158,6 +166,8 @@ class ResourceSizesDiff(BaseDiff):
     after = self._LoadResults(after_dir)
     self._diff = collections.defaultdict(list)
     for section, section_dict in after.items():
+      if self._include_sections and section not in self._include_sections:
+        continue
       for subsection, v in section_dict.items():
         # Ignore entries when resource_sizes.py chartjson format has changed.
         if (section not in before or
@@ -365,9 +375,11 @@ class _BuildHelper(object):
     logging.info('Building %s within %s (this might take a while).',
                  self.target, os.path.relpath(self.output_directory))
     if self.clean:
-      _RunCmd([_GN_PATH, 'clean', self.output_directory])
-    retcode = _RunCmd(
-        self._GenGnCmd(), verbose=True, exit_on_failure=False)[1]
+      _RunCmd([_GN_PATH, 'clean', self.output_directory], cwd=_SRC_ROOT)
+    retcode = _RunCmd(self._GenGnCmd(),
+                      cwd=_SRC_ROOT,
+                      verbose=True,
+                      exit_on_failure=False)[1]
     if retcode:
       return retcode
     return _RunCmd(
@@ -638,7 +650,7 @@ def _EnsureDirsExist(path):
     os.makedirs(path)
 
 
-def _RunCmd(cmd, verbose=False, exit_on_failure=True):
+def _RunCmd(cmd, cwd=None, verbose=False, exit_on_failure=True):
   """Convenience function for running commands.
 
   Args:
@@ -658,8 +670,11 @@ def _RunCmd(cmd, verbose=False, exit_on_failure=True):
     proc_stdout, proc_stderr = sys.stdout, subprocess.STDOUT
 
   # pylint: disable=unexpected-keyword-arg
-  proc = subprocess.Popen(
-      cmd, stdout=proc_stdout, stderr=proc_stderr, encoding='utf-8')
+  proc = subprocess.Popen(cmd,
+                          cwd=cwd,
+                          stdout=proc_stdout,
+                          stderr=proc_stderr,
+                          encoding='utf-8')
   stdout, stderr = proc.communicate()
 
   if proc.returncode and exit_on_failure:

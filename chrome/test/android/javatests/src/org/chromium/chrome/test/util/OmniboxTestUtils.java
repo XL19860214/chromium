@@ -46,15 +46,14 @@ public class OmniboxTestUtils {
      */
     public static class TestAutocompleteController extends AutocompleteController {
         private final Map<String, Pair<String, AutocompleteResult>> mAutocompleteResults;
-        private final AutocompleteResult mEmptyResult;
 
         /**
          * Create new Autocomplete controller.
          * @param listener
          */
         public TestAutocompleteController(OnSuggestionsReceivedListener listener) {
+            super(profile -> {});
             mAutocompleteResults = new HashMap<>();
-            mEmptyResult = new AutocompleteResult(null, null);
             setOnSuggestionsReceivedListener(listener);
         }
 
@@ -76,7 +75,7 @@ public class OmniboxTestUtils {
          * do not attempt to log selection.
          */
         @Override
-        public void onSuggestionSelected(int selectedIndex, int disposition, int hashCode, int type,
+        public void onSuggestionSelected(int selectedIndex, int disposition, int type,
                 String currentPageUrl, int pageClassification, long elapsedTimeSinceModified,
                 int completedLength, WebContents webContents) {}
 
@@ -90,9 +89,6 @@ public class OmniboxTestUtils {
         }
 
         @Override
-        public void groupSuggestionsBySearchVsURL(int firstIndex, int lastIndex) {}
-
-        @Override
         public void startZeroSuggest(Profile profile, String omniboxText, String url,
                 int pageClassification, String title) {
             if (sendSuggestions(omniboxText)) return;
@@ -104,7 +100,7 @@ public class OmniboxTestUtils {
             Pair<String, AutocompleteResult> autocompleteSet =
                     mAutocompleteResults.get(autocompleteText);
             if (autocompleteSet == null) return false;
-            onSuggestionsReceived(autocompleteSet.second, autocompleteSet.first, 0);
+            onSuggestionsReceived(autocompleteSet.second, autocompleteSet.first);
             return true;
         }
     }
@@ -114,7 +110,7 @@ public class OmniboxTestUtils {
      */
     public static class StubAutocompleteController extends AutocompleteController {
         public StubAutocompleteController() {
-            super();
+            super(profile -> {});
             setOnSuggestionsReceivedListener(new OnSuggestionsReceivedListener() {
                 @Override
                 public void onSuggestionsReceived(
@@ -132,9 +128,6 @@ public class OmniboxTestUtils {
         @Override
         public void startZeroSuggest(Profile profile, String omniboxText, String url,
                 int pageClassification, String title) {}
-
-        @Override
-        public void groupSuggestionsBySearchVsURL(int firstIndex, int lastIndex) {}
 
         @Override
         public void stop(boolean clear) {}

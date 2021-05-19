@@ -4,6 +4,8 @@
 
 #include "ios/web/js_messaging/web_frame_impl.h"
 
+#import <WebKit/WebKit.h>
+
 #import "base/base64.h"
 #include "base/bind.h"
 #include "base/json/json_reader.h"
@@ -93,7 +95,8 @@ typedef web::WebTest WebFrameImplTest;
 TEST_F(WebFrameImplTest, CreateWebFrameForMainFrame) {
   FakeWebState fake_web_state;
   GURL security_origin;
-  WebFrameImpl web_frame(kFrameId, /*is_main_frame=*/true, security_origin,
+  WebFrameImpl web_frame([[WKFrameInfo alloc] init], kFrameId,
+                         /*is_main_frame=*/true, security_origin,
                          &fake_web_state);
 
   EXPECT_EQ(&fake_web_state, web_frame.GetWebState());
@@ -107,7 +110,8 @@ TEST_F(WebFrameImplTest, CreateWebFrameForMainFrame) {
 TEST_F(WebFrameImplTest, CreateWebFrameForMainFrameWithKey) {
   FakeWebState fake_web_state;
   GURL security_origin;
-  WebFrameImpl web_frame(kFrameId, /*is_main_frame=*/true, security_origin,
+  WebFrameImpl web_frame([[WKFrameInfo alloc] init], kFrameId,
+                         /*is_main_frame=*/true, security_origin,
                          &fake_web_state);
   web_frame.SetEncryptionKey(CreateKey());
 
@@ -123,7 +127,8 @@ TEST_F(WebFrameImplTest, CreateWebFrameForMainFrameWithKey) {
 TEST_F(WebFrameImplTest, CreateWebFrameForIFrame) {
   FakeWebState fake_web_state;
   GURL security_origin;
-  WebFrameImpl web_frame(kFrameId, /*is_main_frame=*/false, security_origin,
+  WebFrameImpl web_frame([[WKFrameInfo alloc] init], kFrameId,
+                         /*is_main_frame=*/false, security_origin,
                          &fake_web_state);
 
   EXPECT_EQ(&fake_web_state, web_frame.GetWebState());
@@ -138,7 +143,8 @@ TEST_F(WebFrameImplTest, CreateWebFrameForIFrame) {
 TEST_F(WebFrameImplTest, CreateWebFrameForIFrameWithKey) {
   FakeWebState fake_web_state;
   GURL security_origin;
-  WebFrameImpl web_frame(kFrameId, /*is_main_frame=*/false, security_origin,
+  WebFrameImpl web_frame([[WKFrameInfo alloc] init], kFrameId,
+                         /*is_main_frame=*/false, security_origin,
                          &fake_web_state);
   web_frame.SetEncryptionKey(CreateKey());
 
@@ -154,7 +160,8 @@ TEST_F(WebFrameImplTest, CreateWebFrameForIFrameWithKey) {
 TEST_F(WebFrameImplTest, CallJavaScriptFunction) {
   FakeWebState fake_web_state;
   GURL security_origin;
-  WebFrameImpl web_frame(kFrameId, /*is_main_frame=*/false, security_origin,
+  WebFrameImpl web_frame([[WKFrameInfo alloc] init], kFrameId,
+                         /*is_main_frame=*/false, security_origin,
                          &fake_web_state);
   web_frame.SetEncryptionKey(CreateKey());
 
@@ -210,7 +217,8 @@ TEST_F(WebFrameImplTest, CallJavaScriptFunction) {
 TEST_F(WebFrameImplTest, CallJavaScriptFunctionUniqueInitializationVector) {
   FakeWebState fake_web_state;
   GURL security_origin;
-  WebFrameImpl web_frame(kFrameId, /*is_main_frame=*/false, security_origin,
+  WebFrameImpl web_frame([[WKFrameInfo alloc] init], kFrameId,
+                         /*is_main_frame=*/false, security_origin,
                          &fake_web_state);
   web_frame.SetEncryptionKey(CreateKey());
 
@@ -249,7 +257,8 @@ TEST_F(WebFrameImplTest, CallJavaScriptFunctionMessageProperlyEncoded) {
 
   FakeWebState fake_web_state;
   GURL security_origin;
-  WebFrameImpl web_frame(kFrameId, /*is_main_frame=*/false, security_origin,
+  WebFrameImpl web_frame([[WKFrameInfo alloc] init], kFrameId,
+                         /*is_main_frame=*/false, security_origin,
                          &fake_web_state);
   web_frame.SetEncryptionKey(std::move(key));
   web_frame.SetNextMessageId(initial_message_id);
@@ -294,7 +303,7 @@ TEST_F(WebFrameImplTest, CallJavaScriptFunctionMessageProperlyEncoded) {
   EXPECT_TRUE(aead.Open(decoded_message_ciphertext, decoded_message_iv,
                         /*additional_data=*/"", &message_plaintext));
 
-  base::Optional<base::Value> parsed_function_result =
+  absl::optional<base::Value> parsed_function_result =
       base::JSONReader::Read(function_plaintext, false);
   EXPECT_TRUE(parsed_function_result.has_value());
   ASSERT_TRUE(parsed_function_result.value().is_dict());
@@ -311,17 +320,17 @@ TEST_F(WebFrameImplTest, CallJavaScriptFunctionMessageProperlyEncoded) {
   ASSERT_EQ(function_params.size(), decrypted_parameters->GetList().size());
   EXPECT_EQ(plaintext_param, decrypted_parameters->GetList()[0].GetString());
 
-  base::Optional<base::Value> parsed_message_result =
+  absl::optional<base::Value> parsed_message_result =
       base::JSONReader::Read(message_plaintext, false);
   EXPECT_TRUE(parsed_message_result.has_value());
   ASSERT_TRUE(parsed_message_result.value().is_dict());
 
-  base::Optional<int> decrypted_message_id =
+  absl::optional<int> decrypted_message_id =
       parsed_message_result.value().FindIntKey("messageId");
   ASSERT_TRUE(decrypted_message_id.has_value());
   EXPECT_EQ(decrypted_message_id.value(), initial_message_id);
 
-  base::Optional<bool> decrypted_respond_with_result =
+  absl::optional<bool> decrypted_respond_with_result =
       parsed_message_result.value().FindBoolKey("replyWithResult");
   ASSERT_TRUE(decrypted_respond_with_result.has_value());
   EXPECT_FALSE(decrypted_respond_with_result.value());
@@ -338,7 +347,8 @@ TEST_F(WebFrameImplTest, CallJavaScriptFunctionRespondWithResult) {
 
   FakeWebState fake_web_state;
   GURL security_origin;
-  WebFrameImpl web_frame(kFrameId, /*is_main_frame=*/false, security_origin,
+  WebFrameImpl web_frame([[WKFrameInfo alloc] init], kFrameId,
+                         /*is_main_frame=*/false, security_origin,
                          &fake_web_state);
   web_frame.SetEncryptionKey(std::move(key));
   web_frame.SetNextMessageId(initial_message_id);
@@ -372,12 +382,12 @@ TEST_F(WebFrameImplTest, CallJavaScriptFunctionRespondWithResult) {
   EXPECT_TRUE(aead.Open(decoded_message_ciphertext, decoded_message_iv,
                         /*additional_data=*/"", &message_plaintext));
 
-  base::Optional<base::Value> parsed_result =
+  absl::optional<base::Value> parsed_result =
       base::JSONReader::Read(message_plaintext, false);
   EXPECT_TRUE(parsed_result.has_value());
   ASSERT_TRUE(parsed_result.value().is_dict());
 
-  base::Optional<bool> decrypted_respond_with_result =
+  absl::optional<bool> decrypted_respond_with_result =
       parsed_result.value().FindBoolKey("replyWithResult");
   ASSERT_TRUE(decrypted_respond_with_result.has_value());
   EXPECT_TRUE(decrypted_respond_with_result.value());
@@ -388,7 +398,8 @@ TEST_F(WebFrameImplTest, CallJavaScriptFunctionRespondWithResult) {
 TEST_F(WebFrameImplTest, CallJavaScriptFunctionMainFrameWithoutKey) {
   FakeWebState fake_web_state;
   GURL security_origin;
-  WebFrameImpl web_frame(kFrameId, /*is_main_frame=*/true, security_origin,
+  WebFrameImpl web_frame([[WKFrameInfo alloc] init], kFrameId,
+                         /*is_main_frame=*/true, security_origin,
                          &fake_web_state);
 
   std::vector<base::Value> function_params;
@@ -421,7 +432,8 @@ TEST_F(WebFrameImplTest, CallJavaScriptFunctionMainFrameWithoutKey) {
 TEST_F(WebFrameImplTest, CallJavaScriptFunctionIFrameFrameWithoutKey) {
   FakeWebState fake_web_state;
   GURL security_origin;
-  WebFrameImpl web_frame(kFrameId, /*is_main_frame=*/false, security_origin,
+  WebFrameImpl web_frame([[WKFrameInfo alloc] init], kFrameId,
+                         /*is_main_frame=*/false, security_origin,
                          &fake_web_state);
 
   std::vector<base::Value> function_params;

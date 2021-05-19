@@ -4,7 +4,6 @@
 
 #include "third_party/blink/renderer/core/frame/remote_frame_view.h"
 
-#include "cc/base/math_util.h"
 #include "components/paint_preview/common/paint_preview_tracker.h"
 #include "printing/buildflags/buildflags.h"
 #include "third_party/blink/public/mojom/frame/frame_owner_element_type.mojom-blink.h"
@@ -23,6 +22,7 @@
 #include "third_party/blink/renderer/platform/graphics/paint/drawing_recorder.h"
 #include "third_party/blink/renderer/platform/graphics/paint/foreign_layer_display_item.h"
 #include "third_party/blink/renderer/platform/widget/frame_widget.h"
+#include "ui/gfx/transform_util.h"
 
 #if BUILDFLAG(ENABLE_PRINTING)
 // nogncheck because dependency on //printing is conditional upon
@@ -106,9 +106,8 @@ void RemoteFrameView::SetViewportIntersection(
   new_state.compositor_visible_rect = gfx::Rect(compositing_rect_);
   if (!last_intersection_state_.Equals(new_state)) {
     last_intersection_state_ = new_state;
-    remote_frame_->Client()->SynchronizeVisualProperties();
-    remote_frame_->GetRemoteFrameHostRemote().UpdateViewportIntersection(
-        new_state.Clone());
+    GetFrame().SynchronizeVisualProperties();
+    remote_frame_->SetViewportIntersection(new_state);
   } else if (needs_frame_rect_propagation_) {
     PropagateFrameRects();
   }
@@ -202,12 +201,11 @@ void RemoteFrameView::UpdateCompositingScaleFactor() {
       local_root_transform_state.AccumulatedTransform());
   if (local_root_transform.HasPerspective()) {
     frame_to_local_root_scale_factor =
-        cc::MathUtil::ComputeApproximateMaxScale(local_root_transform);
+        gfx::ComputeApproximateMaxScale(local_root_transform);
   } else {
     gfx::Vector2dF scale_components =
-        cc::MathUtil::ComputeTransform2dScaleComponents(
-            local_root_transform,
-            /*fallback_scale=*/1.0f);
+        gfx::ComputeTransform2dScaleComponents(local_root_transform,
+                                               /*fallback_scale=*/1.0f);
     frame_to_local_root_scale_factor =
         std::max(scale_components.x(), scale_components.y());
   }
@@ -228,7 +226,7 @@ void RemoteFrameView::UpdateCompositingScaleFactor() {
       std::max(compositing_scale_factor_, kMinCompositingScaleFactor);
 
   if (compositing_scale_factor_ != previous_scale_factor)
-    remote_frame_->Client()->SynchronizeVisualProperties();
+    remote_frame_->SynchronizeVisualProperties();
 }
 
 void RemoteFrameView::Dispose() {
@@ -238,17 +236,6 @@ void RemoteFrameView::Dispose() {
   if (owner_element && owner_element->OwnedEmbeddedContentView() == this)
     owner_element->SetEmbeddedContentView(nullptr);
   SetNeedsOcclusionTracking(false);
-}
-
-void RemoteFrameView::InvalidateRect(const IntRect& rect) {
-  auto* object = remote_frame_->OwnerLayoutObject();
-  if (!object)
-    return;
-
-  PhysicalRect repaint_rect(rect);
-  repaint_rect.Move(PhysicalOffset(object->BorderLeft() + object->PaddingLeft(),
-                                   object->BorderTop() + object->PaddingTop()));
-  object->InvalidatePaintRectangle(repaint_rect);
 }
 
 void RemoteFrameView::SetFrameRect(const IntRect& rect) {
@@ -268,7 +255,7 @@ void RemoteFrameView::PropagateFrameRects() {
   if (LocalFrameView* parent = ParentFrameView()) {
     screen_space_rect = parent->ConvertToRootFrame(screen_space_rect);
   }
-  remote_frame_->Client()->FrameRectsChanged(frame_rect, screen_space_rect);
+  remote_frame_->FrameRectsChanged(frame_rect, screen_space_rect);
 }
 
 void RemoteFrameView::Paint(GraphicsContext& context,
@@ -291,7 +278,8 @@ void RemoteFrameView::Paint(GraphicsContext& context,
       // Inform the remote frame to print.
       content_id = Print(FrameRect(), context.Canvas());
     } else {
-      DCHECK(owner_layout_object.GetDocument().IsPaintingPreview());
+      DCHECK_NE(Document::kNotPaintingPreview,
+                owner_layout_object.GetDocument().GetPaintPreviewState());
       // Inform the remote frame to capture a paint preview.
       content_id = CapturePaintPreview(FrameRect(), context.Canvas());
     }
@@ -382,7 +370,7 @@ uint32_t RemoteFrameView::Print(const IntRect& rect,
   // represents the state of the remote frame. See also comments on
   // https://crrev.com/c/2245430/.
   uint32_t content_id = metafile->CreateContentForRemoteFrame(
-      rect, remote_frame_->GetFrameToken());
+      rect, remote_frame_->GetFrameToken().value());
 
   // Inform browser to print the remote subframe.
   remote_frame_->GetRemoteFrameHostRemote().PrintCrossProcessSubframe(
@@ -404,7 +392,7 @@ uint32_t RemoteFrameView::CapturePaintPreview(const IntRect& rect,
   // to this HTMLFrameOwnerElement yet (over IPC). If the token is null the
   // failure can be handled gracefully by simply ignoring the subframe in the
   // result.
-  base::Optional<base::UnguessableToken> maybe_embedding_token =
+  absl::optional<base::UnguessableToken> maybe_embedding_token =
       remote_frame_->GetEmbeddingToken();
   if (!maybe_embedding_token.has_value())
     return 0;

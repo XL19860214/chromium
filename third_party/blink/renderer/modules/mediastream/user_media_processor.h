@@ -268,11 +268,11 @@ class MODULES_EXPORT UserMediaProcessor
       const blink::VideoCaptureSettings& settings);
   void SelectVideoContentSettings();
 
-  base::Optional<base::UnguessableToken> DetermineExistingAudioSessionId();
+  absl::optional<base::UnguessableToken> DetermineExistingAudioSessionId();
 
   void GenerateStreamForCurrentRequestInfo(
-      base::Optional<base::UnguessableToken>
-          requested_audio_capture_session_id = base::nullopt,
+      absl::optional<base::UnguessableToken>
+          requested_audio_capture_session_id = absl::nullopt,
       blink::mojom::StreamSelectionStrategy strategy =
           blink::mojom::StreamSelectionStrategy::SEARCH_BY_DEVICE_ID);
 
@@ -285,8 +285,7 @@ class MODULES_EXPORT UserMediaProcessor
   LocalStreamSources local_sources_;
   LocalStreamSources pending_local_sources_;
 
-  HeapMojoRemote<blink::mojom::blink::MediaStreamDispatcherHost,
-                 HeapMojoWrapperMode::kWithoutContextObserver>
+  HeapMojoRemote<blink::mojom::blink::MediaStreamDispatcherHost>
       dispatcher_host_;
 
   // UserMedia requests are processed sequentially. |current_request_info_|

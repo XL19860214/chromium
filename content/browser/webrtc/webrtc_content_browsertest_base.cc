@@ -22,7 +22,7 @@
 #include "net/test/embedded_test_server/embedded_test_server.h"
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-#include "chromeos/audio/cras_audio_handler.h"
+#include "ash/components/audio/cras_audio_handler.h"
 #include "chromeos/dbus/audio/cras_audio_client.h"
 #endif
 
@@ -45,7 +45,7 @@ void WebRtcContentBrowserTestBase::SetUp() {
   EnablePixelOutput();
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   chromeos::CrasAudioClient::InitializeFake();
-  chromeos::CrasAudioHandler::InitializeForTesting();
+  ash::CrasAudioHandler::InitializeForTesting();
 #endif
   ContentBrowserTest::SetUp();
   ASSERT_TRUE(base::CommandLine::ForCurrentProcess()->HasSwitch(
@@ -55,7 +55,7 @@ void WebRtcContentBrowserTestBase::SetUp() {
 void WebRtcContentBrowserTestBase::TearDown() {
   ContentBrowserTest::TearDown();
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-  chromeos::CrasAudioHandler::Shutdown();
+  ash::CrasAudioHandler::Shutdown();
   chromeos::CrasAudioClient::Shutdown();
 #endif
 }
@@ -69,10 +69,8 @@ void WebRtcContentBrowserTestBase::AppendUseFakeUIForMediaStreamFlag() {
 // window.domAutomationController.send to send a string value back to here.
 std::string WebRtcContentBrowserTestBase::ExecuteJavascriptAndReturnResult(
     const std::string& javascript) {
-  std::string result;
-  EXPECT_TRUE(ExecuteScriptAndExtractString(shell(), javascript, &result))
-      << "Failed to execute javascript " << javascript << ".";
-  return result;
+  return EvalJs(shell(), javascript, EXECUTE_SCRIPT_USE_MANUAL_REPLY)
+      .ExtractString();
 }
 
 void WebRtcContentBrowserTestBase::MakeTypicalCall(

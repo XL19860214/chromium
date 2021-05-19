@@ -8,15 +8,18 @@
 
 #include <algorithm>
 
+#include "ash/constants/ash_features.h"
 #include "base/feature_list.h"
 #include "base/files/file_util.h"
 #include "base/json/json_string_value_serializer.h"
 #include "base/logging.h"
 #include "base/path_service.h"
 #include "base/stl_util.h"
+#include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
 #include "base/system/sys_info.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "build/branding_buildflags.h"
 #include "chrome/browser/extensions/component_loader.h"
 #include "chrome/browser/extensions/extension_service.h"
@@ -25,7 +28,6 @@
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/extensions/extension_constants.h"
 #include "chrome/grit/browser_resources.h"
-#include "chromeos/constants/chromeos_features.h"
 #include "chromeos/ime/input_methods.h"
 #include "extensions/browser/extension_pref_value_map.h"
 #include "extensions/browser/extension_pref_value_map_factory.h"
@@ -153,7 +155,18 @@ void OnFilePathChecked(Profile* profile,
                        const base::FilePath* file_path,
                        bool result) {
   if (result) {
-    DoLoadExtension(profile, *extension_id, *manifest, *file_path);
+    std::string manifest_str = *manifest;
+#if BUILDFLAG(GOOGLE_CHROME_BRANDING)
+    // Load Mojo-only background page for ChromeOS IME extension when feature
+    // 'ImeMojoDecoder' is enabled. See http://b/181170189 for more details.
+    // TODO(http://b/170278753): Remove this once NaCl decoder is removed.
+    if ((*extension_id == extension_ime_util::kXkbExtensionId) &&
+        base::FeatureList::IsEnabled(chromeos::features::kImeMojoDecoder)) {
+      base::ReplaceFirstSubstringAfterOffset(
+          &manifest_str, 0, "background.html", "background_mojo.html");
+    }
+#endif
+    DoLoadExtension(profile, *extension_id, manifest_str, *file_path);
   } else {
     LOG_IF(ERROR, base::SysInfo::IsRunningOnChromeOS())
         << "IME extension file path does not exist: " << file_path->value();
@@ -344,7 +357,7 @@ void ComponentExtensionIMEManagerDelegateImpl::ReadComponentExtensionsInfo(
     ComponentExtensionIME component_ime;
     ui::ResourceBundle& rb = ui::ResourceBundle::GetSharedInstance();
     component_ime.manifest =
-        rb.GetRawDataResource(extension.manifest_resource_id).as_string();
+        std::string(rb.GetRawDataResource(extension.manifest_resource_id));
 
     if (component_ime.manifest.empty()) {
       LOG(ERROR) << "Couldn't get manifest from resource_id("

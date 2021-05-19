@@ -10,9 +10,9 @@
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
-#include "base/optional.h"
 #include "base/task/sequence_manager/task_queue.h"
 #include "base/time/time.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
 #include "third_party/blink/renderer/platform/scheduler/common/throttling/task_queue_throttler.h"
 #include "third_party/blink/renderer/platform/scheduler/common/tracing_helper.h"
@@ -25,11 +25,11 @@
 #include "third_party/blink/renderer/platform/scheduler/public/thread_scheduler.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/hash_set.h"
+#include "third_party/perfetto/include/perfetto/tracing/traced_value_forward.h"
 
 namespace base {
 namespace trace_event {
 class BlameContext;
-class TracedValue;
 }  // namespace trace_event
 }  // namespace base
 
@@ -151,7 +151,7 @@ class PLATFORM_EXPORT PageSchedulerImpl : public PageScheduler {
   // frame it not a local one.
   FrameSchedulerImpl* SelectFrameForUkmAttribution();
 
-  void AsValueInto(base::trace_event::TracedValue* state) const;
+  void WriteIntoTrace(perfetto::TracedValue context) const;
 
   base::WeakPtr<PageSchedulerImpl> GetWeakPtr() {
     return weak_factory_.GetWeakPtr();
@@ -202,7 +202,7 @@ class PLATFORM_EXPORT PageSchedulerImpl : public PageScheduler {
     PageLifecycleState GetPageLifecycleState() const;
 
    private:
-    static base::Optional<PageLifecycleStateTransition>
+    static absl::optional<PageLifecycleStateTransition>
     ComputePageLifecycleStateTransition(PageLifecycleState old_state,
                                         PageLifecycleState new_state);
 

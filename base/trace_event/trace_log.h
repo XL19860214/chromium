@@ -14,12 +14,10 @@
 #include <unordered_map>
 #include <vector>
 
-#include "base/atomicops.h"
 #include "base/containers/stack.h"
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
 #include "base/memory/scoped_refptr.h"
-#include "base/optional.h"
 #include "base/single_thread_task_runner.h"
 #include "base/time/time_override.h"
 #include "base/trace_event/category_registry.h"
@@ -27,6 +25,7 @@
 #include "base/trace_event/trace_config.h"
 #include "base/trace_event/trace_event_impl.h"
 #include "build/build_config.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace base {
 class RefCountedString;
@@ -111,7 +110,7 @@ class BASE_EXPORT TraceLog : public MemoryDumpProvider {
   void StopATrace();
   void AddClockSyncMetadataEvent();
   void SetupATraceStartupTrace(const std::string& category_filter);
-  Optional<TraceConfig> TakeATraceStartupConfig();
+  absl::optional<TraceConfig> TakeATraceStartupConfig();
 #endif  // defined(OS_ANDROID)
 
   // Enabled state listeners give a callback when tracing is enabled or
@@ -443,8 +442,7 @@ class BASE_EXPORT TraceLog : public MemoryDumpProvider {
       EXCLUSIVE_LOCKS_REQUIRED(lock_);
 
   InternalTraceOptions trace_options() const {
-    return static_cast<InternalTraceOptions>(
-        subtle::NoBarrier_Load(&trace_options_));
+    return trace_options_.load(std::memory_order_relaxed);
   }
 
   TraceBuffer* trace_buffer() const { return logged_events_.get(); }
@@ -530,7 +528,6 @@ class BASE_EXPORT TraceLog : public MemoryDumpProvider {
   std::unordered_map<int, int> thread_sort_indices_;
   std::unordered_map<int, std::string> thread_names_
       GUARDED_BY(thread_info_lock_);
-  base::Time process_creation_time_;
 
   // The following two maps are used only when ECHO_TO_CONSOLE.
   std::unordered_map<int, base::stack<TimeTicks>> thread_event_start_times_
@@ -547,7 +544,7 @@ class BASE_EXPORT TraceLog : public MemoryDumpProvider {
 
   TimeDelta time_offset_;
 
-  subtle::AtomicWord /* Options */ trace_options_;
+  std::atomic<InternalTraceOptions> trace_options_;
 
   TraceConfig trace_config_;
   TraceConfig::EventFilters enabled_event_filters_;
@@ -580,7 +577,7 @@ class BASE_EXPORT TraceLog : public MemoryDumpProvider {
   FilterFactoryForTesting filter_factory_for_testing_;
 
 #if defined(OS_ANDROID)
-  base::Optional<TraceConfig> atrace_startup_config_;
+  absl::optional<TraceConfig> atrace_startup_config_;
 #endif
 
   DISALLOW_COPY_AND_ASSIGN(TraceLog);

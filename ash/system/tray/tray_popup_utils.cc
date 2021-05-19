@@ -18,11 +18,13 @@
 #include "ash/system/tray/size_range_layout.h"
 #include "ash/system/tray/tray_constants.h"
 #include "ash/system/tray/unfocusable_label.h"
+#include "base/bind.h"
 #include "chromeos/ui/vector_icons/vector_icons.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/gfx/color_palette.h"
 #include "ui/gfx/geometry/insets.h"
 #include "ui/gfx/paint_vector_icon.h"
+#include "ui/gfx/vector_icon_utils.h"
 #include "ui/views/animation/flood_fill_ink_drop_ripple.h"
 #include "ui/views/animation/ink_drop_highlight.h"
 #include "ui/views/animation/ink_drop_impl.h"
@@ -124,7 +126,7 @@ class HighlightPathGenerator : public views::HighlightPathGenerator {
   HighlightPathGenerator& operator=(const HighlightPathGenerator&) = delete;
 
   // views::HighlightPathGenerator:
-  base::Optional<gfx::RRectF> GetRoundRect(const gfx::RectF& rect) override {
+  absl::optional<gfx::RRectF> GetRoundRect(const gfx::RectF& rect) override {
     gfx::RectF bounds = rect;
     bounds.Inset(GetInkDropInsets(ink_drop_style_));
     float corner_radius = 0.f;
@@ -238,10 +240,20 @@ std::unique_ptr<views::Painter> TrayPopupUtils::CreateFocusPainter() {
       kFocusBorderThickness, gfx::InsetsF());
 }
 
-void TrayPopupUtils::ConfigureTrayPopupButton(views::Button* button) {
+void TrayPopupUtils::ConfigureTrayPopupButton(
+    views::Button* button,
+    TrayPopupInkDropStyle ink_drop_style,
+    bool highlight_on_hover,
+    bool highlight_on_focus) {
   button->SetInstallFocusRingOnFocus(true);
-  button->SetInkDropMode(views::InkDropHostView::InkDropMode::ON);
+  button->ink_drop()->SetMode(views::InkDropHost::InkDropMode::ON);
   button->SetHasInkDropActionOnClick(true);
+  button->ink_drop()->SetCreateInkDropCallback(base::BindRepeating(
+      &CreateInkDrop, button, highlight_on_hover, highlight_on_focus));
+  button->ink_drop()->SetCreateRippleCallback(
+      base::BindRepeating(&CreateInkDropRipple, ink_drop_style, button));
+  button->ink_drop()->SetCreateHighlightCallback(
+      base::BindRepeating(&CreateInkDropHighlight, button));
 }
 
 void TrayPopupUtils::ConfigureAsStickyHeader(views::View* view) {
@@ -259,7 +271,7 @@ void TrayPopupUtils::ConfigureContainer(TriView::Container container,
 
 views::LabelButton* TrayPopupUtils::CreateTrayPopupButton(
     views::Button::PressedCallback callback,
-    const base::string16& text) {
+    const std::u16string& text) {
   auto button =
       std::make_unique<views::MdTextButton>(std::move(callback), text);
   button->SetProminent(true);
@@ -275,23 +287,21 @@ views::Separator* TrayPopupUtils::CreateVerticalSeparator() {
 }
 
 std::unique_ptr<views::InkDrop> TrayPopupUtils::CreateInkDrop(
-    views::InkDropHostView* host) {
-  std::unique_ptr<views::InkDropImpl> ink_drop =
-      std::make_unique<views::InkDropImpl>(host, host->size());
-  ink_drop->SetAutoHighlightMode(
-      views::InkDropImpl::AutoHighlightMode::SHOW_ON_RIPPLE);
-  ink_drop->SetShowHighlightOnHover(false);
-  return std::move(ink_drop);
+    views::Button* host,
+    bool highlight_on_hover,
+    bool highlight_on_focus) {
+  return views::InkDrop::CreateInkDropForFloodFillRipple(
+      host->ink_drop(), highlight_on_hover, highlight_on_focus);
 }
 
 std::unique_ptr<views::InkDropRipple> TrayPopupUtils::CreateInkDropRipple(
     TrayPopupInkDropStyle ink_drop_style,
-    const views::View* host,
-    const gfx::Point& center_point) {
+    const views::Button* host) {
   const AshColorProvider::RippleAttributes ripple_attributes =
       AshColorProvider::Get()->GetRippleAttributes();
   return std::make_unique<views::FloodFillInkDropRipple>(
-      host->size(), GetInkDropInsets(ink_drop_style), center_point,
+      host->size(), GetInkDropInsets(ink_drop_style),
+      host->ink_drop()->GetInkDropCenterBasedOnLastEvent(),
       ripple_attributes.base_color, ripple_attributes.inkdrop_opacity);
 }
 

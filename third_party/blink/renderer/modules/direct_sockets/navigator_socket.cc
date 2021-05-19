@@ -5,9 +5,9 @@
 #include "third_party/blink/renderer/modules/direct_sockets/navigator_socket.h"
 
 #include "base/macros.h"
-#include "base/optional.h"
 #include "services/network/public/mojom/tcp_socket.mojom-blink.h"
 #include "services/network/public/mojom/udp_socket.mojom-blink.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/common/browser_interface_broker_proxy.h"
 #include "third_party/blink/public/platform/task_type.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise_resolver.h"
@@ -45,7 +45,7 @@ constexpr net::NetworkTrafficAnnotationTag kDirectSocketsTrafficAnnotation =
 const char NavigatorSocket::kSupplementName[] = "NavigatorSocket";
 
 NavigatorSocket::NavigatorSocket(ExecutionContext* context)
-    : ExecutionContextLifecycleStateObserver(context) {}
+    : Supplement(*context), ExecutionContextLifecycleStateObserver(context) {}
 
 // static
 NavigatorSocket& NavigatorSocket::From(ScriptState* script_state) {
@@ -54,6 +54,7 @@ NavigatorSocket& NavigatorSocket::From(ScriptState* script_state) {
       Supplement<ExecutionContext>::From<NavigatorSocket>(context);
   if (!supplement) {
     supplement = MakeGarbageCollected<NavigatorSocket>(context);
+    supplement->UpdateStateIfNeeded();
     ProvideTo(*context, supplement);
   }
   return *supplement;
@@ -186,15 +187,6 @@ bool NavigatorSocket::OpenSocketPermitted(ScriptState* script_state,
     return false;
   }
 
-  // TODO(crbug.com/1119600): Do not consume (or check) transient activation
-  // for reconnection attempts.
-  if (!LocalFrame::ConsumeTransientUserActivation(window->GetFrame())) {
-    exception_state.ThrowDOMException(
-        DOMExceptionCode::kNotAllowedError,
-        "Must be handling a user gesture to open a socket.");
-    return false;
-  }
-
   DCHECK(options);
   if (!options->hasRemotePort()) {
     exception_state.ThrowTypeError("remotePort was not specified.");
@@ -208,8 +200,8 @@ bool NavigatorSocket::OpenSocketPermitted(ScriptState* script_state,
 void NavigatorSocket::OnTcpOpen(
     TCPSocket* socket,
     int32_t result,
-    const base::Optional<net::IPEndPoint>& local_addr,
-    const base::Optional<net::IPEndPoint>& peer_addr,
+    const absl::optional<net::IPEndPoint>& local_addr,
+    const absl::optional<net::IPEndPoint>& peer_addr,
     mojo::ScopedDataPipeConsumerHandle receive_stream,
     mojo::ScopedDataPipeProducerHandle send_stream) {
   pending_tcp_.erase(socket);
@@ -220,21 +212,21 @@ void NavigatorSocket::OnTcpOpen(
 void NavigatorSocket::OnUdpOpen(
     UDPSocket* socket,
     int32_t result,
-    const base::Optional<net::IPEndPoint>& local_addr,
-    const base::Optional<net::IPEndPoint>& peer_addr) {
+    const absl::optional<net::IPEndPoint>& local_addr,
+    const absl::optional<net::IPEndPoint>& peer_addr) {
   pending_udp_.erase(socket);
   socket->Init(result, local_addr, peer_addr);
 }
 
 void NavigatorSocket::OnConnectionError() {
   for (auto& pending : pending_tcp_) {
-    pending->Init(net::Error::ERR_CONTEXT_SHUT_DOWN, base::nullopt,
-                  base::nullopt, mojo::ScopedDataPipeConsumerHandle(),
+    pending->Init(net::Error::ERR_CONTEXT_SHUT_DOWN, absl::nullopt,
+                  absl::nullopt, mojo::ScopedDataPipeConsumerHandle(),
                   mojo::ScopedDataPipeProducerHandle());
   }
   for (auto& pending : pending_udp_) {
-    pending->Init(net::Error::ERR_CONTEXT_SHUT_DOWN, base::nullopt,
-                  base::nullopt);
+    pending->Init(net::Error::ERR_CONTEXT_SHUT_DOWN, absl::nullopt,
+                  absl::nullopt);
   }
   pending_tcp_.clear();
   pending_udp_.clear();

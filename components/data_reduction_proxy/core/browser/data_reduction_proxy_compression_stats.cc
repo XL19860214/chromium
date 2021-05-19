@@ -130,7 +130,7 @@ void MoveAndClearDictionaryPrefs(PrefService* pref_service,
   base::DictionaryValue* pref_dict_src = pref_update_src.Get();
   pref_dict_dst->Clear();
   pref_dict_dst->Swap(pref_dict_src);
-  DCHECK(pref_dict_src->empty());
+  DCHECK(pref_dict_src->DictEmpty());
 }
 
 void MaybeInitWeeklyAggregateDataUsePrefs(const base::Time& now,
@@ -173,71 +173,15 @@ void RecordDictionaryToHistogram(const std::string& histogram_name,
                                  const base::DictionaryValue* dictionary) {
   base::HistogramBase* histogram = base::SparseHistogram::FactoryGet(
       histogram_name, base::HistogramBase::kUmaTargetedHistogramFlag);
-  for (const auto& entry : *dictionary) {
+  for (const auto& entry : dictionary->DictItems()) {
     int key;
-    int value = entry.second->GetInt();
+    int value = entry.second.GetInt();
     if (value > 0 && base::StringToInt(entry.first, &key)) {
       histogram->AddCount(key, value);
     }
   }
 }
 #endif
-
-// These obsolete prefs were deleted without first clearing them (see
-// https://crbug.com/934982#c10). We readd them for two milestones in order to
-// increase the chance they get removed from profile directories.
-void ClearTemporarilyReaddedObsoletePrefsToFreeStorage(
-    PrefService& pref_service) {
-  pref_service.ClearPref(prefs::kDailyHttpOriginalContentLengthApplication);
-  pref_service.ClearPref(prefs::kDailyHttpOriginalContentLengthVideo);
-  pref_service.ClearPref(prefs::kDailyHttpOriginalContentLengthUnknown);
-  pref_service.ClearPref(prefs::kDailyHttpReceivedContentLengthApplication);
-  pref_service.ClearPref(prefs::kDailyHttpReceivedContentLengthVideo);
-  pref_service.ClearPref(prefs::kDailyHttpReceivedContentLengthUnknown);
-
-  pref_service.ClearPref(
-      prefs::kDailyOriginalContentLengthViaDataReductionProxyApplication);
-  pref_service.ClearPref(
-      prefs::kDailyOriginalContentLengthViaDataReductionProxyVideo);
-  pref_service.ClearPref(
-      prefs::kDailyOriginalContentLengthViaDataReductionProxyUnknown);
-  pref_service.ClearPref(
-      prefs::kDailyContentLengthViaDataReductionProxyApplication);
-  pref_service.ClearPref(prefs::kDailyContentLengthViaDataReductionProxyVideo);
-  pref_service.ClearPref(
-      prefs::kDailyContentLengthViaDataReductionProxyUnknown);
-
-  pref_service.ClearPref(
-      prefs::
-          kDailyOriginalContentLengthWithDataReductionProxyEnabledApplication);
-  pref_service.ClearPref(
-      prefs::kDailyOriginalContentLengthWithDataReductionProxyEnabledVideo);
-  pref_service.ClearPref(
-      prefs::kDailyOriginalContentLengthWithDataReductionProxyEnabledUnknown);
-  pref_service.ClearPref(
-      prefs::kDailyContentLengthWithDataReductionProxyEnabledApplication);
-  pref_service.ClearPref(
-      prefs::kDailyContentLengthWithDataReductionProxyEnabledVideo);
-  pref_service.ClearPref(
-      prefs::kDailyContentLengthWithDataReductionProxyEnabledUnknown);
-
-  pref_service.ClearPref(
-      prefs::kDailyContentLengthHttpsWithDataReductionProxyEnabled);
-  pref_service.ClearPref(
-      prefs::kDailyContentLengthLongBypassWithDataReductionProxyEnabled);
-  pref_service.ClearPref(
-      prefs::kDailyContentLengthShortBypassWithDataReductionProxyEnabled);
-  pref_service.ClearPref(
-      prefs::kDailyContentLengthUnknownWithDataReductionProxyEnabled);
-  pref_service.ClearPref(prefs::kDailyContentLengthViaDataReductionProxy);
-  pref_service.ClearPref(
-      prefs::kDailyContentLengthWithDataReductionProxyEnabled);
-
-  pref_service.ClearPref(
-      prefs::kDailyOriginalContentLengthViaDataReductionProxy);
-  pref_service.ClearPref(
-      prefs::kDailyOriginalContentLengthWithDataReductionProxyEnabled);
-}
 
 }  // namespace
 
@@ -417,8 +361,6 @@ void DataReductionProxyCompressionStats::Init() {
   // Init all list prefs.
   InitListPref(prefs::kDailyHttpOriginalContentLength);
   InitListPref(prefs::kDailyHttpReceivedContentLength);
-
-  ClearTemporarilyReaddedObsoletePrefsToFreeStorage(*pref_service_);
 }
 
 void DataReductionProxyCompressionStats::RecordDataUseWithMimeType(
@@ -432,7 +374,7 @@ void DataReductionProxyCompressionStats::RecordDataUseWithMimeType(
     int32_t service_hash_code) {
   DCHECK(thread_checker_.CalledOnValidThread());
   TRACE_EVENT0("loading",
-               "DataReductionProxyCompressionStats::RecordDataUseWithMimeType")
+               "DataReductionProxyCompressionStats::RecordDataUseWithMimeType");
 
   IncreaseInt64Pref(data_reduction_proxy::prefs::kHttpReceivedContentLength,
                     data_used);
@@ -684,10 +626,9 @@ void DataReductionProxyCompressionStats::DelayedWritePrefs() {
 }
 
 void DataReductionProxyCompressionStats::TransferList(
-    const base::ListValue& from_list,
-    base::ListValue* to_list) {
-  to_list->Clear();
-  from_list.CreateDeepCopy()->Swap(to_list);
+    const base::Value& from_list,
+    base::Value* to_list) {
+  *to_list = from_list.Clone();
 }
 
 void DataReductionProxyCompressionStats::RecordRequestSizePrefs(

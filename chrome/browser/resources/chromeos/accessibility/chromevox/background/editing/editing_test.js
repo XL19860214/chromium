@@ -1190,13 +1190,12 @@ TEST_F('ChromeVoxEditingTest', 'BackwardWordDelete', function() {
       `
     <div
         style='max-width: 5px; overflow-wrap: normal'
-        contenteditable
-        role="textbox">
+        contenteditable>
       this is a test
     </div>
   `,
       function(root) {
-        const input = root.find({role: RoleType.TEXT_FIELD});
+        const input = root.find({attributes: {contentEditableRoot: true}});
         this.listenOnce(input, 'focus', function() {
           mockFeedback.call(this.press(KeyCode.END, {ctrl: true}))
               .expectSpeech('test')
@@ -1210,7 +1209,6 @@ TEST_F('ChromeVoxEditingTest', 'BackwardWordDelete', function() {
               .expectSpeech('is , deleted')
               .expectBraille('this\u00a0mled', {startIndex: 5, endIndex: 5})
               .call(this.press(KeyCode.BACK, {ctrl: true}))
-              .expectSpeech('this , deleted')
               .expectBraille(' mled', {startIndex: 0, endIndex: 0})
               .replay();
         });
@@ -1612,14 +1610,108 @@ TEST_F('ChromeVoxEditingTest', 'MarkedContent', function() {
               'This is ', 'your', 'Comment', ' text.', 'Exited Comment.')
           .call(this.press(KeyCode.DOWN))
           .expectSpeech(
-              'This is ', 'their', 'Insertion', 'Suggestion', ' text.',
-              'Exited Suggestion.', 'Exited Insertion.')
+              'This is ', 'Suggestion', 'Insertion', 'their', ' text.',
+              'Exited Insertion.', 'Exited Suggestion.')
           .call(this.press(KeyCode.DOWN))
           .expectSpeech(
-              'This is ', `everyone's`, 'Deletion', 'Suggestion', ' text.',
-              'Exited Suggestion.', 'Exited Deletion.')
+              'This is ', 'Suggestion', 'Deletion', `everyone's`, ' text.',
+              'Exited Deletion.', 'Exited Suggestion.')
           .replay();
     });
     input.focus();
   });
 });
+
+TEST_F('ChromeVoxEditingTest', 'NestedInsertionDeletion', function() {
+  const mockFeedback = this.createMockFeedback();
+  const site = `
+    <div contenteditable role="textbox">
+      <p>Start</p>
+      <span>I </span>
+      <span role="suggestion" aria-description="Username">
+        <span role="insertion">was</span>
+        <span role="deletion">am</span></span><span> typing</span>
+      <p>End</p>
+    </div>
+  `;
+  this.runWithLoadedTree(site, function(root) {
+    const input = root.find({role: RoleType.TEXT_FIELD});
+    this.listenOnce(input, 'focus', function() {
+      mockFeedback.call(this.press(KeyCode.DOWN))
+          .expectSpeech(
+              'I ', 'Suggestion', 'Username', 'Insertion', 'was',
+              'Exited Insertion.', 'Deletion', 'am', ' typing',
+              'Exited Deletion.', 'Exited Suggestion.')
+          .call(this.press(KeyCode.DOWN))
+          .expectSpeech('End')
+          .replay();
+    });
+    input.focus();
+  });
+});
+
+TEST_F('ChromeVoxEditingTest', 'Separator', function() {
+  // In the past, an ARIA leaf role would cause subtree content to be removed.
+  // However, the new decision is to not remove any content the user might
+  // interact with.
+  const mockFeedback = this.createMockFeedback();
+  const site = `
+    <div contenteditable="true" role="textbox">
+      <p>Start</p>
+      <p><span>Hello</span></p>
+      <p><span role="separator">Separator content should be read</span></p>
+      <p><span>World</span></p>
+    </div>
+  `;
+  this.runWithLoadedTree(site, function(root) {
+    const input = root.find({role: RoleType.TEXT_FIELD});
+    this.listenOnce(input, 'focus', function() {
+      mockFeedback.call(this.press(KeyCode.DOWN))
+          .expectSpeech('Hello')
+          .call(this.press(KeyCode.DOWN))
+          .expectSpeech('Separator content should be read')
+          .call(this.press(KeyCode.DOWN))
+          .expectSpeech('World')
+          .call(this.press(KeyCode.LEFT))
+          .expectSpeech('\n')
+          .replay();
+    });
+    input.focus();
+  });
+});
+
+// Test for the issue in crbug.com/1203840. This case was causing an infinite
+// loop in ChromeVox's editable line data computation. This test ensures we
+// workaround potential infinite loops correctly, and should be removed once the
+// proper fix is implemented in blink.
+TEST_F(
+    'ChromeVoxEditingTest', 'EditableLineInfiniteLoopWorkaround', function() {
+      const mockFeedback = this.createMockFeedback();
+      const site = `
+    <div contenteditable="true" role="textbox">
+      <p>Start</p>
+      <table>
+        <tbody>
+          <tr>
+            <td>
+              <span>
+                <span style="font-size:13.333333333333332px;">This is a test<span>&nbsp;</span></span></span>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <span>End</span>
+    </div>
+  `;
+      this.runWithLoadedTree(site, function(root) {
+        const input = root.find({role: RoleType.TEXT_FIELD});
+        this.listenOnce(input, 'focus', function() {
+          mockFeedback.call(this.press(KeyCode.DOWN))
+              .expectSpeech('This is a test')
+              .call(this.press(KeyCode.DOWN))
+              .expectSpeech('End')
+              .replay();
+        });
+        input.focus();
+      });
+    });

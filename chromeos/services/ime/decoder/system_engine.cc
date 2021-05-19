@@ -4,6 +4,7 @@
 
 #include "chromeos/services/ime/decoder/system_engine.h"
 
+#include "base/bind.h"
 #include "base/callback_helpers.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
@@ -17,7 +18,7 @@ namespace ime {
 
 namespace {
 
-base::Optional<ImeDecoder::EntryPoints> g_fake_decoder_entry_points_for_testing;
+absl::optional<ImeDecoder::EntryPoints> g_fake_decoder_entry_points_for_testing;
 
 using ReplyCallback =
     base::RepeatingCallback<void(const std::vector<uint8_t>&,
@@ -83,7 +84,8 @@ void FakeDecoderEntryPointsForTesting(  // IN-TEST
   g_fake_decoder_entry_points_for_testing = decoder_entry_points;
 }
 
-SystemEngine::SystemEngine(ImeCrosPlatform* platform) : platform_(platform) {
+SystemEngine::SystemEngine(ImeCrosPlatform* platform)
+    : platform_(platform), decoder_channel_receiver_(this) {
   if (g_fake_decoder_entry_points_for_testing) {
     decoder_entry_points_ = g_fake_decoder_entry_points_for_testing;
   } else {
@@ -120,7 +122,7 @@ bool SystemEngine::BindRequest(
             new ClientDelegate(ime_spec, std::move(remote),
                                base::BindRepeating(&SystemEngine::OnReply,
                                                    base::Unretained(this))))) {
-      decoder_channel_receivers_.Add(this, std::move(receiver));
+      decoder_channel_receiver_.Bind(std::move(receiver));
       // TODO(https://crbug.com/837156): Registry connection error handler.
       return true;
     }
@@ -133,6 +135,10 @@ bool SystemEngine::BindRequest(
 }
 
 bool SystemEngine::IsImeSupportedByDecoder(const std::string& ime_spec) {
+  // M17N request will always fallback to built-in rulebased IMEs.
+  if (InputEngine::IsImeSupportedByRulebased(ime_spec)) {
+    return false;
+  }
   return decoder_entry_points_ &&
          decoder_entry_points_->supports(ime_spec.c_str());
 }
@@ -194,6 +200,16 @@ void SystemEngine::OnCompositionCanceled() {
                  base::DoNothing());
 }
 
+void SystemEngine::OnSuggestionsReturned(
+    mojom::SuggestionsResponsePtr response) {
+  const uint64_t seq_id = current_seq_id_;
+  ++current_seq_id_;
+
+  ProcessMessage(WrapAndSerializeMessage(
+                     SuggestionsResponseToProto(seq_id, std::move(response))),
+                 base::DoNothing());
+}
+
 void SystemEngine::ProcessMessage(const std::vector<uint8_t>& message,
                                   ProcessMessageCallback callback) {
   // TODO(https://crbug.com/837156): Set a default protobuf message.
@@ -215,6 +231,7 @@ void SystemEngine::OnReply(const std::vector<uint8_t>& message,
   }
 
   const ime::PublicMessage& reply = wrapper.public_message();
+  // TODO(crbug/1146266): Add case to handle request for suggestions.
   switch (reply.param_case()) {
     case ime::PublicMessage::kOnKeyEventReply: {
       const auto it = pending_key_event_callbacks_.find(reply.seq_id());
@@ -245,12 +262,36 @@ void SystemEngine::OnReply(const std::vector<uint8_t>& message,
       break;
     }
     case ime::PublicMessage::kCommitText: {
-      remote->CommitText(reply.commit_text().text());
+      remote->CommitText(
+          reply.commit_text().text(),
+          reply.commit_text().cursor_behavior() ==
+                  ime::CommitTextCursorBehavior::
+                      COMMIT_TEXT_CURSOR_BEHAVIOR_MOVE_CURSOR_BEFORE_TEXT
+              ? mojom::CommitTextCursorBehavior::kMoveCursorBeforeText
+              : mojom::CommitTextCursorBehavior::kMoveCursorAfterText);
       break;
     }
     case ime::PublicMessage::kHandleAutocorrect: {
       remote->HandleAutocorrect(ProtoToAutocorrectSpan(
           reply.handle_autocorrect().autocorrect_span()));
+      break;
+    }
+    case ime::PublicMessage::kSuggestionsRequest: {
+      remote->RequestSuggestions(
+          ProtoToSuggestionsRequest(reply.suggestions_request()),
+          base::BindOnce(&SystemEngine::OnSuggestionsReturned,
+                         base::Unretained(this)));
+      break;
+    }
+    case ime::PublicMessage::kDisplaySuggestions: {
+      remote->DisplaySuggestions(
+          ProtoToTextSuggestions(reply.display_suggestions()));
+      break;
+    }
+    case ime::PublicMessage::kRecordUkm: {
+      auto ukm = ProtoToUkmEntry(reply.record_ukm());
+      if (ukm)
+        remote->RecordUkm(std::move(ukm));
       break;
     }
     default:

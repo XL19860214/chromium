@@ -12,25 +12,21 @@
 #include "chrome/browser/subresource_redirect/litepages_service_bypass_decider.h"
 #include "chrome/browser/subresource_redirect/origin_robots_rules_cache.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_settings.h"
+#include "components/subresource_redirect/common/subresource_redirect_features.h"
 #include "content/public/browser/web_contents.h"
 #include "net/base/escape.h"
 #include "third_party/blink/public/common/features.h"
 
 #if defined(OS_ANDROID)
-#include "chrome/browser/previews/android/previews_android_bridge.h"
+#include "chrome/browser/subresource_redirect/android/previews_android_bridge.h"
 #endif
 
 namespace subresource_redirect {
 
 namespace {
 
-bool IsSubresourceRedirectEnabled() {
-  return base::FeatureList::IsEnabled(blink::features::kSubresourceRedirect);
-}
-
 DataReductionProxyChromeSettings* GetDataReductionProxyChromeSettings(
     content::WebContents* web_contents) {
-  DCHECK(base::FeatureList::IsEnabled(blink::features::kSubresourceRedirect));
   DCHECK(web_contents);
   return DataReductionProxyChromeSettingsFactory::GetForBrowserContext(
       web_contents->GetBrowserContext());
@@ -44,6 +40,21 @@ bool ShowInfoBarOnAndroid(content::WebContents* web_contents) {
   return true;
 }
 
+// Returns the litepage robots origin from one of the image or src video
+// subresource redirect features.
+GURL GetLitePageRobotsOrigin() {
+  auto lite_page_robots_origin = base::GetFieldTrialParamValueByFeature(
+      blink::features::kSubresourceRedirect, "lite_page_robots_origin");
+  if (lite_page_robots_origin.empty()) {
+    lite_page_robots_origin = base::GetFieldTrialParamValueByFeature(
+        blink::features::kSubresourceRedirectSrcVideo,
+        "lite_page_robots_origin");
+  }
+  if (lite_page_robots_origin.empty())
+    lite_page_robots_origin = "https://litepages.googlezip.net/";
+  return GURL(lite_page_robots_origin);
+}
+
 }  // namespace
 
 bool IsLiteModeEnabled(content::WebContents* web_contents) {
@@ -55,41 +66,12 @@ bool IsLiteModeEnabled(content::WebContents* web_contents) {
          data_reduction_proxy_settings->IsDataReductionProxyEnabled();
 }
 
-bool ShouldEnablePublicImageHintsBasedCompression() {
-  bool is_enabled = IsSubresourceRedirectEnabled() &&
-                    base::GetFieldTrialParamByFeatureAsBool(
-                        blink::features::kSubresourceRedirect,
-                        "enable_public_image_hints_based_compression", true);
-  // Only one of the public image hints or login and robots based image
-  // compression should be active.
-  DCHECK(!is_enabled || !ShouldEnableLoginRobotsCheckedCompression());
-  return is_enabled;
-}
-
-bool ShouldEnableLoginRobotsCheckedCompression() {
-  bool is_enabled = IsSubresourceRedirectEnabled() &&
-                    base::GetFieldTrialParamByFeatureAsBool(
-                        blink::features::kSubresourceRedirect,
-                        "enable_login_robots_based_compression", false);
-  // Only one of the public image hints or login and robots based image
-  // compression should be active.
-  DCHECK(!is_enabled || !ShouldEnablePublicImageHintsBasedCompression());
-  return is_enabled;
-}
-
-// Should the subresource be redirected to its compressed version. This returns
-// false if only coverage metrics need to be recorded and actual redirection
-// should not happen.
-bool ShouldCompressRedirectSubresource() {
-  return base::FeatureList::IsEnabled(blink::features::kSubresourceRedirect) &&
-         base::GetFieldTrialParamByFeatureAsBool(
-             blink::features::kSubresourceRedirect,
-             "enable_subresource_server_redirect", true);
-}
-
 bool ShowInfoBarAndGetImageCompressionState(
     content::WebContents* web_contents,
     content::NavigationHandle* navigation_handle) {
+  DCHECK(ShouldEnablePublicImageHintsBasedCompression() ||
+         ShouldEnableLoginRobotsCheckedImageCompression());
+
   auto* data_reduction_proxy_settings =
       GetDataReductionProxyChromeSettings(web_contents);
   if (!data_reduction_proxy_settings->IsDataReductionProxyEnabled()) {
@@ -124,7 +106,7 @@ void NotifyCompressedImageFetchFailed(content::WebContents* web_contents,
 }
 
 GURL GetRobotsServerURL(const url::Origin& origin) {
-  DCHECK(ShouldEnableLoginRobotsCheckedCompression());
+  DCHECK(ShouldEnableRobotsRulesFetching());
   DCHECK(!origin.opaque());
 
   GURL origin_url = origin.GetURL();
@@ -132,12 +114,7 @@ GURL GetRobotsServerURL(const url::Origin& origin) {
   origin_replacement.SetPathStr("/robots.txt");
   origin_url = origin_url.ReplaceComponents(origin_replacement);
 
-  auto lite_page_robots_origin = base::GetFieldTrialParamValueByFeature(
-      blink::features::kSubresourceRedirect, "lite_page_robots_origin");
-  GURL lite_page_robots_url(lite_page_robots_origin.empty()
-                                ? "https://litepages.googlezip.net/"
-                                : lite_page_robots_origin);
-
+  GURL lite_page_robots_url = GetLitePageRobotsOrigin();
   std::string query_str =
       "u=" + net::EscapeQueryParamValue(origin_url.spec(), true /* use_plus */);
 

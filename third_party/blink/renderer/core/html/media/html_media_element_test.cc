@@ -6,6 +6,7 @@
 
 #include "base/run_loop.h"
 #include "base/test/gtest_util.h"
+#include "media/base/media_content_type.h"
 #include "media/mojo/mojom/media_player.mojom-blink.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -13,6 +14,7 @@
 #include "third_party/blink/public/platform/web_media_player.h"
 #include "third_party/blink/public/platform/web_media_player_source.h"
 #include "third_party/blink/renderer/core/frame/local_dom_window.h"
+#include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/settings.h"
 #include "third_party/blink/renderer/core/html/media/html_audio_element.h"
 #include "third_party/blink/renderer/core/html/media/html_video_element.h"
@@ -38,6 +40,35 @@ using ::testing::Return;
 namespace blink {
 
 namespace {
+
+enum class TestURLScheme {
+  kHttp,
+  kHttps,
+  kFtp,
+  kFile,
+  kData,
+  kBlob,
+};
+
+AtomicString SrcSchemeToURL(TestURLScheme scheme) {
+  switch (scheme) {
+    case TestURLScheme::kHttp:
+      return "http://example.com/foo.mp4";
+    case TestURLScheme::kHttps:
+      return "https://example.com/foo.mp4";
+    case TestURLScheme::kFtp:
+      return "ftp://example.com/foo.mp4";
+    case TestURLScheme::kFile:
+      return "file:///foo/bar.mp4";
+    case TestURLScheme::kData:
+      return "data:video/mp4;base64,XXXXXXX";
+    case TestURLScheme::kBlob:
+      return "blob:http://example.com/00000000-0000-0000-0000-000000000000";
+    default:
+      NOTREACHED();
+  }
+  return g_empty_atom;
+}
 
 class MockWebMediaPlayer : public EmptyWebMediaPlayer {
  public:
@@ -84,22 +115,14 @@ class WebMediaStubLocalFrameClient : public EmptyLocalFrameClient {
 // Helper class that provides an implementation of the MediaPlayerObserver mojo
 // interface to allow checking that messages sent over mojo are received with
 // the right values in the other end.
-//
-// Note this relies on HTMLMediaElement::AddMediaPlayerObserverForTesting() to
-// provide the HTMLMediaElement instance owned by the test with a valid mojo
-// remote, that will be bound to the mojo receiver provided by this class
-// instead of the real one used in production that would be owned by
-// MediaSessionController instead.
-class MockMediaPlayerObserverReceiverForTesting
+class TestMediaPlayerObserver final
     : public media::mojom::blink::MediaPlayerObserver {
  public:
-  explicit MockMediaPlayerObserverReceiverForTesting(
-      HTMLMediaElement* html_media_element) {
-    // Bind the remote to the receiver, so that we can intercept incoming
-    // messages sent via the different methods that use the remote.
-    html_media_element->AddMediaPlayerObserverForTesting(
-        receiver_.BindNewPipeAndPassRemote());
-  }
+  struct OnMetadataChangedResult {
+    bool has_audio;
+    bool has_video;
+    media::MediaContentType media_content_type;
+  };
 
   // Needs to be called from tests after invoking a method from the MediaPlayer
   // mojo interface, so that we have enough time to process the message.
@@ -110,13 +133,36 @@ class MockMediaPlayerObserverReceiverForTesting
   }
 
   // media::mojom::blink::MediaPlayerObserver implementation.
+  void OnMediaPlaying() override {
+    received_media_playing_ = true;
+    run_loop_->Quit();
+  }
+
+  void OnMediaPaused(bool stream_ended) override {
+    received_media_paused_stream_ended_ = stream_ended;
+    run_loop_->Quit();
+  }
+
   void OnMutedStatusChanged(bool muted) override {
     received_muted_status_type_ = muted;
     run_loop_->Quit();
   }
 
+  void OnMediaMetadataChanged(bool has_audio,
+                              bool has_video,
+                              media::MediaContentType content_type) override {
+    // struct OnMetadataChangedResult result{has_audio, has_video,
+    // content_type};
+    received_metadata_changed_result_ =
+        OnMetadataChangedResult{has_audio, has_video, content_type};
+    run_loop_->Quit();
+  }
+
   void OnMediaPositionStateChanged(
       ::media_session::mojom::blink::MediaPositionPtr) override {}
+
+  void OnMediaEffectivelyFullscreenChanged(
+      blink::WebFullscreenVideoStatus status) override {}
 
   void OnMediaSizeChanged(const gfx::Size& size) override {
     received_media_size_ = size;
@@ -124,6 +170,8 @@ class MockMediaPlayerObserverReceiverForTesting
   }
 
   void OnPictureInPictureAvailabilityChanged(bool available) override {}
+
+  void OnAudioOutputSinkChanged(const WTF::String& hashed_device_id) override {}
 
   void OnAudioOutputSinkChangingDisabled() override {}
 
@@ -135,8 +183,19 @@ class MockMediaPlayerObserverReceiverForTesting
   void OnSeek() override {}
 
   // Getters used from HTMLMediaElementTest.
-  const base::Optional<bool>& received_muted_status() const {
+  bool received_media_playing() const { return received_media_playing_; }
+
+  const absl::optional<bool>& received_media_paused_stream_ended() const {
+    return received_media_paused_stream_ended_;
+  }
+
+  const absl::optional<bool>& received_muted_status() const {
     return received_muted_status_type_;
+  }
+
+  const absl::optional<OnMetadataChangedResult>&
+  received_metadata_changed_result() const {
+    return received_metadata_changed_result_;
   }
 
   gfx::Size received_media_size() const { return received_media_size_; }
@@ -145,10 +204,36 @@ class MockMediaPlayerObserverReceiverForTesting
 
  private:
   std::unique_ptr<base::RunLoop> run_loop_;
-  mojo::Receiver<media::mojom::blink::MediaPlayerObserver> receiver_{this};
-  base::Optional<bool> received_muted_status_type_;
+  bool received_media_playing_{false};
+  absl::optional<bool> received_media_paused_stream_ended_;
+  absl::optional<bool> received_muted_status_type_;
+  absl::optional<OnMetadataChangedResult> received_metadata_changed_result_;
   gfx::Size received_media_size_{0, 0};
   bool received_buffer_underflow_{false};
+};
+
+class TestMediaPlayerHost final : public media::mojom::blink::MediaPlayerHost {
+ public:
+  void WaitForPlayer() { run_loop_.Run(); }
+
+  // media::mojom::MediaPlayerHost
+  void OnMediaPlayerAdded(
+      mojo::PendingAssociatedRemote<media::mojom::blink::MediaPlayer>
+      /*media_player*/,
+      mojo::PendingAssociatedReceiver<media::mojom::blink::MediaPlayerObserver>
+          media_player_observer,
+      int32_t /*player_id*/) override {
+    receiver_.Bind(std::move(media_player_observer));
+    run_loop_.Quit();
+  }
+
+  TestMediaPlayerObserver& observer() { return observer_; }
+
+ private:
+  TestMediaPlayerObserver observer_;
+  mojo::AssociatedReceiver<media::mojom::blink::MediaPlayerObserver> receiver_{
+      &observer_};
+  base::RunLoop run_loop_;
 };
 
 enum class MediaTestParam { kAudio, kVideo };
@@ -193,8 +278,14 @@ class HTMLMediaElementTest : public testing::TestWithParam<MediaTestParam> {
           dummy_page_holder_->GetDocument());
     }
 
-    media_player_observer_receiver_ =
-        std::make_unique<MockMediaPlayerObserverReceiverForTesting>(Media());
+    media_->SetMediaPlayerHostForTesting(
+        media_player_host_receiver_.BindNewEndpointAndPassDedicatedRemote());
+  }
+
+  void WaitForPlayer() {
+    Media()->SetSrc(SrcSchemeToURL(TestURLScheme::kHttp));
+    Media()->Play();
+    media_player_host_.WaitForPlayer();
   }
 
   HTMLMediaElement* Media() const { return media_.Get(); }
@@ -234,49 +325,91 @@ class HTMLMediaElementTest : public testing::TestWithParam<MediaTestParam> {
     return !!Media()->lazy_load_intersection_observer_;
   }
 
+  bool ControlsVisible() const { return Media()->ShouldShowControls(); }
+
   ExecutionContext* GetExecutionContext() const {
     return dummy_page_holder_->GetFrame().DomWindow();
   }
 
  protected:
   // Helpers to call MediaPlayerObserver mojo methods and check their results.
+  void NotifyMediaPlaying() {
+    media_->DidPlayerStartPlaying();
+    media_player_observer().WaitUntilReceivedMessage();
+  }
+
+  bool ReceivedMessageMediaPlaying() {
+    return media_player_observer().received_media_playing();
+  }
+
+  void NotifyMediaPaused(bool stream_ended) {
+    media_->DidPlayerPaused(stream_ended);
+    media_player_observer().WaitUntilReceivedMessage();
+  }
+
+  bool ReceivedMessageMediaPaused(bool stream_ended) {
+    return media_player_observer().received_media_paused_stream_ended() ==
+           stream_ended;
+  }
+
   void NotifyMutedStatusChange(bool muted) {
     media_->DidPlayerMutedStatusChange(muted);
-    media_player_observer_receiver_->WaitUntilReceivedMessage();
+    media_player_observer().WaitUntilReceivedMessage();
   }
 
   bool ReceivedMessageMutedStatusChange(bool muted) {
-    return media_player_observer_receiver_->received_muted_status() == muted;
+    return media_player_observer().received_muted_status() == muted;
+  }
+
+  void NotifyMediaMetadataChanged(bool has_audio,
+                                  bool has_video,
+                                  media::MediaContentType media_content_type) {
+    media_->DidMediaMetadataChange(has_audio, has_video, media_content_type);
+    media_player_observer().WaitUntilReceivedMessage();
+  }
+
+  bool ReceivedMessageMediaMetadataChanged(
+      bool has_audio,
+      bool has_video,
+      media::MediaContentType media_content_type) {
+    const auto& result =
+        media_player_observer().received_metadata_changed_result();
+    return result->has_audio == has_audio && result->has_video == has_video &&
+           result->media_content_type == media_content_type;
   }
 
   void NotifyMediaSizeChange(const gfx::Size& size) {
     media_->DidPlayerSizeChange(size);
-    media_player_observer_receiver_->WaitUntilReceivedMessage();
+    media_player_observer().WaitUntilReceivedMessage();
   }
 
   bool ReceivedMessageMediaSizeChange(const gfx::Size& size) {
-    return media_player_observer_receiver_->received_media_size() == size;
+    return media_player_observer().received_media_size() == size;
   }
 
   void NotifyBufferUnderflowEvent() {
     media_->DidBufferUnderflow();
-    media_player_observer_receiver_->WaitUntilReceivedMessage();
+    media_player_observer().WaitUntilReceivedMessage();
   }
 
   bool ReceivedMessageBufferUnderflowEvent() {
-    return media_player_observer_receiver_->received_buffer_underflow();
+    return media_player_observer().received_buffer_underflow();
   }
 
  private:
+  TestMediaPlayerObserver& media_player_observer() {
+    return media_player_host_.observer();
+  }
+
   std::unique_ptr<DummyPageHolder> dummy_page_holder_;
   Persistent<HTMLMediaElement> media_;
 
   // Owned by WebMediaStubLocalFrameClient.
   MockWebMediaPlayer* media_player_;
 
-  // Used to check that mojo messages are received in the other end.
-  std::unique_ptr<MockMediaPlayerObserverReceiverForTesting>
-      media_player_observer_receiver_;
+  TestMediaPlayerHost media_player_host_;
+  mojo::AssociatedReceiver<media::mojom::blink::MediaPlayerHost>
+      media_player_host_receiver_{&media_player_host_};
 };
 
 INSTANTIATE_TEST_SUITE_P(Audio,
@@ -301,35 +434,6 @@ TEST_P(HTMLMediaElementTest, effectiveMediaVolume) {
     Media()->setMuted(data.muted);
     EXPECT_EQ(data.effective_volume, Media()->EffectiveMediaVolume());
   }
-}
-
-enum class TestURLScheme {
-  kHttp,
-  kHttps,
-  kFtp,
-  kFile,
-  kData,
-  kBlob,
-};
-
-AtomicString SrcSchemeToURL(TestURLScheme scheme) {
-  switch (scheme) {
-    case TestURLScheme::kHttp:
-      return "http://example.com/foo.mp4";
-    case TestURLScheme::kHttps:
-      return "https://example.com/foo.mp4";
-    case TestURLScheme::kFtp:
-      return "ftp://example.com/foo.mp4";
-    case TestURLScheme::kFile:
-      return "file:///foo/bar.mp4";
-    case TestURLScheme::kData:
-      return "data:video/mp4;base64,XXXXXXX";
-    case TestURLScheme::kBlob:
-      return "blob:http://example.com/00000000-0000-0000-0000-000000000000";
-    default:
-      NOTREACHED();
-  }
-  return g_empty_atom;
 }
 
 TEST_P(HTMLMediaElementTest, preloadType) {
@@ -658,11 +762,14 @@ TEST_P(HTMLMediaElementTest, ContextPaused) {
 }
 
 TEST_P(HTMLMediaElementTest, GcMarkingNoAllocWebTimeRanges) {
+  ::testing::FLAGS_gtest_death_test_style = "threadsafe";
   auto* thread_state = ThreadState::Current();
   ThreadState::NoAllocationScope no_allocation_scope(thread_state);
   EXPECT_FALSE(thread_state->IsAllocationAllowed());
   // Use of TimeRanges is not allowed during GC marking (crbug.com/970150)
-  EXPECT_DCHECK_DEATH(MakeGarbageCollected<TimeRanges>(0, 0));
+#if DCHECK_IS_ON()
+  EXPECT_DEATH_IF_SUPPORTED(MakeGarbageCollected<TimeRanges>(0, 0), "");
+#endif  // DCHECK_IS_ON()
   // Instead of using TimeRanges, WebTimeRanges can be used without GC
   Vector<WebTimeRanges> ranges;
   ranges.emplace_back();
@@ -903,7 +1010,26 @@ TEST_P(HTMLMediaElementTest, ShowPosterFlag_FalseAfterPlayBeforeReady) {
   EXPECT_FALSE(Media()->IsShowPosterFlagSet());
 }
 
+TEST_P(HTMLMediaElementTest, SendMediaPlayingToObserver) {
+  WaitForPlayer();
+
+  NotifyMediaPlaying();
+  EXPECT_TRUE(ReceivedMessageMediaPlaying());
+}
+
+TEST_P(HTMLMediaElementTest, SendMediaPausedToObserver) {
+  WaitForPlayer();
+
+  NotifyMediaPaused(true);
+  EXPECT_TRUE(ReceivedMessageMediaPaused(true));
+
+  NotifyMediaPaused(false);
+  EXPECT_TRUE(ReceivedMessageMediaPaused(false));
+}
+
 TEST_P(HTMLMediaElementTest, SendMutedStatusChangeToObserver) {
+  WaitForPlayer();
+
   NotifyMutedStatusChange(true);
   EXPECT_TRUE(ReceivedMessageMutedStatusChange(true));
 
@@ -911,15 +1037,71 @@ TEST_P(HTMLMediaElementTest, SendMutedStatusChangeToObserver) {
   EXPECT_TRUE(ReceivedMessageMutedStatusChange(false));
 }
 
+TEST_P(HTMLMediaElementTest, SendMediaMetadataChangedToObserver) {
+  WaitForPlayer();
+
+  bool has_audio = false;
+  bool has_video = true;
+  media::MediaContentType media_content_type =
+      media::MediaContentType::Transient;
+
+  NotifyMediaMetadataChanged(has_audio, has_video, media_content_type);
+  EXPECT_TRUE(ReceivedMessageMediaMetadataChanged(has_audio, has_video,
+                                                  media_content_type));
+  // Change values and test again.
+  has_audio = true;
+  has_video = false;
+  media_content_type = media::MediaContentType::OneShot;
+  NotifyMediaMetadataChanged(has_audio, has_video, media_content_type);
+  EXPECT_TRUE(ReceivedMessageMediaMetadataChanged(has_audio, has_video,
+                                                  media_content_type));
+}
+
 TEST_P(HTMLMediaElementTest, SendMediaSizeChangeToObserver) {
+  WaitForPlayer();
+
   const gfx::Size kTestMediaSizeChangedValue(16, 9);
   NotifyMediaSizeChange(kTestMediaSizeChangedValue);
   EXPECT_TRUE(ReceivedMessageMediaSizeChange(kTestMediaSizeChangedValue));
 }
 
 TEST_P(HTMLMediaElementTest, SendBufferOverflowToObserver) {
+  WaitForPlayer();
+
   NotifyBufferUnderflowEvent();
   EXPECT_TRUE(ReceivedMessageBufferUnderflowEvent());
+}
+
+TEST_P(HTMLMediaElementTest,
+       ControlsVisibilityUserChoiceOverridesControlsAttr) {
+  // Enable scripts to prevent controls being shown due to no scripts.
+  Media()->GetDocument().GetSettings()->SetScriptEnabled(true);
+
+  // Setting the controls attribute to true should show the controls.
+  Media()->SetBooleanAttribute(html_names::kControlsAttr, true);
+  EXPECT_TRUE(ControlsVisible());
+
+  // Setting it to false should hide them.
+  Media()->SetBooleanAttribute(html_names::kControlsAttr, false);
+  EXPECT_FALSE(ControlsVisible());
+
+  // If the user explicitly shows them, that should override the controls
+  // attribute.
+  Media()->SetUserWantsControlsVisible(true);
+  EXPECT_TRUE(ControlsVisible());
+
+  // Setting the controls attribute to false again should do nothing.
+  Media()->SetBooleanAttribute(html_names::kControlsAttr, false);
+  EXPECT_TRUE(ControlsVisible());
+
+  // If the user explicitly hides the controls, that should also override any
+  // controls attribute setting.
+  Media()->SetUserWantsControlsVisible(false);
+  EXPECT_FALSE(ControlsVisible());
+
+  // So setting the controls attribute to true should not show the controls.
+  Media()->SetBooleanAttribute(html_names::kControlsAttr, true);
+  EXPECT_FALSE(ControlsVisible());
 }
 
 }  // namespace blink

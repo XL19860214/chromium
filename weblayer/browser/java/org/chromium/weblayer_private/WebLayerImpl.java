@@ -29,6 +29,8 @@ import android.webkit.WebViewFactory;
 import androidx.annotation.Nullable;
 import androidx.core.content.FileProvider;
 
+import dalvik.system.DexFile;
+
 import org.chromium.base.BuildInfo;
 import org.chromium.base.BundleUtils;
 import org.chromium.base.CommandLine;
@@ -42,26 +44,32 @@ import org.chromium.base.TraceEvent;
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.JNINamespace;
 import org.chromium.base.annotations.NativeMethods;
+import org.chromium.base.compat.ApiHelperForO;
 import org.chromium.base.library_loader.LibraryLoader;
 import org.chromium.base.library_loader.LibraryProcessType;
-import org.chromium.base.library_loader.NativeLibraryPreloader;
 import org.chromium.base.metrics.RecordHistogram;
+import org.chromium.base.task.AsyncTask;
+import org.chromium.base.task.BackgroundOnlyAsyncTask;
+import org.chromium.base.task.PostTask;
+import org.chromium.base.task.TaskTraits;
 import org.chromium.components.browser_ui.contacts_picker.ContactsPickerDialog;
 import org.chromium.components.browser_ui.photo_picker.DecoderServiceHost;
 import org.chromium.components.browser_ui.photo_picker.ImageDecoder;
+import org.chromium.components.browser_ui.photo_picker.PhotoPickerDelegateBase;
 import org.chromium.components.browser_ui.photo_picker.PhotoPickerDialog;
 import org.chromium.components.embedder_support.application.ClassLoaderContextWrapperFactory;
 import org.chromium.components.embedder_support.application.FirebaseConfig;
 import org.chromium.components.embedder_support.util.Origin;
+import org.chromium.components.payments.PaymentDetailsUpdateService;
 import org.chromium.content_public.browser.BrowserStartupController;
 import org.chromium.content_public.browser.ChildProcessCreationParams;
+import org.chromium.content_public.browser.ChildProcessLauncherHelper;
 import org.chromium.content_public.browser.ContactsPicker;
 import org.chromium.content_public.browser.ContactsPickerListener;
 import org.chromium.content_public.browser.DeviceUtils;
 import org.chromium.content_public.browser.SelectionPopupController;
 import org.chromium.net.NetworkChangeNotifier;
 import org.chromium.ui.base.PhotoPicker;
-import org.chromium.ui.base.PhotoPickerDelegate;
 import org.chromium.ui.base.PhotoPickerListener;
 import org.chromium.ui.base.ResourceBundle;
 import org.chromium.ui.base.SelectFileDialog;
@@ -88,6 +96,7 @@ import org.chromium.weblayer_private.metrics.UmaUtils;
 import org.chromium.weblayer_private.settings.SettingsFragmentImpl;
 
 import java.io.File;
+import java.io.IOException;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
@@ -131,6 +140,8 @@ public final class WebLayerImpl extends IWebLayer.Stub {
     // Whether WebView is running in process. Set in init().
     private boolean mIsWebViewCompatMode;
 
+    private boolean mOnNativeLoadedCalled;
+
     private static class FileProviderHelper implements ContentUriUtils.FileProviderUtil {
         // Keep this variable in sync with the value defined in AndroidManifest.xml.
         private static final String API_AUTHORITY_SUFFIX =
@@ -154,13 +165,15 @@ public final class WebLayerImpl extends IWebLayer.Stub {
 
         final ValueCallback<Boolean> loadedCallback = (ValueCallback<Boolean>) ObjectWrapper.unwrap(
                 loadedCallbackWrapper, ValueCallback.class);
+        // WARNING: Ensure any method calls from this guard against the possibility of being called
+        // multiple times (see comment in loadSync()).
         BrowserStartupController.getInstance().startBrowserProcessesAsync(
                 LibraryProcessType.PROCESS_WEBLAYER,
                 /* startGpu */ true, /* startMinimalBrowser */ false,
                 new BrowserStartupController.StartupCallback() {
                     @Override
                     public void onSuccess() {
-                        onNativeLoaded(appContextWrapper);
+                        onNativeLoaded();
                         loadedCallback.onReceiveValue(true);
                     }
                     @Override
@@ -179,10 +192,17 @@ public final class WebLayerImpl extends IWebLayer.Stub {
                 LibraryProcessType.PROCESS_WEBLAYER,
                 /* singleProcess*/ false);
 
-        onNativeLoaded(appContextWrapper);
+        onNativeLoaded();
+        // WARNING: loadAsync() may be in progress, and may call methods that this does as well.
+        // Ensure any method calls from this guard against the possibility of being called multiple
+        // times.
     }
 
-    private void onNativeLoaded(IObjectWrapper appContextWrapper) {
+    private void onNativeLoaded() {
+        // This may be called multiple times, ensure processing only happens once.
+        if (mOnNativeLoadedCalled) return;
+        mOnNativeLoadedCalled = true;
+
         CrashReporterControllerImpl.getInstance().notifyNativeInitialized();
         NetworkChangeNotifier.init();
         NetworkChangeNotifier.registerToReceiveNotificationsAlways();
@@ -221,15 +241,21 @@ public final class WebLayerImpl extends IWebLayer.Stub {
             notifyWebViewRunningInProcess(remoteContext.getClassLoader());
         }
 
+        Context appContext = minimalInitForContext(
+                ObjectWrapper.unwrap(appContextWrapper, Context.class), remoteContext);
+        GmsBridge.getInstance().checkClientAppContext(appContext);
+
         // Load library in the background since it may be expensive.
         // TODO(crbug.com/1146438): Look into enabling relro sharing in browser process. It seems to
         // crash when WebView is loaded in the same process.
-        new Thread(() -> {
-            LibraryLoader.getInstance().loadNowOverrideApplicationContext(remoteContext);
-        }).start();
+        new BackgroundOnlyAsyncTask<Void>() {
+            @Override
+            protected Void doInBackground() {
+                LibraryLoader.getInstance().loadNow();
+                return null;
+            }
+        }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
 
-        Context appContext = minimalInitForContext(
-                ObjectWrapper.unwrap(appContextWrapper, Context.class), remoteContext);
         PackageInfo packageInfo = WebViewFactory.getLoadedPackageInfo();
 
         if (!CommandLine.isInitialized()) {
@@ -266,10 +292,11 @@ public final class WebLayerImpl extends IWebLayer.Stub {
         SelectionPopupController.setMustUseWebContentsContext();
         SelectionPopupController.setShouldGetReadbackViewFromWindowAndroid();
 
-        ResourceBundle.setAvailablePakLocales(new String[] {}, ProductConfig.UNCOMPRESSED_LOCALES);
+        ResourceBundle.setAvailablePakLocales(ProductConfig.LOCALES);
         BundleUtils.setIsBundle(ProductConfig.IS_BUNDLE);
 
         setChildProcessCreationParams(appContext, packageInfo.packageName);
+        ChildProcessLauncherHelper.warmUp(appContext, true);
 
         // Creating the Android shared preferences object causes I/O.
         try (StrictModeContext ignored = StrictModeContext.allowDiskWrites()) {
@@ -300,7 +327,7 @@ public final class WebLayerImpl extends IWebLayer.Stub {
                 });
 
         DecoderServiceHost.setIntentSupplier(() -> { return createImageDecoderServiceIntent(); });
-        SelectFileDialog.setPhotoPickerDelegate(new PhotoPickerDelegate() {
+        SelectFileDialog.setPhotoPickerDelegate(new PhotoPickerDelegateBase() {
             @Override
             public PhotoPicker showPhotoPicker(WindowAndroid windowAndroid,
                     PhotoPickerListener listener, boolean allowMultiple, List<String> mimeTypes) {
@@ -310,25 +337,11 @@ public final class WebLayerImpl extends IWebLayer.Stub {
                 dialog.show();
                 return dialog;
             }
-
-            @Override
-            public boolean supportsVideos() {
-                return false;
-            }
         });
 
-        TraceEvent.end("WebLayer init");
-    }
+        performDexFixIfNecessary(packageInfo);
 
-    public static void setLibraryPreloader(String packageName, ClassLoader classLoader) {
-        if (!LibraryLoader.getInstance().isLoadedByZygote()) {
-            LibraryLoader.getInstance().setNativeLibraryPreloader(new NativeLibraryPreloader() {
-                @Override
-                public int loadLibrary(ApplicationInfo info) {
-                    return loadNativeLibrary(packageName, classLoader);
-                }
-            });
-        }
+        TraceEvent.end("WebLayer init");
     }
 
     @Override
@@ -412,8 +425,6 @@ public final class WebLayerImpl extends IWebLayer.Stub {
 
         if (intent.getAction().startsWith(DownloadImpl.getIntentPrefix())) {
             DownloadImpl.forwardIntent(context, intent, mProfileManager);
-        } else if (intent.getAction().startsWith(MediaStreamManager.getIntentPrefix())) {
-            MediaStreamManager.forwardIntent(intent);
         }
     }
 
@@ -458,6 +469,18 @@ public final class WebLayerImpl extends IWebLayer.Stub {
         ImageDecoder imageDecoder = new ImageDecoder();
         imageDecoder.initializeSandbox();
         return imageDecoder;
+    }
+
+    @Override
+    public IObjectWrapper createGooglePayDataCallbacksService() {
+        StrictModeWorkaround.apply();
+        return ObjectWrapper.wrap(GmsBridge.getInstance().createGooglePayDataCallbacksService());
+    }
+
+    @Override
+    public IObjectWrapper createPaymentDetailsUpdateService() {
+        StrictModeWorkaround.apply();
+        return ObjectWrapper.wrap(new PaymentDetailsUpdateService());
     }
 
     @Override
@@ -760,26 +783,6 @@ public final class WebLayerImpl extends IWebLayer.Stub {
         }
     }
 
-    private static int loadNativeLibrary(String packageName, ClassLoader cl) {
-        // Loading the library triggers disk access.
-        try (StrictModeContext ignored = StrictModeContext.allowDiskReads()) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                return WebViewFactory.loadWebViewNativeLibraryFromPackage(packageName, cl);
-            } else {
-                try {
-                    Method loadNativeLibrary =
-                            WebViewFactory.class.getDeclaredMethod("loadNativeLibrary");
-                    loadNativeLibrary.setAccessible(true);
-                    loadNativeLibrary.invoke(null);
-                    return 0; // LIBLOAD_SUCCESS
-                } catch (ReflectiveOperationException e) {
-                    Log.e(TAG, "Failed to load native library.", e);
-                    return 6; // LIBLOAD_FAILED_TO_LOAD_LIBRARY
-                }
-            }
-        }
-    }
-
     private void setChildProcessCreationParams(Context appContext, String implPackageName) {
         final boolean bindToCaller = true;
         final boolean ignoreVisibilityForImportance = false;
@@ -916,6 +919,44 @@ public final class WebLayerImpl extends IWebLayer.Stub {
     @Nullable
     private static String getEmbedderName() {
         return getClientApplicationName();
+    }
+
+    /*
+     * Android O MR1 has a bug where bg-dexopt-job will break optimized dex files for isolated
+     * splits. This leads to *very* slow startup on those devices. To mitigate this, we attempt
+     * to force a dex compile if necessary.
+     */
+    private static void performDexFixIfNecessary(PackageInfo packageInfo) {
+        if (Build.VERSION.SDK_INT != Build.VERSION_CODES.O_MR1) {
+            return;
+        }
+
+        PostTask.postTask(TaskTraits.BEST_EFFORT_MAY_BLOCK, () -> {
+            ApplicationInfo appInfo = packageInfo.applicationInfo;
+            String[] splitNames = ApiHelperForO.getSplitNames(appInfo);
+            if (splitNames == null) {
+                return;
+            }
+
+            for (int i = 0; i < splitNames.length; i++) {
+                String splitName = splitNames[i];
+                // WebLayer depends on the "weblayer" split and "chrome" split (if running in
+                // Monochrome).
+                if (!splitName.equals("chrome") && !splitName.equals("weblayer")) {
+                    continue;
+                }
+                String splitDir = appInfo.splitSourceDirs[i];
+                try {
+                    if (DexFile.isDexOptNeeded(splitDir)) {
+                        String cmd = String.format("cmd package compile -r shared --split %s %s",
+                                new File(splitDir).getName(), packageInfo.packageName);
+                        Runtime.getRuntime().exec(cmd);
+                    }
+                } catch (IOException e) {
+                    Log.e(TAG, "Error fixing dex files.", e);
+                }
+            }
+        });
     }
 
     @NativeMethods

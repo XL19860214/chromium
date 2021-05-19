@@ -5,9 +5,10 @@
 
 #include <memory>
 
-#include "chrome/browser/device_api/managed_configuration_api_factory.h"
+#include "chrome/browser/device_api/device_attribute_api.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/web_applications/components/policy/web_app_policy_constants.h"
+#include "chrome/common/chrome_features.h"
 #include "chrome/common/pref_names.h"
 #include "components/prefs/pref_service.h"
 #include "content/public/browser/browser_thread.h"
@@ -18,6 +19,11 @@ namespace {
 
 bool IsTrustedContext(content::RenderFrameHost* host,
                       const url::Origin& origin) {
+  // TODO(anqing): This is used for dev trial. The flag will be removed when
+  // permission policies are ready.
+  if (!base::FeatureList::IsEnabled(features::kEnableRestrictedWebApis))
+    return false;
+
   PrefService* prefs =
       Profile::FromBrowserContext(host->GetBrowserContext())->GetPrefs();
 
@@ -44,11 +50,9 @@ DeviceServiceImpl::DeviceServiceImpl(
       prefs::kWebAppInstallForceList,
       base::BindRepeating(&DeviceServiceImpl::OnForceInstallWebAppListChanged,
                           base::Unretained(this)));
-  managed_configuration_api()->AddObserver(origin(), this);
 }
-DeviceServiceImpl::~DeviceServiceImpl() {
-  managed_configuration_api()->RemoveObserver(origin(), this);
-}
+
+DeviceServiceImpl::~DeviceServiceImpl() = default;
 
 // static
 void DeviceServiceImpl::Create(
@@ -75,33 +79,24 @@ void DeviceServiceImpl::OnForceInstallWebAppListChanged() {
   }
 }
 
-ManagedConfigurationAPI* DeviceServiceImpl::managed_configuration_api() {
-  return ManagedConfigurationAPIFactory::GetForProfile(
-      Profile::FromBrowserContext(host_->GetBrowserContext()));
+void DeviceServiceImpl::GetDirectoryId(GetDirectoryIdCallback callback) {
+  device_attribute_api::GetDirectoryId(std::move(callback));
 }
 
-void DeviceServiceImpl::GetManagedConfiguration(
-    const std::vector<std::string>& keys,
-    GetManagedConfigurationCallback callback) {
-  managed_configuration_api()->GetOriginPolicyConfiguration(
-      origin(), keys,
-      base::BindOnce(
-          [](GetManagedConfigurationCallback callback,
-             std::unique_ptr<base::DictionaryValue> result) {
-            std::vector<std::pair<std::string, std::string>> items;
-            for (const auto& it : result->DictItems())
-              items.emplace_back(it.first, it.second.GetString());
-            std::move(callback).Run(
-                base::flat_map<std::string, std::string>(std::move(items)));
-          },
-          std::move(callback)));
+void DeviceServiceImpl::GetHostname(GetHostnameCallback callback) {
+  device_attribute_api::GetHostname(std::move(callback));
 }
 
-void DeviceServiceImpl::SubscribeToManagedConfiguration(
-    mojo::PendingRemote<blink::mojom::ManagedConfigurationObserver> observer) {
-  configuration_subscription_.Bind(std::move(observer));
+void DeviceServiceImpl::GetSerialNumber(GetSerialNumberCallback callback) {
+  device_attribute_api::GetSerialNumber(std::move(callback));
 }
 
-void DeviceServiceImpl::OnManagedConfigurationChanged() {
-  configuration_subscription_->OnConfigurationChanged();
+void DeviceServiceImpl::GetAnnotatedAssetId(
+    GetAnnotatedAssetIdCallback callback) {
+  device_attribute_api::GetAnnotatedAssetId(std::move(callback));
+}
+
+void DeviceServiceImpl::GetAnnotatedLocation(
+    GetAnnotatedLocationCallback callback) {
+  device_attribute_api::GetAnnotatedLocation(std::move(callback));
 }

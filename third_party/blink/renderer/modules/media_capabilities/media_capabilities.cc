@@ -11,11 +11,11 @@
 #include "base/feature_list.h"
 #include "base/metrics/field_trial_params.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/optional.h"
 #include "media/base/media_switches.h"
 #include "media/base/media_util.h"
 #include "media/base/mime_util.h"
 #include "media/base/supported_types.h"
+#include "media/base/supported_video_decoder_config.h"
 #include "media/base/video_decoder_config.h"
 #include "media/filters/stream_parser_factory.h"
 #include "media/learning/common/media_learning_tasks.h"
@@ -24,9 +24,9 @@
 #include "media/mojo/mojom/media_metrics_provider.mojom-blink.h"
 #include "media/mojo/mojom/media_types.mojom-blink.h"
 #include "media/video/gpu_video_accelerator_factories.h"
-#include "media/video/supported_video_decoder_config.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/common/browser_interface_broker_proxy.h"
-#include "third_party/blink/public/mojom/feature_policy/feature_policy.mojom-blink.h"
+#include "third_party/blink/public/mojom/permissions_policy/permissions_policy.mojom-blink.h"
 #include "third_party/blink/public/mojom/web_feature/web_feature.mojom-blink.h"
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/public/platform/task_type.h"
@@ -48,6 +48,7 @@
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/execution_context/navigator_base.h"
 #include "third_party/blink/renderer/core/frame/local_dom_window.h"
+#include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/html/parser/html_parser_idioms.h"
 #include "third_party/blink/renderer/core/inspector/console_message.h"
 #include "third_party/blink/renderer/modules/encryptedmedia/encrypted_media_utils.h"
@@ -55,6 +56,7 @@
 #include "third_party/blink/renderer/modules/encryptedmedia/media_key_system_access_initializer_base.h"
 #include "third_party/blink/renderer/modules/encryptedmedia/media_keys_controller.h"
 #include "third_party/blink/renderer/modules/media_capabilities/media_capabilities_identifiability_metrics.h"
+#include "third_party/blink/renderer/modules/media_capabilities_names.h"
 #include "third_party/blink/renderer/modules/mediarecorder/media_recorder_handler.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/bindings/script_state.h"
@@ -310,9 +312,9 @@ WebAudioConfiguration ToWebAudioConfiguration(
   DCHECK(parsed_content_type.IsValid());
   DCHECK(!parsed_content_type.GetParameters().HasDuplicatedNames());
 
-  DEFINE_THREAD_SAFE_STATIC_LOCAL(const String, codecs, ("codecs"));
   web_configuration.mime_type = parsed_content_type.MimeType().LowerASCII();
-  web_configuration.codec = parsed_content_type.ParameterValueForName(codecs);
+  web_configuration.codec = parsed_content_type.ParameterValueForName(
+      media_capabilities_names::kCodecs);
 
   // |channels| is optional and will be set to a null WebString if not present.
   web_configuration.channels = configuration->hasChannels()
@@ -338,9 +340,9 @@ WebVideoConfiguration ToWebVideoConfiguration(
   DCHECK(parsed_content_type.IsValid());
   DCHECK(!parsed_content_type.GetParameters().HasDuplicatedNames());
 
-  DEFINE_THREAD_SAFE_STATIC_LOCAL(const String, codecs, ("codecs"));
   web_configuration.mime_type = parsed_content_type.MimeType().LowerASCII();
-  web_configuration.codec = parsed_content_type.ParameterValueForName(codecs);
+  web_configuration.codec = parsed_content_type.ParameterValueForName(
+      media_capabilities_names::kCodecs);
 
   DCHECK(configuration->hasWidth());
   web_configuration.width = configuration->width();
@@ -600,9 +602,9 @@ bool ParseContentType(const String& content_type,
     return false;
   }
 
-  DEFINE_THREAD_SAFE_STATIC_LOCAL(const String, codecs, ("codecs"));
   *mime_type = parsed_content_type.MimeType().LowerASCII();
-  *codec = parsed_content_type.ParameterValueForName(codecs);
+  *codec = parsed_content_type.ParameterValueForName(
+      media_capabilities_names::kCodecs);
   return true;
 }
 
@@ -647,7 +649,7 @@ MediaCapabilities::PendingCallbackState::PendingCallbackState(
     ScriptPromiseResolver* resolver,
     MediaKeySystemAccess* access,
     const base::TimeTicks& request_time,
-    base::Optional<IdentifiableToken> input_token)
+    absl::optional<IdentifiableToken> input_token)
     : resolver(resolver),
       key_system_access(access),
       request_time(request_time),
@@ -953,14 +955,14 @@ ScriptPromise MediaCapabilities::GetEmeSupport(
   // See context here:
   // https://sites.google.com/a/chromium.org/dev/Home/chromium-security/deprecating-permissions-in-cross-origin-iframes
   if (!execution_context->IsFeatureEnabled(
-          mojom::blink::FeaturePolicyFeature::kEncryptedMedia,
+          mojom::blink::PermissionsPolicyFeature::kEncryptedMedia,
           ReportOptions::kReportOnFailure)) {
     UseCounter::Count(execution_context,
                       WebFeature::kEncryptedMediaDisabledByFeaturePolicy);
     execution_context->AddConsoleMessage(MakeGarbageCollected<ConsoleMessage>(
         mojom::ConsoleMessageSource::kJavaScript,
         mojom::ConsoleMessageLevel::kWarning,
-        kEncryptedMediaFeaturePolicyConsoleWarning));
+        kEncryptedMediaPermissionsPolicyConsoleWarning));
     exception_state.ThrowSecurityError(
         "decodingInfo(): Creating MediaKeySystemAccess is disabled by feature "
         "policy.");
@@ -1239,25 +1241,9 @@ void MediaCapabilities::GetGpuFactoriesSupport(
       gfx::Rect(natural_size) /* visible_rect */, natural_size,
       media::EmptyExtraData(), encryption_scheme);
 
-  static_assert(media::VideoDecoderImplementation::kAlternate ==
-                    media::VideoDecoderImplementation::kMaxValue,
-                "Keep the array below in sync.");
-  media::VideoDecoderImplementation decoder_impls[] = {
-      media::VideoDecoderImplementation::kDefault,
-      media::VideoDecoderImplementation::kAlternate};
-  media::GpuVideoAcceleratorFactories::Supported supported =
-      media::GpuVideoAcceleratorFactories::Supported::kUnknown;
-  for (const auto& impl : decoder_impls) {
-    supported = gpu_factories->IsDecoderConfigSupported(impl, config);
-    DCHECK_NE(supported,
-              media::GpuVideoAcceleratorFactories::Supported::kUnknown);
-    if (supported == media::GpuVideoAcceleratorFactories::Supported::kTrue)
-      break;
-  }
-
   OnGpuFactoriesSupport(
-      callback_id,
-      supported == media::GpuVideoAcceleratorFactories::Supported::kTrue);
+      callback_id, gpu_factories->IsDecoderConfigSupported(config) ==
+                       media::GpuVideoAcceleratorFactories::Supported::kTrue);
 }
 
 void MediaCapabilities::ResolveCallbackIfReady(int callback_id) {
@@ -1340,7 +1326,7 @@ void MediaCapabilities::ResolveCallbackIfReady(int callback_id) {
 
 void MediaCapabilities::OnBadWindowPrediction(
     int callback_id,
-    const base::Optional<::media::learning::TargetHistogram>& histogram) {
+    const absl::optional<::media::learning::TargetHistogram>& histogram) {
   DCHECK(pending_cb_map_.Contains(callback_id));
   PendingCallbackState* pending_cb = pending_cb_map_.at(callback_id);
 
@@ -1364,7 +1350,7 @@ void MediaCapabilities::OnBadWindowPrediction(
 
 void MediaCapabilities::OnNnrPrediction(
     int callback_id,
-    const base::Optional<::media::learning::TargetHistogram>& histogram) {
+    const absl::optional<::media::learning::TargetHistogram>& histogram) {
   DCHECK(pending_cb_map_.Contains(callback_id));
   PendingCallbackState* pending_cb = pending_cb_map_.at(callback_id);
 

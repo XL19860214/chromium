@@ -164,7 +164,7 @@ class SharingMessageCallbackChecker : public SingleClientStatusChangeChecker {
   }
 
   const sync_pb::SharingMessageCommitError::ErrorCode expected_error_code_;
-  base::Optional<sync_pb::SharingMessageCommitError> last_error_code_;
+  absl::optional<sync_pb::SharingMessageCommitError> last_error_code_;
 
   base::WeakPtrFactory<SharingMessageCallbackChecker> weak_ptr_factory_{this};
 };
@@ -205,7 +205,7 @@ class SingleClientSharingMessageSyncTest : public SyncTest {
   SingleClientSharingMessageSyncTest() : SyncTest(SINGLE_CLIENT) {
     // Replace the default value (5 seconds) with 1 minute to reduce possibility
     // of test flakiness.
-    feature_list_.InitAndEnableFeatureWithParameters(
+    features_override_.InitAndEnableFeatureWithParameters(
         kSharingMessageBridgeTimeout,
         {{"SharingMessageBridgeTimeoutSeconds", "60"}});
   }
@@ -216,6 +216,9 @@ class SingleClientSharingMessageSyncTest : public SyncTest {
                                          std::move(expected_specifics))
         .Wait();
   }
+
+ private:
+  base::test::ScopedFeatureList features_override_;
 };
 
 IN_PROC_BROWSER_TEST_F(SingleClientSharingMessageSyncTest, ShouldSubmit) {

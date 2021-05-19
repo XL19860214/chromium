@@ -48,7 +48,7 @@ const base::Feature kSyncAllowWalletDataInTransportModeWithCustomPassphrase{
 
 // Controls whether to enable syncing of Autofill Wallet offer data.
 const base::Feature kSyncAutofillWalletOfferData{
-    "SyncAutofillWalletOfferData", base::FEATURE_DISABLED_BY_DEFAULT};
+    "SyncAutofillWalletOfferData", base::FEATURE_ENABLED_BY_DEFAULT};
 
 // Controls whether to enable syncing of Wi-Fi configurations.
 const base::Feature kSyncWifiConfigurations{"SyncWifiConfigurations",
@@ -56,19 +56,7 @@ const base::Feature kSyncWifiConfigurations{"SyncWifiConfigurations",
 
 // Stops honoring the Android master sync toggle.
 const base::Feature kDecoupleSyncFromAndroidMasterSync{
-    "DecoupleSyncFromAndroidMasterSync", base::FEATURE_DISABLED_BY_DEFAULT};
-
-// Allows trusted vault implementation to follow key rotation (including device
-// registration).
-const base::Feature kFollowTrustedVaultKeyRotation{
-    "FollowTrustedVaultKeyRotation", base::FEATURE_DISABLED_BY_DEFAULT};
-
-// Specifies how long requests to vault service shouldn't be retried after
-// encountering transient error.
-const base::FeatureParam<base::TimeDelta>
-    kTrustedVaultServiceThrottlingDuration{
-        &kFollowTrustedVaultKeyRotation,
-        "TrustedVaultServiceThrottlingDuration", base::TimeDelta::FromDays(1)};
+    "DecoupleSyncFromAndroidMasterSync", base::FEATURE_ENABLED_BY_DEFAULT};
 
 // Sync requires policies to be loaded before starting.
 const base::Feature kSyncRequiresPoliciesLoaded{
@@ -82,5 +70,10 @@ const base::FeatureParam<base::TimeDelta> kSyncPolicyLoadTimeout{
 const base::Feature kSyncSupportTrustedVaultPassphraseRecovery{
     "SyncSupportTrustedVaultPassphraseRecovery",
     base::FEATURE_DISABLED_BY_DEFAULT};
+
+// Whether the entry point to opt in to trusted vault in settings should be
+// shown.
+const base::Feature kSyncOfferTrustedVaultOptIn{
+    "SyncOfferTrustedVaultOptIn", base::FEATURE_DISABLED_BY_DEFAULT};
 
 }  // namespace switches

@@ -4,14 +4,18 @@
 
 #include "fuchsia/engine/browser/web_engine_content_browser_client.h"
 
-#include <fuchsia/web/cpp/fidl.h>
 #include <string>
 #include <utility>
 
+#include "base/i18n/rtl.h"
 #include "base/stl_util.h"
 #include "base/strings/string_split.h"
 #include "components/policy/content/safe_sites_navigation_throttle.h"
+#include "components/site_isolation/features.h"
+#include "components/site_isolation/preloaded_isolated_origins.h"
+#include "components/strings/grit/components_locale_settings.h"
 #include "components/version_info/version_info.h"
+#include "content/public/browser/client_certificate_delegate.h"
 #include "content/public/browser/devtools_manager_delegate.h"
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/network_service_instance.h"
@@ -33,32 +37,35 @@
 #include "services/network/public/cpp/network_switches.h"
 #include "services/network/public/mojom/network_service.mojom.h"
 #include "third_party/blink/public/mojom/webpreferences/web_preferences.mojom.h"
+#include "ui/base/l10n/l10n_util.h"
 
 namespace {
 
 class DevToolsManagerDelegate : public content::DevToolsManagerDelegate {
  public:
-  DevToolsManagerDelegate(content::BrowserContext* browser_context,
-                          WebEngineDevToolsController* controller)
-      : browser_context_(browser_context), controller_(controller) {
-    DCHECK(browser_context_);
-    DCHECK(controller_);
+  explicit DevToolsManagerDelegate(WebEngineBrowserMainParts* main_parts)
+      : main_parts_(main_parts) {
+    DCHECK(main_parts_);
   }
   ~DevToolsManagerDelegate() final = default;
 
+  DevToolsManagerDelegate(const DevToolsManagerDelegate&) = delete;
+  DevToolsManagerDelegate& operator=(const DevToolsManagerDelegate&) = delete;
+
   // content::DevToolsManagerDelegate implementation.
+  std::vector<content::BrowserContext*> GetBrowserContexts() final {
+    return main_parts_->browser_contexts();
+  }
   content::BrowserContext* GetDefaultBrowserContext() final {
-    return browser_context_;
+    std::vector<content::BrowserContext*> contexts = GetBrowserContexts();
+    return contexts.empty() ? nullptr : contexts.front();
   }
   content::DevToolsAgentHost::List RemoteDebuggingTargets() final {
-    return controller_->RemoteDebuggingTargets();
+    return main_parts_->devtools_controller()->RemoteDebuggingTargets();
   }
 
  private:
-  content::BrowserContext* const browser_context_;
-  WebEngineDevToolsController* const controller_;
-
-  DISALLOW_COPY_AND_ASSIGN(DevToolsManagerDelegate);
+  WebEngineBrowserMainParts* const main_parts_;
 };
 
 std::vector<std::string> GetCorsExemptHeaders() {
@@ -70,10 +77,8 @@ std::vector<std::string> GetCorsExemptHeaders() {
 
 }  // namespace
 
-WebEngineContentBrowserClient::WebEngineContentBrowserClient(
-    fidl::InterfaceRequest<fuchsia::web::Context> request)
-    : request_(std::move(request)),
-      cors_exempt_headers_(GetCorsExemptHeaders()),
+WebEngineContentBrowserClient::WebEngineContentBrowserClient()
+    : cors_exempt_headers_(GetCorsExemptHeaders()),
       allow_insecure_content_(base::CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kAllowRunningInsecureContent)) {}
 
@@ -82,20 +87,16 @@ WebEngineContentBrowserClient::~WebEngineContentBrowserClient() = default;
 std::unique_ptr<content::BrowserMainParts>
 WebEngineContentBrowserClient::CreateBrowserMainParts(
     const content::MainFunctionParams& parameters) {
-  DCHECK(request_);
-  auto browser_main_parts = std::make_unique<WebEngineBrowserMainParts>(
-      parameters, std::move(request_));
-
+  auto browser_main_parts =
+      std::make_unique<WebEngineBrowserMainParts>(this, parameters);
   main_parts_ = browser_main_parts.get();
-
   return browser_main_parts;
 }
 
-content::DevToolsManagerDelegate*
-WebEngineContentBrowserClient::GetDevToolsManagerDelegate() {
+std::unique_ptr<content::DevToolsManagerDelegate>
+WebEngineContentBrowserClient::CreateDevToolsManagerDelegate() {
   DCHECK(main_parts_);
-  return new DevToolsManagerDelegate(main_parts_->browser_context(),
-                                     main_parts_->devtools_controller());
+  return std::make_unique<DevToolsManagerDelegate>(main_parts_);
 }
 
 std::string WebEngineContentBrowserClient::GetProduct() {
@@ -114,7 +115,7 @@ std::string WebEngineContentBrowserClient::GetUserAgent() {
 }
 
 void WebEngineContentBrowserClient::OverrideWebkitPrefs(
-    content::RenderViewHost* rvh,
+    content::WebContents* web_contents,
     blink::web_pref::WebPreferences* web_prefs) {
   // Disable WebSQL support since it's being removed from the web platform.
   web_prefs->databases_enabled = false;
@@ -138,7 +139,7 @@ void WebEngineContentBrowserClient::
         ukm::SourceIdObj ukm_source_id,
         NonNetworkURLLoaderFactoryMap* factories) {
   if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kContentDirectories)) {
+          switches::kEnableContentDirectories)) {
     factories->emplace(cr_fuchsia::kFuchsiaDirScheme,
                        ContentDirectoryLoaderFactory::Create());
   }
@@ -150,7 +151,7 @@ void WebEngineContentBrowserClient::
         int render_frame_id,
         NonNetworkURLLoaderFactoryMap* factories) {
   if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kContentDirectories)) {
+          switches::kEnableContentDirectories)) {
     factories->emplace(cr_fuchsia::kFuchsiaDirScheme,
                        ContentDirectoryLoaderFactory::Create());
   }
@@ -169,10 +170,10 @@ void WebEngineContentBrowserClient::AppendExtraCommandLineSwitches(
     int child_process_id) {
   // TODO(https://crbug.com/1083520): Pass based on process type.
   constexpr char const* kSwitchesToCopy[] = {
-      switches::kContentDirectories,
       switches::kCorsExemptHeaders,
       switches::kDisableSoftwareVideoDecoders,
       switches::kEnableCastStreamingReceiver,
+      switches::kEnableContentDirectories,
       switches::kEnableProtectedVideoBuffers,
       switches::kEnableWidevine,
       switches::kForceProtectedVideoOutputBuffers,
@@ -184,6 +185,30 @@ void WebEngineContentBrowserClient::AppendExtraCommandLineSwitches(
 
   command_line->CopySwitchesFrom(*base::CommandLine::ForCurrentProcess(),
                                  kSwitchesToCopy, base::size(kSwitchesToCopy));
+}
+
+std::string WebEngineContentBrowserClient::GetApplicationLocale() {
+  // ICU is configured with the system locale by WebEngineBrowserMainParts.
+  return base::i18n::GetConfiguredLocale();
+}
+
+std::string WebEngineContentBrowserClient::GetAcceptLangs(
+    content::BrowserContext* context) {
+  // Returns a comma-separated list of language codes, in preference order.
+  // This is suitable for direct use setting the "sec-ch-lang" header, or
+  // passed to net::HttpUtil::GenerateAcceptLanguageHeader() to generate a
+  // legacy "accept-language" header value.
+  return l10n_util::GetStringUTF8(IDS_ACCEPT_LANGUAGES);
+}
+
+base::OnceClosure WebEngineContentBrowserClient::SelectClientCertificate(
+    content::WebContents* web_contents,
+    net::SSLCertRequestInfo* cert_request_info,
+    net::ClientCertIdentityList client_certs,
+    std::unique_ptr<content::ClientCertificateDelegate> delegate) {
+  // Continue without a certificate.
+  delegate->ContinueWithCertificate(nullptr, nullptr);
+  return base::OnceClosure();
 }
 
 std::vector<std::unique_ptr<content::NavigationThrottle>>
@@ -200,7 +225,7 @@ WebEngineContentBrowserClient::CreateThrottlesForNavigation(
         navigation_handle, frame_impl->navigation_policy_handler()));
   }
 
-  const base::Optional<std::string>& explicit_sites_filter_error_page =
+  const absl::optional<std::string>& explicit_sites_filter_error_page =
       frame_impl->explicit_sites_filter_error_page();
 
   if (explicit_sites_filter_error_page) {
@@ -226,9 +251,13 @@ WebEngineContentBrowserClient::CreateURLLoaderThrottles(
   }
 
   std::vector<std::unique_ptr<blink::URLLoaderThrottle>> throttles;
-  throttles.emplace_back(std::make_unique<WebEngineURLLoaderThrottle>(
+  scoped_refptr<WebEngineURLLoaderThrottle::UrlRequestRewriteRules>& rules =
       FrameImpl::FromWebContents(wc_getter.Run())
-          ->url_request_rewrite_rules_manager()));
+          ->url_request_rewrite_rules_manager()
+          ->GetCachedRules();
+  if (rules) {
+    throttles.emplace_back(std::make_unique<WebEngineURLLoaderThrottle>(rules));
+  }
   return throttles;
 }
 
@@ -237,13 +266,28 @@ void WebEngineContentBrowserClient::ConfigureNetworkContextParams(
     bool in_memory,
     const base::FilePath& relative_partition_path,
     network::mojom::NetworkContextParams* network_context_params,
-    network::mojom::CertVerifierCreationParams* cert_verifier_creation_params) {
-  // Same as ContentBrowserClient::ConfigureNetworkContextParams().
+    cert_verifier::mojom::CertVerifierCreationParams*
+        cert_verifier_creation_params) {
   network_context_params->user_agent = GetUserAgent();
-  network_context_params->accept_language = "en-us,en";
+  network_context_params->accept_language =
+      net::HttpUtil::GenerateAcceptLanguageHeader(GetAcceptLangs(context));
 
   // Set the list of cors_exempt_headers which may be specified in a URLRequest,
   // starting with the headers passed in via
   // |CreateContextParams.cors_exempt_headers|.
   network_context_params->cors_exempt_header_list = cors_exempt_headers_;
+}
+
+std::vector<url::Origin>
+WebEngineContentBrowserClient::GetOriginsRequiringDedicatedProcess() {
+  std::vector<url::Origin> isolated_origin_list;
+
+  // Include additional origins preloaded with specific browser configurations,
+  // if any.
+  auto built_in_origins =
+      site_isolation::GetBrowserSpecificBuiltInIsolatedOrigins();
+  std::move(std::begin(built_in_origins), std::end(built_in_origins),
+            std::back_inserter(isolated_origin_list));
+
+  return isolated_origin_list;
 }

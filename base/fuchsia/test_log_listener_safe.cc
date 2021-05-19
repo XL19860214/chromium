@@ -6,8 +6,10 @@
 
 #include "base/fuchsia/fuchsia_logging.h"
 #include "base/run_loop.h"
+#include "base/strings/string_piece.h"
 #include "base/test/bind.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace base {
 
@@ -54,7 +56,7 @@ void SimpleTestLogListener::ListenToLog(
   log->ListenSafe(binding_.NewBinding(), std::move(options));
 }
 
-base::Optional<fuchsia::logger::LogMessage>
+absl::optional<fuchsia::logger::LogMessage>
 SimpleTestLogListener::RunUntilMessageReceived(
     base::StringPiece expected_string) {
   while (!logged_messages_.empty()) {
@@ -66,7 +68,7 @@ SimpleTestLogListener::RunUntilMessageReceived(
     }
   }
 
-  base::Optional<fuchsia::logger::LogMessage> logged_message;
+  absl::optional<fuchsia::logger::LogMessage> logged_message;
   base::RunLoop loop;
   binding_.set_error_handler(
       [quit_loop = loop.QuitClosure()](zx_status_t status) {
@@ -74,7 +76,7 @@ SimpleTestLogListener::RunUntilMessageReceived(
         quit_loop.Run();
       });
   on_log_message_ = base::BindLambdaForTesting(
-      [&logged_message, expected_string = expected_string.as_string(),
+      [&logged_message, expected_string = std::string(expected_string),
        quit_loop =
            loop.QuitClosure()](const fuchsia::logger::LogMessage& message) {
         if (message.msg.find(expected_string) == std::string::npos)

@@ -179,7 +179,7 @@ struct NGLogicalLineItem {
   const LogicalSize& Size() const { return rect.size; }
   LogicalSize MarginSize() const { return {inline_size, Size().block_size}; }
 
-  const NGPhysicalContainerFragment* PhysicalFragment() const {
+  const NGPhysicalFragment* PhysicalFragment() const {
     if (layout_result)
       return &layout_result->PhysicalFragment();
     return nullptr;
@@ -243,6 +243,9 @@ struct NGLogicalLineItem {
 
   bool is_hidden_for_paint = false;
 };
+
+CORE_EXPORT std::ostream& operator<<(std::ostream& stream,
+                                     const NGLogicalLineItem& item);
 
 // A vector of Child.
 // Unlike the fragment builder, chlidren are mutable.

@@ -4,6 +4,7 @@
 
 #include "base/command_line.h"
 #include "base/macros.h"
+#include "base/strings/stringprintf.h"
 #include "build/build_config.h"
 #include "content/browser/child_process_security_policy_impl.h"
 #include "content/browser/renderer_host/frame_tree_node.h"
@@ -18,6 +19,7 @@
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/content_browser_test.h"
 #include "content/public/test/content_browser_test_utils.h"
+#include "content/public/test/scoped_web_ui_controller_factory_registration.h"
 #include "content/public/test/test_frame_navigation_observer.h"
 #include "content/public/test/test_navigation_observer.h"
 #include "content/public/test/web_ui_browsertest_util.h"
@@ -38,8 +40,8 @@ const char kAddIframeScript[] =
     "frame.src = $1;\n"
     "document.body.appendChild(frame);\n";
 
-content::mojom::OpenURLParamsPtr CreateOpenURLParams(const GURL& url) {
-  auto params = content::mojom::OpenURLParams::New();
+blink::mojom::OpenURLParamsPtr CreateOpenURLParams(const GURL& url) {
+  auto params = blink::mojom::OpenURLParams::New();
   params->url = url;
   params->disposition = WindowOpenDisposition::CURRENT_TAB;
   params->should_replace_current_entry = false;
@@ -49,7 +51,7 @@ content::mojom::OpenURLParamsPtr CreateOpenURLParams(const GURL& url) {
 
 bool DoesURLRequireDedicatedProcess(const IsolationContext& isolation_context,
                                     const GURL& url) {
-  return SiteInstanceImpl::ComputeSiteInfoForTesting(isolation_context, url)
+  return SiteInfo::CreateForTesting(isolation_context, url)
       .RequiresDedicatedProcess(isolation_context);
 }
 
@@ -57,14 +59,7 @@ bool DoesURLRequireDedicatedProcess(const IsolationContext& isolation_context,
 
 class WebUINavigationBrowserTest : public ContentBrowserTest {
  public:
-  WebUINavigationBrowserTest() {
-    WebUIControllerFactory::RegisterFactory(&factory_);
-    WebUIControllerFactory::RegisterFactory(&untrusted_factory_);
-  }
-  ~WebUINavigationBrowserTest() override {
-    WebUIControllerFactory::UnregisterFactoryForTesting(&untrusted_factory_);
-    WebUIControllerFactory::UnregisterFactoryForTesting(&factory_);
-  }
+  WebUINavigationBrowserTest() = default;
 
  protected:
   void SetUpOnMainThread() override {
@@ -201,7 +196,10 @@ class WebUINavigationBrowserTest : public ContentBrowserTest {
 
  private:
   TestWebUIControllerFactory factory_;
+  ScopedWebUIControllerFactoryRegistration factory_registration_{&factory_};
   ui::TestUntrustedWebUIControllerFactory untrusted_factory_;
+  ScopedWebUIControllerFactoryRegistration untrusted_factory_registration_{
+      &untrusted_factory_};
 
   DISALLOW_COPY_AND_ASSIGN(WebUINavigationBrowserTest);
 };
@@ -265,10 +263,10 @@ IN_PROC_BROWSER_TEST_F(WebUINavigationBrowserTest,
 IN_PROC_BROWSER_TEST_F(WebUINavigationBrowserTest,
                        WebFrameInChromeUntrustedSchemeAllowedByCSP) {
   // Add an untrusted WebUI with no iframe restrictions.
-  TestUntrustedDataSourceCSP csp;
-  csp.child_src = "child-src * data:;";
+  TestUntrustedDataSourceHeaders headers;
+  headers.child_src = "child-src * data:;";
   untrusted_factory().add_web_ui_config(
-      std::make_unique<ui::TestUntrustedWebUIConfig>("test-host", csp));
+      std::make_unique<ui::TestUntrustedWebUIConfig>("test-host", headers));
 
   GURL main_frame_url(GetChromeUntrustedUIURL("test-host/title1.html"));
   EXPECT_TRUE(NavigateToURL(shell(), main_frame_url));
@@ -378,11 +376,11 @@ IN_PROC_BROWSER_TEST_F(WebUINavigationBrowserTest,
   {
     TestNavigationObserver observer(shell()->web_contents());
     // Add a DataSource for chrome-untrusted:// that can be iframe'd.
-    TestUntrustedDataSourceCSP csp;
-    csp.no_xfo = true;
+    TestUntrustedDataSourceHeaders headers;
+    headers.no_xfo = true;
     untrusted_factory().add_web_ui_config(
         std::make_unique<ui::TestUntrustedWebUIConfig>("test-iframe-host",
-                                                       csp));
+                                                       headers));
     GURL untrusted_url(GetChromeUntrustedUIURL("test-iframe-host/title1.html"));
     EXPECT_TRUE(ExecJs(shell(), JsReplace(kAddIframeScript, untrusted_url),
                        EXECUTE_SCRIPT_DEFAULT_OPTIONS, 1 /* world_id */));
@@ -444,10 +442,11 @@ IN_PROC_BROWSER_TEST_F(
   GURL main_frame_url(embedded_test_server()->GetURL("/title1.html"));
   EXPECT_TRUE(NavigateToURL(shell(), main_frame_url));
 
-  TestUntrustedDataSourceCSP csp;
-  csp.no_xfo = true;
+  TestUntrustedDataSourceHeaders headers;
+  headers.no_xfo = true;
   untrusted_factory().add_web_ui_config(
-      std::make_unique<ui::TestUntrustedWebUIConfig>("test-iframe-host", csp));
+      std::make_unique<ui::TestUntrustedWebUIConfig>("test-iframe-host",
+                                                     headers));
 
   // Add iframe but don't navigate it to a chrome-untrusted:// URL yet.
   EXPECT_TRUE(ExecJs(shell(),
@@ -632,10 +631,10 @@ IN_PROC_BROWSER_TEST_F(
   EXPECT_EQ(0UL, root->child_count());
 
   // Add a DataSource for chrome-untrusted:// that can be iframe'd.
-  TestUntrustedDataSourceCSP csp;
-  csp.no_xfo = true;
+  TestUntrustedDataSourceHeaders headers;
+  headers.no_xfo = true;
   untrusted_factory().add_web_ui_config(
-      std::make_unique<ui::TestUntrustedWebUIConfig>("test-host", csp));
+      std::make_unique<ui::TestUntrustedWebUIConfig>("test-host", headers));
   GURL untrusted_url(GetChromeUntrustedUIURL("test-host/title1.html"));
 
   // Navigate an iframe to a chrome-untrusted URL and verify that the navigation
@@ -678,15 +677,15 @@ IN_PROC_BROWSER_TEST_F(WebUINavigationBrowserTest,
                 root->current_frame_host()->GetProcess()->GetID()),
             webui_site_instance->GetProcessLock());
 
-  TestUntrustedDataSourceCSP csp;
+  TestUntrustedDataSourceHeaders headers;
   std::vector<std::string> frame_ancestors({"chrome://web-ui"});
-  csp.frame_ancestors =
-      base::make_optional<std::vector<std::string>>(std::move(frame_ancestors));
+  headers.frame_ancestors =
+      absl::make_optional<std::vector<std::string>>(std::move(frame_ancestors));
 
   // Add a DataSource for the chrome-untrusted:// iframe with frame ancestor
   // chrome://web-ui.
   untrusted_factory().add_web_ui_config(
-      std::make_unique<ui::TestUntrustedWebUIConfig>("test-host", csp));
+      std::make_unique<ui::TestUntrustedWebUIConfig>("test-host", headers));
   GURL untrusted_url(GetChromeUntrustedUIURL("test-host/title1.html"));
   TestNavigationObserver observer(shell()->web_contents());
 
@@ -783,10 +782,11 @@ IN_PROC_BROWSER_TEST_F(
   GURL main_frame_url(embedded_test_server()->GetURL("/title1.html"));
   EXPECT_TRUE(NavigateToURL(shell(), main_frame_url));
 
-  TestUntrustedDataSourceCSP csp;
-  csp.no_xfo = false;
+  TestUntrustedDataSourceHeaders headers;
+  headers.no_xfo = false;
   untrusted_factory().add_web_ui_config(
-      std::make_unique<ui::TestUntrustedWebUIConfig>("test-iframe-host", csp));
+      std::make_unique<ui::TestUntrustedWebUIConfig>("test-iframe-host",
+                                                     headers));
   GURL untrusted_url(GetChromeUntrustedUIURL("test-iframe-host/title1.html"));
 
   TestNavigationObserver observer(shell()->web_contents());
@@ -930,21 +930,25 @@ IN_PROC_BROWSER_TEST_F(WebUINavigationBrowserTest,
 
 IN_PROC_BROWSER_TEST_F(WebUINavigationBrowserTest,
                        WebUIOriginsRequireDedicatedProcess) {
-  GURL chrome_url(GetWebUIURL("web-ui/title1.html"));
-  GURL expected_site_url(GetWebUIURL("web-ui"));
-
   // chrome:// URLs should require a dedicated process.
   WebContents* web_contents = shell()->web_contents();
   BrowserContext* browser_context = web_contents->GetBrowserContext();
-  EXPECT_TRUE(DoesURLRequireDedicatedProcess(IsolationContext(browser_context),
-                                             chrome_url));
+  IsolationContext isolation_context(browser_context);
+
+  GURL chrome_url(GetWebUIURL("web-ui/title1.html"));
+  auto expected_site_info =
+      SiteInfo::CreateForTesting(isolation_context, chrome_url);
+
+  EXPECT_TRUE(DoesURLRequireDedicatedProcess(isolation_context, chrome_url));
 
   // Navigate to a WebUI page.
   EXPECT_TRUE(NavigateToURL(shell(), chrome_url));
 
   // Verify that the "hostname" is also part of the site URL.
-  GURL site_url = web_contents->GetMainFrame()->GetSiteInstance()->GetSiteURL();
-  EXPECT_EQ(expected_site_url, site_url);
+  auto site_info = static_cast<SiteInstanceImpl*>(
+                       web_contents->GetMainFrame()->GetSiteInstance())
+                       ->GetSiteInfo();
+  EXPECT_EQ(expected_site_info, site_info);
 
   // Ask the page to create a blob URL and return back the blob URL.
   const char* kScript = R"(
@@ -959,33 +963,37 @@ IN_PROC_BROWSER_TEST_F(WebUINavigationBrowserTest,
 
   // Verify that the blob also requires a dedicated process and that it would
   // use the same site url as the original page.
-  EXPECT_TRUE(DoesURLRequireDedicatedProcess(IsolationContext(browser_context),
-                                             blob_url));
-  EXPECT_EQ(expected_site_url,
-            SiteInstance::GetSiteForURL(browser_context, blob_url));
+  EXPECT_TRUE(DoesURLRequireDedicatedProcess(isolation_context, blob_url));
+  EXPECT_EQ(expected_site_info,
+            SiteInfo::CreateForTesting(isolation_context, blob_url));
 }
 
 // Verify chrome-untrusted:// uses a dedicated process.
 IN_PROC_BROWSER_TEST_F(WebUINavigationBrowserTest,
                        UntrustedWebUIOriginsRequireDedicatedProcess) {
+  // chrome-untrusted:// URLs should require a dedicated process.
+  WebContents* web_contents = shell()->web_contents();
+  BrowserContext* browser_context = web_contents->GetBrowserContext();
+  IsolationContext isolation_context(browser_context);
+
   // Add a DataSource which disallows iframes by default.
   untrusted_factory().add_web_ui_config(
       std::make_unique<ui::TestUntrustedWebUIConfig>("test-host"));
   GURL chrome_untrusted_url(GetChromeUntrustedUIURL("test-host/title1.html"));
-  GURL expected_site_url(GetChromeUntrustedUIURL("test-host"));
+  auto expected_site_info = SiteInfo::CreateForTesting(
+      isolation_context, GetChromeUntrustedUIURL("test-host"));
 
-  // chrome-untrusted:// URLs should require a dedicated process.
-  WebContents* web_contents = shell()->web_contents();
-  BrowserContext* browser_context = web_contents->GetBrowserContext();
-  EXPECT_TRUE(DoesURLRequireDedicatedProcess(IsolationContext(browser_context),
-                                             chrome_untrusted_url));
+  EXPECT_TRUE(
+      DoesURLRequireDedicatedProcess(isolation_context, chrome_untrusted_url));
 
   // Navigate to a chrome-untrusted:// page.
   EXPECT_TRUE(NavigateToURL(shell(), chrome_untrusted_url));
 
   // Verify that the "hostname" is also part of the site URL.
-  GURL site_url = web_contents->GetMainFrame()->GetSiteInstance()->GetSiteURL();
-  EXPECT_EQ(expected_site_url, site_url);
+  auto site_info = static_cast<SiteInstanceImpl*>(
+                       web_contents->GetMainFrame()->GetSiteInstance())
+                       ->GetSiteInfo();
+  EXPECT_EQ(expected_site_info, site_info);
 
   // Ask the page to create a blob URL and return back the blob URL.
   const char* kScript = R"(
@@ -1002,8 +1010,8 @@ IN_PROC_BROWSER_TEST_F(WebUINavigationBrowserTest,
   // use the same site url as the original page.
   EXPECT_TRUE(DoesURLRequireDedicatedProcess(IsolationContext(browser_context),
                                              blob_url));
-  EXPECT_EQ(expected_site_url,
-            SiteInstance::GetSiteForURL(browser_context, blob_url));
+  EXPECT_EQ(expected_site_info,
+            SiteInfo::CreateForTesting(isolation_context, blob_url));
 }
 
 // Verify that navigating back/forward between WebUI and an error page for a

@@ -101,7 +101,10 @@ SharedImageRepresentationGLTexturePassthroughImpl::
         scoped_refptr<gles2::TexturePassthrough> texture_passthrough)
     : SharedImageRepresentationGLTexturePassthrough(manager, backing, tracker),
       client_(client),
-      texture_passthrough_(std::move(texture_passthrough)) {}
+      texture_passthrough_(std::move(texture_passthrough)) {
+  // TODO(https://crbug.com/1172769): Remove this CHECK.
+  CHECK(texture_passthrough_);
+}
 
 SharedImageRepresentationGLTexturePassthroughImpl::
     ~SharedImageRepresentationGLTexturePassthroughImpl() {
@@ -265,8 +268,7 @@ SharedImageRepresentationOverlayImpl::~SharedImageRepresentationOverlayImpl() =
     default;
 
 bool SharedImageRepresentationOverlayImpl::BeginReadAccess(
-    std::vector<gfx::GpuFence>* acquire_fences,
-    std::vector<gfx::GpuFence>* release_fences) {
+    std::vector<gfx::GpuFence>* acquire_fences) {
   auto* gl_backing = static_cast<SharedImageBackingGLImage*>(backing());
   std::unique_ptr<gfx::GpuFence> fence = gl_backing->GetLastWriteGpuFence();
   if (fence)
@@ -274,7 +276,11 @@ bool SharedImageRepresentationOverlayImpl::BeginReadAccess(
   return true;
 }
 
-void SharedImageRepresentationOverlayImpl::EndReadAccess() {}
+void SharedImageRepresentationOverlayImpl::EndReadAccess(
+    gfx::GpuFenceHandle release_fence) {
+  auto* gl_backing = static_cast<SharedImageBackingGLImage*>(backing());
+  gl_backing->SetReleaseFence(std::move(release_fence));
+}
 
 gl::GLImage* SharedImageRepresentationOverlayImpl::GetGLImage() {
   return gl_image_.get();
@@ -396,6 +402,11 @@ GLuint SharedImageBackingGLImage::GetGLServiceId() const {
 std::unique_ptr<gfx::GpuFence>
 SharedImageBackingGLImage::GetLastWriteGpuFence() {
   return last_write_gl_fence_ ? last_write_gl_fence_->GetGpuFence() : nullptr;
+}
+
+void SharedImageBackingGLImage::SetReleaseFence(
+    gfx::GpuFenceHandle release_fence) {
+  release_fence_ = std::move(release_fence);
 }
 
 scoped_refptr<gfx::NativePixmap> SharedImageBackingGLImage::GetNativePixmap() {
@@ -532,6 +543,37 @@ SharedImageBackingGLImage::ProduceSkia(
       cached_promise_texture_, tracker);
 }
 
+SharedImageRepresentationMemoryImpl::SharedImageRepresentationMemoryImpl(
+    SharedImageManager* manager,
+    SharedImageBacking* backing,
+    MemoryTypeTracker* tracker,
+    scoped_refptr<gl::GLImageMemory> image_memory)
+    : SharedImageRepresentationMemory(manager, backing, tracker),
+      image_memory_(std::move(image_memory)) {}
+
+SharedImageRepresentationMemoryImpl::~SharedImageRepresentationMemoryImpl() =
+    default;
+
+SkPixmap SharedImageRepresentationMemoryImpl::BeginReadAccess() {
+  SkImageInfo info = SkImageInfo::Make(
+      backing()->size().width(), backing()->size().height(),
+      viz::ResourceFormatToClosestSkColorType(true, backing()->format()),
+      backing()->alpha_type(), backing()->color_space().ToSkColorSpace());
+  return SkPixmap(info, image_memory_->memory(), image_memory_->stride());
+}
+
+std::unique_ptr<SharedImageRepresentationMemory>
+SharedImageBackingGLImage::ProduceMemory(SharedImageManager* manager,
+                                         MemoryTypeTracker* tracker) {
+  gl::GLImageMemory* image_memory =
+      gl::GLImageMemory::FromGLImage(image_.get());
+  if (!image_memory)
+    return nullptr;
+
+  return std::make_unique<SharedImageRepresentationMemoryImpl>(
+      manager, this, tracker, base::WrapRefCounted(image_memory));
+}
+
 std::unique_ptr<SharedImageRepresentationGLTexture>
 SharedImageBackingGLImage::ProduceRGBEmulationGLTexture(
     SharedImageManager* manager,
@@ -599,6 +641,9 @@ void SharedImageBackingGLImage::Update(
 
 bool SharedImageBackingGLImage::
     SharedImageRepresentationGLTextureBeginAccess() {
+  if (!release_fence_.is_null())
+    gl::GLFence::CreateFromGpuFence(gfx::GpuFence(std::move(release_fence_)))
+        ->ServerWait();
   return BindOrCopyImageIfNeeded();
 }
 

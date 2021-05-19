@@ -24,6 +24,7 @@ class WebContents;
 
 namespace webapps {
 enum class WebappInstallSource;
+enum class WebappUninstallSource;
 }
 
 namespace web_app {
@@ -41,6 +42,7 @@ enum class ForInstallableSite {
 // Will sanitise the manifest fields to be suitable for installation to prevent
 // sites from using arbitrarily large amounts of disk space.
 void UpdateWebAppInfoFromManifest(const blink::Manifest& manifest,
+                                  const GURL& manifest_url,
                                   WebApplicationInfo* web_app_info);
 
 // Form a list of icons to download: Remove icons with invalid urls.
@@ -65,6 +67,9 @@ void FilterAndResizeIconsGenerateMissing(WebApplicationInfo* web_app_info,
 void RecordAppBanner(content::WebContents* contents, const GURL& app_url);
 
 webapps::WebappInstallSource ConvertExternalInstallSourceToInstallSource(
+    ExternalInstallSource external_install_source);
+
+webapps::WebappUninstallSource ConvertExternalInstallSourceToUninstallSource(
     ExternalInstallSource external_install_source);
 
 }  // namespace web_app

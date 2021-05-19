@@ -6,6 +6,7 @@
 #define CHROME_BROWSER_UI_VIEWS_CROSTINI_CROSTINI_FORCE_CLOSE_VIEW_H_
 
 #include "base/callback.h"
+#include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/base/ui_base_types.h"
 #include "ui/gfx/geometry/size.h"
 #include "ui/gfx/native_widget_types.h"
@@ -21,6 +22,8 @@ class Widget;
 // via CloseNow().
 class CrostiniForceCloseView : public views::BubbleDialogDelegateView {
  public:
+  METADATA_HEADER(CrostiniForceCloseView);
+
   // Show the "would you like to force-close |app_name|?" dialog, which invokes
   // the |force_close_callback_| if the user chooses to force close. Returns the
   // widget for the force-close dialog. The |cloasble_widget| is used to decide
@@ -37,7 +40,7 @@ class CrostiniForceCloseView : public views::BubbleDialogDelegateView {
                              base::OnceClosure force_close_callback);
 
  private:
-  CrostiniForceCloseView(const base::string16& app_name,
+  CrostiniForceCloseView(const std::u16string& app_name,
                          base::OnceClosure force_close_callback);
 
   ~CrostiniForceCloseView() override;

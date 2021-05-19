@@ -21,6 +21,7 @@
 #include "chromeos/dbus/power/fake_power_manager_client.h"
 #include "chromeos/dbus/power/power_manager_client.h"
 #include "chromeos/dbus/power_manager/power_supply_properties.pb.h"
+#include "chromeos/dbus/power_manager/suspend.pb.h"
 #include "ui/events/event.h"
 #include "ui/events/keycodes/keyboard_codes_posix.h"
 #include "ui/events/pointer_details.h"
@@ -43,7 +44,10 @@ class AmbientControllerTest : public AmbientAshTestBase {
   }
 
   bool IsPrefObserved(const std::string& pref_name) {
-    return ambient_controller()->pref_change_registrar_->IsObserved(pref_name);
+    auto* pref_change_registrar =
+        ambient_controller()->pref_change_registrar_.get();
+    DCHECK(pref_change_registrar);
+    return pref_change_registrar->IsObserved(pref_name);
   }
 
   bool WidgetsVisible() {
@@ -52,6 +56,24 @@ class AmbientControllerTest : public AmbientAshTestBase {
            std::all_of(views.cbegin(), views.cend(), [](const auto* view) {
              return view->GetWidget()->IsVisible();
            });
+  }
+
+  bool AreSessionSpecificObserversBound() {
+    auto* ctrl = ambient_controller();
+
+    bool ui_model_bound = ctrl->ambient_ui_model_observer_.IsObserving();
+    bool backend_model_bound =
+        ctrl->ambient_backend_model_observer_.IsObserving();
+    bool power_manager_bound =
+        ctrl->power_manager_client_observer_.IsObserving();
+    bool fingerprint_bound = ctrl->fingerprint_observer_receiver_.is_bound();
+    EXPECT_EQ(ui_model_bound, backend_model_bound)
+        << "observers should all have the same state";
+    EXPECT_EQ(ui_model_bound, power_manager_bound)
+        << "observers should all have the same state";
+    EXPECT_EQ(ui_model_bound, fingerprint_bound)
+        << "observers should all have the same state";
+    return ui_model_bound;
   }
 };
 
@@ -419,15 +441,54 @@ TEST_F(AmbientControllerTest,
 }
 
 TEST_F(AmbientControllerTest,
+       CheckAcquireAndReleaseWakeLockWhenBatteryBatteryIsFullAndDischarging) {
+  SetPowerStateDischarging();
+  SetBatteryPercent(100.f);
+  SetExternalPowerConnected();
+
+  // Lock screen to start ambient mode, and flush the loop to ensure
+  // the acquire wake lock request has reached the wake lock provider.
+  LockScreen();
+  FastForwardToLockScreenTimeout();
+  FastForwardTiny();
+
+  EXPECT_EQ(1, GetNumOfActiveWakeLocks(
+                   device::mojom::WakeLockType::kPreventDisplaySleep));
+
+  HideAmbientScreen();
+  base::RunLoop().RunUntilIdle();
+
+  EXPECT_EQ(0, GetNumOfActiveWakeLocks(
+                   device::mojom::WakeLockType::kPreventDisplaySleep));
+
+  // Ambient screen showup again after inactivity.
+  FastForwardToLockScreenTimeout();
+
+  EXPECT_EQ(1, GetNumOfActiveWakeLocks(
+                   device::mojom::WakeLockType::kPreventDisplaySleep));
+
+  // Unlock screen to exit ambient mode.
+  UnlockScreen();
+  base::RunLoop().RunUntilIdle();
+
+  EXPECT_EQ(0, GetNumOfActiveWakeLocks(
+                   device::mojom::WakeLockType::kPreventDisplaySleep));
+}
+
+TEST_F(AmbientControllerTest,
        CheckAcquireAndReleaseWakeLockWhenBatteryStateChanged) {
   SetPowerStateDischarging();
+  SetExternalPowerConnected();
+  SetBatteryPercent(50.f);
+
   // Lock screen to start ambient mode.
   LockScreen();
   FastForwardToLockScreenTimeout();
   FastForwardTiny();
 
   EXPECT_TRUE(ambient_controller()->IsShown());
-  // Should not acquire wake lock when device is not charging.
+  // Should not acquire wake lock when device is not charging and with low
+  // battery.
   EXPECT_EQ(0, GetNumOfActiveWakeLocks(
                    device::mojom::WakeLockType::kPreventDisplaySleep));
 
@@ -440,7 +501,7 @@ TEST_F(AmbientControllerTest,
                    device::mojom::WakeLockType::kPreventDisplaySleep));
 
   // Simulates a full battery.
-  SetPowerStateFull();
+  SetBatteryPercent(100.f);
 
   // Should keep the wake lock as the charger is still connected.
   EXPECT_EQ(1, GetNumOfActiveWakeLocks(
@@ -450,7 +511,28 @@ TEST_F(AmbientControllerTest,
   SetPowerStateDischarging();
   base::RunLoop().RunUntilIdle();
 
-  // Should release the wake lock when battery is not charging.
+  // Should keep the wake lock when battery is high.
+  EXPECT_EQ(1, GetNumOfActiveWakeLocks(
+                   device::mojom::WakeLockType::kPreventDisplaySleep));
+
+  SetBatteryPercent(50.f);
+  base::RunLoop().RunUntilIdle();
+
+  // Should release the wake lock when battery is not charging and low.
+  EXPECT_EQ(0, GetNumOfActiveWakeLocks(
+                   device::mojom::WakeLockType::kPreventDisplaySleep));
+
+  SetBatteryPercent(100.f);
+  base::RunLoop().RunUntilIdle();
+
+  // Should take the wake lock when battery is not charging and high.
+  EXPECT_EQ(1, GetNumOfActiveWakeLocks(
+                   device::mojom::WakeLockType::kPreventDisplaySleep));
+
+  SetExternalPowerDisconnected();
+  base::RunLoop().RunUntilIdle();
+
+  // Should release the wake lock when power is not connected.
   EXPECT_EQ(0, GetNumOfActiveWakeLocks(
                    device::mojom::WakeLockType::kPreventDisplaySleep));
 
@@ -473,9 +555,6 @@ TEST_F(AmbientControllerTest, ShouldDismissContainerViewOnEvents) {
   events.emplace_back(std::make_unique<ui::MouseWheelEvent>(
       gfx::Vector2d(), gfx::PointF(), gfx::PointF(), base::TimeTicks(),
       ui::EF_NONE, ui::EF_NONE));
-
-  events.emplace_back(std::make_unique<ui::KeyEvent>(
-      ui::ET_KEY_PRESSED, ui::VKEY_SPACE, ui::EF_NONE));
 
   events.emplace_back(std::make_unique<ui::ScrollEvent>(
       ui::ET_SCROLL, gfx::PointF(), gfx::PointF(), base::TimeTicks(),
@@ -509,15 +588,58 @@ TEST_F(AmbientControllerTest, ShouldDismissAndThenComesBack) {
   FastForwardTiny();
   EXPECT_TRUE(WidgetsVisible());
 
-  ui::KeyEvent key_event(ui::ET_KEY_PRESSED, ui::KeyboardCode::VKEY_1,
-                         ui::EF_NONE);
-  ambient_controller()->OnUserActivity(&key_event);
+  ui::MouseEvent mouse_event(ui::ET_MOUSE_PRESSED, gfx::Point(), gfx::Point(),
+                             base::TimeTicks(), ui::EF_NONE, ui::EF_NONE);
+  ambient_controller()->OnUserActivity(&mouse_event);
   FastForwardTiny();
   EXPECT_TRUE(GetContainerViews().empty());
 
   FastForwardToLockScreenTimeout();
   FastForwardTiny();
   EXPECT_TRUE(WidgetsVisible());
+}
+
+TEST_F(AmbientControllerTest, ShouldDismissContainerViewOnKeyEvent) {
+  // Without user interaction, should show ambient mode.
+  ambient_controller()->ShowUi();
+  EXPECT_FALSE(WidgetsVisible());
+  FastForwardTiny();
+  EXPECT_TRUE(WidgetsVisible());
+  CloseAmbientScreen();
+
+  // When ambient is shown, OnUserActivity() should ignore key event.
+  ambient_controller()->ShowUi();
+  EXPECT_TRUE(ambient_controller()->IsShown());
+
+  // General key press will exit ambient mode.
+  // Simulate key press to close the widget.
+  ui::test::EventGenerator* event_generator = GetEventGenerator();
+  event_generator->PressKey(ui::VKEY_A, /*flags=*/0);
+  EXPECT_FALSE(ambient_controller()->IsShown());
+}
+
+TEST_F(AmbientControllerTest,
+       ShouldDismissContainerViewOnKeyEventWhenLockScreenInBackground) {
+  GetSessionControllerClient()->SetShouldLockScreenAutomatically(true);
+  SetPowerStateCharging();
+  EXPECT_FALSE(ambient_controller()->IsShown());
+
+  // Should not lock the device and enter ambient mode when the screen is
+  // dimmed.
+  SetScreenIdleStateAndWait(/*dimmed=*/true, /*off=*/false);
+  EXPECT_FALSE(IsLocked());
+  EXPECT_TRUE(ambient_controller()->IsShown());
+
+  FastForwardToBackgroundLockScreenTimeout();
+  EXPECT_TRUE(IsLocked());
+  // Should not disrupt ongoing ambient mode.
+  EXPECT_TRUE(ambient_controller()->IsShown());
+
+  // General key press will exit ambient mode.
+  // Simulate key press to close the widget.
+  ui::test::EventGenerator* event_generator = GetEventGenerator();
+  event_generator->PressKey(ui::VKEY_A, /*flags=*/0);
+  EXPECT_FALSE(ambient_controller()->IsShown());
 }
 
 TEST_F(AmbientControllerTest,
@@ -658,6 +780,47 @@ TEST_F(AmbientControllerTest,
 
   // Should dismiss ambient mode screen.
   SetScreenIdleStateAndWait(/*dimmed=*/true, /*off=*/true);
+  FastForwardTiny();
+  EXPECT_FALSE(ambient_controller()->IsShown());
+
+  // Screen back on again, should not have ambient screen, but still has lock
+  // screen.
+  SetScreenIdleStateAndWait(/*dimmed=*/false, /*off=*/false);
+  EXPECT_TRUE(IsLocked());
+  EXPECT_FALSE(ambient_controller()->IsShown());
+
+  FastForwardToLockScreenTimeout();
+  FastForwardTiny();
+  EXPECT_TRUE(ambient_controller()->IsShown());
+}
+
+TEST_F(AmbientControllerTest,
+       ShouldHideAmbientScreenWhenDisplayIsOffAndNotStartWhenLockScreen) {
+  GetSessionControllerClient()->SetShouldLockScreenAutomatically(true);
+  SetPowerStateDischarging();
+  EXPECT_FALSE(ambient_controller()->IsShown());
+
+  // Should not lock the device and enter ambient mode when the screen is
+  // dimmed.
+  SetScreenIdleStateAndWait(/*dimmed=*/true, /*off=*/false);
+  EXPECT_FALSE(IsLocked());
+
+  FastForwardTiny();
+  EXPECT_TRUE(ambient_controller()->IsShown());
+
+  // Should not lock the device because the device is not charging.
+  FastForwardToBackgroundLockScreenTimeout();
+  EXPECT_FALSE(IsLocked());
+
+  // Should dismiss ambient mode screen.
+  SetScreenIdleStateAndWait(/*dimmed=*/true, /*off=*/true);
+  FastForwardTiny();
+  EXPECT_FALSE(ambient_controller()->IsShown());
+
+  // Lock screen will not start ambient mode.
+  LockScreen();
+  EXPECT_TRUE(IsLocked());
+
   FastForwardToLockScreenTimeout();
   FastForwardTiny();
   EXPECT_FALSE(ambient_controller()->IsShown());
@@ -710,7 +873,8 @@ TEST_F(AmbientControllerTest, ShowsOnMultipleDisplays) {
                 ctrl->ambient_widget_for_testing()->IsVisible());
 }
 
-TEST_F(AmbientControllerTest, RespondsToDisplayAdded) {
+// TODO(crbug.com/1195762): Test is disabled due to flakiness.
+TEST_F(AmbientControllerTest, DISABLED_RespondsToDisplayAdded) {
   UpdateDisplay("800x600");
   ShowAmbientScreen();
   FastForwardToNextImage();
@@ -762,8 +926,30 @@ TEST_F(AmbientControllerTest, ClosesAmbientBeforeSuspend) {
   EXPECT_FALSE(ambient_controller()->IsShown());
 
   FastForwardToLockScreenTimeout();
-  // Ambient mode should not resume after suspend.
+  // Ambient mode should not resume until SuspendDone is received.
   EXPECT_FALSE(ambient_controller()->IsShown());
+}
+
+TEST_F(AmbientControllerTest, RestartsAmbientAfterSuspend) {
+  LockScreen();
+  FastForwardToLockScreenTimeout();
+
+  EXPECT_TRUE(ambient_controller()->IsShown());
+
+  SimulateSystemSuspendAndWait(
+      power_manager::SuspendImminent::Reason::SuspendImminent_Reason_IDLE);
+
+  EXPECT_FALSE(ambient_controller()->IsShown());
+
+  // This call should be blocked by prior |SuspendImminent| until |SuspendDone|.
+  ambient_controller()->ShowUi();
+  EXPECT_FALSE(ambient_controller()->IsShown());
+
+  SimulateSystemResumeAndWait();
+
+  FastForwardToLockScreenTimeout();
+
+  EXPECT_TRUE(ambient_controller()->IsShown());
 }
 
 TEST_F(AmbientControllerTest, ObservesPrefsWhenAmbientEnabled) {
@@ -797,18 +983,39 @@ TEST_F(AmbientControllerTest, BindsObserversWhenAmbientEnabled) {
   // is started.
   EXPECT_TRUE(ctrl->session_observer_.IsObserving());
 
-  EXPECT_FALSE(ctrl->ambient_ui_model_observer_.IsObserving());
-  EXPECT_FALSE(ctrl->ambient_backend_model_observer_.IsObserving());
-  EXPECT_FALSE(ctrl->power_manager_client_observer_.IsObserving());
+  EXPECT_FALSE(AreSessionSpecificObserversBound());
 
   SetAmbientModeEnabled(true);
 
   // Session observer should still be observing.
   EXPECT_TRUE(ctrl->session_observer_.IsObserving());
 
-  EXPECT_TRUE(ctrl->ambient_ui_model_observer_.IsObserving());
-  EXPECT_TRUE(ctrl->ambient_backend_model_observer_.IsObserving());
-  EXPECT_TRUE(ctrl->power_manager_client_observer_.IsObserving());
+  EXPECT_TRUE(AreSessionSpecificObserversBound());
+}
+
+TEST_F(AmbientControllerTest, SwitchActiveUsersDoesNotDoubleBindObservers) {
+  ClearLogin();
+  SimulateUserLogin(kUser1);
+  SetAmbientModeEnabled(true);
+
+  TestSessionControllerClient* session = GetSessionControllerClient();
+
+  // Observers are bound for primary user with Ambient mode enabled.
+  EXPECT_TRUE(AreSessionSpecificObserversBound());
+  EXPECT_TRUE(IsPrefObserved(ambient::prefs::kAmbientModeEnabled));
+
+  // Observers are still bound when secondary user logs in.
+  SimulateUserLogin(kUser2);
+  EXPECT_TRUE(AreSessionSpecificObserversBound());
+  EXPECT_TRUE(IsPrefObserved(ambient::prefs::kAmbientModeEnabled));
+
+  // Observers are not re-bound for primary user when session is active.
+  session->SwitchActiveUser(AccountId::FromUserEmail(kUser1));
+  EXPECT_TRUE(AreSessionSpecificObserversBound());
+  EXPECT_TRUE(IsPrefObserved(ambient::prefs::kAmbientModeEnabled));
+
+  //  Switch back to secondary user.
+  session->SwitchActiveUser(AccountId::FromUserEmail(kUser2));
 }
 
 TEST_F(AmbientControllerTest, BindsObserversWhenAmbientOn) {

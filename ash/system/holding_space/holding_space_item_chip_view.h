@@ -5,12 +5,10 @@
 #ifndef ASH_SYSTEM_HOLDING_SPACE_HOLDING_SPACE_ITEM_CHIP_VIEW_H_
 #define ASH_SYSTEM_HOLDING_SPACE_HOLDING_SPACE_ITEM_CHIP_VIEW_H_
 
-#include <memory>
-
 #include "ash/ash_export.h"
 #include "ash/public/cpp/holding_space/holding_space_image.h"
 #include "ash/system/holding_space/holding_space_item_view.h"
-#include "ui/views/metadata/metadata_header_macros.h"
+#include "ui/base/metadata/metadata_header_macros.h"
 
 namespace views {
 class Label;
@@ -35,19 +33,23 @@ class ASH_EXPORT HoldingSpaceItemChipView : public HoldingSpaceItemView {
   ~HoldingSpaceItemChipView() override;
 
  private:
-  class LabelMaskLayerOwner;
-
   // HoldingSpaceItemView:
+  views::View* GetTooltipHandlerForPoint(const gfx::Point& point) override;
   void OnHoldingSpaceItemUpdated(const HoldingSpaceItem* item) override;
-  void OnPinVisiblityChanged(bool pin_visible) override;
+  void OnPinVisibilityChanged(bool pin_visible) override;
+  void OnSelectionUiChanged() override;
+  void OnThemeChanged() override;
+
+  // Invoked during `label_`'s paint sequence to paint its optional mask. Note
+  // that `label_` is only masked when `pin_` is visible to avoid overlapping.
+  void OnPaintLabelMask(gfx::Canvas* canvas);
 
   void UpdateImage();
+  void UpdateLabel();
 
-  std::unique_ptr<LabelMaskLayerOwner> label_mask_layer_owner_;
-
+  // Owned by view hierarchy.
   RoundedImageView* image_ = nullptr;
   views::Label* label_ = nullptr;
-  views::View* label_and_pin_button_container_ = nullptr;
 
   base::CallbackListSubscription image_subscription_;
 };

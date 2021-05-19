@@ -55,10 +55,9 @@ js_type_check("closure_compile") {
     ":link_container_test",
     ":margins_settings_test",
     ":media_size_settings_test",
-
-    #":model_settings_availability_test",
-    #":model_settings_policy_test",
-    #":model_test",
+    ":model_settings_availability_test",
+    ":model_settings_policy_test",
+    ":model_test",
     ":native_layer_stub",
 
     #":number_settings_section_interactive_test",
@@ -66,7 +65,9 @@ js_type_check("closure_compile") {
     #":other_options_settings_test",
     #":pages_per_sheet_settings_test",
     #":pages_settings_test",
+    #":pdf_toolbar_manager_test",
     #":pdf_viewer_test",
+    #":pdf_zoom_toolbar_test",
     #":pin_settings_test",
     ":test_plugin_proxy",
 
@@ -87,7 +88,7 @@ js_type_check("closure_compile") {
     #":user_manager_test",
   ]
 
-  if (is_chromeos_ash) {
+  if (is_chromeos) {
     deps += [
       ":destination_dialog_cros_interactive_test",
       ":destination_dialog_cros_test",
@@ -226,7 +227,7 @@ js_library("destination_settings_test") {
   externs_list = [ "$externs_path/mocha-2.5.js" ]
 }
 
-if (is_chromeos_ash) {
+if (is_chromeos) {
   js_library("destination_dialog_cros_test") {
     deps = [
       ":cloud_print_interface_stub",
@@ -254,7 +255,7 @@ if (is_chromeos_ash) {
   }
 }
 
-if (is_chromeos_ash) {
+if (is_chromeos) {
   js_library("destination_dialog_cros_interactive_test") {
     deps = [
       ":cloud_print_interface_stub",
@@ -303,7 +304,7 @@ js_library("destination_item_test") {
   externs_list = [ "$externs_path/mocha-2.5.js" ]
 }
 
-if (is_chromeos_ash) {
+if (is_chromeos) {
   js_library("native_layer_cros_stub") {
     deps = [
       "..:test_browser_proxy.m",
@@ -526,7 +527,43 @@ js_library("media_size_settings_test") {
   externs_list = [ "$externs_path/mocha-2.5.js" ]
 }
 
-if (is_chromeos_ash) {
+js_library("model_settings_availability_test") {
+  deps = [
+    ":print_preview_test_utils",
+    "..:chai_assert",
+    "//chrome/browser/resources/print_preview:print_preview",
+    "//ui/webui/resources/js:assert.m",
+    "//ui/webui/resources/js:cr.m",
+    "//ui/webui/resources/js:load_time_data.m",
+  ]
+  externs_list = [ "$externs_path/mocha-2.5.js" ]
+}
+
+js_library("model_settings_policy_test") {
+  deps = [
+    ":print_preview_test_utils",
+    "..:chai_assert",
+    "//chrome/browser/resources/print_preview:print_preview",
+    "//ui/webui/resources/js:assert.m",
+    "//ui/webui/resources/js:load_time_data.m",
+  ]
+  externs_list = [ "$externs_path/mocha-2.5.js" ]
+}
+
+js_library("model_test") {
+  deps = [
+    ":print_preview_test_utils",
+    "..:chai_assert",
+    "..:test_util.m",
+    "//chrome/browser/resources/print_preview:print_preview",
+    "//ui/webui/resources/js:assert.m",
+    "//ui/webui/resources/js:cr.m",
+    "//ui/webui/resources/js:load_time_data.m",
+  ]
+  externs_list = [ "$externs_path/mocha-2.5.js" ]
+}
+
+if (is_chromeos) {
   js_library("print_server_store_test") {
     deps = [
       ":native_layer_cros_stub",

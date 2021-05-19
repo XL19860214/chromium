@@ -10,15 +10,12 @@ load("//lib/branches.star", "branches")
 load("//project.star", "settings")
 
 lucicfg.check_version(
-    min = "1.21.0",
+    min = "1.23.6",
     message = "Update depot_tools",
 )
 
 # Enable LUCI Realms support.
 lucicfg.enable_experiment("crbug.com/1085650")
-
-# Enable tree closing.
-lucicfg.enable_experiment("crbug.com/1054172")
 
 # Tell lucicfg what files it is allowed to touch
 lucicfg.config(
@@ -27,7 +24,6 @@ lucicfg.config(
         "commit-queue.cfg",
         "cq-builders.md",
         "cr-buildbucket.cfg",
-        "goma-usage.pyl",
         "luci-logdog.cfg",
         "luci-milo.cfg",
         "luci-notify.cfg",
@@ -121,6 +117,7 @@ luci.realm(
 
 # Launch Swarming tasks in "realms-aware mode", crbug.com/1136313.
 luci.builder.defaults.experiments.set({"luci.use_realms": 100})
+luci.builder.defaults.test_presentation.set(resultdb.test_presentation(grouping_keys = ["status", "v.test_suite"]))
 
 exec("//swarming.star")
 
@@ -132,10 +129,11 @@ exec("//subprojects/chromium/subproject.star")
 branches.exec("//subprojects/codesearch/subproject.star")
 branches.exec("//subprojects/findit/subproject.star")
 branches.exec("//subprojects/goma/subproject.star")
+branches.exec("//subprojects/reclient/subproject.star")
 branches.exec("//subprojects/webrtc/subproject.star")
 
 branches.exec("//generators/cq-builders-md.star")
-exec("//generators/goma-usage.star")
+
 exec("//generators/scheduler-noop-jobs.star")
 exec("//generators/sort-consoles.star")
 

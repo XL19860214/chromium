@@ -28,7 +28,6 @@
 #include "third_party/blink/renderer/platform/fonts/shaping/shape_cache.h"
 #include "third_party/blink/renderer/platform/fonts/simple_font_data.h"
 #include "third_party/blink/renderer/platform/heap/persistent.h"
-#include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/forward.h"
 #include "third_party/blink/renderer/platform/wtf/ref_counted.h"
@@ -36,6 +35,7 @@
 namespace blink {
 
 class FontDescription;
+class FontFallbackMap;
 
 const int kCAllFamiliesScanned = -1;
 
@@ -46,11 +46,12 @@ class PLATFORM_EXPORT FontFallbackList : public RefCounted<FontFallbackList> {
   USING_FAST_MALLOC(FontFallbackList);
 
  public:
-  static scoped_refptr<FontFallbackList> Create(FontSelector* font_selector) {
-    return base::AdoptRef(new FontFallbackList(font_selector));
+  static scoped_refptr<FontFallbackList> Create(
+      FontFallbackMap& font_fallback_map) {
+    return base::AdoptRef(new FontFallbackList(font_fallback_map));
   }
 
-  ~FontFallbackList() { ReleaseFontData(); }
+  ~FontFallbackList();
 
   // Returns whether the cached data is valid. We can use a FontFallbackList
   // only when it's valid.
@@ -65,7 +66,12 @@ class PLATFORM_EXPORT FontFallbackList : public RefCounted<FontFallbackList> {
 
   bool ShouldSkipDrawing() const;
 
-  FontSelector* GetFontSelector() const { return font_selector_.Get(); }
+  // Returns false only after the WeakPersistent to FontFallbackMap is turned to
+  // nullptr due to GC.
+  bool HasFontFallbackMap() const { return font_fallback_map_; }
+  FontFallbackMap& GetFontFallbackMap() const { return *font_fallback_map_; }
+
+  FontSelector* GetFontSelector() const;
   uint16_t Generation() const { return generation_; }
 
   ShapeCache* GetShapeCache(const FontDescription& font_description) {
@@ -103,7 +109,7 @@ class PLATFORM_EXPORT FontFallbackList : public RefCounted<FontFallbackList> {
   bool HasAdvanceOverride() const { return has_advance_override_; }
 
  private:
-  explicit FontFallbackList(FontSelector* font_selector);
+  explicit FontFallbackList(FontFallbackMap& font_fallback_map);
 
   scoped_refptr<FontData> GetFontData(const FontDescription&);
 
@@ -116,7 +122,7 @@ class PLATFORM_EXPORT FontFallbackList : public RefCounted<FontFallbackList> {
 
   Vector<scoped_refptr<FontData>, 1> font_list_;
   const SimpleFontData* cached_primary_simple_font_data_;
-  const Persistent<FontSelector> font_selector_;
+  const WeakPersistent<FontFallbackMap> font_fallback_map_;
   int family_index_;
   uint16_t generation_;
   bool has_loading_fallback_ : 1;
@@ -133,4 +139,4 @@ class PLATFORM_EXPORT FontFallbackList : public RefCounted<FontFallbackList> {
 
 }  // namespace blink
 
-#endif
+#endif  // THIRD_PARTY_BLINK_RENDERER_PLATFORM_FONTS_FONT_FALLBACK_LIST_H_

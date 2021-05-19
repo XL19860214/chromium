@@ -13,7 +13,6 @@
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
-#include "base/optional.h"
 #include "base/time/time.h"
 #include "base/trace_event/memory_dump_provider.h"
 #include "build/build_config.h"
@@ -27,6 +26,7 @@
 #include "gpu/ipc/common/command_buffer_id.h"
 #include "gpu/ipc/common/gpu_peak_memory.h"
 #include "gpu/vulkan/buildflags.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/skia/include/core/SkSurface.h"
 #include "third_party/skia/include/gpu/GrDirectContext.h"
 #include "ui/gl/progress_reporter.h"
@@ -55,6 +55,7 @@ struct ContextState;
 }  // namespace gles2
 
 namespace raster {
+class GrShaderCache;
 class RasterDecoderTestBase;
 }  // namespace raster
 
@@ -83,7 +84,7 @@ class GPU_GLES2_EXPORT SharedContextState
 
   bool InitializeGrContext(const GpuPreferences& gpu_preferences,
                            const GpuDriverBugWorkarounds& workarounds,
-                           GrContextOptions::PersistentCache* cache,
+                           gpu::raster::GrShaderCache* cache,
                            GpuProcessActivityFlags* activity_flags = nullptr,
                            gl::ProgressReporter* progress_reporter = nullptr);
   bool GrContextIsGL() const {
@@ -116,6 +117,8 @@ class GPU_GLES2_EXPORT SharedContextState
 
   void PessimisticallyResetGrContext() const;
 
+  void StoreVkPipelineCacheIfNeeded();
+
   gl::GLShareGroup* share_group() { return share_group_.get(); }
   gl::GLContext* context() { return context_.get(); }
   gl::GLContext* real_context() { return real_context_.get(); }
@@ -137,7 +140,7 @@ class GPU_GLES2_EXPORT SharedContextState
   gles2::FeatureInfo* feature_info() { return feature_info_.get(); }
   gles2::ContextState* context_state() const { return context_state_.get(); }
   bool context_lost() const { return !!context_lost_reason_; }
-  base::Optional<error::ContextLostReason> context_lost_reason() {
+  absl::optional<error::ContextLostReason> context_lost_reason() {
     return context_lost_reason_;
   }
   bool need_context_state_reset() const { return need_context_state_reset_; }
@@ -273,7 +276,7 @@ class GPU_GLES2_EXPORT SharedContextState
 
   ~SharedContextState() override;
 
-  base::Optional<error::ContextLostReason> GetResetStatus(bool needs_gl);
+  absl::optional<error::ContextLostReason> GetResetStatus(bool needs_gl);
 
   // gpu::GLContextVirtualDelegate implementation.
   bool initialized() const override;
@@ -328,12 +331,13 @@ class GPU_GLES2_EXPORT SharedContextState
   std::unique_ptr<ServiceTransferCache> transfer_cache_;
   uint64_t skia_gr_cache_size_ = 0;
   std::vector<uint8_t> scratch_deserialization_buffer_;
+  gpu::raster::GrShaderCache* gr_shader_cache_ = nullptr;
 
   // |need_context_state_reset| is set whenever Skia may have altered the
   // driver's GL state.
   bool need_context_state_reset_ = false;
 
-  base::Optional<error::ContextLostReason> context_lost_reason_;
+  absl::optional<error::ContextLostReason> context_lost_reason_;
   base::ObserverList<ContextLostObserver>::Unchecked context_lost_observers_;
 
   base::MRUCache<void*, sk_sp<SkSurface>> sk_surface_cache_;

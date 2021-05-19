@@ -39,6 +39,7 @@ class FakeSyncService : public SyncService {
   bool HasObserver(const SyncServiceObserver* observer) const override;
   void OnDataTypeRequestsSyncStartup(ModelType type) override;
   void StopAndClear() override;
+  void SetSyncAllowedByPlatform(bool allowed) override;
   ModelTypeSet GetPreferredDataTypes() const override;
   std::unique_ptr<SyncSetupInProgressHandle> GetSetupInProgressHandle()
       override;
@@ -72,6 +73,7 @@ class FakeSyncService : public SyncService {
   void AddTrustedVaultRecoveryMethodFromWeb(
       const std::string& gaia_id,
       const std::vector<uint8_t>& public_key,
+      int method_type_hint,
       base::OnceClosure callback) override;
 
   // KeyedService implementation.

@@ -11,9 +11,7 @@
 #include "base/bind.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/observer_list.h"
-#include "base/optional.h"
 #include "base/scoped_observer.h"
-#include "base/strings/stringprintf.h"
 #include "chrome/browser/chromeos/printing/cups_printer_status_creator.h"
 #include "chrome/browser/chromeos/printing/enterprise_printers_provider.h"
 #include "chrome/browser/chromeos/printing/ppd_provider_factory.h"
@@ -29,7 +27,6 @@
 #include "chrome/browser/chromeos/printing/synced_printers_manager.h"
 #include "chrome/browser/chromeos/printing/synced_printers_manager_factory.h"
 #include "chrome/browser/chromeos/printing/usb_printer_notification_controller.h"
-#include "chrome/browser/chromeos/settings/cros_settings.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/pref_names.h"
 #include "chromeos/printing/cups_printer_status.h"
@@ -44,6 +41,7 @@
 #include "mojo/public/cpp/bindings/receiver.h"
 #include "mojo/public/cpp/bindings/remote.h"
 #include "printing/printer_query_result.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace chromeos {
 
@@ -102,6 +100,15 @@ class PrintServersManagerImpl : public PrintServersManager {
     if (!is_complete) {
       return;
     }
+    // Create an entry in the device log.
+    if (is_complete) {
+      PRINTER_LOG(EVENT) << "The list of print servers has been completed. "
+                         << "Number of print servers: " << print_servers.size();
+      if (!print_servers.empty()) {
+        base::UmaHistogramCounts1000("Printing.PrintServers.ServersToQuery",
+                                     print_servers.size());
+      }
+    }
 
     print_servers_ = std::map<std::string, PrintServer>();
     std::vector<PrintServer> print_servers_list;
@@ -159,7 +166,7 @@ class PrintServersManagerImpl : public PrintServersManager {
 
   ServerPrintersFetchingMode fetching_mode_;
 
-  base::Optional<std::map<std::string, PrintServer>> print_servers_;
+  absl::optional<std::map<std::string, PrintServer>> print_servers_;
 
   PrintServersConfig config_;
 
@@ -177,7 +184,7 @@ std::unique_ptr<PrintServersManager> PrintServersManager::Create(
     Profile* profile) {
   return std::make_unique<PrintServersManagerImpl>(
       PrintServersPolicyProvider::Create(profile),
-      ServerPrintersProvider::Create());
+      ServerPrintersProvider::Create(profile));
 }
 
 // static

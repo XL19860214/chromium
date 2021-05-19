@@ -83,13 +83,6 @@ class EventGeneratorDelegate {
   // |hosted_target| into the root window's coordinate system.
   virtual void ConvertPointFromHost(const EventTarget* hosted_target,
                                     gfx::Point* point) const = 0;
-
-  // Determines if the input method should be the first to handle key events
-  // before dispatching to Views. If it does, the given |event| will be
-  // dispatched and processed by the input method from the host of |target|.
-  virtual ui::EventDispatchDetails DispatchKeyEventToIME(EventTarget* target,
-                                                         ui::KeyEvent* event)
-      WARN_UNUSED_RESULT = 0;
 };
 
 // ui::test::EventGenerator is a tool that generates and dispatches events.
@@ -292,14 +285,14 @@ class EventGenerator {
   // Generates a touch press event. If |touch_location_in_screen| is not null,
   // the touch press event will happen at |touch_location_in_screen|. Otherwise,
   // it will happen at the current event location |current_screen_location_|.
-  void PressTouch(const base::Optional<gfx::Point>& touch_location_in_screen =
-                      base::nullopt);
+  void PressTouch(const absl::optional<gfx::Point>& touch_location_in_screen =
+                      absl::nullopt);
 
   // Generates a touch press event with |touch_id|. See PressTouch() event for
   // the description of |touch_location_in_screen| parameter.
   void PressTouchId(int touch_id,
-                    const base::Optional<gfx::Point>& touch_location_in_screen =
-                        base::nullopt);
+                    const absl::optional<gfx::Point>& touch_location_in_screen =
+                        absl::nullopt);
 
   // Generates a ET_TOUCH_MOVED event to |point|.
   void MoveTouch(const gfx::Point& point);

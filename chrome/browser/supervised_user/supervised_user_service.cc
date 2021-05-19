@@ -4,6 +4,7 @@
 
 #include "chrome/browser/supervised_user/supervised_user_service.h"
 
+#include <memory>
 #include <set>
 #include <utility>
 
@@ -58,8 +59,8 @@
 #endif
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-#include "chrome/browser/chromeos/login/users/chrome_user_manager.h"
-#include "chrome/browser/chromeos/login/users/supervised_user_manager.h"
+#include "chrome/browser/ash/login/users/chrome_user_manager.h"
+#include "chrome/browser/ash/login/users/supervised_user_manager.h"
 #include "chromeos/settings/cros_settings_names.h"
 #include "components/user_manager/user_manager.h"
 #endif
@@ -180,7 +181,6 @@ SupervisedUserURLFilter* SupervisedUserService::GetURLFilter() {
   return &url_filter_;
 }
 
-
 bool SupervisedUserService::AccessRequestsEnabled() {
   return FindEnabledPermissionRequestCreator(0) < permissions_creators_.size();
 }
@@ -210,7 +210,7 @@ std::string SupervisedUserService::GetCustodianEmailAddress() const {
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   // |GetActiveUser()| can return null in unit tests.
   if (email.empty() && !!user_manager::UserManager::Get()->GetActiveUser()) {
-    email = chromeos::ChromeUserManager::Get()
+    email = ash::ChromeUserManager::Get()
                 ->GetSupervisedUserManager()
                 ->GetManagerDisplayEmail(user_manager::UserManager::Get()
                                              ->GetActiveUser()
@@ -260,14 +260,9 @@ std::string SupervisedUserService::GetSecondCustodianName() const {
   return name.empty() ? GetSecondCustodianEmailAddress() : name;
 }
 
-base::string16 SupervisedUserService::GetExtensionsLockedMessage() const {
+std::u16string SupervisedUserService::GetExtensionsLockedMessage() const {
   return l10n_util::GetStringFUTF16(IDS_EXTENSIONS_LOCKED_SUPERVISED_USER,
                                     base::UTF8ToUTF16(GetCustodianName()));
-}
-
-bool SupervisedUserService::IsSupervisedUserIframeFilterEnabled() const {
-  return base::FeatureList::IsEnabled(
-      supervised_users::kSupervisedUserIframeFilter);
 }
 
 // static
@@ -279,11 +274,6 @@ std::string SupervisedUserService::GetEduCoexistenceLoginUrl() {
 
 bool SupervisedUserService::IsChild() const {
   return profile_->IsChild();
-}
-
-bool SupervisedUserService::IsSupervisedUserExtensionInstallEnabled() const {
-  return base::FeatureList::IsEnabled(
-      supervised_users::kSupervisedUserInitiatedExtensionInstall);
 }
 
 bool SupervisedUserService::HasACustodian() const {
@@ -316,7 +306,7 @@ SupervisedUserService::SupervisedUserService(Profile* profile)
       denylist_state_(DenylistLoadState::NOT_LOADED) {
   url_filter_.AddObserver(this);
 #if BUILDFLAG(ENABLE_EXTENSIONS)
-  registry_observer_.Add(extensions::ExtensionRegistry::Get(profile));
+  registry_observation_.Observe(extensions::ExtensionRegistry::Get(profile));
 #endif
 }
 
@@ -389,7 +379,7 @@ void SupervisedUserService::
 }
 
 bool SupervisedUserService::CanInstallExtensions() const {
-  return IsSupervisedUserExtensionInstallEnabled() && HasACustodian() &&
+  return HasACustodian() &&
          GetSupervisedUserExtensionsMayRequestPermissionsPref();
 }
 
@@ -410,6 +400,12 @@ void SupervisedUserService::RecordExtensionEnablementUmaMetrics(
   SupervisedUserExtensionsMetricsRecorder::RecordEnablementUmaMetrics(state);
 }
 #endif  // BUILDFLAG(ENABLE_EXTENSIONS)
+
+bool SupervisedUserService::IsFilteringBehaviorPrefDefault() const {
+  return profile_->GetPrefs()
+      ->FindPreference(prefs::kDefaultSupervisedUserFilteringBehavior)
+      ->IsDefaultValue();
+}
 
 void SupervisedUserService::SetActive(bool active) {
   if (active_ == active)
@@ -612,7 +608,7 @@ void SupervisedUserService::UpdateAsyncUrlChecker() {
   if (use_online_check != url_filter_.HasAsyncURLChecker()) {
     if (use_online_check) {
       url_filter_.InitAsyncURLChecker(
-          content::BrowserContext::GetDefaultStoragePartition(profile_)
+          profile_->GetDefaultStoragePartition()
               ->GetURLLoaderFactoryForBrowserProcess());
     } else {
       url_filter_.ClearAsyncURLChecker();
@@ -676,13 +672,13 @@ void SupervisedUserService::OnDenylistFileChecked(const base::FilePath& path,
           }
         })");
 
-  auto factory = content::BrowserContext::GetDefaultStoragePartition(profile_)
+  auto factory = profile_->GetDefaultStoragePartition()
                      ->GetURLLoaderFactoryForBrowserProcess();
-  denylist_downloader_.reset(new FileDownloader(
+  denylist_downloader_ = std::make_unique<FileDownloader>(
       url, path, false, std::move(factory),
       base::BindOnce(&SupervisedUserService::OnDenylistDownloadDone,
                      base::Unretained(this), path),
-      traffic_annotation));
+      traffic_annotation);
 }
 
 void SupervisedUserService::LoadDenylistFromFile(const base::FilePath& path) {
@@ -723,10 +719,8 @@ void SupervisedUserService::UpdateManualHosts() {
       profile_->GetPrefs()->GetDictionary(prefs::kSupervisedUserManualHosts);
   std::map<std::string, bool> host_map;
   for (auto it : dict->DictItems()) {
-    bool allow = false;
-    bool result = it.second.GetAsBoolean(&allow);
-    DCHECK(result);
-    host_map[it.first] = allow;
+    DCHECK(it.second.is_bool());
+    host_map[it.first] = it.second.GetIfBool().value_or(false);
   }
   url_filter_.SetManualHosts(std::move(host_map));
 
@@ -739,10 +733,8 @@ void SupervisedUserService::UpdateManualURLs() {
       profile_->GetPrefs()->GetDictionary(prefs::kSupervisedUserManualURLs);
   std::map<GURL, bool> url_map;
   for (auto it : dict->DictItems()) {
-    bool allow = false;
-    bool result = it.second.GetAsBoolean(&allow);
-    DCHECK(result);
-    url_map[GURL(it.first)] = allow;
+    DCHECK(it.second.is_bool());
+    url_map[GURL(it.first)] = it.second.GetIfBool().value_or(false);
   }
   url_filter_.SetManualURLs(std::move(url_map));
 
@@ -791,12 +783,6 @@ SupervisedUserService::ExtensionState SupervisedUserService::GetExtensionState(
     return ExtensionState::ALLOWED;
   }
 
-  // Feature flag for gating new behavior.
-  if (!base::FeatureList::IsEnabled(
-          supervised_users::kSupervisedUserInitiatedExtensionInstall)) {
-    return ExtensionState::BLOCKED;
-  }
-
   if (ShouldBlockExtension(extension.id())) {
     return ExtensionState::BLOCKED;
   }
@@ -836,7 +822,7 @@ std::string SupervisedUserService::GetDebugPolicyProviderName() const {
 }
 
 bool SupervisedUserService::UserMayLoad(const Extension* extension,
-                                        base::string16* error) const {
+                                        std::u16string* error) const {
   DCHECK(IsChild());
   ExtensionState result = GetExtensionState(*extension);
   bool may_load = result != ExtensionState::BLOCKED;
@@ -848,7 +834,7 @@ bool SupervisedUserService::UserMayLoad(const Extension* extension,
 bool SupervisedUserService::MustRemainDisabled(
     const Extension* extension,
     extensions::disable_reason::DisableReason* reason,
-    base::string16* error) const {
+    std::u16string* error) const {
   DCHECK(IsChild());
   ExtensionState state = GetExtensionState(*extension);
   // Only extensions that require approval should be disabled.
@@ -1006,7 +992,7 @@ void SupervisedUserService::SetExtensionsActive() {
 }
 #endif  // BUILDFLAG(ENABLE_EXTENSIONS)
 
-bool SupervisedUserService::IsEncryptEverythingAllowed() const {
+bool SupervisedUserService::IsCustomPassphraseAllowed() const {
   return !active_;
 }
 

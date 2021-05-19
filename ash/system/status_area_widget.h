@@ -171,6 +171,7 @@ class ASH_EXPORT StatusAreaWidget : public SessionObserver,
 
  private:
   friend class MediaTrayTest;
+  friend class TrayBackgroundViewTest;
 
   struct LayoutInputs {
     gfx::Rect bounds;
@@ -198,7 +199,7 @@ class ASH_EXPORT StatusAreaWidget : public SessionObserver,
   // The set of inputs that impact this widget's layout. The assumption is that
   // this widget needs a relayout if, and only if, one or more of these has
   // changed.
-  base::Optional<LayoutInputs> layout_inputs_;
+  absl::optional<LayoutInputs> layout_inputs_;
 
   // views::Widget:
   void OnMouseEvent(ui::MouseEvent* event) override;
@@ -211,6 +212,10 @@ class ASH_EXPORT StatusAreaWidget : public SessionObserver,
   // Called when in the collapsed state to calculate and update the visibility
   // of each tray button.
   void CalculateButtonVisibilityForCollapsedState();
+
+  // Move the `stop_recording_button_tray_` to the front so that it's more
+  // visible.
+  void EnsureTrayOrder();
 
   // Calculates and returns the appropriate collapse state depending on
   // current conditions.

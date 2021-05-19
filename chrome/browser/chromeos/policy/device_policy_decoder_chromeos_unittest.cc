@@ -45,6 +45,13 @@ constexpr char kWallpaperUrlPropertyValue[] =
 constexpr char kWallpaperHashPropertyName[] = "hash";
 constexpr char kWallpaperHashPropertyValue[] = "examplewallpaperhash";
 const char kUserWhitelist[] = "*@test-domain.com";
+constexpr char kValidBluetoothServiceUUID4[] = "0x1124";
+constexpr char kValidBluetoothServiceUUID8[] = "0000180F";
+constexpr char kValidBluetoothServiceUUID32[] =
+    "00002A00-0000-1000-8000-00805F9B34FB";
+constexpr char kValidBluetoothServiceUUIDList[] =
+    "[\"0x1124\", \"0000180F\", \"00002A00-0000-1000-8000-00805F9B34FB\"]";
+constexpr char kInvalidBluetoothServiceUUIDList[] = "[\"wrong-uuid\"]";
 
 }  // namespace
 
@@ -55,6 +62,7 @@ class DevicePolicyDecoderChromeOSTest : public testing::Test {
 
  protected:
   std::unique_ptr<base::Value> GetWallpaperDict() const;
+  std::unique_ptr<base::Value> GetBluetoothServiceAllowedList() const;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(DevicePolicyDecoderChromeOSTest);
@@ -70,10 +78,19 @@ std::unique_ptr<base::Value> DevicePolicyDecoderChromeOSTest::GetWallpaperDict()
   return dict;
 }
 
+std::unique_ptr<base::Value>
+DevicePolicyDecoderChromeOSTest::GetBluetoothServiceAllowedList() const {
+  auto list = std::make_unique<base::ListValue>();
+  list->Append(base::Value(kValidBluetoothServiceUUID4));
+  list->Append(base::Value(kValidBluetoothServiceUUID8));
+  list->Append(base::Value(kValidBluetoothServiceUUID32));
+  return list;
+}
+
 TEST_F(DevicePolicyDecoderChromeOSTest,
        DecodeJsonStringAndNormalizeJSONParseError) {
   std::string error;
-  base::Optional<base::Value> decoded_json = DecodeJsonStringAndNormalize(
+  absl::optional<base::Value> decoded_json = DecodeJsonStringAndNormalize(
       kInvalidJson, key::kDeviceWallpaperImage, &error);
   std::string localized_error = l10n_util::GetStringFUTF8(
       IDS_POLICY_PROTO_PARSING_ERROR, base::UTF8ToUTF16(error));
@@ -97,7 +114,7 @@ TEST_F(DevicePolicyDecoderChromeOSTest,
 TEST_F(DevicePolicyDecoderChromeOSTest,
        DecodeJsonStringAndNormalizeInvalidValue) {
   std::string error;
-  base::Optional<base::Value> decoded_json = DecodeJsonStringAndNormalize(
+  absl::optional<base::Value> decoded_json = DecodeJsonStringAndNormalize(
       kWallpaperJsonInvalidValue, key::kDeviceWallpaperImage, &error);
   EXPECT_FALSE(decoded_json.has_value());
   std::string localized_error = l10n_util::GetStringFUTF8(
@@ -111,7 +128,7 @@ TEST_F(DevicePolicyDecoderChromeOSTest,
 TEST_F(DevicePolicyDecoderChromeOSTest,
        DecodeJsonStringAndNormalizeUnknownProperty) {
   std::string error;
-  base::Optional<base::Value> decoded_json = DecodeJsonStringAndNormalize(
+  absl::optional<base::Value> decoded_json = DecodeJsonStringAndNormalize(
       kWallpaperJsonUnknownProperty, key::kDeviceWallpaperImage, &error);
   std::string localized_error = l10n_util::GetStringFUTF8(
       IDS_POLICY_PROTO_PARSING_ERROR, base::UTF8ToUTF16(error));
@@ -124,7 +141,7 @@ TEST_F(DevicePolicyDecoderChromeOSTest,
 
 TEST_F(DevicePolicyDecoderChromeOSTest, DecodeJsonStringAndNormalizeSuccess) {
   std::string error;
-  base::Optional<base::Value> decoded_json = DecodeJsonStringAndNormalize(
+  absl::optional<base::Value> decoded_json = DecodeJsonStringAndNormalize(
       kWallpaperJson, key::kDeviceWallpaperImage, &error);
   EXPECT_EQ(*GetWallpaperDict(), decoded_json.value());
   EXPECT_TRUE(error.empty());
@@ -149,13 +166,32 @@ TEST_F(DevicePolicyDecoderChromeOSTest, UserWhitelistWarning) {
   EXPECT_EQ(base::ListValue(list),
             *policies.GetValue(key::kDeviceUserWhitelist));
 
-  base::RepeatingCallback<base::string16(int)> l10nlookup =
+  base::RepeatingCallback<std::u16string(int)> l10nlookup =
       base::BindRepeating(&l10n_util::GetStringUTF16);
 
   // Should have a deprecation warning.
-  EXPECT_FALSE(policies.Get(key::kDeviceUserWhitelist)
-                   ->GetLocalizedErrors(l10nlookup)
-                   .empty());
+  EXPECT_FALSE(
+      policies.Get(key::kDeviceUserWhitelist)
+          ->GetLocalizedMessages(PolicyMap::MessageType::kError, l10nlookup)
+          .empty());
 }
 
+TEST_F(DevicePolicyDecoderChromeOSTest, DecodeServiceUUIDListSuccess) {
+  std::string error;
+  absl::optional<base::Value> decoded_json = DecodeJsonStringAndNormalize(
+      kValidBluetoothServiceUUIDList, key::kDeviceAllowedBluetoothServices,
+      &error);
+  EXPECT_EQ(*GetBluetoothServiceAllowedList(), decoded_json.value());
+  EXPECT_TRUE(error.empty());
+}
+
+TEST_F(DevicePolicyDecoderChromeOSTest, DecodeServiceUUIDListError) {
+  std::string error;
+  absl::optional<base::Value> decoded_json = DecodeJsonStringAndNormalize(
+      kInvalidBluetoothServiceUUIDList, key::kDeviceAllowedBluetoothServices,
+      &error);
+  EXPECT_FALSE(decoded_json.has_value());
+  EXPECT_EQ("Invalid policy value: Invalid value for string (at items[0])",
+            error);
+}
 }  // namespace policy

@@ -11,10 +11,17 @@
 
 #include "base/bit_cast.h"
 #include "base/strings/stringprintf.h"
+#include "media/media_buildflags.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/renderer/platform/image-decoders/image_decoder_test_helpers.h"
 #include "third_party/blink/renderer/platform/wtf/shared_buffer.h"
 #include "third_party/libavif/src/include/avif/avif.h"
+
+// If the AV1 decoder library supports the bit depth 12, define
+// HAVE_AVIF_BIT_DEPTH_12_SUPPORT.
+#if BUILDFLAG(ENABLE_DAV1D_DECODER)
+#define HAVE_AVIF_BIT_DEPTH_12_SUPPORT
+#endif
 
 #define FIXME_SUPPORT_ICC_PROFILE_NO_TRANSFORM 0
 #define FIXME_SUPPORT_ICC_PROFILE_TRANSFORM 0
@@ -59,6 +66,7 @@ struct StaticColorCheckParam {
   ImageDecoder::CompressionFormat compression_format;
   ImageDecoder::AlphaOption alpha_option;
   ColorBehavior color_behavior;
+  ImageOrientation orientation;
   int color_threshold;
   std::vector<ExpectedColor> colors;
 };
@@ -92,11 +100,39 @@ std::ostream& operator<<(std::ostream& os, const StaticColorCheckParam& param) {
     DCHECK(param.color_behavior.IsTransformToSRGB());
     color_behavior = "TransformToSRGB";
   }
+  const char* orientation;
+  switch (param.orientation.Orientation()) {
+    case ImageOrientationEnum::kOriginTopLeft:
+      orientation = "kOriginTopLeft";
+      break;
+    case ImageOrientationEnum::kOriginTopRight:
+      orientation = "kOriginTopRight";
+      break;
+    case ImageOrientationEnum::kOriginBottomRight:
+      orientation = "kOriginBottomRight";
+      break;
+    case ImageOrientationEnum::kOriginBottomLeft:
+      orientation = "kOriginBottomLeft";
+      break;
+    case ImageOrientationEnum::kOriginLeftTop:
+      orientation = "kOriginLeftTop";
+      break;
+    case ImageOrientationEnum::kOriginRightTop:
+      orientation = "kOriginRightTop";
+      break;
+    case ImageOrientationEnum::kOriginRightBottom:
+      orientation = "kOriginRightBottom";
+      break;
+    case ImageOrientationEnum::kOriginLeftBottom:
+      orientation = "kOriginLeftBottom";
+      break;
+  }
   return os << "\nStaticColorCheckParam {\n  path: \"" << param.path
             << "\",\n  bit_depth: " << param.bit_depth
             << ",\n  color_type: " << color_type
             << ",\n  alpha_option: " << alpha_option
-            << ",\n  color_behavior: " << color_behavior << "\n}";
+            << ",\n  color_behavior: " << color_behavior
+            << ",\n  orientation: " << orientation << "\n}";
 }
 
 StaticColorCheckParam kTestParams[] = {
@@ -107,6 +143,7 @@ StaticColorCheckParam kTestParams[] = {
         ImageDecoder::kLossyFormat,
         ImageDecoder::kAlphaNotPremultiplied,  // q=60(lossy)
         ColorBehavior::Tag(),
+        ImageOrientationEnum::kOriginTopLeft,
         0,
         {},  // we just check that this image is lossy.
     },
@@ -117,6 +154,7 @@ StaticColorCheckParam kTestParams[] = {
         ImageDecoder::kLossyFormat,
         ImageDecoder::kAlphaNotPremultiplied,  // q=60(lossy)
         ColorBehavior::Ignore(),
+        ImageOrientationEnum::kOriginTopLeft,
         0,
         {},  // we just check that the decoder won't crash when
              // ColorBehavior::Ignore() is used.
@@ -127,19 +165,8 @@ StaticColorCheckParam kTestParams[] = {
      ImageDecoder::kLosslessFormat,
      ImageDecoder::kAlphaNotPremultiplied,
      ColorBehavior::Tag(),
+     ImageOrientationEnum::kOriginTopLeft,
      3,
-     {
-         {gfx::Point(0, 0), SkColorSetARGB(0, 255, 0, 0)},
-         {gfx::Point(1, 1), SkColorSetARGB(128, 255, 0, 0)},
-         {gfx::Point(2, 2), SkColorSetARGB(255, 255, 0, 0)},
-     }},
-    {"/images/resources/avif/red-with-limited-alpha-8bpc.avif",
-     8,
-     ColorType::kRgbA,
-     ImageDecoder::kLosslessFormat,
-     ImageDecoder::kAlphaNotPremultiplied,
-     ColorBehavior::Tag(),
-     1,
      {
          {gfx::Point(0, 0), SkColorSetARGB(0, 255, 0, 0)},
          {gfx::Point(1, 1), SkColorSetARGB(128, 255, 0, 0)},
@@ -151,7 +178,8 @@ StaticColorCheckParam kTestParams[] = {
      ImageDecoder::kLosslessFormat,
      ImageDecoder::kAlphaNotPremultiplied,
      ColorBehavior::Tag(),
-     3,
+     ImageOrientationEnum::kOriginTopLeft,
+     1,
      {
          {gfx::Point(0, 0), SkColorSetARGB(255, 255, 0, 0)},
          {gfx::Point(1, 1), SkColorSetARGB(255, 255, 0, 0)},
@@ -163,7 +191,8 @@ StaticColorCheckParam kTestParams[] = {
      ImageDecoder::kLosslessFormat,
      ImageDecoder::kAlphaNotPremultiplied,
      ColorBehavior::Tag(),
-     3,
+     ImageOrientationEnum::kOriginTopLeft,
+     1,
      {
          {gfx::Point(0, 0), SkColorSetARGB(255, 255, 0, 0)},
          {gfx::Point(1, 1), SkColorSetARGB(255, 255, 0, 0)},
@@ -175,6 +204,7 @@ StaticColorCheckParam kTestParams[] = {
      ImageDecoder::kLosslessFormat,
      ImageDecoder::kAlphaNotPremultiplied,
      ColorBehavior::Tag(),
+     ImageOrientationEnum::kOriginTopLeft,
      1,
      {
          {gfx::Point(0, 0), SkColorSetARGB(255, 192, 192, 192)},
@@ -187,6 +217,7 @@ StaticColorCheckParam kTestParams[] = {
      ImageDecoder::kLosslessFormat,
      ImageDecoder::kAlphaNotPremultiplied,
      ColorBehavior::Tag(),
+     ImageOrientationEnum::kOriginTopLeft,
      1,
      {
          {gfx::Point(0, 0), SkColorSetARGB(255, 0, 0, 0)},
@@ -199,6 +230,7 @@ StaticColorCheckParam kTestParams[] = {
      ImageDecoder::kLosslessFormat,
      ImageDecoder::kAlphaNotPremultiplied,
      ColorBehavior::Tag(),
+     ImageOrientationEnum::kOriginTopLeft,
      1,
      {
          {gfx::Point(0, 0), SkColorSetARGB(255, 0, 0, 0)},
@@ -211,6 +243,7 @@ StaticColorCheckParam kTestParams[] = {
      ImageDecoder::kLosslessFormat,
      ImageDecoder::kAlphaPremultiplied,
      ColorBehavior::TransformToSRGB(),
+     ImageOrientationEnum::kOriginTopLeft,
      3,
      {
          {gfx::Point(0, 0), SkColorSetARGB(0, 0, 0, 0)},
@@ -224,6 +257,7 @@ StaticColorCheckParam kTestParams[] = {
      ImageDecoder::kLosslessFormat,
      ImageDecoder::kAlphaNotPremultiplied,
      ColorBehavior::Ignore(),
+     ImageOrientationEnum::kOriginTopLeft,
      1,
      {
          {gfx::Point(0, 0), SkColorSetARGB(255, 0, 0, 255)},
@@ -238,6 +272,7 @@ StaticColorCheckParam kTestParams[] = {
      ImageDecoder::kLosslessFormat,
      ImageDecoder::kAlphaNotPremultiplied,
      ColorBehavior::TransformToSRGB(),
+     ImageOrientationEnum::kOriginTopLeft,
      1,
      {
          /*
@@ -255,18 +290,7 @@ StaticColorCheckParam kTestParams[] = {
      ImageDecoder::kLosslessFormat,
      ImageDecoder::kAlphaNotPremultiplied,
      ColorBehavior::Tag(),
-     1,
-     {
-         {gfx::Point(0, 0), SkColorSetARGB(0, 255, 0, 0)},
-         {gfx::Point(1, 1), SkColorSetARGB(128, 255, 0, 0)},
-         {gfx::Point(2, 2), SkColorSetARGB(255, 255, 0, 0)},
-     }},
-    {"/images/resources/avif/red-with-limited-alpha-10bpc.avif",
-     10,
-     ColorType::kRgbA,
-     ImageDecoder::kLosslessFormat,
-     ImageDecoder::kAlphaNotPremultiplied,
-     ColorBehavior::Tag(),
+     ImageOrientationEnum::kOriginTopLeft,
      1,
      {
          {gfx::Point(0, 0), SkColorSetARGB(0, 255, 0, 0)},
@@ -279,6 +303,7 @@ StaticColorCheckParam kTestParams[] = {
      ImageDecoder::kLosslessFormat,
      ImageDecoder::kAlphaPremultiplied,
      ColorBehavior::TransformToSRGB(),
+     ImageOrientationEnum::kOriginTopLeft,
      1,
      {
          {gfx::Point(0, 0), SkColorSetARGB(0, 0, 0, 0)},
@@ -291,7 +316,8 @@ StaticColorCheckParam kTestParams[] = {
      ImageDecoder::kLosslessFormat,
      ImageDecoder::kAlphaNotPremultiplied,
      ColorBehavior::Tag(),
-     2,
+     ImageOrientationEnum::kOriginTopLeft,
+     1,
      {
          {gfx::Point(0, 0), SkColorSetARGB(255, 255, 0, 0)},
          {gfx::Point(1, 1), SkColorSetARGB(255, 255, 0, 0)},
@@ -303,6 +329,7 @@ StaticColorCheckParam kTestParams[] = {
      ImageDecoder::kLosslessFormat,
      ImageDecoder::kAlphaNotPremultiplied,
      ColorBehavior::Tag(),
+     ImageOrientationEnum::kOriginTopLeft,
      1,
      {
          {gfx::Point(0, 0), SkColorSetARGB(255, 0, 0, 0)},
@@ -315,6 +342,7 @@ StaticColorCheckParam kTestParams[] = {
      ImageDecoder::kLosslessFormat,
      ImageDecoder::kAlphaNotPremultiplied,
      ColorBehavior::Tag(),
+     ImageOrientationEnum::kOriginTopLeft,
      1,
      {
          {gfx::Point(0, 0), SkColorSetARGB(255, 0, 0, 0)},
@@ -328,6 +356,7 @@ StaticColorCheckParam kTestParams[] = {
      ImageDecoder::kLosslessFormat,
      ImageDecoder::kAlphaNotPremultiplied,
      ColorBehavior::Ignore(),
+     ImageOrientationEnum::kOriginTopLeft,
      1,
      {
          {gfx::Point(0, 0), SkColorSetARGB(255, 0, 0, 255)},
@@ -342,6 +371,7 @@ StaticColorCheckParam kTestParams[] = {
      ImageDecoder::kLosslessFormat,
      ImageDecoder::kAlphaNotPremultiplied,
      ColorBehavior::TransformToSRGB(),
+     ImageOrientationEnum::kOriginTopLeft,
      1,
      {
          /*
@@ -359,18 +389,7 @@ StaticColorCheckParam kTestParams[] = {
      ImageDecoder::kLosslessFormat,
      ImageDecoder::kAlphaNotPremultiplied,
      ColorBehavior::Tag(),
-     1,
-     {
-         {gfx::Point(0, 0), SkColorSetARGB(0, 255, 0, 0)},
-         {gfx::Point(1, 1), SkColorSetARGB(128, 255, 0, 0)},
-         {gfx::Point(2, 2), SkColorSetARGB(255, 255, 0, 0)},
-     }},
-    {"/images/resources/avif/red-with-limited-alpha-12bpc.avif",
-     12,
-     ColorType::kRgbA,
-     ImageDecoder::kLosslessFormat,
-     ImageDecoder::kAlphaNotPremultiplied,
-     ColorBehavior::Tag(),
+     ImageOrientationEnum::kOriginTopLeft,
      1,
      {
          {gfx::Point(0, 0), SkColorSetARGB(0, 255, 0, 0)},
@@ -383,6 +402,7 @@ StaticColorCheckParam kTestParams[] = {
      ImageDecoder::kLosslessFormat,
      ImageDecoder::kAlphaPremultiplied,
      ColorBehavior::TransformToSRGB(),
+     ImageOrientationEnum::kOriginTopLeft,
      1,
      {
          {gfx::Point(0, 0), SkColorSetARGB(0, 0, 0, 0)},
@@ -395,7 +415,8 @@ StaticColorCheckParam kTestParams[] = {
      ImageDecoder::kLosslessFormat,
      ImageDecoder::kAlphaNotPremultiplied,
      ColorBehavior::Tag(),
-     2,
+     ImageOrientationEnum::kOriginTopLeft,
+     1,
      {
          {gfx::Point(0, 0), SkColorSetARGB(255, 255, 0, 0)},
          {gfx::Point(1, 1), SkColorSetARGB(255, 255, 0, 0)},
@@ -407,6 +428,7 @@ StaticColorCheckParam kTestParams[] = {
      ImageDecoder::kLosslessFormat,
      ImageDecoder::kAlphaNotPremultiplied,
      ColorBehavior::Tag(),
+     ImageOrientationEnum::kOriginTopLeft,
      1,
      {
          {gfx::Point(0, 0), SkColorSetARGB(255, 0, 0, 0)},
@@ -419,6 +441,7 @@ StaticColorCheckParam kTestParams[] = {
      ImageDecoder::kLosslessFormat,
      ImageDecoder::kAlphaNotPremultiplied,
      ColorBehavior::Tag(),
+     ImageOrientationEnum::kOriginTopLeft,
      1,
      {
          {gfx::Point(0, 0), SkColorSetARGB(255, 0, 0, 0)},
@@ -432,6 +455,7 @@ StaticColorCheckParam kTestParams[] = {
      ImageDecoder::kLosslessFormat,
      ImageDecoder::kAlphaNotPremultiplied,
      ColorBehavior::Ignore(),
+     ImageOrientationEnum::kOriginTopLeft,
      1,
      {
          {gfx::Point(0, 0), SkColorSetARGB(255, 0, 0, 255)},
@@ -446,6 +470,7 @@ StaticColorCheckParam kTestParams[] = {
      ImageDecoder::kLosslessFormat,
      ImageDecoder::kAlphaNotPremultiplied,
      ColorBehavior::TransformToSRGB(),
+     ImageOrientationEnum::kOriginTopLeft,
      1,
      {
          /*
@@ -457,13 +482,92 @@ StaticColorCheckParam kTestParams[] = {
          {gfx::Point(2, 2), SkColorSetARGB(255, 255, 0, 0)},
      }},
 #endif
+    {"/images/resources/avif/blue-and-magenta-crop.avif",
+     8,
+     ColorType::kRgbA,
+     ImageDecoder::kLosslessFormat,
+     ImageDecoder::kAlphaNotPremultiplied,
+     ColorBehavior::Tag(),
+     ImageOrientationEnum::kOriginTopLeft,
+     1,
+     {
+         // The clean aperture's size is 180x100.
+         {gfx::Point(0, 0), SkColorSetARGB(255, 0, 0, 255)},      // blue
+         {gfx::Point(90, 50), SkColorSetARGB(255, 255, 0, 255)},  // magenta
+         {gfx::Point(179, 99), SkColorSetARGB(255, 0, 0, 255)},   // blue
+     }},
+    {"/images/resources/avif/red-full-range-angle-1-420-8bpc.avif",
+     8,
+     ColorType::kRgb,
+     ImageDecoder::kLosslessFormat,
+     ImageDecoder::kAlphaNotPremultiplied,
+     ColorBehavior::Tag(),
+     ImageOrientationEnum::kOriginLeftBottom,
+     1,
+     {
+         {gfx::Point(0, 0), SkColorSetARGB(255, 255, 0, 0)},
+         {gfx::Point(1, 1), SkColorSetARGB(255, 255, 0, 0)},
+         {gfx::Point(2, 2), SkColorSetARGB(255, 255, 0, 0)},
+     }},
+    {"/images/resources/avif/red-full-range-axis-0-420-8bpc.avif",
+     8,
+     ColorType::kRgb,
+     ImageDecoder::kLosslessFormat,
+     ImageDecoder::kAlphaNotPremultiplied,
+     ColorBehavior::Tag(),
+     ImageOrientationEnum::kOriginTopRight,
+     1,
+     {
+         {gfx::Point(0, 0), SkColorSetARGB(255, 255, 0, 0)},
+         {gfx::Point(1, 1), SkColorSetARGB(255, 255, 0, 0)},
+         {gfx::Point(2, 2), SkColorSetARGB(255, 255, 0, 0)},
+     }},
+    {"/images/resources/avif/red-full-range-axis-1-420-8bpc.avif",
+     8,
+     ColorType::kRgb,
+     ImageDecoder::kLosslessFormat,
+     ImageDecoder::kAlphaNotPremultiplied,
+     ColorBehavior::Tag(),
+     ImageOrientationEnum::kOriginBottomLeft,
+     1,
+     {
+         {gfx::Point(0, 0), SkColorSetARGB(255, 255, 0, 0)},
+         {gfx::Point(1, 1), SkColorSetARGB(255, 255, 0, 0)},
+         {gfx::Point(2, 2), SkColorSetARGB(255, 255, 0, 0)},
+     }},
+    {"/images/resources/avif/red-full-range-angle-2-axis-0-420-8bpc.avif",
+     8,
+     ColorType::kRgb,
+     ImageDecoder::kLosslessFormat,
+     ImageDecoder::kAlphaNotPremultiplied,
+     ColorBehavior::Tag(),
+     ImageOrientationEnum::kOriginBottomLeft,
+     1,
+     {
+         {gfx::Point(0, 0), SkColorSetARGB(255, 255, 0, 0)},
+         {gfx::Point(1, 1), SkColorSetARGB(255, 255, 0, 0)},
+         {gfx::Point(2, 2), SkColorSetARGB(255, 255, 0, 0)},
+     }},
+    {"/images/resources/avif/red-full-range-angle-3-axis-1-420-8bpc.avif",
+     8,
+     ColorType::kRgb,
+     ImageDecoder::kLosslessFormat,
+     ImageDecoder::kAlphaNotPremultiplied,
+     ColorBehavior::Tag(),
+     ImageOrientationEnum::kOriginRightBottom,
+     1,
+     {
+         {gfx::Point(0, 0), SkColorSetARGB(255, 255, 0, 0)},
+         {gfx::Point(1, 1), SkColorSetARGB(255, 255, 0, 0)},
+         {gfx::Point(2, 2), SkColorSetARGB(255, 255, 0, 0)},
+     }},
     // TODO(ryoh): Add other color profile images, such as BT2020CL,
-    //  BT2020NCL, Rec601, SMPTE 274M
+    //  SMPTE 274M
     // TODO(ryoh): Add images with different combinations of ColorPrimaries,
     //  TransferFunction and MatrixCoefficients,
     //  such as:
     //   sRGB ColorPrimaries, BT.2020 TransferFunction and
-    //   BT.609 MatrixCoefficients
+    //   BT.709 MatrixCoefficients
     // TODO(ryoh): Add Mono + Alpha Images.
 };
 
@@ -552,6 +656,7 @@ void ReadYUV(const char* file_name,
 
   decoder->DecodeToYUV();
   EXPECT_FALSE(decoder->Failed());
+  EXPECT_TRUE(decoder->HasDisplayableYUVData());
 
   auto metadata = decoder->MakeMetadataForDecodeAcceleration();
   EXPECT_EQ(cc::ImageType::kAVIF, metadata.image_type);
@@ -604,6 +709,10 @@ void TestYUVRed(const char* file_name,
                 const IntSize& expected_uv_size,
                 SkColorType color_type = kGray_8_SkColorType,
                 int bit_depth = 8) {
+#if !defined(HAVE_AVIF_BIT_DEPTH_12_SUPPORT)
+  if (bit_depth == 12)
+    return;
+#endif
   SCOPED_TRACE(base::StringPrintf("file_name=%s, color_type=%d", file_name,
                                   int{color_type}));
 
@@ -647,6 +756,7 @@ TEST(AnimatedAVIFTests, ValidImages) {
       &CreateAVIFDecoder,
       "/images/resources/avif/star-animated-10bpc-with-alpha.avif", 5u,
       kAnimationLoopInfinite);
+#if defined(HAVE_AVIF_BIT_DEPTH_12_SUPPORT)
   TestByteByByteDecode(&CreateAVIFDecoder,
                        "/images/resources/avif/star-animated-12bpc.avif", 5u,
                        kAnimationLoopInfinite);
@@ -654,6 +764,7 @@ TEST(AnimatedAVIFTests, ValidImages) {
       &CreateAVIFDecoder,
       "/images/resources/avif/star-animated-12bpc-with-alpha.avif", 5u,
       kAnimationLoopInfinite);
+#endif
   // TODO(ryoh): Add animated avif files with EditListBox.
 }
 
@@ -669,6 +780,15 @@ TEST(StaticAVIFTests, DoesNotHaveMultipleSubImages) {
   decoder->SetData(ReadFile("/images/resources/avif/"
                             "red-at-12-oclock-with-color-profile-8bpc.avif"),
                    true);
+  EXPECT_FALSE(decoder->ImageHasBothStillAndAnimatedSubImages());
+}
+
+TEST(StaticAVIFTests, NoCrashWhenCheckingForMultipleSubImages) {
+  std::unique_ptr<ImageDecoder> decoder = CreateAVIFDecoder();
+  constexpr char kHeader[] = {0x00, 0x00, 0x00, 0x20, 0x66, 0x74, 0x79, 0x70};
+  auto buffer = SharedBuffer::Create();
+  buffer->Append(kHeader, base::size(kHeader));
+  decoder->SetData(buffer.get(), false);
   EXPECT_FALSE(decoder->ImageHasBothStillAndAnimatedSubImages());
 }
 
@@ -700,10 +820,12 @@ TEST(StaticAVIFTests, ValidImages) {
       &CreateAVIFDecoder,
       "/images/resources/avif/red-at-12-oclock-with-color-profile-10bpc.avif",
       1, kAnimationNone);
+#if defined(HAVE_AVIF_BIT_DEPTH_12_SUPPORT)
   TestByteByByteDecode(
       &CreateAVIFDecoder,
       "/images/resources/avif/red-at-12-oclock-with-color-profile-12bpc.avif",
       1, kAnimationNone);
+#endif
 }
 
 TEST(StaticAVIFTests, YUV) {
@@ -750,6 +872,31 @@ TEST(StaticAVIFTests, YUV) {
   }
 }
 
+TEST(StaticAVIFTests, SizeAvailableBeforeAllDataReceived) {
+  scoped_refptr<SharedBuffer> stream_buffer = WTF::SharedBuffer::Create();
+  scoped_refptr<SegmentReader> segment_reader =
+      SegmentReader::CreateFromSharedBuffer(stream_buffer);
+  std::unique_ptr<ImageDecoder> decoder = ImageDecoder::CreateByMimeType(
+      "image/avif", segment_reader, /*data_complete=*/false,
+      ImageDecoder::kAlphaPremultiplied, ImageDecoder::kDefaultBitDepth,
+      ColorBehavior::Tag(), SkISize::MakeEmpty(),
+      ImageDecoder::AnimationOption::kUnspecified);
+  EXPECT_FALSE(decoder->IsSizeAvailable());
+
+  scoped_refptr<SharedBuffer> data =
+      ReadFile("/images/resources/avif/red-limited-range-420-8bpc.avif");
+  ASSERT_TRUE(data.get());
+  stream_buffer->Append(data->Data(), data->size());
+  EXPECT_EQ(stream_buffer->size(), 318u);
+  decoder->SetData(stream_buffer, /*all_data_received=*/false);
+  // All bytes are appended so we should have size, even though we pass
+  // all_data_received=false.
+  EXPECT_TRUE(decoder->IsSizeAvailable());
+
+  decoder->SetData(stream_buffer, /*all_data_received=*/true);
+  EXPECT_TRUE(decoder->IsSizeAvailable());
+}
+
 using StaticAVIFColorTests = ::testing::TestWithParam<StaticColorCheckParam>;
 
 INSTANTIATE_TEST_CASE_P(Parameterized,
@@ -758,6 +905,10 @@ INSTANTIATE_TEST_CASE_P(Parameterized,
 
 TEST_P(StaticAVIFColorTests, InspectImage) {
   const StaticColorCheckParam& param = GetParam();
+#if !defined(HAVE_AVIF_BIT_DEPTH_12_SUPPORT)
+  if (param.bit_depth == 12)
+    return;
+#endif
   // TODO(ryoh): Add tests with ImageDecoder::kHighBitDepthToHalfFloat
   std::unique_ptr<ImageDecoder> decoder = CreateAVIFDecoderWithOptions(
       param.alpha_option, ImageDecoder::kDefaultBitDepth, param.color_behavior,
@@ -779,9 +930,7 @@ TEST_P(StaticAVIFColorTests, InspectImage) {
   ASSERT_TRUE(frame);
   EXPECT_EQ(ImageFrame::kFrameComplete, frame->GetStatus());
   EXPECT_FALSE(decoder->Failed());
-  // TODO(ryoh): How should we treat imir(mirroring), irot(rotation) and
-  // clap(cropping)?
-  // EXPECT_EQ(xxxx, decoder->Orientation());
+  EXPECT_EQ(param.orientation, decoder->Orientation());
   EXPECT_EQ(param.color_type == ColorType::kRgbA ||
                 param.color_type == ColorType::kMonoA,
             frame->HasAlpha());
@@ -822,6 +971,118 @@ TEST_P(StaticAVIFColorTests, InspectImage) {
       EXPECT_EQ(SkColorGetR(frame_color), SkColorGetG(frame_color));
       EXPECT_EQ(SkColorGetR(frame_color), SkColorGetB(frame_color));
     }
+  }
+}
+
+struct AVIFClapPropertyParam {
+  uint32_t width;
+  uint32_t height;
+  avifPixelFormat yuv_format;
+  avifCleanApertureBox clap;
+
+  bool expected_result;
+  int expected_clap_width;
+  int expected_clap_height;
+  int expected_clap_leftmost;
+  int expected_clap_topmost;
+};
+
+AVIFClapPropertyParam kAVIFClapPropertyTestParams[] = {
+    //////////////////////////////////////////////////
+    // Negative tests:
+
+    // Zero or negative denominators.
+    {120, 160, AVIF_PIXEL_FORMAT_YUV420, {96, 0, 132, 1, 0, 1, 0, 1}, false},
+    {120, 160, AVIF_PIXEL_FORMAT_YUV420, {96, -1, 132, 1, 0, 1, 0, 1}, false},
+    {120, 160, AVIF_PIXEL_FORMAT_YUV420, {96, 1, 132, 0, 0, 1, 0, 1}, false},
+    {120, 160, AVIF_PIXEL_FORMAT_YUV420, {96, 1, 132, -1, 0, 1, 0, 1}, false},
+    {120, 160, AVIF_PIXEL_FORMAT_YUV420, {96, 1, 132, 1, 0, 0, 0, 1}, false},
+    {120, 160, AVIF_PIXEL_FORMAT_YUV420, {96, 1, 132, 1, 0, -1, 0, 1}, false},
+    {120, 160, AVIF_PIXEL_FORMAT_YUV420, {96, 1, 132, 1, 0, 1, 0, 0}, false},
+    {120, 160, AVIF_PIXEL_FORMAT_YUV420, {96, 1, 132, 1, 0, 1, 0, -1}, false},
+    // Zero or negative clean aperture width or height.
+    {120, 160, AVIF_PIXEL_FORMAT_YUV420, {-96, 1, 132, 1, 0, 1, 0, 1}, false},
+    {120, 160, AVIF_PIXEL_FORMAT_YUV420, {0, 1, 132, 1, 0, 1, 0, 1}, false},
+    {120, 160, AVIF_PIXEL_FORMAT_YUV420, {96, 1, -132, 1, 0, 1, 0, 1}, false},
+    {120, 160, AVIF_PIXEL_FORMAT_YUV420, {96, 1, 0, 1, 0, 1, 0, 1}, false},
+    // Clean aperture width or height is not an integer.
+    {120, 160, AVIF_PIXEL_FORMAT_YUV420, {96, 5, 132, 1, 0, 1, 0, 1}, false},
+    {120, 160, AVIF_PIXEL_FORMAT_YUV420, {96, 1, 132, 5, 0, 1, 0, 1}, false},
+    // pcX = 103 + (722 - 1)/2 = 463.5
+    // pcY = -308 + (1024 - 1)/2 = 203.5
+    // leftmost = 463.5 - (385 - 1)/2 = 271.5 (not an integer)
+    // topmost = 203.5 - (330 - 1)/2 = 39
+    {722,
+     1024,
+     AVIF_PIXEL_FORMAT_YUV420,
+     {385, 1, 330, 1, 103, 1, -308, 1},
+     false},
+    // pcX = -308 + (1024 - 1)/2 = 203.5
+    // pcY = 103 + (722 - 1)/2 = 463.5
+    // leftmost = 203.5 - (330 - 1)/2 = 39
+    // topmost = 463.5 - (385 - 1)/2 = 271.5 (not an integer)
+    {1024,
+     722,
+     AVIF_PIXEL_FORMAT_YUV420,
+     {330, 1, 385, 1, -308, 1, 103, 1},
+     false},
+
+    //////////////////////////////////////////////////
+    // Positive tests:
+
+    // pcX = 0 + (120 - 1)/2 = 59.5
+    // pcY = 0 + (160 - 1)/2 = 79.5
+    // leftmost = 59.5 - (96 - 1)/2 = 12
+    // topmost = 79.5 - (132 - 1)/2 = 14
+    {120,
+     160,
+     AVIF_PIXEL_FORMAT_YUV420,
+     {96, 1, 132, 1, 0, 1, 0, 1},
+     true,
+     96,
+     132,
+     12,
+     14},
+    // pcX = -30 + (120 - 1)/2 = 29.5
+    // pcY = -40 + (160 - 1)/2 = 39.5
+    // leftmost = 29.5 - (60 - 1)/2 = 0
+    // topmost = 39.5 - (80 - 1)/2 = 0
+    {120,
+     160,
+     AVIF_PIXEL_FORMAT_YUV420,
+     {60, 1, 80, 1, -30, 1, -40, 1},
+     true,
+     60,
+     80,
+     0,
+     0},
+};
+
+using AVIFClapPropertyTest = ::testing::TestWithParam<AVIFClapPropertyParam>;
+
+INSTANTIATE_TEST_CASE_P(Parameterized,
+                        AVIFClapPropertyTest,
+                        ::testing::ValuesIn(kAVIFClapPropertyTestParams));
+
+TEST_P(AVIFClapPropertyTest, ValidateClapProperty) {
+  const AVIFClapPropertyParam& param = GetParam();
+  avifImage image;
+  image.width = param.width;
+  image.height = param.height;
+  image.yuvFormat = param.yuv_format;
+  image.clap = param.clap;
+  int clap_width = -1;
+  int clap_height = -1;
+  int clap_leftmost = -1;
+  int clap_topmost = -1;
+  EXPECT_EQ(AVIFImageDecoder::ValidateClapPropertyForTesting(
+                &image, clap_width, clap_height, clap_leftmost, clap_topmost),
+            param.expected_result);
+  if (param.expected_result) {
+    EXPECT_EQ(clap_width, param.expected_clap_width);
+    EXPECT_EQ(clap_height, param.expected_clap_height);
+    EXPECT_EQ(clap_leftmost, param.expected_clap_leftmost);
+    EXPECT_EQ(clap_topmost, param.expected_clap_topmost);
   }
 }
 

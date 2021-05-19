@@ -10,7 +10,6 @@
 #include <vector>
 
 #include "base/memory/ref_counted.h"
-#include "base/strings/string16.h"
 #include "components/history/core/browser/keyword_id.h"
 #include "components/history/core/browser/top_sites.h"
 #include "components/omnibox/browser/keyword_extensions_delegate.h"
@@ -40,12 +39,20 @@ class HistoryService;
 class URLDatabase;
 }
 
+namespace history_clusters {
+class HistoryClustersService;
+}
+
 namespace network {
 class SharedURLLoaderFactory;
 }
 
 namespace component_updater {
 class ComponentUpdateService;
+}
+
+namespace signin {
+class IdentityManager;
 }
 
 namespace query_tiles {
@@ -65,6 +72,7 @@ class AutocompleteProviderClient {
   virtual const AutocompleteSchemeClassifier& GetSchemeClassifier() const = 0;
   virtual AutocompleteClassifier* GetAutocompleteClassifier() = 0;
   virtual history::HistoryService* GetHistoryService() = 0;
+  virtual history_clusters::HistoryClustersService* GetHistoryClustersService();
   virtual scoped_refptr<history::TopSites> GetTopSites() = 0;
   virtual bookmarks::BookmarkModel* GetBookmarkModel() = 0;
   virtual history::URLDatabase* GetInMemoryDatabase() = 0;
@@ -96,13 +104,13 @@ class AutocompleteProviderClient {
   // suggestions to the user.  Some built-in URLs, e.g. hidden URLs that
   // intentionally crash the product for testing purposes, may be omitted from
   // this list if suggesting them is undesirable.
-  virtual std::vector<base::string16> GetBuiltinURLs() = 0;
+  virtual std::vector<std::u16string> GetBuiltinURLs() = 0;
 
   // The set of URLs to provide as autocomplete suggestions as the user types a
   // prefix of the |about| scheme or the embedder's representation of that
   // scheme. Note that this may be a subset of GetBuiltinURLs(), e.g., only the
   // most commonly-used URLs from that set.
-  virtual std::vector<base::string16> GetBuiltinsToProvideAsUserTypes() = 0;
+  virtual std::vector<std::u16string> GetBuiltinsToProvideAsUserTypes() = 0;
 
   // TODO(crbug/925072): clean up component update service if it's confirmed
   // it's not needed for on device head provider.
@@ -110,6 +118,9 @@ class AutocompleteProviderClient {
   // suggestion provider to observe the model update event.
   virtual component_updater::ComponentUpdateService*
   GetComponentUpdateService() = 0;
+
+  // Returns the signin::IdentityManager associated with the current profile.
+  virtual signin::IdentityManager* GetIdentityManager() const = 0;
 
   virtual bool IsOffTheRecord() const = 0;
   virtual bool SearchSuggestEnabled() const = 0;
@@ -132,7 +143,7 @@ class AutocompleteProviderClient {
   // Given some string |text| that the user wants to use for navigation,
   // determines how it should be interpreted.
   virtual void Classify(
-      const base::string16& text,
+      const std::u16string& text,
       bool prefer_keyword,
       bool allow_exact_keyword_match,
       metrics::OmniboxEventProto::PageClassification page_classification,
@@ -143,7 +154,7 @@ class AutocompleteProviderClient {
   // |keyword_id| from history.
   virtual void DeleteMatchingURLsForKeywordFromHistory(
       history::KeywordID keyword_id,
-      const base::string16& term) = 0;
+      const std::u16string& term) = 0;
 
   virtual void PrefetchImage(const GURL& url) = 0;
 
@@ -169,7 +180,7 @@ class AutocompleteProviderClient {
   virtual bool IsTabOpenWithURL(const GURL& url,
                                 const AutocompleteInput* input) = 0;
 
-  // Returns whether any browser update is ready.
+  // Returns whether user is currently allowed to enter incognito mode.
   virtual bool IsIncognitoModeAvailable() const;
 };
 

@@ -12,16 +12,15 @@
 #include "base/callback.h"
 #include "base/feature_list.h"
 #include "base/memory/weak_ptr.h"
-#include "base/optional.h"
-#include "base/time/time.h"
 #include "components/invalidation/impl/status.h"
 #include "components/invalidation/public/invalidation_util.h"
 #include "net/http/http_request_headers.h"
 #include "services/data_decoder/public/cpp/data_decoder.h"
 #include "services/network/public/cpp/simple_url_loader.h"
 #include "services/network/public/mojom/url_loader_factory.mojom.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
-namespace syncer {
+namespace invalidation {
 
 constexpr base::Feature kInvalidationsSkipUnsubscription{
     "InvalidationsSkipUnsubscription", base::FEATURE_DISABLED_BY_DEFAULT};
@@ -131,6 +130,6 @@ class PerUserTopicSubscriptionRequest {
   base::WeakPtrFactory<PerUserTopicSubscriptionRequest> weak_ptr_factory_{this};
 };
 
-}  // namespace syncer
+}  // namespace invalidation
 
 #endif  // COMPONENTS_INVALIDATION_IMPL_PER_USER_TOPIC_SUBSCRIPTION_REQUEST_H_

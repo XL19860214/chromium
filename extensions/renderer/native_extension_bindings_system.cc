@@ -8,6 +8,7 @@
 #include "base/callback.h"
 #include "base/command_line.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/strings/string_piece.h"
 #include "base/timer/elapsed_timer.h"
 #include "components/crx_file/id_util.h"
 #include "content/public/common/content_switches.h"
@@ -20,6 +21,7 @@
 #include "extensions/common/manifest_constants.h"
 #include "extensions/common/manifest_handlers/content_capabilities_handler.h"
 #include "extensions/common/manifest_handlers/externally_connectable.h"
+#include "extensions/common/mojom/frame.mojom.h"
 #include "extensions/renderer/api_activity_logger.h"
 #include "extensions/renderer/bindings/api_binding_bridge.h"
 #include "extensions/renderer/bindings/api_binding_hooks.h"
@@ -319,7 +321,7 @@ v8::Local<v8::Object> CreateFullBinding(
 
     v8::Local<v8::Object> nested_binding =
         CreateFullBinding(context, script_context, bindings_system,
-                          api_feature_provider, binding_name.as_string());
+                          api_feature_provider, std::string(binding_name));
     // It's possible that we don't create a binding if no features or
     // prefixed features are available to the context.
     if (nested_binding.IsEmpty())
@@ -569,10 +571,6 @@ void NativeExtensionBindingsSystem::UpdateBindingsForContext(
       is_webpage = true;
       break;
     case Feature::BLESSED_EXTENSION_CONTEXT:
-      if (context->IsForServiceWorker())
-        DCHECK(ExtensionsClient::Get()
-                   ->ExtensionAPIEnabledInExtensionServiceWorkers());
-      FALLTHROUGH;
     case Feature::LOCK_SCREEN_EXTENSION_CONTEXT:
     case Feature::UNBLESSED_EXTENSION_CONTEXT:
     case Feature::CONTENT_SCRIPT_CONTEXT:
@@ -866,9 +864,10 @@ void NativeExtensionBindingsSystem::SendRequest(
   else
     url = script_context->url();
 
-  auto params = std::make_unique<ExtensionHostMsg_Request_Params>();
+  auto params = mojom::RequestParams::New();
   params->name = request->method_name;
-  params->arguments.Swap(request->arguments.get());
+  base::Value args(request->arguments_list->TakeList());
+  params->arguments = std::move(args);
   params->extension_id = script_context->GetExtensionID();
   params->source_url = url;
   params->request_id = request->request_id;

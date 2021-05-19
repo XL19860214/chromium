@@ -13,6 +13,18 @@ static_library("features") {
   deps = [
     "//base:base",
     "//components/safe_browsing:buildflags",
+    "//components/variations",
+  ]
+}
+
+source_set("features_unittest") {
+  testonly = true
+  sources = [ "features_unittest.cc" ]
+
+  deps = [
+    ":features",
+    "//base/test:test_support",
+    "//testing/gtest:gtest",
   ]
 }
 
@@ -91,6 +103,7 @@ source_set("verdict_cache_manager") {
     "//components/history/core/browser",
     "//components/keyed_service/core:core",
     "//components/password_manager/core/browser:browser",
+    "//components/safe_browsing/core/common",
     "//components/safe_browsing/core/common:thread_utils",
     "//components/safe_browsing/core/db:v4_protocol_manager_util",
     "//url",
@@ -149,10 +162,12 @@ if (!is_ios && !is_fuchsia) {
       "file_type_policies.h",
     ]
 
-    public_deps = [ ":download_file_types_proto" ]
+    public_deps = [
+      ":download_file_types_proto",
+      "//base",
+    ]
 
     deps = [
-      "//base",
       "//components/resources:components_resources",
       "//ui/base",
     ]

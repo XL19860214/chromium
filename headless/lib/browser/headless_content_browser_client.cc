@@ -14,6 +14,7 @@
 #include "base/i18n/rtl.h"
 #include "base/path_service.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/strings/string_piece.h"
 #include "base/strings/string_split.h"
 #include "build/build_config.h"
 #include "components/embedder_support/switches.h"
@@ -24,6 +25,7 @@
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/storage_partition.h"
+#include "content/public/browser/web_contents.h"
 #include "content/public/common/content_switches.h"
 #include "headless/app/headless_shell_switches.h"
 #include "headless/lib/browser/headless_browser_context_impl.h"
@@ -48,6 +50,13 @@
 #include "components/crash/core/app/breakpad_linux.h"
 #include "content/public/common/content_descriptors.h"
 #endif  // defined(HEADLESS_USE_BREAKPAD)
+
+#if defined(HEADLESS_USE_POLICY)
+#include "components/policy/content/policy_blocklist_navigation_throttle.h"
+#include "components/policy/core/common/policy_service.h"
+#include "content/public/browser/navigation_handle.h"
+#include "content/public/browser/navigation_throttle.h"
+#endif  // defined(HEADLESS_USE_POLICY)
 
 namespace headless {
 
@@ -159,10 +168,10 @@ HeadlessContentBrowserClient::CreateBrowserMainParts(
 }
 
 void HeadlessContentBrowserClient::OverrideWebkitPrefs(
-    content::RenderViewHost* render_view_host,
+    content::WebContents* web_contents,
     blink::web_pref::WebPreferences* prefs) {
-  auto* browser_context = HeadlessBrowserContextImpl::From(
-      render_view_host->GetProcess()->GetBrowserContext());
+  auto* browser_context =
+      HeadlessBrowserContextImpl::From(web_contents->GetBrowserContext());
   base::RepeatingCallback<void(blink::web_pref::WebPreferences*)> callback =
       browser_context->options()->override_web_preferences_callback();
   if (callback)
@@ -176,9 +185,10 @@ void HeadlessContentBrowserClient::RegisterBrowserInterfaceBindersForFrame(
       &HeadlessContentBrowserClient::BindBadgeService, base::Unretained(this)));
 }
 
-content::DevToolsManagerDelegate*
-HeadlessContentBrowserClient::GetDevToolsManagerDelegate() {
-  return new HeadlessDevToolsManagerDelegate(browser_->GetWeakPtr());
+std::unique_ptr<content::DevToolsManagerDelegate>
+HeadlessContentBrowserClient::CreateDevToolsManagerDelegate() {
+  return std::make_unique<HeadlessDevToolsManagerDelegate>(
+      browser_->GetWeakPtr());
 }
 
 scoped_refptr<content::QuotaPermissionContext>
@@ -248,7 +258,7 @@ void HeadlessContentBrowserClient::AppendExtraCommandLineSwitches(
           base::TRIM_WHITESPACE, base::SPLIT_WANT_NONEMPTY);
       if (!languages.empty()) {
         command_line->AppendSwitchASCII(::switches::kLang,
-                                        languages[0].as_string());
+                                        std::string(languages[0]));
       }
     }
 
@@ -342,7 +352,7 @@ void HeadlessContentBrowserClient::ConfigureNetworkContextParams(
     bool in_memory,
     const base::FilePath& relative_partition_path,
     ::network::mojom::NetworkContextParams* network_context_params,
-    ::network::mojom::CertVerifierCreationParams*
+    ::cert_verifier::mojom::CertVerifierCreationParams*
         cert_verifier_creation_params) {
   HeadlessBrowserContextImpl::From(context)->ConfigureNetworkContextParams(
       in_memory, relative_partition_path, network_context_params,
@@ -365,5 +375,39 @@ void HeadlessContentBrowserClient::BindBadgeService(
 
   stub_badge_service_->Bind(std::move(receiver));
 }
+
+bool HeadlessContentBrowserClient::CanAcceptUntrustedExchangesIfNeeded() {
+  // We require --user-data-dir flag too so that no dangerous changes are made
+  // in the user's regular profile.
+  return base::CommandLine::ForCurrentProcess()->HasSwitch(
+      switches::kUserDataDir);
+}
+
+device::GeolocationManager*
+HeadlessContentBrowserClient::GetGeolocationManager() {
+#if defined(OS_MAC)
+  return browser_->browser_main_parts()->GetGeolocationManager();
+#else
+  return nullptr;
+#endif
+}
+
+#if defined(HEADLESS_USE_POLICY)
+std::vector<std::unique_ptr<content::NavigationThrottle>>
+HeadlessContentBrowserClient::CreateThrottlesForNavigation(
+    content::NavigationHandle* handle) {
+  std::vector<std::unique_ptr<content::NavigationThrottle>> throttles;
+
+  // Avoid creating naviagtion throttle if preferences are not available
+  // (happens in tests).
+  if (browser_->GetPrefs()) {
+    policy::PolicyService* policy_service = browser_->GetPolicyService();
+    throttles.push_back(std::make_unique<PolicyBlocklistNavigationThrottle>(
+        handle, handle->GetWebContents()->GetBrowserContext(), policy_service));
+  }
+
+  return throttles;
+}
+#endif  // defined(HEADLESS_USE_POLICY)
 
 }  // namespace headless

@@ -121,7 +121,7 @@ IntSize ImageElementBase::BitmapSourceSize() const {
 }
 
 static bool HasDimensionsForImage(SVGImage* svg_image,
-                                  base::Optional<IntRect> crop_rect,
+                                  absl::optional<IntRect> crop_rect,
                                   const ImageBitmapOptions* options) {
   if (!svg_image->ConcreteObjectSize(FloatSize()).IsEmpty())
     return true;
@@ -134,7 +134,7 @@ static bool HasDimensionsForImage(SVGImage* svg_image,
 
 ScriptPromise ImageElementBase::CreateImageBitmap(
     ScriptState* script_state,
-    base::Optional<IntRect> crop_rect,
+    absl::optional<IntRect> crop_rect,
     const ImageBitmapOptions* options,
     ExceptionState& exception_state) {
   ImageResourceContent* image_content = CachedImage();
@@ -142,6 +142,18 @@ ScriptPromise ImageElementBase::CreateImageBitmap(
     exception_state.ThrowDOMException(
         DOMExceptionCode::kInvalidStateError,
         "No image can be retrieved from the provided element.");
+    return ScriptPromise();
+  }
+  if (options->hasResizeWidth() && options->resizeWidth() == 0) {
+    exception_state.ThrowDOMException(
+        DOMExceptionCode::kInvalidStateError,
+        "The resize width dimension is equal to 0.");
+    return ScriptPromise();
+  }
+  if (options->hasResizeHeight() && options->resizeHeight() == 0) {
+    exception_state.ThrowDOMException(
+        DOMExceptionCode::kInvalidStateError,
+        "The resize width dimension is equal to 0.");
     return ScriptPromise();
   }
   if (auto* svg_image = DynamicTo<SVGImage>(image_content->GetImage())) {

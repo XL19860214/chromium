@@ -16,16 +16,15 @@
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/time/time.h"
-#include "chrome/browser/chromeos/file_system_provider/provided_file_system_info.h"
-#include "chrome/browser/chromeos/file_system_provider/provider_interface.h"
-#include "chrome/browser/chromeos/file_system_provider/service.h"
+#include "chrome/browser/ash/file_system_provider/provided_file_system_info.h"
+#include "chrome/browser/ash/file_system_provider/provider_interface.h"
+#include "chrome/browser/ash/file_system_provider/service.h"
 #include "chrome/browser/chromeos/smb_client/smb_errors.h"
 #include "chrome/browser/chromeos/smb_client/smb_persisted_share_registry.h"
 #include "chrome/browser/chromeos/smb_client/smb_share_finder.h"
 #include "chrome/browser/chromeos/smb_client/smb_task_queue.h"
 #include "chrome/browser/chromeos/smb_client/smbfs_share.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chromeos/dbus/power/power_manager_client.h"
 #include "chromeos/dbus/smb_provider_client.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "net/base/network_change_notifier.h"
@@ -49,7 +48,6 @@ class SmbShareInfo;
 // Creates and manages an smb file system.
 class SmbService : public KeyedService,
                    public net::NetworkChangeNotifier::NetworkChangeObserver,
-                   public chromeos::PowerManagerClient::Observer,
                    public base::SupportsWeakPtr<SmbService> {
  public:
   using MountResponse = base::OnceCallback<void(SmbMountResult result)>;
@@ -126,13 +124,7 @@ class SmbService : public KeyedService,
   void SetSmbFsMounterCreationCallbackForTesting(
       SmbFsShare::MounterCreationCallback callback);
 
-  // chromeos::PowerManagerClient::Observer overrides
-  void SuspendImminent(power_manager::SuspendImminent::Reason reason) override;
-  void SuspendDone(base::TimeDelta sleep_duration) override;
-
  private:
-  friend class SmbServiceTest;
-
   using MountInternalCallback =
       base::OnceCallback<void(SmbMountResult result,
                               const base::FilePath& mount_path)>;
@@ -169,11 +161,6 @@ class SmbService : public KeyedService,
   void OnSmbfsMountDone(const std::string& smbfs_mount_id,
                         MountInternalCallback callback,
                         SmbMountResult result);
-
-  // Callback passed to SmbFsShare::Unmount() during a power management
-  // suspension. Ensures that suspension is blocked until the unmount completes.
-  void OnSuspendUnmountDone(base::UnguessableToken power_manager_suspend_token,
-                            chromeos::MountError result);
 
   // Retrieves the mount_id for |file_system_info|.
   int32_t GetMountId(const ProvidedFileSystemInfo& info) const;

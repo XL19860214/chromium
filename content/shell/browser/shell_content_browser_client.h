@@ -16,6 +16,10 @@
 #include "content/shell/browser/shell_speech_recognition_manager_delegate.h"
 #include "services/network/public/mojom/network_context.mojom-forward.h"
 
+namespace device {
+class FakeGeolocationManager;
+}
+
 namespace content {
 class ShellBrowserContext;
 class ShellBrowserMainParts;
@@ -60,10 +64,11 @@ class ShellContentBrowserClient : public ContentBrowserClient {
       std::unique_ptr<ClientCertificateDelegate> delegate) override;
   SpeechRecognitionManagerDelegate* CreateSpeechRecognitionManagerDelegate()
       override;
-  void OverrideWebkitPrefs(RenderViewHost* render_view_host,
+  void OverrideWebkitPrefs(WebContents* web_contents,
                            blink::web_pref::WebPreferences* prefs) override;
   base::FilePath GetFontLookupTableCacheDir() override;
-  DevToolsManagerDelegate* GetDevToolsManagerDelegate() override;
+  std::unique_ptr<content::DevToolsManagerDelegate>
+  CreateDevToolsManagerDelegate() override;
   void ExposeInterfacesToRenderer(
       service_manager::BinderRegistry* registry,
       blink::AssociatedInterfaceRegistry* associated_registry,
@@ -102,13 +107,14 @@ class ShellContentBrowserClient : public ContentBrowserClient {
       int child_process_id,
       content::PosixFileDescriptorInfo* mappings) override;
 #endif  // defined(OS_LINUX) || defined(OS_CHROMEOS) || defined(OS_ANDROID)
+  device::GeolocationManager* GetGeolocationManager() override;
   void ConfigureNetworkContextParams(
       BrowserContext* context,
       bool in_memory,
       const base::FilePath& relative_partition_path,
       network::mojom::NetworkContextParams* network_context_params,
-      network::mojom::CertVerifierCreationParams* cert_verifier_creation_params)
-      override;
+      cert_verifier::mojom::CertVerifierCreationParams*
+          cert_verifier_creation_params) override;
   std::vector<base::FilePath> GetNetworkContextsParentDirectory() override;
   void BindBrowserControlInterface(mojo::ScopedMessagePipeHandle pipe) override;
   void GetHyphenationDictionary(
@@ -170,7 +176,7 @@ class ShellContentBrowserClient : public ContentBrowserClient {
   virtual void ConfigureNetworkContextParamsForShell(
       BrowserContext* context,
       network::mojom::NetworkContextParams* context_params,
-      network::mojom::CertVerifierCreationParams*
+      cert_verifier::mojom::CertVerifierCreationParams*
           cert_verifier_creation_params);
 
  private:
@@ -187,6 +193,9 @@ class ShellContentBrowserClient : public ContentBrowserClient {
       create_throttles_for_navigation_callback_;
   base::RepeatingCallback<void(blink::web_pref::WebPreferences*)>
       override_web_preferences_callback_;
+#if defined(OS_MAC)
+  std::unique_ptr<device::FakeGeolocationManager> location_manager_;
+#endif
 
   // Owned by content::BrowserMainLoop.
   ShellBrowserMainParts* shell_browser_main_parts_ = nullptr;

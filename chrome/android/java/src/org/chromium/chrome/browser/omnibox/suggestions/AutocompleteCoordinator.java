@@ -20,7 +20,6 @@ import org.chromium.base.Callback;
 import org.chromium.base.StrictModeContext;
 import org.chromium.base.supplier.Supplier;
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.ActivityTabProvider;
 import org.chromium.chrome.browser.lifecycle.ActivityLifecycleDispatcher;
 import org.chromium.chrome.browser.omnibox.LocationBarDataProvider;
 import org.chromium.chrome.browser.omnibox.UrlBar.UrlTextChangeListener;
@@ -31,6 +30,7 @@ import org.chromium.chrome.browser.omnibox.suggestions.SuggestionListViewBinder.
 import org.chromium.chrome.browser.omnibox.suggestions.answer.AnswerSuggestionViewBinder;
 import org.chromium.chrome.browser.omnibox.suggestions.base.BaseSuggestionView;
 import org.chromium.chrome.browser.omnibox.suggestions.base.BaseSuggestionViewBinder;
+import org.chromium.chrome.browser.omnibox.suggestions.basic.BasicSuggestionProcessor.BookmarkState;
 import org.chromium.chrome.browser.omnibox.suggestions.basic.SuggestionViewViewBinder;
 import org.chromium.chrome.browser.omnibox.suggestions.carousel.BaseCarouselSuggestionViewBinder;
 import org.chromium.chrome.browser.omnibox.suggestions.editurl.EditUrlSuggestionView;
@@ -44,6 +44,8 @@ import org.chromium.chrome.browser.omnibox.suggestions.tail.TailSuggestionViewBi
 import org.chromium.chrome.browser.omnibox.voice.VoiceRecognitionHandler;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.share.ShareDelegate;
+import org.chromium.chrome.browser.tab.Tab;
+import org.chromium.chrome.browser.tabmodel.TabWindowManager;
 import org.chromium.chrome.browser.util.KeyNavigationUtil;
 import org.chromium.components.omnibox.AutocompleteMatch;
 import org.chromium.components.query_tiles.QueryTile;
@@ -72,9 +74,13 @@ public class AutocompleteCoordinator implements UrlFocusChangeListener, UrlTextC
             @NonNull UrlBarEditingTextStateProvider urlBarEditingTextProvider,
             @NonNull ActivityLifecycleDispatcher lifecycleDispatcher,
             @NonNull Supplier<ModalDialogManager> modalDialogManagerSupplier,
-            @Nullable ActivityTabProvider activityTabProvider,
+            @NonNull Supplier<Tab> activityTabSupplier,
             @Nullable Supplier<ShareDelegate> shareDelegateSupplier,
-            @NonNull LocationBarDataProvider locationBarDataProvider) {
+            @NonNull LocationBarDataProvider locationBarDataProvider,
+            @NonNull Callback<Profile> spareRendererCreator,
+            @NonNull Callback<Tab> bringToForegroundCallback,
+            @NonNull Supplier<TabWindowManager> tabWindowManagerSupplier,
+            @NonNull BookmarkState bookmarkState) {
         mParent = parent;
         Context context = parent.getContext();
 
@@ -87,9 +93,10 @@ public class AutocompleteCoordinator implements UrlFocusChangeListener, UrlTextC
 
         mQueryTileCoordinator = new OmniboxQueryTileCoordinator(context, this::onTileSelected);
         mMediator = new AutocompleteMediator(context, delegate, urlBarEditingTextProvider,
-                new AutocompleteController(), listModel, new Handler(), lifecycleDispatcher,
-                modalDialogManagerSupplier, activityTabProvider, shareDelegateSupplier,
-                locationBarDataProvider);
+                new AutocompleteController(spareRendererCreator), listModel, new Handler(),
+                lifecycleDispatcher, modalDialogManagerSupplier, activityTabSupplier,
+                shareDelegateSupplier, locationBarDataProvider, bringToForegroundCallback,
+                tabWindowManagerSupplier, bookmarkState);
         mMediator.initDefaultProcessors(mQueryTileCoordinator::setTiles);
 
         listModel.set(SuggestionListProperties.OBSERVER, mMediator);

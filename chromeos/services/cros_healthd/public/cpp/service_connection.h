@@ -11,13 +11,13 @@
 #include <string>
 
 #include "base/callback_forward.h"
-#include "base/optional.h"
 #include "base/time/time.h"
 #include "chromeos/services/cros_healthd/public/mojom/cros_healthd.mojom.h"
 #include "chromeos/services/cros_healthd/public/mojom/cros_healthd_events.mojom.h"
 #include "chromeos/services/network_health/public/mojom/network_diagnostics.mojom.h"
 #include "chromeos/services/network_health/public/mojom/network_health.mojom.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace chromeos {
 namespace cros_healthd {
@@ -58,7 +58,7 @@ class ServiceConnection {
   // src/chromeos/service/cros_healthd/public/mojom/cros_healthd.mojom for
   // details.
   virtual void RunUrandomRoutine(
-      const base::Optional<base::TimeDelta>& length_seconds,
+      const absl::optional<base::TimeDelta>& length_seconds,
       mojom::CrosHealthdDiagnosticsService::RunUrandomRoutineCallback
           callback) = 0;
 
@@ -88,7 +88,7 @@ class ServiceConnection {
   // details.
   virtual void RunAcPowerRoutine(
       mojom::AcPowerStatusEnum expected_status,
-      const base::Optional<std::string>& expected_power_type,
+      const absl::optional<std::string>& expected_power_type,
       mojom::CrosHealthdDiagnosticsService::RunAcPowerRoutineCallback
           callback) = 0;
 
@@ -96,7 +96,7 @@ class ServiceConnection {
   // src/chromeos/service/cros_healthd/public/mojom/cros_healthd.mojom for
   // details.
   virtual void RunCpuCacheRoutine(
-      const base::Optional<base::TimeDelta>& exec_duration,
+      const absl::optional<base::TimeDelta>& exec_duration,
       mojom::CrosHealthdDiagnosticsService::RunCpuCacheRoutineCallback
           callback) = 0;
 
@@ -104,7 +104,7 @@ class ServiceConnection {
   // src/chromeos/service/cros_healthd/public/mojom/cros_healthd.mojom for
   // details.
   virtual void RunCpuStressRoutine(
-      const base::Optional<base::TimeDelta>& exec_duration,
+      const absl::optional<base::TimeDelta>& exec_duration,
       mojom::CrosHealthdDiagnosticsService::RunCpuStressRoutineCallback
           callback) = 0;
 
@@ -112,7 +112,7 @@ class ServiceConnection {
   // src/chromeos/service/cros_healthd/public/mojom/cros_healthd.mojom for
   // details.
   virtual void RunFloatingPointAccuracyRoutine(
-      const base::Optional<base::TimeDelta>& exec_duration,
+      const absl::optional<base::TimeDelta>& exec_duration,
       mojom::CrosHealthdDiagnosticsService::
           RunFloatingPointAccuracyRoutineCallback callback) = 0;
 
@@ -146,7 +146,7 @@ class ServiceConnection {
   // src/chromeos/service/cros_healthd/public/mojom/cros_healthd.mojom for
   // details.
   virtual void RunPrimeSearchRoutine(
-      const base::Optional<base::TimeDelta>& exec_duration,
+      const absl::optional<base::TimeDelta>& exec_duration,
       mojom::CrosHealthdDiagnosticsService::RunPrimeSearchRoutineCallback
           callback) = 0;
 
@@ -252,6 +252,14 @@ class ServiceConnection {
       mojom::CrosHealthdDiagnosticsService::RunHttpsLatencyRoutineCallback
           callback) = 0;
 
+  // Requests that cros_healthd runs the video conferencing routine. See
+  // src/chromeos/service/cros_healthd/public/mojom/cros_healthd.mojom for
+  // details.
+  virtual void RunVideoConferencingRoutine(
+      const absl::optional<std::string>& stun_server_hostname,
+      mojom::CrosHealthdDiagnosticsService::RunVideoConferencingRoutineCallback
+          callback) = 0;
+
   // Subscribes to cros_healthd's Bluetooth-related events. See
   // src/chromeos/services/cros_healthd/public/mojom/cros_healthd.mojom for
   // details.
@@ -270,6 +278,14 @@ class ServiceConnection {
   // details.
   virtual void AddPowerObserver(
       mojo::PendingRemote<mojom::CrosHealthdPowerObserver>
+          pending_observer) = 0;
+
+  // Subscribes to cros_healthd's network-related events. See
+  // src/chromeos/services/cros_healthd/public/mojom/cros_healthd.mojom for
+  // details.
+  virtual void AddNetworkObserver(
+      mojo::PendingRemote<
+          chromeos::network_health::mojom::NetworkEventsObserver>
           pending_observer) = 0;
 
   // Gathers pieces of information about the platform. See

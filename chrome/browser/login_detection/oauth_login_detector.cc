@@ -27,8 +27,10 @@ bool DoAllQueryParamsExist(const std::set<std::string>& request_params,
 }  // namespace
 
 OAuthLoginDetector::OAuthLoginFlowInfo::OAuthLoginFlowInfo(
-    const std::string& start_site)
-    : start_site(start_site) {}
+    const GURL& oauth_provider_site,
+    const GURL& oauth_requestor_site)
+    : oauth_provider_site(oauth_provider_site),
+      oauth_requestor_site(oauth_requestor_site) {}
 
 OAuthLoginDetector::OAuthLoginFlowInfo::OAuthLoginFlowInfo(
     const OAuthLoginFlowInfo&) = default;
@@ -43,20 +45,72 @@ OAuthLoginDetector::OAuthLoginDetector()
 
 OAuthLoginDetector::~OAuthLoginDetector() = default;
 
-bool OAuthLoginDetector::CheckSuccessfulLoginFlow(const GURL& navigation_url) {
-  // Allow login flows to be detected only on HTTPS pages.
-  if (!navigation_url.SchemeIs(url::kHttpsScheme)) {
-    login_flow_info_ = base::nullopt;
-    return false;
-  }
-
-  if (!login_flow_info_) {
-    if (DoAllQueryParamsExist(login_flow_start_query_params_, navigation_url)) {
-      // Login flow start was detected.
-      login_flow_info_ = OAuthLoginFlowInfo(GetSiteNameForURL(navigation_url));
+absl::optional<GURL> OAuthLoginDetector::GetSuccessfulLoginFlowSite(
+    const GURL& prev_navigation_url,
+    const std::vector<GURL>& redirect_chain) {
+  for (size_t i = 0; i < redirect_chain.size(); i++) {
+    GURL navigation_url = redirect_chain[i];
+    // Allow login flows to be detected only on HTTPS pages.
+    if (!navigation_url.SchemeIs(url::kHttpsScheme)) {
+      login_flow_info_.reset();
+      return absl::nullopt;
     }
-    return false;
+
+    // Check for OAuth login completion.
+    if (login_flow_info_ && CheckSuccessfulLoginCompletion(navigation_url)) {
+      auto oauth_requestor_site = login_flow_info_->oauth_requestor_site;
+      login_flow_info_.reset();
+      return oauth_requestor_site;
+    }
+
+    // Check for start of login flow.
+    if (!login_flow_info_ &&
+        DoAllQueryParamsExist(login_flow_start_query_params_, navigation_url)) {
+      if (popup_opener_navigation_site_) {
+        // When this detector is opened for a popup window, treat the site of
+        // the popup opener window site as the OAuth requestor site.
+        login_flow_info_ =
+            OAuthLoginFlowInfo(navigation_url, *popup_opener_navigation_site_);
+      } else if (prev_navigation_url.is_valid() &&
+                 prev_navigation_url.SchemeIsHTTPOrHTTPS()) {
+        login_flow_info_ =
+            OAuthLoginFlowInfo(navigation_url, prev_navigation_url.GetOrigin());
+      } else if (i != 0) {
+        // Treat the start of the redirect chain as the previous navigation URL.
+        // This allows detecting cases when a new window is opened to perform
+        // the OAuth login.
+        login_flow_info_ =
+            OAuthLoginFlowInfo(navigation_url, redirect_chain[0].GetOrigin());
+      }
+    }
   }
+  if (login_flow_info_)
+    login_flow_info_->count_navigations_since_login_flow_start++;
+  return absl::nullopt;
+}
+
+void OAuthLoginDetector::DidOpenAsPopUp(const GURL& opener_navigation_url) {
+  if (opener_navigation_url.is_valid() &&
+      opener_navigation_url.SchemeIs(url::kHttpsScheme)) {
+    popup_opener_navigation_site_ = opener_navigation_url.GetOrigin();
+  }
+}
+
+absl::optional<GURL> OAuthLoginDetector::GetPopUpLoginFlowSite() const {
+  // OAuth has never started.
+  if (!login_flow_info_)
+    return absl::nullopt;
+
+  // Only consider OAuth completion when this is a popup window.
+  if (!popup_opener_navigation_site_)
+    return absl::nullopt;
+
+  return login_flow_info_->oauth_requestor_site;
+}
+
+bool OAuthLoginDetector::CheckSuccessfulLoginCompletion(
+    const GURL& navigation_url) {
+  DCHECK(login_flow_info_.has_value());
 
   // Login flow had started previously, check if it completes within the
   // navigation limit.
@@ -64,34 +118,32 @@ bool OAuthLoginDetector::CheckSuccessfulLoginFlow(const GURL& navigation_url) {
       GetOAuthLoginFlowStartToCompleteLimit()) {
     // Navigation limit reached - reset the state so that login flow was never
     // started.
-    login_flow_info_ = base::nullopt;
+    login_flow_info_.reset();
     return false;
-  }
-  std::string navigation_site = GetSiteNameForURL(navigation_url);
-
-  // Check the navigation only happens for the start site or completion site.
-  if (login_flow_info_->start_site != navigation_site &&
-      login_flow_info_->completion_site &&
-      *login_flow_info_->completion_site != navigation_site) {
-    login_flow_info_ = base::nullopt;
-    return false;
-  }
-  // Update any navigation to a non start site as completion site.
-  if (login_flow_info_->start_site != navigation_site &&
-      !login_flow_info_->completion_site) {
-    login_flow_info_->completion_site = navigation_site;
   }
 
-  DCHECK(login_flow_info_->start_site == navigation_site ||
-         *login_flow_info_->completion_site == navigation_site);
-  if (!DoAllQueryParamsExist(login_flow_complete_query_params_,
-                             navigation_url)) {
-    login_flow_info_->count_navigations_since_login_flow_start++;
+  // Check the OAuth login completion that returns the authorzation code and
+  // token to the OAuth requestor site, does not happen for the OAuth provider
+  // site.
+  if (GetSiteNameForURL(navigation_url) ==
+      GetSiteNameForURL(login_flow_info_->oauth_provider_site)) {
     return false;
   }
-  // Successful login flow completion was detected.
-  login_flow_info_ = base::nullopt;
-  return true;
+
+  // Check for OAuth login completion parameters. This should not happen for the
+  // OAuth provider site, since this returns the authorzation code and token to
+  // the OAuth requestor site.
+  if (DoAllQueryParamsExist(login_flow_complete_query_params_,
+                            navigation_url)) {
+    return true;
+  }
+
+  // PopUp based login completion flow should only navigate within the OAuth
+  // provider site.
+  if (popup_opener_navigation_site_)
+    login_flow_info_.reset();
+
+  return false;
 }
 
 }  // namespace login_detection

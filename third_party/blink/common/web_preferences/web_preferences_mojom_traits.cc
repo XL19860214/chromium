@@ -31,7 +31,7 @@ bool StructTraits<blink::mojom::WebPreferencesDataView,
       !data.ReadLazyImageFirstKFullyLoad(&out->lazy_image_first_k_fully_load) ||
       !data.ReadDefaultEncoding(&out->default_encoding) ||
       !data.ReadTextTrackBackgroundColor(&out->text_track_background_color) ||
-      !data.ReadDefaultEncoding(&out->text_track_text_color) ||
+      !data.ReadTextTrackTextColor(&out->text_track_text_color) ||
       !data.ReadTextTrackTextSize(&out->text_track_text_size) ||
       !data.ReadTextTrackTextShadow(&out->text_track_text_shadow) ||
       !data.ReadTextTrackFontFamily(&out->text_track_font_family) ||
@@ -131,6 +131,10 @@ bool StructTraits<blink::mojom::WebPreferencesDataView,
       data.dont_send_key_events_to_javascript();
   out->barrel_button_for_drag_enabled = data.barrel_button_for_drag_enabled();
   out->sync_xhr_in_documents_enabled = data.sync_xhr_in_documents_enabled();
+  out->target_blank_implies_no_opener_enabled_will_be_removed =
+      data.target_blank_implies_no_opener_enabled_will_be_removed();
+  out->allow_non_empty_navigator_plugins =
+      data.allow_non_empty_navigator_plugins();
   out->number_of_cpu_cores = data.number_of_cpu_cores();
   out->editing_behavior = data.editing_behavior();
   out->supports_multiple_windows = data.supports_multiple_windows();
@@ -146,6 +150,8 @@ bool StructTraits<blink::mojom::WebPreferencesDataView,
   out->smart_insert_delete_enabled = data.smart_insert_delete_enabled();
   out->spatial_navigation_enabled = data.spatial_navigation_enabled();
   out->navigate_on_drag_drop = data.navigate_on_drag_drop();
+  out->fake_no_alloc_direct_call_for_testing_enabled =
+      data.fake_no_alloc_direct_call_for_testing_enabled();
   out->v8_cache_options = data.v8_cache_options();
   out->record_whole_document = data.record_whole_document();
   out->cookie_enabled = data.cookie_enabled();
@@ -192,8 +198,6 @@ bool StructTraits<blink::mojom::WebPreferencesDataView,
       data.embedded_media_experience_enabled();
   out->css_hex_alpha_color_enabled = data.css_hex_alpha_color_enabled();
   out->scroll_top_left_interop_enabled = data.scroll_top_left_interop_enabled();
-  out->disable_features_depending_on_viz =
-      data.disable_features_depending_on_viz();
   out->disable_accelerated_small_canvases =
       data.disable_accelerated_small_canvases();
 #endif
@@ -216,6 +220,7 @@ bool StructTraits<blink::mojom::WebPreferencesDataView,
   out->allow_mixed_content_upgrades = data.allow_mixed_content_upgrades();
   out->always_show_focus = data.always_show_focus();
   out->touch_drag_drop_enabled = data.touch_drag_drop_enabled();
+  out->webxr_immersive_ar_allowed = data.webxr_immersive_ar_allowed();
   return true;
 }
 

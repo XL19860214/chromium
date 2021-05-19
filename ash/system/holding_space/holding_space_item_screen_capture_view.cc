@@ -4,14 +4,15 @@
 
 #include "ash/system/holding_space/holding_space_item_screen_capture_view.h"
 
-#include "ash/public/cpp/holding_space/holding_space_color_provider.h"
 #include "ash/public/cpp/holding_space/holding_space_constants.h"
 #include "ash/public/cpp/holding_space/holding_space_image.h"
 #include "ash/public/cpp/holding_space/holding_space_item.h"
 #include "ash/public/cpp/rounded_image_view.h"
 #include "ash/style/ash_color_provider.h"
+#include "ash/system/holding_space/holding_space_util.h"
 #include "ash/system/tray/tray_constants.h"
 #include "components/vector_icons/vector_icons.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/views/accessibility/view_accessibility.h"
 #include "ui/views/background.h"
@@ -19,9 +20,13 @@
 #include "ui/views/controls/image_view.h"
 #include "ui/views/layout/box_layout.h"
 #include "ui/views/layout/fill_layout.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
 
 namespace ash {
+
+// Appearance.
+constexpr gfx::Insets kCheckmarkAndPinButtonContainerPadding(4);
+constexpr gfx::Size kPinButtonSize(24, 24);
+constexpr gfx::Size kPlayIconSize(32, 32);
 
 HoldingSpaceItemScreenCaptureView::HoldingSpaceItemScreenCaptureView(
     HoldingSpaceItemViewDelegate* delegate,
@@ -32,6 +37,7 @@ HoldingSpaceItemScreenCaptureView::HoldingSpaceItemScreenCaptureView(
 
   image_ = AddChildView(std::make_unique<RoundedImageView>(
       kHoldingSpaceCornerRadius, RoundedImageView::Alignment::kLeading));
+  image_->SetID(kHoldingSpaceItemImageId);
 
   // Subscribe to be notified of changes to `item_`'s image.
   image_subscription_ = item->image().AddImageSkiaChangedCallback(
@@ -43,32 +49,77 @@ HoldingSpaceItemScreenCaptureView::HoldingSpaceItemScreenCaptureView(
   if (item->type() == HoldingSpaceItem::Type::kScreenRecording)
     AddPlayIcon();
 
-  views::View* pin_button_container =
+  views::View* checkmark_and_pin_button_container =
       AddChildView(std::make_unique<views::View>());
-
-  auto* layout =
-      pin_button_container->SetLayoutManager(std::make_unique<views::BoxLayout>(
+  auto* layout = checkmark_and_pin_button_container->SetLayoutManager(
+      std::make_unique<views::BoxLayout>(
           views::BoxLayout::Orientation::kHorizontal,
-          kHoldingSpaceScreenCapturePadding));
-  layout->set_main_axis_alignment(views::BoxLayout::MainAxisAlignment::kEnd);
+          kCheckmarkAndPinButtonContainerPadding));
   layout->set_cross_axis_alignment(
       views::BoxLayout::CrossAxisAlignment::kStart);
 
-  views::View* pin = AddPin(pin_button_container);
+  // Checkmark.
+  AddCheckmark(/*parent=*/checkmark_and_pin_button_container);
 
-  // Create contrasting background for the pin icon.
-  pin->SetBackground(views::CreateRoundedRectBackground(
-      HoldingSpaceColorProvider::Get()->GetBackgroundColor(),
-      kHoldingSpaceScreenCapturePinButtonSize.width() / 2));
-  pin->SetPreferredSize(kHoldingSpaceScreenCapturePinButtonSize);
+  // Spacer.
+  views::View* spacer = checkmark_and_pin_button_container->AddChildView(
+      std::make_unique<views::View>());
+  layout->SetFlexForView(spacer, 1);
+
+  // Pin.
+  auto* pin = AddPin(/*parent=*/checkmark_and_pin_button_container);
+  pin->SetPreferredSize(kPinButtonSize);
 }
 
 HoldingSpaceItemScreenCaptureView::~HoldingSpaceItemScreenCaptureView() =
     default;
 
+views::View* HoldingSpaceItemScreenCaptureView::GetTooltipHandlerForPoint(
+    const gfx::Point& point) {
+  // Tooltip events should be handled top level, not by descendents.
+  return HitTestPoint(point) ? this : nullptr;
+}
+
+std::u16string HoldingSpaceItemScreenCaptureView::GetTooltipText(
+    const gfx::Point& point) const {
+  return item()->text();
+}
+
+void HoldingSpaceItemScreenCaptureView::OnHoldingSpaceItemUpdated(
+    const HoldingSpaceItem* item) {
+  HoldingSpaceItemView::OnHoldingSpaceItemUpdated(item);
+  if (this->item() == item)
+    TooltipTextChanged();
+}
+
+void HoldingSpaceItemScreenCaptureView::OnThemeChanged() {
+  HoldingSpaceItemView::OnThemeChanged();
+
+  // Image.
+  UpdateImage();
+
+  // Pin.
+  pin()->SetBackground(holding_space_util::CreateCircleBackground(
+      AshColorProvider::Get()->GetBaseLayerColor(
+          AshColorProvider::BaseLayerType::kTransparent80)));
+
+  if (!play_icon_)
+    return;
+
+  // Play icon.
+  play_icon_->SetBackground(holding_space_util::CreateCircleBackground(
+      AshColorProvider::Get()->GetBaseLayerColor(
+          AshColorProvider::BaseLayerType::kTransparent80)));
+  play_icon_->SetImage(gfx::CreateVectorIcon(
+      vector_icons::kPlayArrowIcon, kHoldingSpaceIconSize,
+      AshColorProvider::Get()->GetContentLayerColor(
+          AshColorProvider::ContentLayerType::kButtonIconColor)));
+}
+
 void HoldingSpaceItemScreenCaptureView::UpdateImage() {
-  image_->SetImage(item()->image().image_skia(),
-                   kHoldingSpaceScreenCaptureSize);
+  image_->SetImage(item()->image().GetImageSkia(
+      kHoldingSpaceScreenCaptureSize,
+      /*dark_background=*/AshColorProvider::Get()->IsDarkModeEnabled()));
   SchedulePaint();
 }
 
@@ -83,19 +134,10 @@ void HoldingSpaceItemScreenCaptureView::AddPlayIcon() {
   layout->set_cross_axis_alignment(
       views::BoxLayout::CrossAxisAlignment::kCenter);
 
-  auto* play_icon =
+  play_icon_ =
       play_icon_container->AddChildView(std::make_unique<views::ImageView>());
-  play_icon->SetID(kHoldingSpaceScreenCapturePlayIconId);
-  play_icon->SetImage(gfx::CreateVectorIcon(
-      vector_icons::kPlayArrowIcon, kHoldingSpaceIconSize,
-      AshColorProvider::Get()->GetContentLayerColor(
-          AshColorProvider::ContentLayerType::kButtonIconColor)));
-  play_icon->SetPreferredSize(kHoldingSpaceScreenCapturePlayIconSize);
-
-  // Create contrasting background for the play icon.
-  play_icon->SetBackground(views::CreateRoundedRectBackground(
-      HoldingSpaceColorProvider::Get()->GetBackgroundColor(),
-      kHoldingSpaceScreenCapturePlayIconSize.width() / 2));
+  play_icon_->SetID(kHoldingSpaceScreenCapturePlayIconId);
+  play_icon_->SetPreferredSize(kPlayIconSize);
 }
 
 BEGIN_METADATA(HoldingSpaceItemScreenCaptureView, HoldingSpaceItemView)

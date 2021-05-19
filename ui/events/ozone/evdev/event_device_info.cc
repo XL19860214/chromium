@@ -9,7 +9,6 @@
 #include <cstring>
 
 #include "base/files/file_path.h"
-#include "base/logging.h"
 #include "base/notreached.h"
 #include "base/stl_util.h"
 #include "base/threading/thread_restrictions.h"
@@ -39,6 +38,7 @@ constexpr struct {
     {0x045e, 0x082f},  // Microsoft Bluetooth Mouse
     {0x045e, 0x0b05},  // Xbox One Elite Series 2 gamepad
     {0x046d, 0x4069},  // Logitech MX Master 2S (Unifying)
+    {0x046d, 0xb011},  // Logitech M558
     {0x046d, 0xb016},  // Logitech M535
     {0x046d, 0xb019},  // Logitech MX Master 2S (Bluetooth)
     {0x046d, 0xc093},  // Logitech M500s
@@ -50,6 +50,10 @@ constexpr struct {
     {0x1050, 0x0010},  // Yubico.com Yubikey
     {0x1050, 0x0407},  // Yubico.com Yubikey 4 OTP+U2F+CCID
     {0x1bcf, 0x08a0},  // Kensington Pro Fit Full-size
+    {0x256c, 0x006d},  // Huion HS64
+    {0x28bd, 0x0914},  // XP-Pen Star G640
+    {0x28bd, 0x091f},  // XP-Pen Artist 12 Pro
+    {0x28bd, 0x0928},  // XP-Pen Deco mini7W
 };
 
 constexpr struct {
@@ -493,6 +497,11 @@ bool EventDeviceInfo::IsStylusButtonDevice() const {
   return false;
 }
 
+bool EventDeviceInfo::IsMicrophoneMuteSwitchDevice() const {
+  return HasSwEvent(SW_MUTE_DEVICE) && device_type_ == INPUT_DEVICE_INTERNAL &&
+         name_ == "mic_mute_switch";
+}
+
 bool IsInKeyboardBlockList(input_id input_id_) {
   for (const auto& blocklist_id : kKeyboardBlocklist) {
     if (input_id_.vendor == blocklist_id.vendor &&
@@ -540,6 +549,11 @@ bool EventDeviceInfo::HasTouchscreen() const {
   return HasAbsXY() && HasDirect();
 }
 
+bool EventDeviceInfo::HasStylusSwitch() const {
+  return HasSwEvent(SW_PEN_INSERTED) && (device_type_ == INPUT_DEVICE_UNKNOWN ||
+                                         device_type_ == INPUT_DEVICE_INTERNAL);
+}
+
 bool EventDeviceInfo::HasGamepad() const {
   if (!HasEventType(EV_KEY))
     return false;
@@ -572,6 +586,8 @@ ui::InputDeviceType EventDeviceInfo::GetInputDeviceTypeFromId(input_id id) {
       {0x18d1, 0x503c},  // Google, Masterball PID (krane)
       {0x18d1, 0x503d},  // Google, Magnemite PID (kodama)
       {0x18d1, 0x5044},  // Google, Moonball PID (kakadu)
+      {0x18d1, 0x504c},  // Google, Zed PID (coachz)
+      {0x18d1, 0x5050},  // Google, Don PID (katsu)
       {0x1fd2, 0x8103},  // LG, Internal TouchScreen PID
   };
 

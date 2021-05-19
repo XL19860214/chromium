@@ -15,13 +15,11 @@
 #include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
-#include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/font_pref_change_notifier_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/renderer_preferences_util.h"
@@ -37,8 +35,6 @@
 #include "components/prefs/pref_service.h"
 #include "components/proxy_config/proxy_config_pref_names.h"
 #include "components/strings/grit/components_locale_settings.h"
-#include "content/public/browser/notification_details.h"
-#include "content/public/browser/notification_service.h"
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/web_contents.h"
 #include "extensions/buildflags/buildflags.h"
@@ -298,18 +294,19 @@ PrefsTabHelper::PrefsTabHelper(WebContents* contents)
     ChromeZoomLevelPrefs* zoom_level_prefs =
         profile_to_track->GetZoomLevelPrefs();
 
-    base::Closure renderer_callback = base::Bind(
-        &PrefsTabHelper::UpdateRendererPreferences, base::Unretained(this));
     // Tests should not need to create a ZoomLevelPrefs.
     if (zoom_level_prefs) {
       default_zoom_level_subscription_ =
-          zoom_level_prefs->RegisterDefaultZoomLevelCallback(renderer_callback);
+          zoom_level_prefs->RegisterDefaultZoomLevelCallback(
+              base::BindRepeating(&PrefsTabHelper::UpdateRendererPreferences,
+                                  base::Unretained(this)));
     }
 
     // Unretained is safe because the registrar will be scoped to this class.
     font_change_registrar_.Register(
         FontPrefChangeNotifierFactory::GetForProfile(profile_),
-        base::Bind(&PrefsTabHelper::OnWebPrefChanged, base::Unretained(this)));
+        base::BindRepeating(&PrefsTabHelper::OnWebPrefChanged,
+                            base::Unretained(this)));
 #endif  // !defined(OS_ANDROID)
 
     PrefWatcher::Get(profile_)->RegisterHelper(this);
@@ -320,15 +317,16 @@ PrefsTabHelper::PrefsTabHelper(WebContents* contents)
   renderer_preferences_util::UpdateFromSystemSettings(render_prefs, profile_);
 
 #if defined(OS_POSIX) && !defined(OS_MAC) && !defined(OS_ANDROID)
-  registrar_.Add(this,
-                 chrome::NOTIFICATION_BROWSER_THEME_CHANGED,
-                 content::Source<ThemeService>(
-                     ThemeServiceFactory::GetForProfile(profile_)));
+  ThemeServiceFactory::GetForProfile(profile_)->AddObserver(this);
 #endif
 }
 
 PrefsTabHelper::~PrefsTabHelper() {
   PrefWatcher::Get(profile_)->UnregisterHelper(this);
+
+#if defined(OS_POSIX) && !defined(OS_MAC) && !defined(OS_ANDROID)
+  ThemeServiceFactory::GetForProfile(profile_)->RemoveObserver(this);
+#endif
 }
 
 // static
@@ -358,7 +356,6 @@ void PrefsTabHelper::RegisterProfilePrefs(
       prefs::kEnableReferrers,
       !base::FeatureList::IsEnabled(features::kNoReferrers));
   registry->RegisterBooleanPref(prefs::kEnableEncryptedMedia, true);
-  registry->RegisterBooleanPref(prefs::kEnableDRM, true);
   registry->RegisterBooleanPref(prefs::kScrollToTextFragmentEnabled, true);
 #if defined(OS_ANDROID)
   registry->RegisterDoublePref(prefs::kWebKitFontScaleFactor, 1.0);
@@ -432,17 +429,8 @@ void PrefsTabHelper::GetServiceInstance() {
   PrefWatcherFactory::GetInstance();
 }
 
-void PrefsTabHelper::Observe(int type,
-                             const content::NotificationSource& source,
-                             const content::NotificationDetails& details) {
-#if defined(OS_POSIX) && !defined(OS_MAC) && !defined(OS_ANDROID)
-  if (type == chrome::NOTIFICATION_BROWSER_THEME_CHANGED) {
-    UpdateRendererPreferences();
-    return;
-  }
-#endif
-
-  NOTREACHED();
+void PrefsTabHelper::OnThemeChanged() {
+  UpdateRendererPreferences();
 }
 
 void PrefsTabHelper::UpdateWebPreferences() {

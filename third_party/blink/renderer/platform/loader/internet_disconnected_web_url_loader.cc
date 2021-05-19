@@ -8,7 +8,9 @@
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/public/platform/resource_load_info_notifier_wrapper.h"
 #include "third_party/blink/public/platform/scheduler/web_resource_loading_task_runner_handle.h"
+#include "third_party/blink/public/platform/web_back_forward_cache_loader_helper.h"
 #include "third_party/blink/public/platform/web_url.h"
+#include "third_party/blink/public/platform/web_url_error.h"
 #include "third_party/blink/public/platform/web_url_loader_client.h"
 #include "third_party/blink/public/platform/web_url_request.h"
 #include "third_party/blink/public/platform/web_url_request_extra_data.h"
@@ -23,7 +25,8 @@ InternetDisconnectedWebURLLoaderFactory::CreateURLLoader(
     std::unique_ptr<scheduler::WebResourceLoadingTaskRunnerHandle>
         unfreezable_task_runner_handle,
     CrossVariantMojoRemote<blink::mojom::KeepAliveHandleInterfaceBase>
-        keep_alive_handle) {
+        keep_alive_handle,
+    WebBackForwardCacheLoaderHelper back_forward_cache_loader_helper) {
   DCHECK(freezable_task_runner_handle);
   return std::make_unique<InternetDisconnectedWebURLLoader>(
       std::move(freezable_task_runner_handle));
@@ -45,7 +48,7 @@ void InternetDisconnectedWebURLLoader::LoadSynchronously(
     base::TimeDelta timeout_interval,
     WebURLLoaderClient*,
     WebURLResponse&,
-    base::Optional<WebURLError>&,
+    absl::optional<WebURLError>&,
     WebData&,
     int64_t& encoded_data_length,
     int64_t& encoded_body_length,
@@ -85,9 +88,9 @@ void InternetDisconnectedWebURLLoader::DidChangePriority(
 void InternetDisconnectedWebURLLoader::DidFail(WebURLLoaderClient* client,
                                                const WebURLError& error) {
   DCHECK(client);
-  client->DidFail(error, 0 /* total_encoded_data_length */,
-                  0 /* total_encoded_body_length */,
-                  0 /* total_decoded_body_length */);
+  client->DidFail(
+      error, base::TimeTicks::Now(), /*total_encoded_data_length=*/0,
+      /*total_encoded_body_length=*/0, /*total_decoded_body_length=*/0);
 }
 
 scoped_refptr<base::SingleThreadTaskRunner>

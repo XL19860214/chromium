@@ -74,13 +74,13 @@ Pairing::Pairing() = default;
 Pairing::~Pairing() = default;
 
 // static
-base::Optional<std::unique_ptr<Pairing>> Pairing::Parse(
+absl::optional<std::unique_ptr<Pairing>> Pairing::Parse(
     const cbor::Value& cbor,
     uint32_t tunnel_server_domain,
     base::span<const uint8_t, kQRSeedSize> local_identity_seed,
     base::span<const uint8_t, 32> handshake_hash) {
   if (!cbor.is_map()) {
-    return base::nullopt;
+    return absl::nullopt;
   }
 
   const cbor::Value::MapValue& map = cbor.GetMap();
@@ -94,7 +94,7 @@ base::Optional<std::unique_ptr<Pairing>> Pairing::Parse(
       map.find(cbor::Value(5));
   if (name_it == map.end() || !name_it->second.is_string() ||
       std::any_of(
-          &its[0], &its[its.size()],
+          its.begin(), its.end(),
           [&map](const cbor::Value::MapValue::const_iterator& it) -> bool {
             return it == map.end() || !it->second.is_bytestring();
           }) ||
@@ -115,10 +115,36 @@ base::Optional<std::unique_ptr<Pairing>> Pairing::Parse(
   if (!VerifyPairingSignature(local_identity_seed,
                               pairing->peer_public_key_x962, handshake_hash,
                               its[4]->second.GetBytestring())) {
-    return base::nullopt;
+    return absl::nullopt;
   }
 
   return pairing;
+}
+
+// static
+bool Pairing::CompareByMostRecentFirst(const std::unique_ptr<Pairing>& a,
+                                       const std::unique_ptr<Pairing>& b) {
+  return a->last_updated > b->last_updated;
+}
+
+// static
+bool Pairing::CompareByLeastStableChannelFirst(
+    const std::unique_ptr<Pairing>& a,
+    const std::unique_ptr<Pairing>& b) {
+  return a->channel_priority > b->channel_priority;
+}
+
+// static
+bool Pairing::CompareByPublicKey(const std::unique_ptr<Pairing>& a,
+                                 const std::unique_ptr<Pairing>& b) {
+  return memcmp(a->peer_public_key_x962.data(), b->peer_public_key_x962.data(),
+                sizeof(a->peer_public_key_x962)) < 0;
+}
+
+// static
+bool Pairing::EqualPublicKeys(const std::unique_ptr<Pairing>& a,
+                              const std::unique_ptr<Pairing>& b) {
+  return a->peer_public_key_x962 == b->peer_public_key_x962;
 }
 
 }  // namespace cablev2

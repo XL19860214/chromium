@@ -63,13 +63,14 @@ class PrerenderHandle final : public GarbageCollected<PrerenderHandle> {
   static PrerenderHandle* Create(
       Document&,
       const KURL&,
-      mojom::blink::PrerenderRelType prerender_rel_type);
+      mojom::blink::PrerenderTriggerType prerender_trigger_type);
 
   using PassKey = base::PassKey<PrerenderHandle>;
   PrerenderHandle(PassKey,
                   ExecutionContext*,
                   const KURL&,
-                  HeapMojoRemote<mojom::blink::PrerenderProcessor>);
+                  HeapMojoRemote<mojom::blink::PrerenderProcessor>,
+                  HeapMojoRemote<mojom::blink::NoStatePrefetchProcessor>);
   ~PrerenderHandle();
 
   // Asks the browser process to cancel the running prerender.
@@ -81,7 +82,9 @@ class PrerenderHandle final : public GarbageCollected<PrerenderHandle> {
 
  private:
   const KURL url_;
-  HeapMojoRemote<mojom::blink::PrerenderProcessor> remote_processor_;
+  HeapMojoRemote<mojom::blink::PrerenderProcessor> remote_prerender_processor_;
+  HeapMojoRemote<mojom::blink::NoStatePrefetchProcessor>
+      remote_prefetch_processor_;
 
   DISALLOW_COPY_AND_ASSIGN(PrerenderHandle);
 };

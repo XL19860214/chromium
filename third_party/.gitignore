@@ -5,6 +5,7 @@
 /accessibility_test_framework/lib/
 /adobe/flash/binaries
 /adobe/flash/symbols
+/aemu-linux-arm64
 /aemu-linux-x64
 /amd/
 /android_build_tools/aapt2/aapt2
@@ -23,7 +24,9 @@
 /android_system_sdk/*.jar
 /android_tools_internal/
 /android_webview_glue/src
-/androidx/lib/
+/androidx/BUILD.gn
+/androidx/additional_readme_paths.json
+/androidx/libs/
 /angle
 /angle_dx11
 /apache-portable-runtime/src
@@ -54,6 +57,7 @@
 /checkstyle/*.jar
 /chromeos_login_manager
 /chromeos_text_input
+/chromevox/third_party/sre/src
 /chromite
 /cld_2/src
 /cld_3/src
@@ -72,6 +76,7 @@
 /eigen3/src
 /elfutils/src
 /emoji-segmenter/src
+/emoji-metadata/src
 /espresso/lib/
 /expat/src
 /eyesfree/src
@@ -109,6 +114,7 @@
 /guava/lib/
 /hamcrest/lib/
 /harfbuzz-ng/src
+/highway/src
 /hunspell_dictionaries
 /icu
 /icu4j/lib/
@@ -118,7 +124,7 @@
 /jacoco/lib/
 /javalang/src/
 /jdk/current
-/jdk/extras
+/jdk/extras/java_8
 /jsr-305/src
 /junit/src
 /khronos_glcts
@@ -136,6 +142,7 @@
 /libipp/libipp
 /libjingle/source
 /libjpeg_turbo
+/libjxl/src
 /liblouis/src
 /libphonenumber/dist
 /libsrtp
@@ -179,6 +186,7 @@
 /openh264/src
 /openscreen/src
 /openxr/src
+/ots/src
 /pdfsqueeze
 /pdfium
 /pefile
@@ -216,6 +224,9 @@
 /smhasher/src
 /snappy/src
 /soda
+/soda-mac64
+/soda-win32
+/soda-win64
 /speex
 /sqlite/src
 /sqlite4java/lib/
@@ -239,7 +250,6 @@
 /vulkan_memory_allocator
 /wayland/src
 /wayland-protocols/src
-/wds/src
 /webdriver/pylib
 /webdriver/python/selenium
 /webgl
@@ -259,8 +269,4 @@
 /wix
 /wuffs/src
 /xdg-utils
-/xstream/lib/
 /xulrunner-sdk
-/zstd
-/zstd-linux-arm64
-/zstd-linux-x64

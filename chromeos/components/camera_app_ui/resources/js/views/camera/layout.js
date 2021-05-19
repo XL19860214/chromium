@@ -2,37 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {
-  assert,
-  assertInstanceof,
-} from '../../chrome_util.js';
+import {cssStyle} from '../../css.js';
 import * as dom from '../../dom.js';
 import * as state from '../../state.js';
 import {Mode} from '../../type.js';
-import {windowController} from '../../window_controller/window_controller.js';
-
-/**
- * CSS rules.
- * @type {!Array<!CSSStyleRule>}
- */
-const cssRules = (() => {
-  const sheet = assertInstanceof(document.styleSheets[0], CSSStyleSheet);
-  const ruleList = /** @type {!Iterable} */ (sheet.cssRules);
-  return [...ruleList];
-})();
-
-/**
- * Gets the CSS style by the given selector.
- * @param {string} selector Selector text.
- * @return {!CSSStyleDeclaration}
- * @private
- */
-function cssStyle(selector) {
-  const rule = cssRules.find((rule) => rule.selectorText === selector);
-  assert(rule !== undefined);
-  assert(rule.style !== null);
-  return rule.style;
-}
+import {windowController} from '../../window_controller.js';
 
 /**
  * Creates a controller to handle layouts of Camera view.
@@ -47,6 +21,12 @@ export class Layout {
      * @private
      */
     this.previewBox_ = dom.get('#preview-box', HTMLDivElement);
+
+    /**
+     * @const {!HTMLCanvasElement}
+     * @private
+     */
+    this.faceOverlay_ = dom.get('#preview-face-overlay', HTMLCanvasElement);
 
     /**
      * @const {!CSSStyleDeclaration}
@@ -69,6 +49,8 @@ export class Layout {
   setContentSize_(width, height) {
     this.contentRule_.setProperty('width', `${width}px`);
     this.contentRule_.setProperty('height', `${height}px`);
+    this.faceOverlay_.width = width;
+    this.faceOverlay_.height = height;
   }
 
   /**

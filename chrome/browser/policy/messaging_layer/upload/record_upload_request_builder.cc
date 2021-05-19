@@ -12,8 +12,8 @@
 #include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
 #include "base/values.h"
-#include "components/policy/proto/record.pb.h"
-#include "components/policy/proto/record_constants.pb.h"
+#include "components/reporting/proto/record.pb.h"
+#include "components/reporting/proto/record_constants.pb.h"
 
 namespace reporting {
 
@@ -25,7 +25,8 @@ constexpr char kAttachEncryptionSettingsKey[] = "attachEncryptionSettings";
 
 // EncrypedRecordDictionaryBuilder strings
 constexpr char kEncryptedWrappedRecord[] = "encryptedWrappedRecord";
-constexpr char kSequencingInformationKey[] = "sequencingInformation";
+constexpr char kUnsignedSequencingInformationKey[] = "sequencingInformation";
+constexpr char kSequencingInformationKey[] = "sequenceInformation";
 constexpr char kEncryptionInfoKey[] = "encryptionInfo";
 
 // SequencingInformationDictionaryBuilder strings
@@ -42,8 +43,6 @@ constexpr char kPublicKeyId[] = "publicKeyId";
 UploadEncryptedReportingRequestBuilder::UploadEncryptedReportingRequestBuilder(
     bool attach_encryption_settings) {
   result_ = base::Value{base::Value::Type::DICTIONARY};
-  result_.value().SetKey(GetEncryptedRecordListPath(),
-                         base::Value{base::Value::Type::LIST});
   if (attach_encryption_settings) {
     result_.value().SetBoolKey(GetAttachEncryptionSettingsPath(), true);
   }
@@ -59,9 +58,13 @@ UploadEncryptedReportingRequestBuilder::AddRecord(
     // Some errors were already detected.
     return *this;
   }
-  base::Value* const records_list =
+  base::Value* records_list =
       result_.value().FindListKey(GetEncryptedRecordListPath());
-  if (!records_list || !records_list->is_list()) {
+  if (!records_list) {
+    records_list = result_.value().SetKey(GetEncryptedRecordListPath(),
+                                          base::Value{base::Value::Type::LIST});
+  }
+  if (!records_list->is_list()) {
     NOTREACHED();  // Should not happen.
     return *this;
   }
@@ -69,7 +72,7 @@ UploadEncryptedReportingRequestBuilder::AddRecord(
   auto record_result = EncryptedRecordDictionaryBuilder(record).Build();
   if (!record_result.has_value()) {
     // Record has errors. Stop here.
-    result_ = base::nullopt;
+    result_ = absl::nullopt;
     return *this;
   }
 
@@ -77,7 +80,7 @@ UploadEncryptedReportingRequestBuilder::AddRecord(
   return *this;
 }
 
-base::Optional<base::Value> UploadEncryptedReportingRequestBuilder::Build() {
+absl::optional<base::Value> UploadEncryptedReportingRequestBuilder::Build() {
   return std::move(result_);
 }
 
@@ -111,6 +114,19 @@ EncryptedRecordDictionaryBuilder::EncryptedRecordDictionaryBuilder(
   }
   record_dictionary.SetKey(GetSequencingInformationKeyPath(),
                            std::move(sequencing_information_result.value()));
+  // For backwards compatibility, store unsigned sequencing information too.
+  // The values are non-negative anyway, so the same builder can be used.
+  auto unsigned_sequencing_information_result =
+      SequencingInformationDictionaryBuilder(record.sequencing_information())
+          .Build();
+  if (!unsigned_sequencing_information_result.has_value()) {
+    // Sequencing information was improperly configured. Record cannot be
+    // uploaded. Deny it.
+    return;
+  }
+  record_dictionary.SetKey(
+      GetUnsignedSequencingInformationKeyPath(),
+      std::move(unsigned_sequencing_information_result.value()));
 
   // Encryption information can be missing until we set up encryption as
   // mandatory.
@@ -139,7 +155,7 @@ EncryptedRecordDictionaryBuilder::EncryptedRecordDictionaryBuilder(
 
 EncryptedRecordDictionaryBuilder::~EncryptedRecordDictionaryBuilder() = default;
 
-base::Optional<base::Value> EncryptedRecordDictionaryBuilder::Build() {
+absl::optional<base::Value> EncryptedRecordDictionaryBuilder::Build() {
   return std::move(result_);
 }
 
@@ -147,6 +163,12 @@ base::Optional<base::Value> EncryptedRecordDictionaryBuilder::Build() {
 base::StringPiece
 EncryptedRecordDictionaryBuilder::GetEncryptedWrappedRecordPath() {
   return kEncryptedWrappedRecord;
+}
+
+// static
+base::StringPiece
+EncryptedRecordDictionaryBuilder::GetUnsignedSequencingInformationKeyPath() {
+  return kUnsignedSequencingInformationKey;
 }
 
 // static
@@ -184,7 +206,7 @@ SequencingInformationDictionaryBuilder::SequencingInformationDictionaryBuilder(
 SequencingInformationDictionaryBuilder::
     ~SequencingInformationDictionaryBuilder() = default;
 
-base::Optional<base::Value> SequencingInformationDictionaryBuilder::Build() {
+absl::optional<base::Value> SequencingInformationDictionaryBuilder::Build() {
   return std::move(result_);
 }
 
@@ -215,8 +237,9 @@ EncryptionInfoDictionaryBuilder::EncryptionInfoDictionaryBuilder(
     return;
   }
 
-  encryption_info_dictionary.SetStringKey(GetEncryptionKeyPath(),
-                                          encryption_info.encryption_key());
+  std::string base64_key;
+  base::Base64Encode(encryption_info.encryption_key(), &base64_key);
+  encryption_info_dictionary.SetStringKey(GetEncryptionKeyPath(), base64_key);
   encryption_info_dictionary.SetStringKey(
       GetPublicKeyIdPath(),
       base::NumberToString(encryption_info.public_key_id()));
@@ -225,7 +248,7 @@ EncryptionInfoDictionaryBuilder::EncryptionInfoDictionaryBuilder(
 
 EncryptionInfoDictionaryBuilder::~EncryptionInfoDictionaryBuilder() = default;
 
-base::Optional<base::Value> EncryptionInfoDictionaryBuilder::Build() {
+absl::optional<base::Value> EncryptionInfoDictionaryBuilder::Build() {
   return std::move(result_);
 }
 

@@ -5,6 +5,7 @@
 #ifndef NET_COOKIES_COOKIE_ACCESS_DELEGATE_H_
 #define NET_COOKIES_COOKIE_ACCESS_DELEGATE_H_
 
+#include "base/containers/flat_map.h"
 #include "net/base/net_export.h"
 #include "net/cookies/canonical_cookie.h"
 #include "net/cookies/cookie_constants.h"
@@ -38,15 +39,25 @@ class NET_EXPORT CookieAccessDelegate {
       const SiteForCookies& site_for_cookies) const = 0;
 
   // Returns whether `site` is same-party with `party_context` and
-  // `top_frame_site`.
+  // `top_frame_site`. If `top_frame_site` is nullopt, then `site` will be
+  // checked only against `party_context`.
   virtual bool IsContextSamePartyWithSite(
       const net::SchemefulSite& site,
-      const net::SchemefulSite& top_frame_site,
+      const absl::optional<net::SchemefulSite>& top_frame_site,
       const std::set<net::SchemefulSite>& party_context) const = 0;
 
   // Returns whether `site` belongs to a non-singleton First-Party Set.
   virtual bool IsInNontrivialFirstPartySet(
       const net::SchemefulSite& site) const = 0;
+
+  virtual FirstPartySetsContextType ComputeFirstPartySetsContextType(
+      const SchemefulSite& site,
+      const absl::optional<SchemefulSite>& top_frame_site,
+      const std::set<SchemefulSite>& party_context) const = 0;
+
+  // Returns the First-Party Sets.
+  virtual base::flat_map<net::SchemefulSite, std::set<net::SchemefulSite>>
+  RetrieveFirstPartySets() const = 0;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(CookieAccessDelegate);

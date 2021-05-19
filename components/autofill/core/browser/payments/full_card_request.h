@@ -10,7 +10,6 @@
 
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
-#include "base/strings/string16.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "components/autofill/core/browser/autofill_client.h"
@@ -19,7 +18,7 @@
 
 namespace autofill {
 
-class AutofillManagerTest;
+class BrowserAutofillManagerTest;
 class AutofillMetricsTest;
 class CreditCardAccessManagerTest;
 class CreditCardCVCAuthenticatorTest;
@@ -57,7 +56,7 @@ class FullCardRequest final : public CardUnmaskDelegate {
     virtual void OnFullCardRequestSucceeded(
         const payments::FullCardRequest& full_card_request,
         const CreditCard& card,
-        const base::string16& cvc) = 0;
+        const std::u16string& cvc) = 0;
     virtual void OnFullCardRequestFailed(FailureType failure_type) = 0;
   };
 
@@ -144,7 +143,7 @@ class FullCardRequest final : public CardUnmaskDelegate {
   }
 
  private:
-  friend class autofill::AutofillManagerTest;
+  friend class autofill::BrowserAutofillManagerTest;
   friend class autofill::AutofillMetricsTest;
   friend class autofill::CreditCardAccessManagerTest;
   friend class autofill::CreditCardCVCAuthenticatorTest;
@@ -164,7 +163,7 @@ class FullCardRequest final : public CardUnmaskDelegate {
                    AutofillClient::UnmaskCardReason reason,
                    base::WeakPtr<ResultDelegate> result_delegate,
                    base::WeakPtr<UIDelegate> ui_delegate,
-                   base::Optional<base::Value> fido_assertion_info);
+                   absl::optional<base::Value> fido_assertion_info);
 
   // CardUnmaskDelegate:
   void OnUnmaskPromptAccepted(

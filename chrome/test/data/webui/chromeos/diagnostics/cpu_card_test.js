@@ -92,29 +92,29 @@ export function cpuCardTestSuite() {
 
   test('CpuCardPopulated', () => {
     return initializeCpuCard(fakeCpuUsage, fakeSystemInfo).then(() => {
-      const dataPoints = dx_utils.getDataPointElements(cpuElement);
       dx_utils.assertTextContains(
-          dataPoints[0].value,
+          dx_utils.getDataPointValue(cpuElement, '#cpuUsageUser'),
           `${
               fakeCpuUsage[0].percentUsageUser +
               fakeCpuUsage[0].percentUsageSystem}`);
       dx_utils.assertTextContains(
-          dataPoints[0].tooltipText,
+          dx_utils.getDataPoint(cpuElement, '#cpuUsageUser').tooltipText,
           loadTimeData.getStringF('cpuUsageTooltipText', 4));
       dx_utils.assertTextContains(
-          dataPoints[1].value, `${fakeCpuUsage[0].averageCpuTempCelsius}`);
+          dx_utils.getDataPointValue(cpuElement, '#cpuTemp'),
+          `${fakeCpuUsage[0].averageCpuTempCelsius}`);
 
       const convertkhzToGhz = (num) => parseFloat(num / 1000000).toFixed(2);
       dx_utils.assertTextContains(
-          dataPoints[2].value,
+          dx_utils.getDataPointValue(cpuElement, '#cpuSpeed'),
           `${convertkhzToGhz(fakeCpuUsage[0].scalingCurrentFrequencyKhz)}`);
-      dx_utils.assertTextContains(
-          dataPoints[2].value,
-          `${convertkhzToGhz(cpuElement.cpuMaxClockSpeedKhz_)}`);
       dx_utils.assertElementContainsText(
           cpuElement.$$('#cpuChipInfo'), `${fakeSystemInfo.cpuModelName}`);
       dx_utils.assertElementContainsText(
           cpuElement.$$('#cpuChipInfo'), `${fakeSystemInfo.cpuThreadsCount}`);
+      dx_utils.assertElementContainsText(
+          cpuElement.$$('#cpuChipInfo'),
+          `${fakeSystemInfo.cpuMaxClockSpeedKhz}`);
 
       const cpuChart = dx_utils.getRealtimeCpuChartElement(cpuElement);
       assertEquals(fakeCpuUsage[0].percentUsageUser, cpuChart.user);
@@ -129,5 +129,17 @@ export function cpuCardTestSuite() {
       const diagnosticsCard = dx_utils.getDiagnosticsCard(cpuElement);
       assertTrue(isChildVisible(diagnosticsCard, '.data-points'));
     });
+  });
+
+  test('CpuCardUpdates', () => {
+    return initializeCpuCard(fakeCpuUsage, fakeSystemInfo)
+        .then(() => {
+          provider.triggerCpuUsageObserver();
+          return flushTasks();
+        })
+        .then(() => {
+          assertEquals(
+              dx_utils.getDataPoint(cpuElement, '#cpuSpeed').tooltipText, '');
+        });
   });
 }

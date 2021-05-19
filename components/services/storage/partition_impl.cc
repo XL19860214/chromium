@@ -16,6 +16,7 @@
 #include "build/build_config.h"
 #include "components/services/storage/dom_storage/local_storage_impl.h"
 #include "components/services/storage/dom_storage/session_storage_impl.h"
+#include "components/services/storage/service_worker/service_worker_storage_control_impl.h"
 #include "components/services/storage/storage_service_impl.h"
 
 namespace storage {
@@ -47,7 +48,7 @@ void ShutDown(std::unique_ptr<T> object) {
 }  // namespace
 
 PartitionImpl::PartitionImpl(StorageServiceImpl* service,
-                             const base::Optional<base::FilePath>& path)
+                             const absl::optional<base::FilePath>& path)
     : service_(service), path_(path) {
   receivers_.set_disconnect_handler(base::BindRepeating(
       &PartitionImpl::OnDisconnect, base::Unretained(this)));
@@ -103,6 +104,16 @@ void PartitionImpl::BindLocalStorageControl(
     mojo::PendingReceiver<mojom::LocalStorageControl> receiver) {
   local_storage_ = std::make_unique<LocalStorageImpl>(
       path_.value_or(base::FilePath()), base::SequencedTaskRunnerHandle::Get(),
+      base::ThreadPool::CreateSequencedTaskRunner(
+          {base::MayBlock(), base::WithBaseSyncPrimitives(),
+           base::TaskShutdownBehavior::BLOCK_SHUTDOWN}),
+      std::move(receiver));
+}
+
+void PartitionImpl::BindServiceWorkerStorageControl(
+    mojo::PendingReceiver<mojom::ServiceWorkerStorageControl> receiver) {
+  service_worker_storage_ = std::make_unique<ServiceWorkerStorageControlImpl>(
+      path_.value_or(base::FilePath()),
       base::ThreadPool::CreateSequencedTaskRunner(
           {base::MayBlock(), base::WithBaseSyncPrimitives(),
            base::TaskShutdownBehavior::BLOCK_SHUTDOWN}),

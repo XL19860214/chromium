@@ -492,12 +492,12 @@ Polymer({
   /**
    * Sends a message to the plugin to hide the toolbars after a delay.
    */
-  hideToolbars() {
+  hideToolbar() {
     if (!this.pluginProxy_.pluginReady()) {
       return;
     }
 
-    this.pluginProxy_.hideToolbars();
+    this.pluginProxy_.hideToolbar();
   },
 
   /**
@@ -807,7 +807,7 @@ Polymer({
           substitutions: [],
           tags: ['BR'],
         });
-      // <if expr="chromeos">
+      // <if expr="chromeos or lacros">
       case Error.NO_DESTINATIONS:
         return this.i18n('noDestinationsMessage');
       // </if>

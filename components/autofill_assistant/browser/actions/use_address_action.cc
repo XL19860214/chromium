@@ -9,7 +9,6 @@
 
 #include "base/bind.h"
 #include "base/callback.h"
-#include "base/optional.h"
 #include "base/time/time.h"
 #include "components/autofill/core/browser/autofill_data_util.h"
 #include "components/autofill_assistant/browser/actions/action_delegate.h"
@@ -17,8 +16,10 @@
 #include "components/autofill_assistant/browser/actions/fallback_handler/required_fields_fallback_handler.h"
 #include "components/autofill_assistant/browser/client_status.h"
 #include "components/autofill_assistant/browser/field_formatter.h"
+#include "components/autofill_assistant/browser/user_data_util.h"
 #include "components/autofill_assistant/browser/user_model.h"
 #include "components/autofill_assistant/browser/value_util.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace autofill_assistant {
 
@@ -69,7 +70,7 @@ void UseAddressAction::InternalProcessAction(
         EndAction(ClientStatus(PRECONDITION_FAILED));
         return;
       }
-      profile_ = std::make_unique<autofill::AutofillProfile>(*profile);
+      profile_ = MakeUniqueFromProfile(*profile);
       break;
     }
     case UseAddressProto::kModelIdentifier: {
@@ -95,14 +96,14 @@ void UseAddressAction::InternalProcessAction(
         return;
       }
       auto* profile = delegate_->GetUserModel()->GetProfile(
-          profile_value->profiles().values(0).guid());
+          profile_value->profiles().values(0));
       if (profile == nullptr) {
-        VLOG(1) << "UseAddress failed: profile not found for guid "
+        VLOG(1) << "UseAddress failed: profile not found for: "
                 << *profile_value;
         EndAction(ClientStatus(PRECONDITION_FAILED));
         return;
       }
-      profile_ = std::make_unique<autofill::AutofillProfile>(*profile);
+      profile_ = MakeUniqueFromProfile(*profile);
       break;
     }
     case UseAddressProto::ADDRESS_SOURCE_NOT_SET:
@@ -114,17 +115,11 @@ void UseAddressAction::InternalProcessAction(
   FillFormWithData();
 }
 
-void UseAddressAction::EndAction(
-    const ClientStatus& final_status,
-    const base::Optional<ClientStatus>& optional_details_status) {
+void UseAddressAction::EndAction(const ClientStatus& status) {
   if (fallback_handler_)
     action_stopwatch_.TransferToWaitTime(fallback_handler_->TotalWaitTime());
 
-  UpdateProcessedAction(final_status);
-  if (optional_details_status.has_value() && !optional_details_status->ok()) {
-    processed_action_proto_->mutable_status_details()->MergeFrom(
-        optional_details_status->details());
-  }
+  UpdateProcessedAction(status);
   std::move(process_action_callback_).Run(std::move(processed_action_proto_));
 }
 
@@ -135,7 +130,7 @@ void UseAddressAction::FillFormWithData() {
     return;
   }
 
-  delegate_->ShortWaitForElement(
+  delegate_->ShortWaitForElementWithSlowWarning(
       selector_,
       base::BindOnce(&UseAddressAction::OnWaitForElementTimed,
                      weak_ptr_factory_.GetWeakPtr(),

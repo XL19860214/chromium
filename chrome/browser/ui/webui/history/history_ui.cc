@@ -47,7 +47,8 @@ constexpr char kIsUserSignedInKey[] = "isUserSignedIn";
 bool IsUserSignedIn(Profile* profile) {
   signin::IdentityManager* identity_manager =
       IdentityManagerFactory::GetForProfile(profile);
-  return identity_manager && identity_manager->HasPrimaryAccount();
+  return identity_manager &&
+         identity_manager->HasPrimaryAccount(signin::ConsentLevel::kSync);
 }
 
 content::WebUIDataSource* CreateHistoryUIHTMLSource(Profile* profile) {
@@ -93,7 +94,7 @@ content::WebUIDataSource* CreateHistoryUIHTMLSource(Profile* profile) {
       {"signInPromoDesc", IDS_HISTORY_SIGN_IN_PROMO_DESC},
       {"title", IDS_HISTORY_TITLE},
   };
-  AddLocalizedStringsBulk(source, kStrings);
+  source->AddLocalizedStrings(kStrings);
 
   source->AddString(
       "sidebarFooter",
@@ -141,9 +142,9 @@ HistoryUI::HistoryUI(content::WebUI* web_ui) : WebUIController(web_ui) {
       foreign_session_handler.get();
   web_ui->AddMessageHandler(std::move(foreign_session_handler));
   foreign_session_handler_ptr->InitializeForeignSessions();
-  web_ui->AddMessageHandler(std::make_unique<HistoryLoginHandler>(
-      base::Bind(&HistoryUI::UpdateDataSource, base::Unretained(this))));
-
+  web_ui->AddMessageHandler(
+      std::make_unique<HistoryLoginHandler>(base::BindRepeating(
+          &HistoryUI::UpdateDataSource, base::Unretained(this))));
 }
 
 HistoryUI::~HistoryUI() {}

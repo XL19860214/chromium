@@ -13,10 +13,10 @@
 #include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/json/json_writer.h"
-#include "base/optional.h"
 #include "base/strings/pattern.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/trace_event/trace_event.h"
 #include "base/values.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
@@ -40,6 +40,7 @@
 #include "content/public/browser/web_contents_delegate.h"
 #include "content/public/browser/web_ui_data_source.h"
 #include "net/base/escape.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/accessibility/accessibility_features.h"
 #include "ui/accessibility/platform/ax_platform_node.h"
 #include "ui/accessibility/platform/ax_platform_node_delegate.h"
@@ -132,6 +133,8 @@ std::unique_ptr<base::DictionaryValue> BuildTargetDescriptor(
 
 std::unique_ptr<base::DictionaryValue> BuildTargetDescriptor(
     content::RenderViewHost* rvh) {
+  TRACE_EVENT1("accessibility", "BuildTargetDescriptor", "render_view_host",
+               rvh);
   content::WebContents* web_contents =
       content::WebContents::FromRenderViewHost(rvh);
   ui::AXMode accessibility_mode;
@@ -604,8 +607,7 @@ void AccessibilityUIMessageHandler::RequestWebContentsTree(
       content::WebContents::FromRenderViewHost(rvh);
   // No matter the state of the current web_contents, we want to force the mode
   // because we are about to show the accessibility tree
-  web_contents->SetAccessibilityMode(
-      ui::AXMode(ui::AXMode::kNativeAPIs | ui::AXMode::kWebContents));
+  web_contents->SetAccessibilityMode(ui::AXMode(ui::kAXModeBasic));
   // Enable AXMode to access to AX objects.
   ui::AXPlatformNode::NotifyAddAXModeFlags(ui::kAXModeComplete);
 
@@ -720,7 +722,7 @@ void AccessibilityUIMessageHandler::Callback(const std::string& str) {
 
 void AccessibilityUIMessageHandler::StopRecording(
     content::WebContents* web_contents) {
-  web_contents->RecordAccessibilityEvents(false, base::nullopt);
+  web_contents->RecordAccessibilityEvents(false, absl::nullopt);
   observer_.reset(nullptr);
 }
 

@@ -29,6 +29,7 @@
 #include "base/memory/ptr_util.h"
 #include "base/run_loop.h"
 #include "base/sequenced_task_runner.h"
+#include "base/strings/stringprintf.h"
 #include "base/threading/scoped_blocking_call.h"
 #include "base/threading/sequenced_task_runner_handle.h"
 #include "base/time/time.h"
@@ -167,7 +168,7 @@ class TestAmbientPhotoCacheImpl : public AmbientPhotoCache {
   // Width and height of test images.
   gfx::Size decoded_size_{10, 20};
   // If set, will replay this image.
-  base::Optional<gfx::ImageSkia> decoded_image_;
+  absl::optional<gfx::ImageSkia> decoded_image_;
 
   std::map<int, PhotoCacheEntry> files_;
 };
@@ -185,10 +186,6 @@ void AmbientAshTestBase::SetUp() {
   ambient_controller()->set_backend_controller_for_testing(nullptr);
   ambient_controller()->set_backend_controller_for_testing(
       std::make_unique<FakeAmbientBackendControllerImpl>());
-  photo_controller()->set_photo_cache_for_testing(
-      std::make_unique<TestAmbientPhotoCacheImpl>());
-  photo_controller()->set_backup_photo_cache_for_testing(
-      std::make_unique<TestAmbientPhotoCacheImpl>());
   token_controller()->SetTokenUsageBufferForTesting(
       base::TimeDelta::FromSeconds(30));
   SetAmbientModeEnabled(true);
@@ -202,6 +199,14 @@ void AmbientAshTestBase::TearDown() {
 void AmbientAshTestBase::SetAmbientModeEnabled(bool enabled) {
   Shell::Get()->session_controller()->GetActivePrefService()->SetBoolean(
       ambient::prefs::kAmbientModeEnabled, enabled);
+
+  if (enabled) {
+    photo_controller()->set_photo_cache_for_testing(
+        std::make_unique<TestAmbientPhotoCacheImpl>());
+    photo_controller()->set_backup_photo_cache_for_testing(
+        std::make_unique<TestAmbientPhotoCacheImpl>());
+    photo_controller()->backup_photo_refresh_timer_for_testing().Stop();
+  }
 }
 
 void AmbientAshTestBase::ShowAmbientScreen() {
@@ -369,32 +374,43 @@ void AmbientAshTestBase::FastForwardHalfLockScreenDelay() {
 }
 
 void AmbientAshTestBase::SetPowerStateCharging() {
-  power_manager::PowerSupplyProperties proto;
-  proto.set_battery_state(
+  proto_.set_battery_state(
       power_manager::PowerSupplyProperties_BatteryState_CHARGING);
-  proto.set_external_power(
-      power_manager::PowerSupplyProperties_ExternalPower_AC);
-  PowerStatus::Get()->SetProtoForTesting(proto);
+  PowerStatus::Get()->SetProtoForTesting(proto_);
   ambient_controller()->OnPowerStatusChanged();
 }
 
 void AmbientAshTestBase::SetPowerStateDischarging() {
-  power_manager::PowerSupplyProperties proto;
-  proto.set_battery_state(
+  proto_.set_battery_state(
       power_manager::PowerSupplyProperties_BatteryState_DISCHARGING);
-  proto.set_external_power(
-      power_manager::PowerSupplyProperties_ExternalPower_DISCONNECTED);
-  PowerStatus::Get()->SetProtoForTesting(proto);
+  PowerStatus::Get()->SetProtoForTesting(proto_);
   ambient_controller()->OnPowerStatusChanged();
 }
 
 void AmbientAshTestBase::SetPowerStateFull() {
-  power_manager::PowerSupplyProperties proto;
-  proto.set_battery_state(
+  proto_.set_battery_state(
       power_manager::PowerSupplyProperties_BatteryState_FULL);
-  proto.set_external_power(
+  PowerStatus::Get()->SetProtoForTesting(proto_);
+  ambient_controller()->OnPowerStatusChanged();
+}
+
+void AmbientAshTestBase::SetExternalPowerConnected() {
+  proto_.set_external_power(
       power_manager::PowerSupplyProperties_ExternalPower_AC);
-  PowerStatus::Get()->SetProtoForTesting(proto);
+  PowerStatus::Get()->SetProtoForTesting(proto_);
+  ambient_controller()->OnPowerStatusChanged();
+}
+
+void AmbientAshTestBase::SetExternalPowerDisconnected() {
+  proto_.set_external_power(
+      power_manager::PowerSupplyProperties_ExternalPower_DISCONNECTED);
+  PowerStatus::Get()->SetProtoForTesting(proto_);
+  ambient_controller()->OnPowerStatusChanged();
+}
+
+void AmbientAshTestBase::SetBatteryPercent(double percent) {
+  proto_.set_battery_percent(percent);
+  PowerStatus::Get()->SetProtoForTesting(proto_);
   ambient_controller()->OnPowerStatusChanged();
 }
 

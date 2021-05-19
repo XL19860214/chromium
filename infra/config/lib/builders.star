@@ -59,12 +59,39 @@ os = struct(
     ANDROID = os_enum("Android", os_category.ANDROID),
     LINUX_TRUSTY = os_enum("Ubuntu-14.04", os_category.LINUX),
     LINUX_XENIAL = os_enum("Ubuntu-16.04", os_category.LINUX),
+    LINUX_BIONIC = os_enum("Ubuntu-18.04", os_category.LINUX),
+    # xenial -> bionic migration
+    # * If a builder does not already explicitly set an os value, use
+    #   LINUX_BIONIC_REMOVE or LINUX_XENIAL_OR_BIONIC_REMOVE
+    # * If a builder explicitly sets LINUX_DEFAULT, use
+    #   LINUX_BIONIC_SWITCH_TO_DEFAULT or
+    #   LINUX_XENIAL_OR_BIONIC_SWITCH_TO_DEFAULT
+    #
+    # When the migration is complete, LINUX_DEFAULT can be switched to
+    # Ubunutu-18.04, all instances of LINUX_BIONIC_REMOVE can be removed and all
+    # instances of LINUX_BIONIC_SWITCH_TO_DEFAULT can be replaced with
+    # LINUX_DEFAULT, the only changes to the generated files should be
+    # Ubuntu-16.04|Ubuntu-18.04 -> Ubuntu-18.04
     LINUX_DEFAULT = os_enum("Ubuntu-16.04", os_category.LINUX),
+    # 100% switch to bionic
+    LINUX_BIONIC_REMOVE = os_enum("Ubuntu-18.04", os_category.LINUX),
+    LINUX_BIONIC_SWITCH_TO_DEFAULT = os_enum("Ubuntu-18.04", os_category.LINUX),
+    # Staged switch to bionic: we can gradually shift the matching capacity
+    # towards bionic and the builder will continue to run on whatever is
+    # available
+    LINUX_XENIAL_OR_BIONIC_REMOVE = os_enum(
+        "Ubuntu-16.04|Ubuntu-18.04",
+        os_category.LINUX,
+    ),
+    LINUX_XENIAL_OR_BIONIC_SWITCH_TO_DEFAULT = os_enum(
+        "Ubuntu-16.04|Ubuntu-18.04",
+        os_category.LINUX,
+    ),
     MAC_10_12 = os_enum("Mac-10.12", os_category.MAC),
     MAC_10_13 = os_enum("Mac-10.13", os_category.MAC),
     MAC_10_14 = os_enum("Mac-10.14", os_category.MAC),
     MAC_10_15 = os_enum("Mac-10.15", os_category.MAC),
-    MAC_11_0 = os_enum("Mac-11.0|Mac-10.16", os_category.MAC),
+    MAC_11 = os_enum("Mac-11|Mac-10.16", os_category.MAC),
     MAC_DEFAULT = os_enum("Mac-10.15", os_category.MAC),
     MAC_ANY = os_enum("Mac", os_category.MAC),
     WINDOWS_7 = os_enum("Windows-7", os_category.WINDOWS),
@@ -134,14 +161,12 @@ def xcode_enum(version):
 xcode = struct(
     # in use by webrtc mac builders
     x11c29 = xcode_enum("11c29"),
-    # in use by ci/ios-simulator-cronet and try/ios-simulator-cronet
-    x11e146 = xcode_enum("11e146"),
     # in use by ios-webkit-tot
     x11e608cwk = xcode_enum("11e608cwk"),
-    # (current default) xc12 gm seed
+    # (current default for other projects) xc12.0 gm seed
     x12a7209 = xcode_enum("12a7209"),
-    # latest Xcode 12 beta version.
-    x12b5044c = xcode_enum("12b5044c"),
+    # (current default for iOS) xc12.4 gm seed
+    x12d4e = xcode_enum("12d4e"),
 )
 
 ################################################################################
@@ -163,31 +188,20 @@ def _chromium_tests_property(*, project_trigger_overrides):
 
     return chromium_tests or None
 
-def _goma_property(*, goma_backend, goma_debug, goma_enable_ats, goma_jobs, os):
+def _goma_property(*, goma_backend, goma_debug, goma_enable_ats, goma_jobs):
     goma_properties = {}
 
     goma_backend = defaults.get_value("goma_backend", goma_backend)
-    if goma_backend != None:
-        goma_properties.update(goma_backend)
+    if goma_backend == None:
+        return None
+    goma_properties.update(goma_backend)
 
     goma_debug = defaults.get_value("goma_debug", goma_debug)
     if goma_debug:
         goma_properties["debug"] = True
 
-    goma_enable_ats = defaults.get_value("goma_enable_ats", goma_enable_ats)
-
-    # TODO(crbug.com/1040754): Remove this flag.
-    if goma_enable_ats == args.COMPUTE:
-        goma_enable_ats = (
-            os and os.category in (os_category.LINUX, os_category.WINDOWS) and
-            goma_backend in (
-                goma.backend.RBE_TOT,
-                goma.backend.RBE_STAGING,
-                goma.backend.RBE_PROD,
-            )
-        )
-    if goma_enable_ats:
-        goma_properties["enable_ats"] = True
+    if goma_enable_ats != None:
+        goma_properties["enable_ats"] = goma_enable_ats
 
     goma_jobs = defaults.get_value("goma_jobs", goma_jobs)
     if goma_jobs != None:
@@ -246,6 +260,27 @@ def _isolated_property(*, isolated_server):
 
     return isolated or None
 
+def _reclient_property(*, instance, service, jobs, rewrapper_env):
+    reclient = {}
+    instance = defaults.get_value("reclient_instance", instance)
+    if instance:
+        reclient["instance"] = instance
+        reclient["metrics_project"] = "chromium-reclient-metrics"
+    service = defaults.get_value("reclient_service", service)
+    if service:
+        reclient["service"] = service
+    jobs = defaults.get_value("reclient_jobs", jobs)
+    if jobs:
+        reclient["jobs"] = jobs
+    rewrapper_env = defaults.get_value("reclient_rewrapper_env", rewrapper_env)
+    if rewrapper_env:
+        for k in rewrapper_env:
+            if not k.startswith("RBE_"):
+                fail("Environment variables in rewrapper_env must start with " +
+                     "'RBE_', got '%s'" % k)
+        reclient["rewrapper_env"] = rewrapper_env
+    return reclient or None
+
 ################################################################################
 # Builder defaults and function                                                #
 ################################################################################
@@ -259,6 +294,7 @@ defaults = args.defaults(
     builder_group = None,
     builderless = args.COMPUTE,
     configure_kitchen = False,
+    kitchen_emulate_gce = False,
     cores = None,
     cpu = None,
     fully_qualified_builder_dimension = False,
@@ -278,7 +314,12 @@ defaults = args.defaults(
     coverage_exclude_sources = None,
     coverage_test_types = None,
     resultdb_bigquery_exports = [],
+    resultdb_index_by_timestamp = False,
     isolated_server = "https://isolateserver.appspot.com",
+    reclient_instance = None,
+    reclient_service = None,
+    reclient_jobs = None,
+    reclient_rewrapper_env = None,
 
     # Provide vars for bucket and executable so users don't have to
     # unnecessarily make wrapper functions
@@ -308,6 +349,7 @@ def builder(
         list_view = args.DEFAULT,
         project_trigger_overrides = args.DEFAULT,
         configure_kitchen = args.DEFAULT,
+        kitchen_emulate_gce = args.DEFAULT,
         goma_backend = args.DEFAULT,
         goma_debug = args.DEFAULT,
         goma_enable_ats = args.DEFAULT,
@@ -318,7 +360,13 @@ def builder(
         coverage_exclude_sources = args.DEFAULT,
         coverage_test_types = args.DEFAULT,
         resultdb_bigquery_exports = args.DEFAULT,
+        resultdb_index_by_timestamp = args.DEFAULT,
         isolated_server = args.DEFAULT,
+        reclient_instance = args.DEFAULT,
+        reclient_service = args.DEFAULT,
+        reclient_jobs = args.DEFAULT,
+        reclient_rewrapper_env = args.DEFAULT,
+        experiments = None,
         **kwargs):
     """Define a builder.
 
@@ -395,6 +443,9 @@ def builder(
       * configure_kitchen - a boolean indicating whether to configure kitchen. If
         True, emits a property to set the 'git_auth' and 'devshell' fields of the
         '$kitchen' property. By default, considered False.
+      * kitchen_emulate_gce - a boolean indicating whether to set 'emulate_gce'
+        of the '$kitchen' property. This is effective only when
+        configure_kitchen is True. By default, considered False.
       * goma_backend - a member of the `goma.backend` enum indicating the goma
         backend the builder should use. Will be incorporated into the
         '$build/goma' property. By default, considered None.
@@ -402,8 +453,14 @@ def builder(
         True, the 'debug' field will be set in the '$build/goma' property. By
         default, considered False.
       * goma_enable_ats - a boolean indicating whether ats should be enabled for
-        goma. If True, the 'enable_ats' field will be set in the '$build/goma'
-        property. By default, considered False.
+        goma or args.COMPUTE if ats should be enabled where it is needed.
+        If True or False are explicitly set, the 'enable_ats' field will be set
+        in the '$build/goma' property.  By default, args.COMPUTE is set and
+        'enable_ats' fields is set only if ats need to be enabled by default.
+        The 'enable_ats' on Windows will control cross compiling in server
+        side. cross compile if `enable_ats` is False.
+        Note: if goma_enable_ats is not set, goma recipe modules sets
+        GOMA_ARBITRARY_TOOLCHAIN_SUPPORT=true on windows by default.
       * goma_jobs - a member of the `goma.jobs` enum indicating the number of jobs
         to be used by the builder. Sets the 'jobs' field of the '$build/goma'
         property will be set according to the enum member. By default, the 'jobs'
@@ -426,9 +483,24 @@ def builder(
       * resultdb_bigquery_exports - a list of resultdb.export_test_results(...)
         specifying parameters for exporting test results to BigQuery. By default,
         do not export.
+      * resultdb_index_by_timestamp - a boolean specifying whether ResultDB should
+        index the results of the tests run on this builder by timestamp, i.e.
+        for purposes of retrieving a test's history. If false, the results will not
+        be searchable by timestamp on ResultDB's test history api.
       * isolated_server - a string indicating the host of the isolated server.
         Will be incorporated into the '$recipe_engine/isolated' property. By
         default, this is "https://isolateserver.appspot.com".
+      * reclient_instance - a string indicating the GCP project hosting the RBE
+        instance for re-client to use.
+      * reclient_service - a string indicating the RBE service to dial via gRPC.
+        By default, this is "remotebuildexecution.googleapis.com:443" (set in
+        the reclient recipe module).
+      * reclient_jobs - an integer indicating the number of concurrent
+        compilations to run when using re-client as the compiler.
+      * reclient_rewrapper_env - a map that sets the rewrapper flags via the
+        environment variables. All such vars must start with the "RBE_" prefix.
+      * experiments - a dict of experiment name to the percentage chance (0-100)
+        that it will apply to builds generated from this builder.
       * kwargs - Additional keyword arguments to forward on to `luci.builder`.
     """
 
@@ -454,6 +526,9 @@ def builder(
     if "$recipe_engine/isolated" in properties:
         fail('Setting "$recipe_engine/isolated" property is not supported: ' +
              "use isolated_server instead")
+    if "$build/reclient" in properties:
+        fail('Setting "$build/reclient" property is not supported: ' +
+             "use reclient_instance and reclient_rewrapper_env instead")
     properties = dict(properties)
 
     os = defaults.get_value("os", os)
@@ -510,12 +585,22 @@ def builder(
     if ssd != None:
         dimensions["ssd"] = str(int(ssd))
 
+    # TODO(crbug.com/1143122): remove this.
+    experiments = experiments or {}
+    if os and os.category == os_category.MAC:
+        experiments["chromium.chromium_tests.use_rbe_cas"] = 50
+    elif os and os.category == os_category.WINDOWS:
+        experiments["chromium.chromium_tests.use_rbe_cas"] = 20
+    kwargs["experiments"] = experiments
+
     configure_kitchen = defaults.get_value("configure_kitchen", configure_kitchen)
     if configure_kitchen:
         properties["$kitchen"] = {
             "devshell": True,
             "git_auth": True,
         }
+        if defaults.get_value("kitchen_emulate_gce", kitchen_emulate_gce):
+            properties["$kitchen"]["emulate_gce"] = True
 
     chromium_tests = _chromium_tests_property(
         project_trigger_overrides = project_trigger_overrides,
@@ -523,15 +608,22 @@ def builder(
     if chromium_tests != None:
         properties["$build/chromium_tests"] = chromium_tests
 
-    goma = _goma_property(
+    goma_enable_ats = defaults.get_value("goma_enable_ats", goma_enable_ats)
+
+    # Enable ATS on linux by default.
+    if goma_enable_ats == args.COMPUTE:
+        if os and os.category == os_category.LINUX:
+            goma_enable_ats = True
+        else:
+            goma_enable_ats = None
+    gp = _goma_property(
         goma_backend = goma_backend,
         goma_debug = goma_debug,
         goma_enable_ats = goma_enable_ats,
         goma_jobs = goma_jobs,
-        os = os,
     )
-    if goma != None:
-        properties["$build/goma"] = goma
+    if gp != None:
+        properties["$build/goma"] = gp
 
     code_coverage = _code_coverage_property(
         use_clang_coverage = use_clang_coverage,
@@ -548,6 +640,15 @@ def builder(
     )
     if isolated != None:
         properties["$recipe_engine/isolated"] = isolated
+
+    reclient = _reclient_property(
+        instance = reclient_instance,
+        service = reclient_service,
+        jobs = reclient_jobs,
+        rewrapper_env = reclient_rewrapper_env,
+    )
+    if reclient != None:
+        properties["$build/reclient"] = reclient
 
     kwargs = dict(kwargs)
     if bucket != args.COMPUTE:
@@ -566,6 +667,16 @@ def builder(
         )]
         properties.setdefault("xcode_build_version", xcode.version)
 
+    history_options = None
+    resultdb_index_by_timestamp = defaults.get_value(
+        "resultdb_index_by_timestamp",
+        resultdb_index_by_timestamp,
+    )
+    if resultdb_index_by_timestamp:
+        history_options = resultdb.history_options(
+            by_timestamp = resultdb_index_by_timestamp,
+        )
+
     builder = branches.builder(
         name = name,
         branch_selector = branch_selector,
@@ -577,6 +688,7 @@ def builder(
                 "resultdb_bigquery_exports",
                 resultdb_bigquery_exports,
             ),
+            history_options = history_options,
         ),
         **kwargs
     )

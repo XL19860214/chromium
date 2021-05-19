@@ -19,7 +19,6 @@
 #import "components/translate/ios/browser/translate_controller.h"
 #include "components/ukm/ios/ukm_url_recorder.h"
 #include "ios/web/public/browser_state.h"
-#include "ios/web/public/deprecated/crw_js_injection_receiver.h"
 #include "ios/web/public/navigation/navigation_context.h"
 #include "ios/web/public/navigation/navigation_item.h"
 #include "ios/web/public/navigation/navigation_manager.h"
@@ -59,9 +58,6 @@ IOSTranslateDriver::IOSTranslateDriver(
   language::IOSLanguageDetectionTabHelper* language_detection_tab_helper =
       language::IOSLanguageDetectionTabHelper::FromWebState(web_state_);
   language_detection_tab_helper->AddObserver(this);
-
-  CRWJSInjectionReceiver* receiver = web_state->GetJSInjectionReceiver();
-  DCHECK(receiver);
 
   // Create the language detection controller.
   language_detection_controller_ =
@@ -254,10 +250,9 @@ void IOSTranslateDriver::OnTranslateScriptReady(
   translate_controller_->StartTranslation(source_language_, target_language_);
 }
 
-void IOSTranslateDriver::OnTranslateComplete(
-    TranslateErrors::Type error_type,
-    const std::string& original_language,
-    double translation_time) {
+void IOSTranslateDriver::OnTranslateComplete(TranslateErrors::Type error_type,
+                                             const std::string& source_language,
+                                             double translation_time) {
   if (!IsPageValid(pending_page_seq_no_))
     return;
 
@@ -268,7 +263,7 @@ void IOSTranslateDriver::OnTranslateComplete(
   }
 
   TranslationDidSucceed(source_language_, target_language_,
-                        pending_page_seq_no_, original_language,
+                        pending_page_seq_no_, source_language,
                         translation_time);
 }
 

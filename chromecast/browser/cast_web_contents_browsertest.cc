@@ -7,7 +7,9 @@
 
 #include <algorithm>
 #include <memory>
+#include <string>
 
+#include "base/callback_helpers.h"
 #include "base/check_op.h"
 #include "base/command_line.h"
 #include "base/containers/flat_set.h"
@@ -15,8 +17,9 @@
 #include "base/macros.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
-#include "base/strings/string16.h"
+#include "base/strings/strcat.h"
 #include "base/strings/string_piece.h"
+#include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/bind.h"
 #include "base/threading/sequenced_task_runner_handle.h"
@@ -123,7 +126,7 @@ class MockCastWebContentsObserver : public CastWebContents::Observer {
            service_manager::InterfaceProvider* frame_interfaces,
            blink::AssociatedInterfaceProvider* frame_associated_interfaces));
   MOCK_METHOD1(ResourceLoadFailed, void(CastWebContents* cast_web_contents));
-  MOCK_METHOD1(UpdateTitle, void(const base::string16& title));
+  MOCK_METHOD1(UpdateTitle, void(const std::u16string& title));
 
  private:
   DISALLOW_COPY_AND_ASSIGN(MockCastWebContentsObserver);
@@ -145,10 +148,10 @@ class TitleChangeObserver : public CastWebContents::Observer {
   // Spins a Runloop until the title of the page matches the |expected_title|
   // that have been set.
   void RunUntilTitleEquals(base::StringPiece expected_title) {
-    expected_title_ = expected_title.as_string();
+    expected_title_ = std::string(expected_title);
     // Spin the runloop until the expected conditions are met.
     if (current_title_ != expected_title_) {
-      expected_title_ = expected_title.as_string();
+      expected_title_ = std::string(expected_title);
       base::RunLoop run_loop;
       quit_closure_ = run_loop.QuitClosure();
       run_loop.Run();
@@ -156,7 +159,7 @@ class TitleChangeObserver : public CastWebContents::Observer {
   }
 
   // CastWebContents::Observer implementation:
-  void UpdateTitle(const base::string16& title) override {
+  void UpdateTitle(const std::u16string& title) override {
     // Resumes execution of RunUntilTitleEquals() if |title| matches
     // expectations.
     std::string title_utf8 = base::UTF16ToUTF8(title);
@@ -183,7 +186,7 @@ class TestMessageReceiver : public blink::WebMessagePort::MessageReceiver {
 
   void WaitForNextIncomingMessage(
       base::OnceCallback<
-          void(std::string, base::Optional<blink::WebMessagePort>)> callback) {
+          void(std::string, absl::optional<blink::WebMessagePort>)> callback) {
     DCHECK(message_received_callback_.is_null())
         << "Only one waiting event is allowed.";
     message_received_callback_ = std::move(callback);
@@ -201,12 +204,12 @@ class TestMessageReceiver : public blink::WebMessagePort::MessageReceiver {
       return false;
     }
 
-    base::Optional<blink::WebMessagePort> incoming_port = base::nullopt;
+    absl::optional<blink::WebMessagePort> incoming_port = absl::nullopt;
     // Only one MessagePort should be sent to here.
     if (!message.ports.empty()) {
       DCHECK(message.ports.size() == 1)
           << "Only one control port can be provided";
-      incoming_port = base::make_optional<blink::WebMessagePort>(
+      incoming_port = absl::make_optional<blink::WebMessagePort>(
           std::move(message.ports[0]));
     }
 
@@ -223,7 +226,7 @@ class TestMessageReceiver : public blink::WebMessagePort::MessageReceiver {
   }
 
   base::OnceCallback<void(std::string,
-                          base::Optional<blink::WebMessagePort> incoming_port)>
+                          absl::optional<blink::WebMessagePort> incoming_port)>
       message_received_callback_;
 
   base::OnceCallback<void()> on_pipe_error_callback_;
@@ -762,13 +765,15 @@ IN_PROC_BROWSER_TEST_F(CastWebContentsBrowserTest, PostMessageToMainFrame) {
   // would post a message to the test page to redirect it to |title1.html|.
   // ===========================================================================
   constexpr char kOriginalTitle[] = "postmessage";
+  constexpr char16_t kOriginalTitle16[] = u"postmessage";
   constexpr char kPage1Path[] = "title1.html";
   constexpr char kPage1Title[] = "title 1";
+  constexpr char16_t kPage1Title16[] = u"title 1";
 
   EXPECT_CALL(mock_cast_wc_observer_,
-              UpdateTitle(base::ASCIIToUTF16(kPage1Title)));
+              UpdateTitle(std::u16string(kPage1Title16)));
   EXPECT_CALL(mock_cast_wc_observer_,
-              UpdateTitle(base::ASCIIToUTF16(kOriginalTitle)));
+              UpdateTitle(std::u16string(kOriginalTitle16)));
 
   embedded_test_server()->ServeFilesFromSourceDirectory(GetTestDataPath());
   StartTestServer();
@@ -789,11 +794,12 @@ IN_PROC_BROWSER_TEST_F(CastWebContentsBrowserTest, PostMessagePassMessagePort) {
   // through the port.
   // ===========================================================================
   constexpr char kOriginalTitle[] = "messageport";
+  constexpr char16_t kOriginalTitle16[] = u"messageport";
   constexpr char kHelloMsg[] = "hi";
-  constexpr char kPingMsg[] = "ping";
+  constexpr char16_t kPingMsg[] = u"ping";
 
   EXPECT_CALL(mock_cast_wc_observer_,
-              UpdateTitle(base::ASCIIToUTF16(kOriginalTitle)));
+              UpdateTitle(std::u16string(kOriginalTitle16)));
 
   // Load test page.
   embedded_test_server()->ServeFilesFromSourceDirectory(GetTestDataPath());
@@ -817,7 +823,7 @@ IN_PROC_BROWSER_TEST_F(CastWebContentsBrowserTest, PostMessagePassMessagePort) {
     auto quit_closure = run_loop.QuitClosure();
     auto received_message_callback = base::BindOnce(
         [](base::OnceClosure loop_quit_closure, std::string port_msg,
-           base::Optional<blink::WebMessagePort> incoming_port) {
+           absl::optional<blink::WebMessagePort> incoming_port) {
           EXPECT_EQ("got_port", port_msg);
           std::move(loop_quit_closure).Run();
         },
@@ -837,15 +843,14 @@ IN_PROC_BROWSER_TEST_F(CastWebContentsBrowserTest, PostMessagePassMessagePort) {
     auto quit_closure = run_loop.QuitClosure();
     auto received_message_callback = base::BindOnce(
         [](base::OnceClosure loop_quit_closure, std::string port_msg,
-           base::Optional<blink::WebMessagePort> incoming_port) {
+           absl::optional<blink::WebMessagePort> incoming_port) {
           EXPECT_EQ("ack ping", port_msg);
           std::move(loop_quit_closure).Run();
         },
         std::move(quit_closure));
     message_receiver.WaitForNextIncomingMessage(
         std::move(received_message_callback));
-    platform_port.PostMessage(
-        blink::WebMessagePort::Message(base::UTF8ToUTF16(kPingMsg)));
+    platform_port.PostMessage(blink::WebMessagePort::Message(kPingMsg));
     run_loop.Run();
   }
 }
@@ -858,10 +863,11 @@ IN_PROC_BROWSER_TEST_F(CastWebContentsBrowserTest,
   // MessagePort disconnection event.
   // ===========================================================================
   constexpr char kOriginalTitle[] = "messageport";
+  constexpr char16_t kOriginalTitle16[] = u"messageport";
   constexpr char kHelloMsg[] = "hi";
 
   EXPECT_CALL(mock_cast_wc_observer_,
-              UpdateTitle(base::ASCIIToUTF16(kOriginalTitle)));
+              UpdateTitle(std::u16string(kOriginalTitle16)));
   // Load test page.
   embedded_test_server()->ServeFilesFromSourceDirectory(GetTestDataPath());
   StartTestServer();
@@ -885,7 +891,7 @@ IN_PROC_BROWSER_TEST_F(CastWebContentsBrowserTest,
     auto quit_closure = run_loop.QuitClosure();
     auto received_message_callback = base::BindOnce(
         [](base::OnceClosure loop_quit_closure, std::string port_msg,
-           base::Optional<blink::WebMessagePort> incoming_port) {
+           absl::optional<blink::WebMessagePort> incoming_port) {
           EXPECT_EQ("got_port", port_msg);
           std::move(loop_quit_closure).Run();
         },
@@ -926,6 +932,7 @@ IN_PROC_BROWSER_TEST_F(CastWebContentsBrowserTest, ExecuteJavaScript) {
   // ExecuteJavaScript with callback to retrieve that value.
   // ===========================================================================
   constexpr char kSoyMilkJsonStringLiteral[] = "\"SoyMilk\"";
+  constexpr char16_t kSoyMilkJsonStringLiteral16[] = u"\"SoyMilk\"";
 
   // Load page with title "hello":
   GURL gurl{embedded_test_server()->GetURL("/title1.html")};
@@ -946,15 +953,13 @@ IN_PROC_BROWSER_TEST_F(CastWebContentsBrowserTest, ExecuteJavaScript) {
 
   // Execute with empty callback.
   cast_web_contents_->ExecuteJavaScript(
-      base::UTF8ToUTF16(
-          base::StringPrintf("const the_var = %s;", kSoyMilkJsonStringLiteral)),
+      base::StrCat({u"const the_var = ", kSoyMilkJsonStringLiteral16, u";"}),
       base::DoNothing());
 
   // Execute a script snippet to return the variable's value.
   base::RunLoop run_loop2;
   cast_web_contents_->ExecuteJavaScript(
-      base::UTF8ToUTF16("the_var;"),
-      base::BindLambdaForTesting([&](base::Value result_value) {
+      u"the_var;", base::BindLambdaForTesting([&](base::Value result_value) {
         std::string result_json;
         ASSERT_TRUE(base::JSONWriter::Write(result_value, &result_json));
         EXPECT_EQ(result_json, kSoyMilkJsonStringLiteral);

@@ -72,6 +72,9 @@ class VIZ_SERVICE_EXPORT OverlayProcessorInterface {
     // Rect on the display to position to. This takes in account of Display's
     // rotation.
     gfx::RectF display_rect;
+    // Specifies the region within the buffer to be cropped and (maybe)scaled to
+    // place inside |display_rect|.
+    gfx::RectF uv_rect;
     // Size of output surface in pixels.
     gfx::Size resource_size;
     // Format of the buffer to scanout.
@@ -92,6 +95,7 @@ class VIZ_SERVICE_EXPORT OverlayProcessorInterface {
   // API.
   static OutputSurfaceOverlayPlane ProcessOutputSurfaceAsOverlay(
       const gfx::Size& viewport_size,
+      const gfx::Size& resource_size,
       const gfx::BufferFormat& buffer_format,
       const gfx::ColorSpace& color_space,
       bool has_alpha,
@@ -109,6 +113,10 @@ class VIZ_SERVICE_EXPORT OverlayProcessorInterface {
   virtual ~OverlayProcessorInterface() = default;
 
   virtual bool IsOverlaySupported() const = 0;
+  // Returns a bounding rectangle of the last set of overlay planes scheduled.
+  // It's expected to be called after ProcessForOverlays at frame N-1 has been
+  // called and before GetAndResetOverlayDamage at frame N.
+  virtual gfx::Rect GetPreviousFrameOverlaysBoundingRect() const = 0;
   virtual gfx::Rect GetAndResetOverlayDamage() = 0;
 
   // Returns true if the platform supports hw overlays and surface occluding
@@ -132,11 +140,11 @@ class VIZ_SERVICE_EXPORT OverlayProcessorInterface {
 
   // For Mac, if we successfully generated a candidate list for CALayerOverlay,
   // we no longer need the |output_surface_plane|. This function takes a pointer
-  // to the base::Optional instance so the instance can be reset.
+  // to the absl::optional instance so the instance can be reset.
   // TODO(weiliangc): Internalize the |output_surface_plane| inside the overlay
   // processor.
   virtual void AdjustOutputSurfaceOverlay(
-      base::Optional<OutputSurfaceOverlayPlane>* output_surface_plane) = 0;
+      absl::optional<OutputSurfaceOverlayPlane>* output_surface_plane) = 0;
 
   // Before the overlay refactor to use OverlayProcessorOnGpu, overlay
   // candidates are stored inside DirectRenderer. Those overlay candidates are
@@ -164,6 +172,9 @@ class VIZ_SERVICE_EXPORT OverlayProcessorInterface {
   // Overlay processor uses a frame counter to determine the potential power
   // benefits of individual overlay candidates.
   virtual void SetFrameSequenceNumber(uint64_t frame_sequence_number) {}
+
+  // If true, video capture is enabled for this frame.
+  virtual void SetIsVideoCaptureEnabled(bool enabled) {}
 
  protected:
   OverlayProcessorInterface() = default;

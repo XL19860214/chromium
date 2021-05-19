@@ -15,7 +15,6 @@ import org.chromium.base.ContextUtils;
 import org.chromium.chrome.browser.search_engines.TemplateUrlServiceFactory;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tab.state.CriticalPersistedTabData;
-import org.chromium.chrome.browser.tabmodel.EmptyTabModelSelectorObserver;
 import org.chromium.chrome.browser.tabmodel.TabModelFilter;
 import org.chromium.chrome.browser.tabmodel.TabModelObserver;
 import org.chromium.chrome.browser.tabmodel.TabModelSelector;
@@ -66,7 +65,7 @@ public class TabAttributeCache {
             @Override
             public void onUrlUpdated(Tab tab) {
                 if (tab.isIncognito()) return;
-                String url = tab.getUrlString();
+                String url = tab.getUrl().getSpec();
                 cacheUrl(tab.getId(), url);
             }
 
@@ -82,6 +81,13 @@ public class TabAttributeCache {
                 if (tab.isIncognito()) return;
                 assert newRootId == CriticalPersistedTabData.from(tab).getRootId();
                 cacheRootId(tab.getId(), newRootId);
+            }
+
+            @Override
+            public void onTimestampChanged(Tab tab, long timestampMillis) {
+                if (tab.isIncognito()) return;
+                assert timestampMillis == CriticalPersistedTabData.from(tab).getTimestampMillis();
+                cacheTimestampMillis(tab.getId(), timestampMillis);
             }
 
             @Override
@@ -104,23 +110,27 @@ public class TabAttributeCache {
                         .remove(getUrlKey(id))
                         .remove(getTitleKey(id))
                         .remove(getRootIdKey(id))
+                        .remove(getTimestampMillisKey(id))
                         .remove(getLastSearchTermKey(id))
                         .apply();
             }
         };
 
-        mTabModelSelectorObserver = new EmptyTabModelSelectorObserver() {
+        mTabModelSelectorObserver = new TabModelSelectorObserver() {
             @Override
             public void onTabStateInitialized() {
                 // TODO(wychen): after this cache is enabled by default, we only need to populate it
                 //  once.
+                getSharedPreferences().edit().clear().apply();
                 TabModelFilter filter =
                         mTabModelSelector.getTabModelFilterProvider().getTabModelFilter(false);
                 for (int i = 0; i < filter.getCount(); i++) {
                     Tab tab = filter.getTabAt(i);
-                    cacheUrl(tab.getId(), tab.getUrlString());
+                    cacheUrl(tab.getId(), tab.getUrl().getSpec());
                     cacheTitle(tab.getId(), tab.getTitle());
                     cacheRootId(tab.getId(), CriticalPersistedTabData.from(tab).getRootId());
+                    cacheTimestampMillis(
+                            tab.getId(), CriticalPersistedTabData.from(tab).getTimestampMillis());
                 }
                 Tab currentTab = mTabModelSelector.getCurrentTab();
                 if (currentTab != null) cacheLastSearchTerm(currentTab);
@@ -171,6 +181,7 @@ public class TabAttributeCache {
     }
 
     private static void cacheUrl(int id, String url) {
+        // TODO(crbug/783819): Use GURL directly.
         getSharedPreferences().edit().putString(getUrlKey(id), url).apply();
     }
 
@@ -208,6 +219,34 @@ public class TabAttributeCache {
     @VisibleForTesting
     public static void setRootIdForTesting(int id, int rootId) {
         cacheRootId(id, rootId);
+    }
+
+    private static String getTimestampMillisKey(int id) {
+        return id + "_timestampMillis";
+    }
+
+    /**
+     * Get the timestamp of a {@link PseudoTab}.
+     * @param id The ID of the {@link PseudoTab}.
+     * @return The timestamp
+     */
+    public static long getTimestampMillis(int id) {
+        return getSharedPreferences().getLong(
+                getTimestampMillisKey(id), CriticalPersistedTabData.INVALID_TIMESTAMP);
+    }
+
+    private static void cacheTimestampMillis(int id, long timestampMillis) {
+        getSharedPreferences().edit().putLong(getTimestampMillisKey(id), timestampMillis).apply();
+    }
+
+    /**
+     * Set the timestamp for a {@link PseudoTab}.
+     * @param id The ID of the {@link PseudoTab}.
+     * @param timestampMillis The timestamp
+     */
+    @VisibleForTesting
+    public static void setTimestampMillisForTesting(int id, long timestampMillis) {
+        cacheTimestampMillis(id, timestampMillis);
     }
 
     private static String getLastSearchTermKey(int id) {

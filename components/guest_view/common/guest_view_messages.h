@@ -9,6 +9,7 @@
 
 #include "base/values.h"
 #include "ipc/ipc_message_macros.h"
+#include "ipc/ipc_message_start.h"
 
 #define IPC_MESSAGE_START GuestViewMsgStart
 
@@ -17,12 +18,6 @@
 // Tells the embedder that a guest has been attached in --site-per-process mode.
 IPC_MESSAGE_CONTROL1(GuestViewMsg_AttachToEmbedderFrame_ACK,
                      int /* element_instance_id */)
-
-// Once a RenderView proxy has been created for the guest in the embedder render
-// process, this IPC informs the embedder of the proxy's routing ID.
-IPC_MESSAGE_CONTROL2(GuestViewMsg_GuestAttached,
-                     int /* element_instance_id */,
-                     int /* source_routing_id */)
 
 // Messages sent from the renderer to the browser.
 

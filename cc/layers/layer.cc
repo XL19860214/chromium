@@ -15,6 +15,7 @@
 #include "base/location.h"
 #include "base/metrics/histogram.h"
 #include "base/single_thread_task_runner.h"
+#include "base/strings/stringprintf.h"
 #include "base/time/time.h"
 #include "base/trace_event/trace_event.h"
 #include "cc/base/features.h"
@@ -1001,6 +1002,22 @@ void Layer::SetDidScrollCallback(
     base::RepeatingCallback<void(const gfx::ScrollOffset&, const ElementId&)>
         callback) {
   EnsureLayerTreeInputs().did_scroll_callback = std::move(callback);
+}
+
+void Layer::SetSubtreeCaptureId(viz::SubtreeCaptureId subtree_id) {
+  DCHECK(IsPropertyChangeAllowed());
+
+  auto& inputs = EnsureLayerTreeInputs();
+  if (inputs.subtree_capture_id == subtree_id)
+    return;
+
+  DCHECK(!inputs.subtree_capture_id.is_valid() || !subtree_id.is_valid())
+      << "Not allowed to change from a valid ID to another valid ID, as it may "
+         "already be in use.";
+
+  inputs.subtree_capture_id = subtree_id;
+  SetPropertyTreesNeedRebuild();
+  SetNeedsCommit();
 }
 
 void Layer::SetScrollable(const gfx::Size& bounds) {

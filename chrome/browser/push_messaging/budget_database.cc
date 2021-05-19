@@ -11,11 +11,11 @@
 #include "base/task/thread_pool.h"
 #include "base/time/clock.h"
 #include "base/time/default_clock.h"
-#include "chrome/browser/engagement/site_engagement_score.h"
-#include "chrome/browser/engagement/site_engagement_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/push_messaging/budget.pb.h"
 #include "components/leveldb_proto/public/proto_database_provider.h"
+#include "components/site_engagement/content/site_engagement_score.h"
+#include "components/site_engagement/content/site_engagement_service.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/storage_partition.h"
 #include "url/gurl.h"
@@ -54,8 +54,7 @@ BudgetDatabase::BudgetInfo::~BudgetInfo() = default;
 BudgetDatabase::BudgetDatabase(Profile* profile)
     : profile_(profile), clock_(base::WrapUnique(new base::DefaultClock)) {
   auto* protodb_provider =
-      content::BrowserContext::GetDefaultStoragePartition(profile)
-          ->GetProtoDatabaseProvider();
+      profile->GetDefaultStoragePartition()->GetProtoDatabaseProvider();
   // In incognito mode the provider service is not created.
   if (!protodb_provider)
     return;

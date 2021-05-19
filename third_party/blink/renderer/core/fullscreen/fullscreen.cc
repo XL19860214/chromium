@@ -30,7 +30,7 @@
 #include "third_party/blink/renderer/core/fullscreen/fullscreen.h"
 
 #include "base/macros.h"
-#include "third_party/blink/public/mojom/feature_policy/feature_policy.mojom-blink.h"
+#include "third_party/blink/public/mojom/permissions_policy/permissions_policy.mojom-blink.h"
 #include "third_party/blink/public/platform/task_type.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise_resolver.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_fullscreen_options.h"
@@ -271,10 +271,10 @@ bool AllowedToUseFullscreen(const Document& document,
   if (!document.GetFrame())
     return false;
 
-  // 2. If Feature Policy is enabled, return the policy for "fullscreen"
+  // 2. If Permissions Policy is enabled, return the policy for "fullscreen"
   // feature.
   return document.GetExecutionContext()->IsFeatureEnabled(
-      mojom::blink::FeaturePolicyFeature::kFullscreen, report_on_failure);
+      mojom::blink::PermissionsPolicyFeature::kFullscreen, report_on_failure);
 }
 
 bool AllowedToRequestFullscreen(Document& document) {
@@ -283,16 +283,25 @@ bool AllowedToRequestFullscreen(Document& document) {
   //
   // The current implementation of WebXR's "dom-overlay" mode internally uses
   // the Fullscreen API to show a single DOM element based on configuration at
-  // XR session start. The WebXR API doesn't support changing elements during
-  // the session, so to avoid inconsistencies between implementations we need
-  // to block changes via Fullscreen API while the XR session is active, while
-  // still allowing the XR code to set up fullscreen mode on session start.
+  // XR session start. In addition, for WebXR sessions without "dom-overlay"
+  // the renderer may need to force the page to fullscreen to ensure that
+  // browser UI hides/responds accordingly. In either case, requesting a WebXR
+  // Session does require a user gesture, but it has likely expired by the time
+  // the renderer actually gets the XR session from the device and attempts
+  // to fullscreen the page.
   if (ScopedAllowFullscreen::FullscreenAllowedReason() ==
-      ScopedAllowFullscreen::kXrOverlay) {
-    DVLOG(1) << __func__
-             << ": allowing fullscreen element setup for XR DOM overlay";
+          ScopedAllowFullscreen::kXrOverlay ||
+      ScopedAllowFullscreen::FullscreenAllowedReason() ==
+          ScopedAllowFullscreen::kXrSession) {
+    DVLOG(1) << __func__ << ": allowing fullscreen element setup for XR";
     return true;
   }
+
+  // The WebXR API doesn't support changing elements during the session if the
+  // dom-overlay feature is in use (indicated by the IsXrOverlay property). To
+  // avoid inconsistencies between implementations we need to block changes via
+  // Fullscreen API while the XR session is active, while still allowing the XR
+  // code to set up fullscreen mode on session start.
   if (document.IsXrOverlay()) {
     DVLOG(1) << __func__
              << ": rejecting change of fullscreen element for XR DOM overlay";
@@ -368,8 +377,8 @@ bool RequestFullscreenConditionsMet(Element& pending, Document& document) {
   if (!pending.IsHTMLElement() && !IsA<SVGSVGElement>(pending))
     return false;
 
-  // |pending| is not a dialog element.
-  if (IsA<HTMLDialogElement>(pending))
+  // |pending| is not a dialog or popup element.
+  if (IsA<HTMLDialogElement>(pending) || IsA<HTMLPopupElement>(pending))
     return false;
 
   // The fullscreen element ready check for |pending| returns false.

@@ -29,7 +29,9 @@
 
 #include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
+#include "third_party/blink/public/common/tokens/tokens.h"
 #include "third_party/blink/public/platform/resource_load_info_notifier_wrapper.h"
+#include "third_party/blink/public/platform/web_back_forward_cache_loader_helper.h"
 #include "third_party/blink/public/platform/web_url.h"
 #include "third_party/blink/public/platform/web_url_loader.h"
 #include "third_party/blink/public/platform/web_url_loader_client.h"
@@ -48,6 +50,7 @@
 #include "third_party/blink/renderer/core/frame/settings.h"
 #include "third_party/blink/renderer/core/frame/visual_viewport.h"
 #include "third_party/blink/renderer/core/layout/intrinsic_sizing_info.h"
+#include "third_party/blink/renderer/core/layout/layout_view.h"
 #include "third_party/blink/renderer/core/layout/svg/layout_svg_root.h"
 #include "third_party/blink/renderer/core/loader/frame_load_request.h"
 #include "third_party/blink/renderer/core/paint/paint_layer.h"
@@ -71,6 +74,7 @@
 #include "third_party/blink/renderer/platform/graphics/paint/paint_record_builder.h"
 #include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/instrumentation/tracing/trace_event.h"
+#include "third_party/blink/renderer/platform/scheduler/public/thread_scheduler.h"
 
 namespace blink {
 
@@ -98,7 +102,7 @@ class FailingLoader final : public WebURLLoader {
       base::TimeDelta timeout_interval,
       WebURLLoaderClient*,
       WebURLResponse&,
-      base::Optional<WebURLError>& error,
+      absl::optional<WebURLError>& error,
       WebData&,
       int64_t& encoded_data_length,
       int64_t& encoded_body_length,
@@ -137,7 +141,9 @@ class FailingLoaderFactory final : public WebURLLoaderFactory {
       std::unique_ptr<TaskRunnerHandle> freezable_task_runner_handle,
       std::unique_ptr<TaskRunnerHandle> unfreezable_task_runner_handle,
       CrossVariantMojoRemote<blink::mojom::KeepAliveHandleInterfaceBase>
-          keep_alive_handle) override {
+          keep_alive_handle,
+      WebBackForwardCacheLoaderHelper back_forward_cache_loader_helper)
+      override {
     return std::make_unique<FailingLoader>(
         std::move(freezable_task_runner_handle),
         std::move(unfreezable_task_runner_handle));
@@ -179,6 +185,18 @@ class SVGImage::SVGImageLocalFrameClient : public EmptyLocalFrameClient {
 SVGImage::SVGImage(ImageObserver* observer, bool is_multipart)
     : Image(observer, is_multipart),
       paint_controller_(std::make_unique<PaintController>()),
+      // TODO(chikamune): use an existing AgentGroupScheduler
+      // SVG will be shared via MemoryCache (which is renderer process
+      // global cache) across multiple AgentSchedulingGroups. That's
+      // why we can't use an existing AgentSchedulingGroup for now. If
+      // we incorrectly use the existing ASG/AGS and if we freeze task
+      // queues on a AGS, it will affect SVGs on other AGS. To
+      // mitigate this problem, we need to split the MemoryCache into
+      // smaller granularity. There is an active effort to mitigate
+      // this which is called "Memory Cache Per Context"
+      // (https://crbug.com/1127971).
+      agent_group_scheduler_(
+          Thread::MainThread()->Scheduler()->CreateAgentGroupScheduler()),
       has_pending_timeline_rewind_(false) {}
 
 SVGImage::~SVGImage() {
@@ -495,6 +513,7 @@ void SVGImage::Draw(cc::PaintCanvas* canvas,
                     const PaintFlags& flags,
                     const FloatRect& dst_rect,
                     const FloatRect& src_rect,
+                    const SkSamplingOptions&,
                     RespectImageOrientationEnum,
                     ImageClampingMode,
                     ImageDecodingMode) {
@@ -534,6 +553,11 @@ sk_sp<PaintRecord> SVGImage::PaintRecordForCurrentFrame(
     return view->GetPaintRecord();
   }
 
+  // TODO(crbug.com/1203406): This works around the bug. We may want to find
+  // and fix the root cause, or do nothing until pre-CAP code is removed.
+  if (!view->GetLayoutView() || !view->GetLayoutView()->Compositor())
+    return nullptr;
+
   view->UpdateAllLifecyclePhasesExceptPaint(DocumentUpdateReason::kSVGImage);
   PaintRecordBuilder builder(*paint_controller_);
   view->PaintOutsideOfLifecycle(builder.Context(), kGlobalPaintNormalPhase);
@@ -572,8 +596,7 @@ void SVGImage::DrawInternal(const DrawInfo& draw_info,
     // without clipping, and translate accordingly.
     canvas->save();
     canvas->clipRect(EnclosingIntRect(dst_rect));
-    canvas->concat(SkMatrix::MakeRectToRect(unzoomed_src_rect, dst_rect,
-                                            SkMatrix::kFill_ScaleToFit));
+    canvas->concat(SkMatrix::RectToRect(unzoomed_src_rect, dst_rect));
     canvas->drawPicture(std::move(record));
     canvas->restore();
   }
@@ -680,7 +703,7 @@ void SVGImage::ServiceAnimations(
   // directly without worrying about including PaintArtifactCompositor's
   // analysis of whether animations should be composited.
   frame->GetDocument()->GetDocumentAnimations().UpdateAnimations(
-      DocumentLifecycle::kLayoutClean, nullptr);
+      DocumentLifecycle::kLayoutClean, nullptr, false);
 }
 
 void SVGImage::AdvanceAnimationForTesting() {
@@ -697,7 +720,7 @@ void SVGImage::AdvanceAnimationForTesting() {
     if (root_element->TimeContainer()->IsStarted())
       root_element->TimeContainer()->ResetDocumentTime();
     page_->Animator().ServiceScriptedAnimations(
-        root_element->GetDocument().Timeline().ZeroTime() +
+        root_element->GetDocument().Timeline().CalculateZeroTime() +
         base::TimeDelta::FromSecondsD(root_element->getCurrentTime()));
     GetImageObserver()->Changed(this);
     page_->Animator().Clock().ResetTimeForTesting();
@@ -769,10 +792,7 @@ Image::SizeAvailability SVGImage::DataChanged(bool all_data_received) {
   CHECK_EQ(load_state_, kDataChangedNotStarted);
   load_state_ = kInDataChanged;
 
-  Page::PageClients page_clients;
-  FillWithEmptyClients(page_clients);
   chrome_client_ = MakeGarbageCollected<SVGImageChromeClient>(this);
-  page_clients.chrome_client = chrome_client_.Get();
 
   // FIXME: If this SVG ends up loading itself, we might leak the world.
   // The Cache code does not know about ImageResources holding Frames and
@@ -783,7 +803,7 @@ Image::SizeAvailability SVGImage::DataChanged(bool all_data_received) {
   Page* page;
   {
     TRACE_EVENT0("blink", "SVGImage::dataChanged::createPage");
-    page = Page::CreateNonOrdinary(page_clients);
+    page = Page::CreateNonOrdinary(*chrome_client_, *agent_group_scheduler_);
     page->GetSettings().SetScriptEnabled(false);
     page->GetSettings().SetPluginsEnabled(false);
 
@@ -804,11 +824,17 @@ Image::SizeAvailability SVGImage::DataChanged(bool all_data_received) {
       page->GetSettings().SetDefaultFixedFontSize(
           default_settings.GetDefaultFixedFontSize());
 
+      page->GetSettings().SetImageAnimationPolicy(
+          default_settings.GetImageAnimationPolicy());
+
       // Also copy the preferred-color-scheme to ensure a responsiveness to
       // dark/light color schemes.
       page->GetSettings().SetPreferredColorScheme(
           default_settings.GetPreferredColorScheme());
     }
+    chrome_client_->InitAnimationTimer(page->GetPageScheduler()
+                                           ->GetAgentGroupScheduler()
+                                           .CompositorTaskRunner());
   }
 
   LocalFrame* frame = nullptr;
@@ -818,10 +844,10 @@ Image::SizeAvailability SVGImage::DataChanged(bool all_data_received) {
     frame_client_ = MakeGarbageCollected<SVGImageLocalFrameClient>(this);
     frame = MakeGarbageCollected<LocalFrame>(
         frame_client_, *page, nullptr, nullptr, nullptr,
-        FrameInsertType::kInsertInConstructor, base::UnguessableToken::Create(),
-        nullptr, nullptr, /* policy_container */ nullptr);
+        FrameInsertType::kInsertInConstructor, LocalFrameToken(), nullptr,
+        nullptr);
     frame->SetView(MakeGarbageCollected<LocalFrameView>(*frame));
-    frame->Init(nullptr);
+    frame->Init(/*opener=*/nullptr, /*policy_container=*/nullptr);
   }
 
   // SVG Images will always synthesize a viewBox, if it's not available, and
@@ -840,27 +866,29 @@ Image::SizeAvailability SVGImage::DataChanged(bool all_data_received) {
   // writing-mode).
   frame->GetDocument()->UpdateStyleAndLayoutTree();
 
-  // Set the concrete object size before a container size is available.
-  intrinsic_size_ = RoundedLayoutSize(ConcreteObjectSize(FloatSize(
-      LayoutReplaced::kDefaultWidth, LayoutReplaced::kDefaultHeight)));
-
   DCHECK(page_);
   switch (load_state_) {
     case kInDataChanged:
       load_state_ = kWaitingForAsyncLoadCompletion;
-      return RootElement() ? kSizeAvailableAndLoadingAsynchronously
-                           : kSizeUnavailable;
-
+      break;
     case kLoadCompleted:
-      return RootElement() ? kSizeAvailable : kSizeUnavailable;
-
+      break;
     case kDataChangedNotStarted:
     case kWaitingForAsyncLoadCompletion:
       CHECK(false);
       break;
   }
 
-  NOTREACHED();
+  if (!RootElement())
+    return kSizeUnavailable;
+
+  // Set the concrete object size before a container size is available.
+  intrinsic_size_ = RoundedLayoutSize(ConcreteObjectSize(FloatSize(
+      LayoutReplaced::kDefaultWidth, LayoutReplaced::kDefaultHeight)));
+
+  if (load_state_ == kWaitingForAsyncLoadCompletion)
+    return kSizeAvailableAndLoadingAsynchronously;
+  DCHECK_EQ(load_state_, kLoadCompleted);
   return kSizeAvailable;
 }
 

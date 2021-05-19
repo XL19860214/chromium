@@ -80,6 +80,7 @@ class SerializedImageDataSettings {
 
   CanvasColorSpace GetColorSpace() const;
   ImageDataStorageFormat GetStorageFormat() const;
+  ImageDataSettings* GetImageDataSettings() const;
 
   SerializedColorSpace GetSerializedColorSpace() const { return color_space_; }
   SerializedImageDataStorageFormat GetSerializedImageDataStorageFormat() const {
@@ -121,4 +122,4 @@ class SerializedImageBitmapSettings {
 
 }  // namespace blink
 
-#endif
+#endif  // THIRD_PARTY_BLINK_RENDERER_BINDINGS_CORE_V8_SERIALIZATION_SERIALIZED_COLOR_PARAMS_H_

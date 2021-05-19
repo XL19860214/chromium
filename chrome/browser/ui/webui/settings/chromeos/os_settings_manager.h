@@ -8,11 +8,17 @@
 #include <memory>
 
 #include "base/gtest_prod_util.h"
+// TODO(https://crbug.com/1164001): forward declare when moved ash
+#include "chrome/browser/ash/kerberos/kerberos_credentials_manager.h"
 #include "components/keyed_service/core/keyed_service.h"
 
 class ArcAppListPrefs;
 class Profile;
 class SupervisedUserService;
+
+namespace apps {
+class AppServiceProxyChromeOs;
+}  // namespace apps
 
 namespace content {
 class WebUI;
@@ -30,7 +36,6 @@ class SyncService;
 namespace chromeos {
 
 class CupsPrintersManager;
-class KerberosCredentialsManager;
 
 namespace android_sms {
 class AndroidSmsService;
@@ -95,7 +100,8 @@ class OsSettingsManager : public KeyedService {
       ArcAppListPrefs* arc_app_list_prefs,
       signin::IdentityManager* identity_manager,
       android_sms::AndroidSmsService* android_sms_service,
-      CupsPrintersManager* printers_manager);
+      CupsPrintersManager* printers_manager,
+      apps::AppServiceProxyChromeOs* app_service_proxy);
   OsSettingsManager(const OsSettingsManager& other) = delete;
   OsSettingsManager& operator=(const OsSettingsManager& other) = delete;
   ~OsSettingsManager() override;

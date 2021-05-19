@@ -8,11 +8,13 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <deque>
 #include <map>
 #include <memory>
 
 #include "base/android/jni_android.h"
 #include "base/callback.h"
+#include "base/callback_list.h"
 #include "base/compiler_specific.h"
 #include "base/containers/queue.h"
 #include "base/i18n/rtl.h"
@@ -94,6 +96,17 @@ class CONTENT_EXPORT RenderWidgetHostViewAndroid
     return touch_selection_controller_.get();
   }
 
+  using SurfaceIdChangedCallbackType = void(const viz::SurfaceId& new_id);
+  using SurfaceIdChangedCallback =
+      base::RepeatingCallback<SurfaceIdChangedCallbackType>;
+  using SurfaceIdChangedCallbackList =
+      base::RepeatingCallbackList<SurfaceIdChangedCallbackType>;
+  base::CallbackListSubscription SubscribeToSurfaceIdChanges(
+      const SurfaceIdChangedCallback& callback) WARN_UNUSED_RESULT;
+
+  // Called by DelegatedFrameHostClientAndroid
+  void OnSurfaceIdChanged();
+
   // RenderWidgetHostView implementation.
   void InitAsChild(gfx::NativeView parent_view) override;
   void InitAsPopup(RenderWidgetHostView* parent_host_view,
@@ -125,7 +138,7 @@ class CONTENT_EXPORT RenderWidgetHostViewAndroid
                           const gfx::Rect& node_bounds_in_screen) override;
   void RenderProcessGone() override;
   void Destroy() override;
-  void SetTooltipText(const base::string16& tooltip_text) override;
+  void UpdateTooltipUnderCursor(const std::u16string& tooltip_text) override;
   void TransformPointToRootSurface(gfx::PointF* point) override;
   gfx::Rect GetBoundsInRootWindow() override;
   void ProcessAckedTouchEvent(
@@ -164,10 +177,10 @@ class CONTENT_EXPORT RenderWidgetHostViewAndroid
   TouchSelectionControllerClientManager*
   GetTouchSelectionControllerClientManager() override;
   const viz::LocalSurfaceId& GetLocalSurfaceId() const override;
-  void OnRenderWidgetInit() override;
+  void OnRendererWidgetCreated() override;
   void TakeFallbackContentFrom(RenderWidgetHostView* view) override;
-  void OnSynchronizedDisplayPropertiesChanged() override;
-  base::Optional<SkColor> GetBackgroundColor() override;
+  void OnSynchronizedDisplayPropertiesChanged(bool rotation) override;
+  absl::optional<SkColor> GetBackgroundColor() override;
   void DidNavigate() override;
   WebContentsAccessibility* GetWebContentsAccessibility() override;
   viz::ScopedSurfaceIdAllocator DidUpdateVisualProperties(
@@ -184,7 +197,7 @@ class CONTENT_EXPORT RenderWidgetHostViewAndroid
   bool OnMouseWheelEvent(const ui::MotionEventAndroid& event) override;
   bool OnGestureEvent(const ui::GestureEventAndroid& event) override;
   void OnPhysicalBackingSizeChanged(
-      base::Optional<base::TimeDelta> deadline_override) override;
+      absl::optional<base::TimeDelta> deadline_override) override;
   void NotifyVirtualKeyboardOverlayRect(
       const gfx::Rect& keyboard_rect) override;
 
@@ -235,7 +248,7 @@ class CONTENT_EXPORT RenderWidgetHostViewAndroid
 
   // Returns the temporary background color of the underlaying document, for
   // example, returns black during screen rotation.
-  base::Optional<SkColor> GetCachedBackgroundColor();
+  absl::optional<SkColor> GetCachedBackgroundColor();
   void SendKeyEvent(const NativeWebKeyboardEvent& event);
   void SendMouseEvent(const ui::MotionEventAndroid&, int action_button);
   void SendMouseWheelEvent(const blink::WebMouseWheelEvent& event);
@@ -268,7 +281,7 @@ class CONTENT_EXPORT RenderWidgetHostViewAndroid
 
   bool SynchronizeVisualProperties(
       const cc::DeadlinePolicy& deadline_policy,
-      const base::Optional<viz::LocalSurfaceId>& child_local_surface_id);
+      const absl::optional<viz::LocalSurfaceId>& child_local_surface_id);
 
   bool HasValidFrame() const;
 
@@ -321,7 +334,8 @@ class CONTENT_EXPORT RenderWidgetHostViewAndroid
   // RenderFrameMetadataProvider::Observer implementation.
   void OnRenderFrameMetadataChangedBeforeActivation(
       const cc::RenderFrameMetadata& metadata) override;
-  void OnRenderFrameMetadataChangedAfterActivation() override;
+  void OnRenderFrameMetadataChangedAfterActivation(
+      base::TimeTicks activation_time) override;
   void OnRenderFrameSubmission() override {}
   void OnLocalSurfaceIdChanged(
       const cc::RenderFrameMetadata& metadata) override {}
@@ -375,7 +389,7 @@ class CONTENT_EXPORT RenderWidgetHostViewAndroid
   // RenderWidgetHostViewBase:
   void UpdateBackgroundColor() override;
   bool HasFallbackSurface() const override;
-  base::Optional<DisplayFeature> GetDisplayFeature() override;
+  absl::optional<DisplayFeature> GetDisplayFeature() override;
   void SetDisplayFeatureForTesting(
       const DisplayFeature* display_feature) override;
 
@@ -515,7 +529,6 @@ class CONTENT_EXPORT RenderWidgetHostViewAndroid
   gfx::Rect default_bounds_;
 
   const bool using_browser_compositor_;
-  const bool using_viz_for_webview_;
   std::unique_ptr<SynchronousCompositorHost> sync_compositor_;
   uint32_t sync_compositor_last_frame_token_ = 0u;
 
@@ -547,11 +560,26 @@ class CONTENT_EXPORT RenderWidgetHostViewAndroid
   uint32_t latest_capture_sequence_number_ = 0u;
 
   viz::ParentLocalSurfaceIdAllocator local_surface_id_allocator_;
+  bool in_rotation_ = false;
+  // Tracks the time at which rotation started, along with the targeted
+  // viz::LocalSurfaceId which would first embed the new rotation. This is a
+  // deque because it is possible that one rotation may be interrupted by
+  // another before the first has displayed. This can occur on pages that have
+  // long layout and rendering time.
+  std::deque<std::pair<base::TimeTicks, viz::LocalSurfaceId>> rotation_metrics_;
   bool is_first_navigation_ = true;
   // If true, then the next allocated surface should be embedded.
   bool navigation_while_hidden_ = false;
 
-  bool render_widget_initialized_ = false;
+  // False at creation time until the connection to the renderer process is
+  // established. If the connection is lost (ie. renderer process crash) then
+  // this object will be destroyed and recreated for the new process.
+  // NOTE: Due to unfortunate circumstances, the RenderWidgetHost and the
+  // RenderWidgetHostView will outlive the renderer-side object if a
+  // cross-process navigation occurs and the main frame moves out of the
+  // process. At that time this value would remain true though there is no
+  // Widget anymore associated with it. See https://crbug.com/419087.
+  bool renderer_widget_created_ = false;
 
   // Tracks whether we are in SynchronousCopyContents to avoid repeated calls
   // into DevTools capture logic.
@@ -562,9 +590,11 @@ class CONTENT_EXPORT RenderWidgetHostViewAndroid
   bool swipe_to_move_cursor_activated_ = false;
 
   // A cached copy of the most up to date RenderFrameMetadata.
-  base::Optional<cc::RenderFrameMetadata> last_render_frame_metadata_;
+  absl::optional<cc::RenderFrameMetadata> last_render_frame_metadata_;
 
   WebContentsAccessibilityAndroid* web_contents_accessibility_ = nullptr;
+
+  SurfaceIdChangedCallbackList surface_id_changed_callbacks_;
 
   base::android::ScopedJavaGlobalRef<jobject> obj_;
 

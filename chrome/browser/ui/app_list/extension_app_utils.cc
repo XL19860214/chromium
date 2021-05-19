@@ -5,7 +5,7 @@
 #include "chrome/browser/ui/app_list/extension_app_utils.h"
 
 #include "ash/public/cpp/app_menu_constants.h"
-#include "chrome/browser/chromeos/login/demo_mode/demo_session.h"
+#include "chrome/browser/ash/login/demo_mode/demo_session.h"
 #include "chrome/browser/extensions/extension_ui_util.h"
 #include "chrome/browser/web_applications/components/web_app_id_constants.h"
 #include "chrome/common/extensions/extension_constants.h"
@@ -23,7 +23,7 @@ namespace app_list {
 
 bool ShouldShowInLauncher(const extensions::Extension* extension,
                           content::BrowserContext* context) {
-  return chromeos::DemoSession::ShouldDisplayInAppLauncher(extension->id()) &&
+  return ash::DemoSession::ShouldDisplayInAppLauncher(extension->id()) &&
          extensions::ui_util::ShouldDisplayInAppLauncher(extension, context);
 }
 

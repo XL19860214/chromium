@@ -21,8 +21,8 @@
 #include "base/strings/sys_string_conversions.h"
 #include "base/task/post_task.h"
 #include "base/threading/sequenced_task_runner_handle.h"
-#include "components/autofill/core/browser/payments/strike_database.h"
 #include "components/autofill/core/browser/personal_data_manager.h"
+#include "components/autofill/core/browser/strike_database.h"
 #include "components/autofill/core/browser/webdata/autofill_webdata_service.h"
 #include "components/autofill/core/common/autofill_payments_features.h"
 #include "components/history/core/browser/history_service.h"
@@ -57,7 +57,7 @@
 #import "ios/chrome/browser/sessions/session_service_ios.h"
 #include "ios/chrome/browser/signin/account_consistency_service_factory.h"
 #include "ios/chrome/browser/snapshots/snapshots_util.h"
-#import "ios/chrome/browser/web/font_size_tab_helper.h"
+#import "ios/chrome/browser/web/font_size/font_size_tab_helper.h"
 #include "ios/chrome/browser/webdata_services/web_data_service_factory.h"
 #include "ios/net/http_cache_helper.h"
 #import "ios/web/common/web_view_creation_util.h"
@@ -276,10 +276,11 @@ void BrowsingDataRemoverImpl::RemoveImpl(base::Time delete_begin,
 
   if (IsRemoveDataMaskSet(mask, BrowsingDataRemoveMask::REMOVE_HISTORY)) {
     if (session_service_) {
-      NSString* state_path = base::SysUTF8ToNSString(
-          browser_state_->GetStatePath().AsUTF8Unsafe());
-      [session_service_ deleteAllSessionFilesInBrowserStateDirectory:state_path
-          completion:CreatePendingTaskCompletionClosure()];
+      const base::FilePath& state_path = browser_state_->GetStatePath();
+      [session_service_
+          deleteAllSessionFilesInDirectory:state_path
+                                completion:
+                                    CreatePendingTaskCompletionClosure()];
     }
 
     // Remove the screenshots taken by the system when backgrounding the
@@ -558,10 +559,9 @@ void BrowsingDataRemoverImpl::RemoveImpl(base::Time delete_begin,
 void BrowsingDataRemoverImpl::RemoveSessionsData(
     NSArray<NSString*>* session_ids) {
   [[SessionServiceIOS sharedService]
-                 deleteSessions:session_ids
-      fromBrowserStateDirectory:base::SysUTF8ToNSString(
-                                    browser_state_->GetStatePath()
-                                        .AsUTF8Unsafe())];
+      deleteSessions:session_ids
+           directory:browser_state_->GetStatePath()
+          completion:base::DoNothing()];
 }
 
 // TODO(crbug.com/619783): removing data from WkWebsiteDataStore should be

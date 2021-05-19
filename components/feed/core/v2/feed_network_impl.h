@@ -6,10 +6,13 @@
 #define COMPONENTS_FEED_CORE_V2_FEED_NETWORK_IMPL_H_
 
 #include <string>
+
 #include "base/callback.h"
 #include "base/containers/flat_set.h"
 #include "base/containers/unique_ptr_adapters.h"
 #include "base/memory/scoped_refptr.h"
+#include "base/strings/string_piece.h"
+#include "components/feed/core/v2/enums.h"
 #include "components/feed/core/v2/feed_network.h"
 #include "components/version_info/channel.h"
 #include "url/gurl.h"
@@ -27,13 +30,15 @@ namespace feed {
 class FeedNetworkImpl : public FeedNetwork {
  public:
   class NetworkFetch;
-  struct RawResponse;
   class Delegate {
    public:
     virtual ~Delegate() = default;
     // Returns a string which represents the top locale and region of the
     // device.
     virtual std::string GetLanguageTag() = 0;
+    // Returns the GAIA string for the signed in user if they are sync-enabled,
+    // or the empty string otherwise.
+    virtual std::string GetSyncSignedInGaia() = 0;
   };
 
   FeedNetworkImpl(Delegate* delegate,
@@ -48,28 +53,33 @@ class FeedNetworkImpl : public FeedNetwork {
   // FeedNetwork.
 
   void SendQueryRequest(
+      NetworkRequestType request_type,
       const feedwire::Request& request,
-      bool force_signed_out_request,
+      const std::string& gaia,
       base::OnceCallback<void(QueryRequestResult)> callback) override;
 
-  void SendActionRequest(
-      const feedwire::UploadActionsRequest& request,
-      base::OnceCallback<void(ActionRequestResult)> callback) override;
+  void SendDiscoverApiRequest(
+      NetworkRequestType request_type,
+      base::StringPiece api_path,
+      base::StringPiece method,
+      std::string request_bytes,
+      const std::string& gaia,
+      base::OnceCallback<void(RawResponse)> callback) override;
 
   // Cancels all pending requests immediately. This could be used, for example,
   // if there are pending requests for a user who just signed out.
   void CancelRequests() override;
 
  private:
-  // Start a request to |url| of type |request_type| with body |request_body|.
+  // Start a request to |url| with |request_method| and |request_body|.
   // |callback| will be called when the response is received or if there is
   // an error, including non-protocol errors. The contents of |request_body|
   // will be gzipped.
   void Send(const GURL& url,
-            const std::string& request_type,
+            base::StringPiece request_method,
             std::string request_body,
-            bool force_signed_out_request,
-            bool host_overridden,
+            bool allow_bless_auth,
+            const std::string& gaia,
             base::OnceCallback<void(FeedNetworkImpl::RawResponse)> callback);
 
   void SendComplete(NetworkFetch* fetch,

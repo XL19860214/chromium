@@ -12,9 +12,9 @@
 #include "third_party/blink/renderer/core/layout/layout_object.h"
 #include "third_party/blink/renderer/core/layout/layout_text.h"
 #include "third_party/blink/renderer/core/layout/layout_text_fragment.h"
+#include "third_party/blink/renderer/core/layout/line/inline_text_box.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_inline_cursor.h"
 #include "third_party/blink/renderer/platform/testing/runtime_enabled_features_test_helpers.h"
-#include "third_party/blink/renderer/platform/wtf/assertions.h"
 #include "third_party/blink/renderer/platform/wtf/functional.h"
 
 namespace blink {
@@ -943,6 +943,69 @@ TEST_P(LayoutSelectionTest, InvalidateSlot) {
       DumpSelectionInfo());
 }
 
+TEST_P(LayoutSelectionTest, StartAndEndSelectionState) {
+  if (LayoutNGEnabled())
+    return;
+
+  Selection().SetSelectionAndEndTyping(
+      SetSelectionTextToBody("<div>f^oo|</div><div>bar</div>"));
+  UpdateAllLifecyclePhasesForTest();
+  Node* foo_div = GetDocument().body()->firstChild();
+  auto& foo_text = *To<LayoutText>(foo_div->firstChild()->GetLayoutObject());
+  InlineTextBox* text_box = foo_text.FirstTextBox();
+
+  EXPECT_EQ(SelectionState::kStartAndEnd,
+            Selection().ComputeLayoutSelectionStateForInlineTextBox(*text_box));
+
+  Node* bar_div = GetDocument().body()->lastChild();
+  auto& bar_text = *To<LayoutText>(bar_div->firstChild()->GetLayoutObject());
+  text_box = bar_text.FirstTextBox();
+  EXPECT_EQ(SelectionState::kNone,
+            Selection().ComputeLayoutSelectionStateForInlineTextBox(*text_box));
+}
+
+TEST_P(LayoutSelectionTest, StartAndEndMultilineSelectionState) {
+  if (LayoutNGEnabled())
+    return;
+
+  Selection().SetSelectionAndEndTyping(SetSelectionTextToBody(
+      "<div style='white-space:pre'>f^oo\nbar\nba|z</div>"));
+  UpdateAllLifecyclePhasesForTest();
+  auto& div_text = *To<LayoutText>(
+      GetDocument().body()->firstChild()->firstChild()->GetLayoutObject());
+  for (const InlineTextBox* box : div_text.TextBoxes()) {
+    SelectionState state =
+        Selection().ComputeLayoutSelectionStateForInlineTextBox(*box);
+    if (box == div_text.FirstTextBox())
+      EXPECT_EQ(SelectionState::kStart, state);
+    else if (box == div_text.LastTextBox())
+      EXPECT_EQ(SelectionState::kEnd, state);
+    else
+      EXPECT_EQ(SelectionState::kInside, state);
+  }
+}
+
+TEST_P(LayoutSelectionTest, StartAndEndBR) {
+  if (LayoutNGEnabled())
+    return;
+
+  Selection().SetSelectionAndEndTyping(SetSelectionTextToBody(
+      "<div style='white-space:pre'>^<br>foo<br>|</div>"));
+  UpdateAllLifecyclePhasesForTest();
+  auto& first_br_text = *To<LayoutText>(
+      GetDocument().body()->firstChild()->firstChild()->GetLayoutObject());
+  const InlineTextBox* box = first_br_text.FirstTextBox();
+  SelectionState state =
+      Selection().ComputeLayoutSelectionStateForInlineTextBox(*box);
+  EXPECT_EQ(SelectionState::kStart, state);
+  auto& last_br_text = *To<LayoutText>(
+      GetDocument().body()->firstChild()->lastChild()->GetLayoutObject());
+
+  box = last_br_text.FirstTextBox();
+  state = Selection().ComputeLayoutSelectionStateForInlineTextBox(*box);
+  EXPECT_EQ(SelectionState::kEnd, state);
+}
+
 class NGLayoutSelectionTest
     : public LayoutSelectionTestBase,
       private ScopedLayoutNGForTest,
@@ -1253,6 +1316,44 @@ TEST_F(NGLayoutSelectionTest, WBRStatus) {
             ComputeLayoutSelectionStatus(*layout_wbr));
   EXPECT_EQ(SelectionState::kInside,
             ComputeLayoutSelectionStateForCursor(*layout_wbr));
+}
+
+TEST_F(NGLayoutSelectionTest, SoftHyphen0to1) {
+  SetSelectionAndUpdateLayoutSelection(
+      "<div id='container' style='width:3ch'>^0|123&shy;456</div>");
+  auto* element = GetElementById("container");
+  auto* block_flow = To<LayoutBlockFlow>(element->GetLayoutObject());
+  NGInlineCursor cursor(*block_flow);
+  while (!cursor.Current()->IsLayoutGeneratedText())
+    cursor.MoveToNext();
+  auto status = Selection().ComputeLayoutSelectionStatus(cursor);
+  EXPECT_FALSE(status.HasValidRange());
+}
+
+TEST_F(NGLayoutSelectionTest, SoftHyphen0to4) {
+  SetSelectionAndUpdateLayoutSelection(
+      "<div id='container' style='width:3ch'>^0123|&shy;456</div>");
+  auto* element = GetElementById("container");
+  auto* block_flow = To<LayoutBlockFlow>(element->GetLayoutObject());
+  NGInlineCursor cursor(*block_flow);
+  while (!cursor.Current()->IsLayoutGeneratedText())
+    cursor.MoveToNext();
+  auto status = Selection().ComputeLayoutSelectionStatus(cursor);
+  EXPECT_FALSE(status.HasValidRange());
+}
+
+TEST_F(NGLayoutSelectionTest, SoftHyphen1to5) {
+  SetSelectionAndUpdateLayoutSelection(
+      "<div id='container' style='width:3ch'>0^123&shy;|456</div>");
+  auto* element = GetElementById("container");
+  auto* block_flow = To<LayoutBlockFlow>(element->GetLayoutObject());
+  NGInlineCursor cursor(*block_flow);
+  while (!cursor.Current()->IsLayoutGeneratedText())
+    cursor.MoveToNext();
+  auto status = Selection().ComputeLayoutSelectionStatus(cursor);
+  EXPECT_TRUE(status.HasValidRange());
+  EXPECT_EQ(LayoutSelectionStatus(0u, 1u, SelectSoftLineBreak::kNotSelected),
+            status);
 }
 
 }  // namespace blink

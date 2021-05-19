@@ -9,6 +9,7 @@
 #include "base/mac/foundation_util.h"
 #include "base/notreached.h"
 #include "components/autofill/core/common/autofill_prefs.h"
+#import "components/signin/ios/browser/features.h"
 #import "components/signin/public/identity_manager/objc/identity_manager_observer_bridge.h"
 #include "components/strings/grit/components_strings.h"
 #include "components/sync/driver/sync_service.h"
@@ -28,8 +29,10 @@
 #import "ios/chrome/browser/ui/table_view/cells/table_view_cells_constants.h"
 #import "ios/chrome/browser/ui/table_view/cells/table_view_image_item.h"
 #import "ios/chrome/browser/ui/table_view/cells/table_view_item.h"
+#include "ios/chrome/browser/ui/table_view/cells/table_view_text_item.h"
 #import "ios/chrome/browser/ui/util/uikit_ui_util.h"
 #import "ios/chrome/common/ui/colors/UIColor+cr_semantic_colors.h"
+#import "ios/chrome/common/ui/colors/semantic_color_names.h"
 #include "ios/chrome/grit/ios_chromium_strings.h"
 #include "ios/chrome/grit/ios_strings.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -48,9 +51,9 @@ NSString* kGoogleServicesEnterpriseImage = @"google_services_enterprise";
 NSString* kGoogleServicesSyncErrorImage = @"google_services_sync_error";
 }  // namespace
 
-@interface ManageSyncSettingsMediator () <BooleanObserver,
-                                          IdentityManagerObserverBridgeDelegate,
-                                          SyncObserverModelBridge> {
+@interface ManageSyncSettingsMediator () <
+    BooleanObserver,
+    IdentityManagerObserverBridgeDelegate> {
   // Sync observer.
   std::unique_ptr<SyncObserverBridge> _syncObserver;
   // Whether Sync State changes should be currently ignored.
@@ -211,6 +214,8 @@ NSString* kGoogleServicesSyncErrorImage = @"google_services_sync_error";
   self.encryptionItem =
       [[TableViewImageItem alloc] initWithType:EncryptionItemType];
   self.encryptionItem.title = GetNSString(IDS_IOS_MANAGE_SYNC_ENCRYPTION);
+  // The detail text (if any) is an error message, so color it in red.
+  self.encryptionItem.detailTextColor = [UIColor colorNamed:kRedColor];
   // For kSyncServiceNeedsTrustedVaultKey, the disclosure indicator should not
   // be shown since the reauth dialog for the trusted vault is presented from
   // the bottom, and is not part of navigation controller.
@@ -220,20 +225,23 @@ NSString* kGoogleServicesSyncErrorImage = @"google_services_sync_error";
   self.encryptionItem.accessoryType =
       hasDisclosureIndicator ? UITableViewCellAccessoryDisclosureIndicator
                              : UITableViewCellAccessoryNone;
+  [self updateEncryptionItem:NO];
   [model addItem:self.encryptionItem
       toSectionWithIdentifier:AdvancedSettingsSectionIdentifier];
-  [self updateEncryptionItem:NO];
 
   // GoogleActivityControlsItemType.
-  TableViewImageItem* googleActivityControlsItem =
-      [[TableViewImageItem alloc] initWithType:GoogleActivityControlsItemType];
-  googleActivityControlsItem.title =
-      GetNSString(IDS_IOS_MANAGE_SYNC_GOOGLE_ACTIVITY_CONTROLS_TITLE);
-  googleActivityControlsItem.detailText =
-      GetNSString(IDS_IOS_MANAGE_SYNC_GOOGLE_ACTIVITY_CONTROLS_DESCRIPTION);
-  googleActivityControlsItem.accessibilityTraits |= UIAccessibilityTraitButton;
-  [model addItem:googleActivityControlsItem
-      toSectionWithIdentifier:AdvancedSettingsSectionIdentifier];
+  if (signin::IsSSOEditingEnabled()) {
+    TableViewImageItem* googleActivityControlsItem = [[TableViewImageItem alloc]
+        initWithType:GoogleActivityControlsItemType];
+    googleActivityControlsItem.title =
+        GetNSString(IDS_IOS_MANAGE_SYNC_GOOGLE_ACTIVITY_CONTROLS_TITLE);
+    googleActivityControlsItem.detailText =
+        GetNSString(IDS_IOS_MANAGE_SYNC_GOOGLE_ACTIVITY_CONTROLS_DESCRIPTION);
+    googleActivityControlsItem.accessibilityTraits |=
+        UIAccessibilityTraitButton;
+    [model addItem:googleActivityControlsItem
+        toSectionWithIdentifier:AdvancedSettingsSectionIdentifier];
+  }
 
   // AdvancedSettingsSectionIdentifier.
   TableViewImageItem* dataFromChromeSyncItem =
@@ -285,8 +293,32 @@ NSString* kGoogleServicesSyncErrorImage = @"google_services_sync_error";
     self.encryptionItem.textColor = UIColor.cr_secondaryLabelColor;
   }
   if (needsUpdate && notifyConsumer) {
-    [self.consumer reloadItem:self.self.encryptionItem];
+    [self.consumer reloadItem:self.encryptionItem];
   }
+}
+
+#pragma mark - Loads sign out section
+
+- (void)loadSignOutSection {
+  // The sign-out section will only apply to kMobileIdentityConsistency.
+  if (!base::FeatureList::IsEnabled(signin::kMobileIdentityConsistency)) {
+    return;
+  }
+
+  // The user must be signed-in and syncing.
+  if (!self.isAuthenticated || !self.syncSetupService->IsSyncEnabled()) {
+    return;
+  }
+
+  TableViewModel* model = self.consumer.tableViewModel;
+  [model addSectionWithIdentifier:SignOutSectionIdentifier];
+
+  TableViewTextItem* signOutItem =
+      [[TableViewTextItem alloc] initWithType:SignOutItemType];
+  signOutItem.text =
+      GetNSString(IDS_IOS_OPTIONS_ACCOUNTS_SIGN_OUT_TURN_OFF_SYNC);
+  signOutItem.textColor = [UIColor colorNamed:kRedColor];
+  [model addItem:signOutItem toSectionWithIdentifier:SignOutSectionIdentifier];
 }
 
 #pragma mark - Private
@@ -346,11 +378,19 @@ NSString* kGoogleServicesSyncErrorImage = @"google_services_sync_error";
 }
 
 - (BOOL)disabledBecauseOfSyncError {
-  SyncSetupService::SyncServiceState state =
-      self.syncSetupService->GetSyncServiceState();
-  return state != SyncSetupService::kNoSyncServiceError &&
-         state != SyncSetupService::kSyncServiceNeedsPassphrase &&
-         state != SyncSetupService::kSyncServiceNeedsTrustedVaultKey;
+  switch (self.syncSetupService->GetSyncServiceState()) {
+    case SyncSetupService::kSyncServiceUnrecoverableError:
+    case SyncSetupService::kSyncServiceSignInNeedsUpdate:
+    case SyncSetupService::kSyncSettingsNotConfirmed:
+    case SyncSetupService::kSyncServiceCouldNotConnect:
+    case SyncSetupService::kSyncServiceServiceUnavailable:
+      return YES;
+    case SyncSetupService::kNoSyncServiceError:
+    case SyncSetupService::kSyncServiceNeedsPassphrase:
+    case SyncSetupService::kSyncServiceNeedsTrustedVaultKey:
+      return NO;
+  }
+  NOTREACHED();
 }
 
 - (BOOL)shouldSyncDataItemEnabled {
@@ -372,6 +412,7 @@ NSString* kGoogleServicesSyncErrorImage = @"google_services_sync_error";
   DCHECK_EQ(self.consumer, controller);
   [self loadSyncErrorsSection];
   [self loadSyncDataTypeSection];
+  [self loadSignOutSection];
   [self loadAdvancedSettingsSection];
 }
 
@@ -396,13 +437,16 @@ NSString* kGoogleServicesSyncErrorImage = @"google_services_sync_error";
 
 #pragma mark - IdentityManagerObserverBridgeDelegate
 
-- (void)onPrimaryAccountSet:(const CoreAccountInfo&)primaryAccountInfo {
-  [self updateSyncErrorsSection:YES];
-}
-
-- (void)onPrimaryAccountCleared:
-    (const CoreAccountInfo&)previousPrimaryAccountInfo {
-  [self updateSyncErrorsSection:YES];
+- (void)onPrimaryAccountChanged:
+    (const signin::PrimaryAccountChangeEvent&)event {
+  switch (event.GetEventTypeFor(signin::ConsentLevel::kSync)) {
+    case signin::PrimaryAccountChangeEvent::Type::kSet:
+    case signin::PrimaryAccountChangeEvent::Type::kCleared:
+      [self updateSyncErrorsSection:YES];
+      break;
+    case signin::PrimaryAccountChangeEvent::Type::kNone:
+      break;
+  }
 }
 
 #pragma mark - ManageSyncSettingsServiceDelegate
@@ -454,6 +498,7 @@ NSString* kGoogleServicesSyncErrorImage = @"google_services_sync_error";
       case AutocompleteWalletItemType:
         self.autocompleteWalletPreference.value = value;
         break;
+      case SignOutItemType:
       case EncryptionItemType:
       case GoogleActivityControlsItemType:
       case DataFromChromeSync:
@@ -498,6 +543,9 @@ NSString* kGoogleServicesSyncErrorImage = @"google_services_sync_error";
       break;
     case SyncNeedsTrustedVaultKeyErrorItemType:
       [self.syncErrorHandler openTrustedVaultReauth];
+      break;
+    case SignOutItemType:
+      [self.commandHandler showTurnOffSyncOptions];
       break;
     case SyncEverythingItemType:
     case AutofillDataTypeItemType:
@@ -553,22 +601,26 @@ NSString* kGoogleServicesSyncErrorImage = @"google_services_sync_error";
 
 // Loads the sync errors section.
 - (void)loadSyncErrorsSection {
-  [self.consumer.tableViewModel
-      addSectionWithIdentifier:SyncErrorsSectionIdentifier];
+  // The |self.consumer.tableViewModel| will be reset prior to this method.
+  // Ignore any previous value the |self.syncErrorItem| may have contained.
+  self.syncErrorItem = nil;
   [self updateSyncErrorsSection:NO];
 }
 
 // Updates the sync errors section. If |notifyConsumer| is YES, the consumer is
 // notified about model changes.
 - (void)updateSyncErrorsSection:(BOOL)notifyConsumer {
-  if (!base::FeatureList::IsEnabled(signin::kMobileIdentityConsistency)) {
+  if (!base::FeatureList::IsEnabled(signin::kMobileIdentityConsistency) ||
+      !self.syncSetupService->HasFinishedInitialSetup()) {
     return;
   }
   BOOL needsSyncErrorItemsUpdate = [self updateSyncErrorItems];
   if (notifyConsumer && needsSyncErrorItemsUpdate) {
-    NSUInteger sectionIndex = [self.consumer.tableViewModel
-        sectionForSectionIdentifier:SyncErrorsSectionIdentifier];
-    NSIndexSet* indexSet = [NSIndexSet indexSetWithIndex:sectionIndex];
+    // Need to reload all sections since the error will be inserted into the
+    // first section position.
+    NSIndexSet* indexSet = [NSIndexSet
+        indexSetWithIndexesInRange:NSMakeRange(0, self.consumer.tableViewModel
+                                                      .numberOfSections)];
     [self.consumer reloadSections:indexSet];
   }
 }
@@ -630,9 +682,11 @@ NSString* kGoogleServicesSyncErrorImage = @"google_services_sync_error";
   } else {
     self.syncErrorItem = [self createSyncErrorItemWithItemType:type];
   }
-  [model insertItem:self.syncErrorItem
-      inSectionWithIdentifier:SyncErrorsSectionIdentifier
-                      atIndex:0];
+  [self.consumer.tableViewModel
+      insertSectionWithIdentifier:SyncErrorsSectionIdentifier
+                          atIndex:0];
+  [model addItem:self.syncErrorItem
+      toSectionWithIdentifier:SyncErrorsSectionIdentifier];
   return YES;
 }
 

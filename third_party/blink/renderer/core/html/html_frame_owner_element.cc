@@ -20,11 +20,12 @@
 
 #include "third_party/blink/renderer/core/html/html_frame_owner_element.h"
 
+#include "services/network/public/mojom/content_security_policy.mojom-blink-forward.h"
 #include "third_party/blink/public/common/features.h"
-#include "third_party/blink/public/mojom/feature_policy/feature_policy.mojom-blink.h"
 #include "third_party/blink/public/mojom/fetch/fetch_api_request.mojom-blink.h"
 #include "third_party/blink/public/mojom/frame/color_scheme.mojom-blink.h"
 #include "third_party/blink/public/mojom/frame/frame_owner_properties.mojom-blink.h"
+#include "third_party/blink/public/mojom/permissions_policy/permissions_policy.mojom-blink.h"
 #include "third_party/blink/renderer/core/accessibility/ax_object_cache.h"
 #include "third_party/blink/renderer/core/css/style_change_reason.h"
 #include "third_party/blink/renderer/core/dom/events/event.h"
@@ -389,44 +390,12 @@ void HTMLFrameOwnerElement::FrameOwnerPropertiesChanged() {
   properties->allow_payment_request = AllowPaymentRequest();
   properties->is_display_none = IsDisplayNone();
   properties->color_scheme = GetColorScheme();
-  properties->required_csp =
-      RequiredCsp().IsNull() ? WTF::g_empty_string : RequiredCsp();
 
   GetDocument()
       .GetFrame()
       ->GetLocalFrameHostRemote()
       .DidChangeFrameOwnerProperties(ContentFrame()->GetFrameToken(),
                                      std::move(properties));
-}
-
-void HTMLFrameOwnerElement::CSPAttributeChanged() {
-  // Don't notify about updates if ContentFrame() is null, for example when
-  // the subframe hasn't been created yet; or if we are in the middle of
-  // swapping one frame for another, in which case the final state
-  // will be propagated at the end of the swapping operation.
-  if (is_swapping_frames_ || !ContentFrame())
-    return;
-
-  String fake_header =
-      "HTTP/1.1 200 OK\nContent-Security-Policy: " + RequiredCsp();
-  // ParseHeaders needs a url to resolve report endpoints and for matching the
-  // keyword 'self'. However, the csp attribute does not allow report
-  // endpoints. Moreover, in the csp attribute, 'self' should not match the
-  // owner's url, but rather the frame src url. This is taken care by the
-  // Content-Security-Policy Embedded Enforcement algorithm, implemented in the
-  // AncestorThrottle. That's why we pass an empty url here.
-  network::mojom::blink::ParsedHeadersPtr parsed_headers =
-      ParseHeaders(fake_header, KURL());
-
-  DCHECK_LE(parsed_headers->content_security_policy.size(), 1u);
-
-  network::mojom::blink::ContentSecurityPolicyPtr csp =
-      parsed_headers->content_security_policy.IsEmpty()
-          ? nullptr
-          : std::move(parsed_headers->content_security_policy[0]);
-
-  GetDocument().GetFrame()->GetLocalFrameHostRemote().DidChangeCSPAttribute(
-      ContentFrame()->GetFrameToken(), std::move(csp));
 }
 
 void HTMLFrameOwnerElement::AddResourceTiming(const ResourceTimingInfo& info) {

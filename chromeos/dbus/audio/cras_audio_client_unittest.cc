@@ -296,7 +296,7 @@ void WriteNodesToResponse(const AudioNodeList& node_list,
 // Expect the AudioNodeList result.
 void ExpectAudioNodeListResult(bool* called,
                                const AudioNodeList& expected_node_list,
-                               base::Optional<AudioNodeList> result) {
+                               absl::optional<AudioNodeList> result) {
   *called = true;
   ASSERT_TRUE(result.has_value());
   const AudioNodeList& node_list = result.value();
@@ -1124,6 +1124,22 @@ TEST_F(CrasAudioClientTest, SetInputMute) {
                        response.get());
   // Call method.
   client()->SetInputMute(kInputMuteOn);
+  // Run the message loop.
+  base::RunLoop().RunUntilIdle();
+}
+
+TEST_F(CrasAudioClientTest, SetNoiseCancellationEnabled) {
+  const bool kNoiseCancellationOn = true;
+  // Create response.
+  std::unique_ptr<dbus::Response> response(dbus::Response::CreateEmpty());
+
+  // Set expectations.
+  PrepareForMethodCall(
+      cras::kSetNoiseCancellationEnabled,
+      base::BindRepeating(&ExpectBoolArgument, kNoiseCancellationOn),
+      response.get());
+  // Call method.
+  client()->SetNoiseCancellationEnabled(kNoiseCancellationOn);
   // Run the message loop.
   base::RunLoop().RunUntilIdle();
 }

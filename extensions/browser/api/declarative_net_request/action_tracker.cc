@@ -53,10 +53,10 @@ bool ShouldRecordMatchedRule(content::BrowserContext* browser_context,
   const PermissionsData* permissions_data = extension->permissions_data();
 
   const bool has_feedback_permission = permissions_data->HasAPIPermission(
-      APIPermission::kDeclarativeNetRequestFeedback);
+      mojom::APIPermissionID::kDeclarativeNetRequestFeedback);
 
   const bool has_active_tab_permission =
-      permissions_data->HasAPIPermission(APIPermission::kActiveTab);
+      permissions_data->HasAPIPermission(mojom::APIPermissionID::kActiveTab);
 
   // Always record a matched rule if |extension| has the feedback permission or
   // the request is associated with a tab and |extension| has the activeTab
@@ -182,7 +182,8 @@ void ActionTracker::OnRuleMatched(const RequestAction& request_action,
                                                 false /* clear_badge_text */);
 }
 
-void ActionTracker::OnPreferenceEnabled(const ExtensionId& extension_id) const {
+void ActionTracker::OnActionCountAsBadgeTextPreferenceEnabled(
+    const ExtensionId& extension_id) const {
   DCHECK(extension_prefs_->GetDNRUseActionCountAsBadgeText(extension_id));
 
   for (auto it = rules_tracked_.begin(); it != rules_tracked_.end(); ++it) {
@@ -287,7 +288,7 @@ void ActionTracker::ResetTrackedInfoForTab(int tab_id, int64_t navigation_id) {
 
 std::vector<dnr_api::MatchedRuleInfo> ActionTracker::GetMatchedRules(
     const Extension& extension,
-    const base::Optional<int>& tab_id,
+    const absl::optional<int>& tab_id,
     const base::Time& min_time_stamp) {
   TrimRulesFromNonActiveTabs();
 
@@ -430,8 +431,9 @@ void ActionTracker::DispatchOnRuleMatchedDebugIfNeeded(
   matched_rule_info_debug.rule = std::move(matched_rule);
   matched_rule_info_debug.request = std::move(request_details);
 
-  auto args = std::make_unique<base::ListValue>();
-  args->Append(matched_rule_info_debug.ToValue());
+  std::vector<base::Value> args;
+  args.push_back(
+      base::Value::FromUniquePtrValue(matched_rule_info_debug.ToValue()));
 
   auto event = std::make_unique<Event>(
       events::DECLARATIVE_NET_REQUEST_ON_RULE_MATCHED_DEBUG,

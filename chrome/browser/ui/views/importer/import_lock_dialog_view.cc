@@ -19,6 +19,7 @@
 #include "chrome/grit/locale_settings.h"
 #include "ui/base/buildflags.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/views/border.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/layout/fill_layout.h"
@@ -62,6 +63,8 @@ ImportLockDialogView::ImportLockDialogView(
       base::BindOnce(done_callback, base::Unretained(this), true));
   SetCancelCallback(
       base::BindOnce(done_callback, base::Unretained(this), false));
+  SetCloseCallback(
+      base::BindOnce(done_callback, base::Unretained(this), false));
 
   SetShowCloseButton(false);
   set_fixed_width(views::LayoutProvider::Get()->GetDistanceMetric(
@@ -71,8 +74,8 @@ ImportLockDialogView::ImportLockDialogView(
   views::Label* description_label =
       new views::Label(l10n_util::GetStringUTF16(IDS_IMPORTER_LOCK_TEXT));
   description_label->SetBorder(views::CreateEmptyBorder(
-      ChromeLayoutProvider::Get()->GetDialogInsetsForContentType(views::TEXT,
-                                                                 views::TEXT)));
+      ChromeLayoutProvider::Get()->GetDialogInsetsForContentType(
+          views::DialogContentType::kText, views::DialogContentType::kText)));
   description_label->SetMultiLine(true);
   description_label->SetHorizontalAlignment(gfx::ALIGN_LEFT);
   AddChildView(description_label);
@@ -80,3 +83,6 @@ ImportLockDialogView::ImportLockDialogView(
 }
 
 ImportLockDialogView::~ImportLockDialogView() = default;
+
+BEGIN_METADATA(ImportLockDialogView, views::DialogDelegateView)
+END_METADATA

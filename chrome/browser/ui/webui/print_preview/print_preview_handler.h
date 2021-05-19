@@ -15,18 +15,24 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
-#include "base/timer/timer.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/common/buildflags.h"
 #include "components/prefs/pref_service.h"
 #include "components/printing/common/print.mojom.h"
-#include "components/signin/public/identity_manager/identity_manager.h"
 #include "content/public/browser/web_ui_message_handler.h"
 #include "mojo/public/cpp/bindings/associated_remote.h"
 #include "printing/backend/print_backend.h"
 #include "printing/buildflags/buildflags.h"
 #include "printing/mojom/print.mojom.h"
 #include "printing/print_job_constants.h"
+
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+namespace crosapi {
+namespace mojom {
+class LocalPrinter;
+}
+}  // namespace crosapi
+#endif
 
 namespace base {
 class DictionaryValue;
@@ -44,21 +50,17 @@ class PrinterHandler;
 class PrintPreviewUI;
 
 // The handler for Javascript messages related to the print preview dialog.
-class PrintPreviewHandler : public content::WebUIMessageHandler,
-                            public signin::IdentityManager::Observer {
+class PrintPreviewHandler : public content::WebUIMessageHandler {
  public:
   PrintPreviewHandler();
+  PrintPreviewHandler(const PrintPreviewHandler&) = delete;
+  PrintPreviewHandler& operator=(const PrintPreviewHandler&) = delete;
   ~PrintPreviewHandler() override;
 
   // WebUIMessageHandler implementation.
   void RegisterMessages() override;
   void OnJavascriptAllowed() override;
   void OnJavascriptDisallowed() override;
-
-  // IdentityManager::Observer implementation.
-  void OnAccountsInCookieUpdated(
-      const signin::AccountsInCookieJarInfo& accounts_in_cookie_jar_info,
-      const GoogleServiceAuthError& error) override;
 
   // Called when print preview failed. |request_id| identifies the request that
   // failed.
@@ -124,12 +126,7 @@ class PrintPreviewHandler : public content::WebUIMessageHandler,
   virtual void BadMessageReceived();
 
   // Gets the initiator for the print preview dialog.
-  virtual content::WebContents* GetInitiator() const;
-
-  // Register/unregister from notifications of changes done to the GAIA
-  // cookie. Protected so unit tests can override.
-  virtual void RegisterForGaiaCookieChanges();
-  virtual void UnregisterForGaiaCookieChanges();
+  virtual content::WebContents* GetInitiator();
 
  private:
   friend class PrintPreviewPdfGeneratedBrowserTest;
@@ -148,11 +145,11 @@ class PrintPreviewHandler : public content::WebUIMessageHandler,
   FRIEND_TEST_ALL_PREFIXES(PrintPreviewHandlerFailingTest,
                            GetPrinterCapabilities);
 
-  content::WebContents* preview_web_contents() const;
+  content::WebContents* preview_web_contents();
 
-  PrintPreviewUI* print_preview_ui() const;
+  PrintPreviewUI* print_preview_ui();
 
-  PrefService* GetPrefs() const;
+  PrefService* GetPrefs();
 
   // Checks policy preferences for a deny list of printer types and initializes
   // the set that stores them.
@@ -225,6 +222,7 @@ class PrintPreviewHandler : public content::WebUIMessageHandler,
   void HandleManagePrinters(const base::ListValue* args);
 
   void SendInitialSettings(const std::string& callback_id,
+                           base::Value policies,
                            const std::string& default_printer);
 
   // Sends the printer capabilities to the Web UI. |settings_info| contains
@@ -280,15 +278,8 @@ class PrintPreviewHandler : public content::WebUIMessageHandler,
   // Whether we have already logged the number of printers this session.
   bool has_logged_printers_count_ = false;
 
-  // Whether Google Cloud Print is enabled for the active profile.
-  bool cloud_print_enabled_ = false;
-
   // The settings used for the most recent preview request.
   base::Value last_preview_settings_;
-
-  // Pointer to the identity manager service so that print preview can listen
-  // for GAIA cookie changes.
-  signin::IdentityManager* identity_manager_ = nullptr;
 
   // Handles requests for extension printers. Created lazily by calling
   // GetPrinterHandler().
@@ -318,9 +309,16 @@ class PrintPreviewHandler : public content::WebUIMessageHandler,
   // Used to transmit mojo interface method calls to the associated receiver.
   mojo::AssociatedRemote<mojom::PrintRenderFrame> print_render_frame_;
 
-  base::WeakPtrFactory<PrintPreviewHandler> weak_factory_{this};
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+  // Used to transmit mojo interface method calls to ash chrome.
+  // Null if the interface is unavailable.
+  // Note that this is not propagated to LocalPrinterHandlerLacros.
+  // The pointer is constant - if ash crashes and the mojo connection is lost,
+  // lacros will automatically be restarted.
+  crosapi::mojom::LocalPrinter* local_printer_ = nullptr;
+#endif
 
-  DISALLOW_COPY_AND_ASSIGN(PrintPreviewHandler);
+  base::WeakPtrFactory<PrintPreviewHandler> weak_factory_{this};
 };
 
 }  // namespace printing

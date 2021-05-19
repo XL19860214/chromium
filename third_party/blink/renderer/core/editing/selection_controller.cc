@@ -58,7 +58,8 @@
 #include "third_party/blink/renderer/core/layout/layout_view.h"
 #include "third_party/blink/renderer/core/page/focus_controller.h"
 #include "third_party/blink/renderer/core/page/page.h"
-#include "third_party/blink/renderer/platform/wtf/assertions.h"
+#include "third_party/blink/renderer/core/page/scrolling/text_fragment_handler.h"
+#include "third_party/blink/renderer/core/paint/paint_layer.h"
 
 namespace blink {
 
@@ -133,6 +134,22 @@ DocumentMarker* SpellCheckMarkerAtPosition(
     const PositionInFlatTree& position) {
   return document_marker_controller.FirstMarkerAroundPosition(
       position, DocumentMarker::MarkerTypes::Misspelling());
+}
+
+void MarkSelectionEndpointsForRepaint(const SelectionInFlatTree& selection) {
+  LayoutObject* anchor_layout_object =
+      selection.Base().AnchorNode()->GetLayoutObject();
+  if (anchor_layout_object) {
+    if (auto* layer = anchor_layout_object->PaintingLayer())
+      layer->SetNeedsRepaint();
+  }
+
+  LayoutObject* extent_layout_object =
+      selection.Extent().AnchorNode()->GetLayoutObject();
+  if (extent_layout_object) {
+    if (auto* layer = extent_layout_object->PaintingLayer())
+      layer->SetNeedsRepaint();
+  }
 }
 
 }  // namespace
@@ -332,14 +349,14 @@ bool SelectionController::HandleSingleClick(
                 .ToPositionWithAffinity()
           : visible_hit_position;
   const VisibleSelectionInFlatTree& selection =
-      this->Selection().ComputeVisibleSelectionInFlatTree();
+      Selection().ComputeVisibleSelectionInFlatTree();
 
   // Don't restart the selection when the mouse is pressed on an
   // existing selection so we can allow for text dragging.
   if (LocalFrameView* view = frame_->View()) {
     const PhysicalOffset v_point(view->ConvertFromRootFrame(
         FlooredIntPoint(event.Event().PositionInRootFrame())));
-    if (!extend_selection && this->Selection().Contains(v_point)) {
+    if (!extend_selection && Selection().Contains(v_point)) {
       mouse_down_was_single_click_in_selection_ = true;
       if (!event.Event().FromTouch())
         return false;
@@ -442,6 +459,13 @@ bool SelectionController::HandleTapInsideSelection(
 
   if (Selection().IsHandleVisible())
     return false;
+
+  // In CAP, we need to trigger a repaint on the selection endpoints if the
+  // selection is tapped when the selection handle was previously not visible.
+  // Repainting will record the painted selection bounds and send it through
+  // the pipeline so the handles show up in the next frame after the tap.
+  if (RuntimeEnabledFeatures::CompositeAfterPaintEnabled())
+    MarkSelectionEndpointsForRepaint(selection);
 
   const bool did_select = UpdateSelectionForMouseDownDispatchingSelectStart(
       event.InnerNode(), selection,
@@ -578,7 +602,7 @@ bool SelectionController::UpdateSelectionForMouseDownDispatchingSelectStart(
   }
 
   // |DispatchSelectStart()| can change document hosted by |frame_|.
-  if (!this->Selection().IsAvailable())
+  if (!Selection().IsAvailable())
     return false;
 
   // TODO(editing-dev): Use of UpdateStyleAndLayout
@@ -1236,6 +1260,14 @@ void SelectionController::UpdateSelectionForContextMenuEvent(
   if (!frame_->GetEditor().Behavior().ShouldSelectOnContextualMenuClick())
     return;
 
+  // Opening a context menu from an existing text fragment/highlight should not
+  // select additional text.
+  if (TextFragmentHandler::IsOverTextFragment(hit_test_result))
+    return;
+
+  if (mouse_event->GetMenuSourceType() == kMenuSourceLongPress)
+    return;
+
   SelectClosestWordOrLinkFromMouseEvent(mouse_event, hit_test_result);
 }
 
@@ -1289,8 +1321,7 @@ void SelectionController::NotifySelectionChanged() {
   DocumentLifecycle::DisallowTransitionScope disallow_transition(
       frame_->GetDocument()->Lifecycle());
 
-  const SelectionInDOMTree& selection =
-      this->Selection().GetSelectionInDOMTree();
+  const SelectionInDOMTree& selection = Selection().GetSelectionInDOMTree();
   if (selection.IsNone()) {
     selection_state_ = SelectionState::kHaveNotStartedSelection;
     return;

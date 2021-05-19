@@ -8,6 +8,7 @@
 #include <unicode/ubidi.h>
 
 #include "base/containers/span.h"
+#include "base/dcheck_is_on.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/editing/forward.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_fragment_item.h"
@@ -95,6 +96,9 @@ class CORE_EXPORT NGInlineCursorPosition {
 
   // True if the current position is a list marker.
   bool IsListMarker() const { return item_->IsListMarker(); }
+
+  // True if the current position is a box for "float"
+  bool IsFloating() const { return item_->IsFloating(); }
 
   // True if the current position is hidden for paint. It is error to call at
   // end.
@@ -289,6 +293,10 @@ class CORE_EXPORT NGInlineCursor {
   // has no children, returns an empty cursor.
   NGInlineCursor CursorForDescendants() const;
 
+  // Returns a new |NGInlineCursor| whose root is containing block or multicol
+  // container for traversing fragmentainers in root.
+  NGInlineCursor CursorForMovingAcrossFragmentainer() const;
+
   // If |this| is created by |CursorForDescendants()| to traverse parts of an
   // inline formatting context, expand the traversable range to the containing
   // |LayoutBlockFlow|. Does nothing if |this| is for an inline formatting
@@ -388,7 +396,8 @@ class CORE_EXPORT NGInlineCursor {
   //
   void MoveTo(const NGInlineCursorPosition& position);
 
-  // Move the current position at |fragment_item|.
+  // Move the current position at |fragment_item|. |this| cursor must have
+  // root.
   void MoveTo(const NGFragmentItem& fragment_item);
 
   // Move the current position at |cursor|. Unlinke copy constrcutr, this
@@ -461,6 +470,14 @@ class CORE_EXPORT NGInlineCursor {
 
   // Move the cursor position to previous fragment in pre-order DFS.
   void MoveToPrevious();
+
+  // Move to the previous fragmentainer.
+  // Valid when |CanMoveAcrossFragmentainer|.
+  void MoveToPreviousFragmentainer();
+
+  // Same as |MoveToPrevious|, except this moves to the previous fragmentainer
+  // if |Current| is at the end of a fragmentainer.
+  void MoveToPreviousIncludingFragmentainer();
 
   // Move the current position to previous line. It is error to call other than
   // line box.
@@ -568,6 +585,10 @@ class CORE_EXPORT NGInlineCursor {
 
   bool TrySetRootFragmentItems();
 
+  // Returns true and move to current position to |fragment_item|, otherwise
+  // returns false.
+  bool TryToMoveTo(const NGFragmentItem& fragment_item);
+
   void MoveToItem(const ItemsSpan::iterator& iter);
 
   void SlowMoveToFirstFor(const LayoutObject& layout_object);
@@ -585,8 +606,13 @@ class CORE_EXPORT NGInlineCursor {
    public:
     CulledInlineTraversal() = default;
 
-    explicit operator bool() const { return current_object_; }
-    void Reset() { current_object_ = nullptr; }
+    const LayoutInline* GetLayoutInline() const { return layout_inline_; }
+
+    explicit operator bool() const { return layout_inline_; }
+    void Reset() { layout_inline_ = nullptr; }
+
+    bool UseFragmentTree() const { return use_fragment_tree_; }
+    void SetUseFragmentTree(const LayoutInline& layout_inline);
 
     // Returns first/next |LayoutObject| that contribute to |layout_inline|.
     const LayoutObject* MoveToFirstFor(const LayoutInline& layout_inline);
@@ -597,6 +623,7 @@ class CORE_EXPORT NGInlineCursor {
 
     const LayoutObject* current_object_ = nullptr;
     const LayoutInline* layout_inline_ = nullptr;
+    bool use_fragment_tree_ = false;
   };
 
   void MoveToFirstForCulledInline(const LayoutInline& layout_inline);
@@ -604,7 +631,8 @@ class CORE_EXPORT NGInlineCursor {
   void MoveToNextCulledInlineDescendantIfNeeded();
 
   void ResetFragmentIndex();
-  void AdvanceFragmentIndex();
+  void DecrementFragmentIndex();
+  void IncrementFragmentIndex();
 
   NGInlineCursorPosition current_;
 

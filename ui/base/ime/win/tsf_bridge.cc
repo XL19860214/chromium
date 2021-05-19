@@ -112,6 +112,10 @@ class TSFBridgeImpl : public TSFBridge {
   // An ITfThreadMgr object to be used in focus and document management.
   Microsoft::WRL::ComPtr<ITfThreadMgr> thread_manager_;
 
+  // An ITfInputProcessorProfiles object to be used to get current language
+  // locale profile.
+  Microsoft::WRL::ComPtr<ITfInputProcessorProfiles> input_processor_profiles_;
+
   // A map from TextInputType to an editable document for TSF. We use multiple
   // TSF documents that have different InputScopes and TSF attributes based on
   // the TextInputType associated with the target document. For a TextInputType
@@ -138,6 +142,9 @@ class TSFBridgeImpl : public TSFBridge {
   // Handle to ITfKeyTraceEventSink.
   DWORD key_trace_sink_cookie_ = 0;
 
+  // Handle to ITfLanguageProfileNotifySink
+  DWORD language_profile_cookie_ = 0;
+
   DISALLOW_COPY_AND_ASSIGN(TSFBridgeImpl);
 };
 
@@ -152,6 +159,11 @@ TSFBridgeImpl::~TSFBridgeImpl() {
     Microsoft::WRL::ComPtr<ITfSource> source;
     if (SUCCEEDED(thread_manager_->QueryInterface(IID_PPV_ARGS(&source)))) {
       source->UnadviseSink(key_trace_sink_cookie_);
+    }
+    Microsoft::WRL::ComPtr<ITfSource> language_source;
+    if (SUCCEEDED(input_processor_profiles_->QueryInterface(
+            IID_PPV_ARGS(&language_source)))) {
+      language_source->UnadviseSink(language_profile_cookie_);
     }
   }
 
@@ -177,8 +189,16 @@ HRESULT TSFBridgeImpl::Initialize() {
     return S_OK;  // shouldn't return error code in this case.
   }
 
-  HRESULT hr = ::CoCreateInstance(CLSID_TF_ThreadMgr, nullptr, CLSCTX_ALL,
-                                  IID_PPV_ARGS(&thread_manager_));
+  HRESULT hr =
+      ::CoCreateInstance(CLSID_TF_InputProcessorProfiles, nullptr, CLSCTX_ALL,
+                         IID_PPV_ARGS(&input_processor_profiles_));
+  if (FAILED(hr)) {
+    DVLOG(1) << "Failed to create InputProcessorProfiles instance.";
+    return hr;
+  }
+
+  hr = ::CoCreateInstance(CLSID_TF_ThreadMgr, nullptr, CLSCTX_ALL,
+                          IID_PPV_ARGS(&thread_manager_));
   if (FAILED(hr)) {
     DVLOG(1) << "Failed to create ThreadManager instance.";
     return hr;
@@ -233,6 +253,13 @@ void TSFBridgeImpl::OnTextInputTypeChanged(const TextInputClient* client) {
     return;
   }
 
+  // Since we reuse TSF document for same text input type, there is a case where
+  // focus is switched between two text fields with same input type. We should
+  // prepare the TSF document for reuse by clearing focus first.
+  if (input_type_ != TEXT_INPUT_TYPE_NONE &&
+      input_type_ == client_->GetTextInputType()) {
+    thread_manager_->SetFocus(nullptr);
+  }
   input_type_ = client_->GetTextInputType();
   TSFDocument* document = GetAssociatedDocument();
   if (!document)
@@ -422,6 +449,22 @@ HRESULT TSFBridgeImpl::CreateDocumentManager(TSFTextStore* text_store,
       &key_trace_sink_cookie_);
   if (FAILED(hr)) {
     DVLOG(1) << "AdviseSink for ITfKeyTraceEventSink failed.";
+    return hr;
+  }
+
+  Microsoft::WRL::ComPtr<ITfSource> language_source;
+  hr =
+      input_processor_profiles_->QueryInterface(IID_PPV_ARGS(&language_source));
+  if (FAILED(hr)) {
+    DVLOG(1) << "Failed to get source_ITfInputProcessorProfiles.";
+    return hr;
+  }
+
+  hr = language_source->AdviseSink(IID_ITfLanguageProfileNotifySink,
+                                   static_cast<ITfTextEditSink*>(text_store),
+                                   &language_profile_cookie_);
+  if (FAILED(hr)) {
+    DVLOG(1) << "AdviseSink for language profile notify sink failed.";
     return hr;
   }
 

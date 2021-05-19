@@ -32,13 +32,12 @@ PowerButtonDisplayController::PowerButtonDisplayController(
     BacklightsForcedOffSetter* backlights_forced_off_setter,
     const base::TickClock* tick_clock)
     : backlights_forced_off_setter_(backlights_forced_off_setter),
-      backlights_forced_off_observer_(this),
       tick_clock_(tick_clock) {
   chromeos::PowerManagerClient::Get()->AddObserver(this);
   ui::DeviceDataManager::GetInstance()->AddObserver(this);
   Shell::Get()->AddPreTargetHandler(this, ui::EventTarget::Priority::kSystem);
 
-  backlights_forced_off_observer_.Add(backlights_forced_off_setter_);
+  backlights_forced_off_observation_.Observe(backlights_forced_off_setter_);
 }
 
 PowerButtonDisplayController::~PowerButtonDisplayController() {
@@ -48,7 +47,8 @@ PowerButtonDisplayController::~PowerButtonDisplayController() {
 }
 
 bool PowerButtonDisplayController::IsScreenOn() const {
-  return backlights_forced_off_setter_->GetScreenState() == ScreenState::ON;
+  return backlights_forced_off_setter_->GetScreenBacklightState() ==
+         ScreenBacklightState::ON;
 }
 
 void PowerButtonDisplayController::SetBacklightsForcedOff(bool forced_off) {
@@ -83,8 +83,8 @@ void PowerButtonDisplayController::OnBacklightsForcedOffChanged(
   send_accessibility_alert_on_backlights_forced_off_change_ = false;
 }
 
-void PowerButtonDisplayController::OnScreenStateChanged(
-    ScreenState screen_state) {
+void PowerButtonDisplayController::OnScreenBacklightStateChanged(
+    ScreenBacklightState screen_backlight_state) {
   screen_state_last_changed_ = tick_clock_->NowTicks();
 }
 

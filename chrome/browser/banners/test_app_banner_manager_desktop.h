@@ -8,7 +8,7 @@
 #include "chrome/browser/banners/app_banner_manager_desktop.h"
 
 #include "base/macros.h"
-#include "base/optional.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace content {
 class WebContents;
@@ -61,13 +61,15 @@ class TestAppBannerManagerDesktop : public AppBannerManagerDesktop {
   void OnInstall(blink::mojom::DisplayMode display) override;
   void DidFinishCreatingWebApp(const web_app::AppId& app_id,
                                web_app::InstallResultCode code) override;
+  void DidFinishLoad(content::RenderFrameHost* render_frame_host,
+                     const GURL& validated_url) override;
   void UpdateState(AppBannerManager::State state) override;
 
  private:
   void SetInstallable(bool installable);
   void OnFinished();
 
-  base::Optional<bool> installable_;
+  absl::optional<bool> installable_;
   base::OnceClosure tear_down_quit_closure_;
   base::OnceClosure installable_quit_closure_;
   base::OnceClosure on_done_;

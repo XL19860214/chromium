@@ -188,6 +188,7 @@ struct COMPONENT_EXPORT(VULKAN) VulkanFunctionPointers {
   VulkanFunction<PFN_vkCreateDescriptorSetLayout> vkCreateDescriptorSetLayout;
   VulkanFunction<PFN_vkCreateFence> vkCreateFence;
   VulkanFunction<PFN_vkCreateFramebuffer> vkCreateFramebuffer;
+  VulkanFunction<PFN_vkCreateGraphicsPipelines> vkCreateGraphicsPipelines;
   VulkanFunction<PFN_vkCreateImage> vkCreateImage;
   VulkanFunction<PFN_vkCreateImageView> vkCreateImageView;
   VulkanFunction<PFN_vkCreateRenderPass> vkCreateRenderPass;
@@ -700,6 +701,17 @@ vkCreateFramebuffer(VkDevice device,
   return gpu::GetVulkanFunctionPointers()->vkCreateFramebuffer(
       device, pCreateInfo, pAllocator, pFramebuffer);
 }
+ALWAYS_INLINE VkResult
+vkCreateGraphicsPipelines(VkDevice device,
+                          VkPipelineCache pipelineCache,
+                          uint32_t createInfoCount,
+                          const VkGraphicsPipelineCreateInfo* pCreateInfos,
+                          const VkAllocationCallbacks* pAllocator,
+                          VkPipeline* pPipelines) {
+  return gpu::GetVulkanFunctionPointers()->vkCreateGraphicsPipelines(
+      device, pipelineCache, createInfoCount, pCreateInfos, pAllocator,
+      pPipelines);
+}
 ALWAYS_INLINE VkResult vkCreateImage(VkDevice device,
                                      const VkImageCreateInfo* pCreateInfo,
                                      const VkAllocationCallbacks* pAllocator,
@@ -1054,15 +1066,30 @@ ALWAYS_INLINE VkResult vkGetMemoryWin32HandlePropertiesKHR(
 #endif  // defined(OS_WIN)
 
 #if defined(OS_FUCHSIA)
-#define vkImportSemaphoreZirconHandleFUCHSIA \
-  gpu::GetVulkanFunctionPointers()->vkImportSemaphoreZirconHandleFUCHSIA
-#define vkGetSemaphoreZirconHandleFUCHSIA \
-  gpu::GetVulkanFunctionPointers()->vkGetSemaphoreZirconHandleFUCHSIA
+ALWAYS_INLINE VkResult vkImportSemaphoreZirconHandleFUCHSIA(
+    VkDevice device,
+    const VkImportSemaphoreZirconHandleInfoFUCHSIA*
+        pImportSemaphoreZirconHandleInfo) {
+  return gpu::GetVulkanFunctionPointers()->vkImportSemaphoreZirconHandleFUCHSIA(
+      device, pImportSemaphoreZirconHandleInfo);
+}
+ALWAYS_INLINE VkResult vkGetSemaphoreZirconHandleFUCHSIA(
+    VkDevice device,
+    const VkSemaphoreGetZirconHandleInfoFUCHSIA* pGetZirconHandleInfo,
+    zx_handle_t* pZirconHandle) {
+  return gpu::GetVulkanFunctionPointers()->vkGetSemaphoreZirconHandleFUCHSIA(
+      device, pGetZirconHandleInfo, pZirconHandle);
+}
 #endif  // defined(OS_FUCHSIA)
 
 #if defined(OS_FUCHSIA)
-#define vkGetMemoryZirconHandleFUCHSIA \
-  gpu::GetVulkanFunctionPointers()->vkGetMemoryZirconHandleFUCHSIA
+ALWAYS_INLINE VkResult vkGetMemoryZirconHandleFUCHSIA(
+    VkDevice device,
+    const VkMemoryGetZirconHandleInfoFUCHSIA* pGetZirconHandleInfo,
+    zx_handle_t* pZirconHandle) {
+  return gpu::GetVulkanFunctionPointers()->vkGetMemoryZirconHandleFUCHSIA(
+      device, pGetZirconHandleInfo, pZirconHandle);
+}
 #endif  // defined(OS_FUCHSIA)
 
 #if defined(OS_FUCHSIA)

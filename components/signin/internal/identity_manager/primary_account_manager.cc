@@ -47,8 +47,6 @@ PrimaryAccountManager::~PrimaryAccountManager() {
 
 // static
 void PrimaryAccountManager::RegisterProfilePrefs(PrefRegistrySimple* registry) {
-  registry->RegisterStringPref(prefs::kGoogleServicesHostedDomain,
-                               std::string());
   registry->RegisterStringPref(prefs::kGoogleServicesLastAccountId,
                                std::string());
   registry->RegisterStringPref(prefs::kGoogleServicesLastUsername,
@@ -113,10 +111,10 @@ void PrimaryAccountManager::Initialize(PrefService* local_state) {
       account_tracker_service_->GetAccountInfo(account_id);
   if (consented) {
     DCHECK(!account_info.account_id.empty());
-    // First reset the state, because SetAuthenticatedAccountInfo can only be
-    // called if the user is not already signed in.
-    SetPrimaryAccountInternal(CoreAccountInfo(), /*consented=*/false);
-    SetAuthenticatedAccountInfo(account_info);
+    // First reset the state, because SetSyncPrimaryAccountInternal() can
+    // only be called if there is no primary account.
+    SetPrimaryAccountInternal(CoreAccountInfo(), /*consented_to_sync=*/false);
+    SetSyncPrimaryAccountInternal(account_info);
   } else {
     SetPrimaryAccountInternal(account_info, consented);
   }
@@ -127,50 +125,46 @@ void PrimaryAccountManager::Initialize(PrefService* local_state) {
   // It is important to only load credentials after starting to observe the
   // token service.
   token_service_->AddObserver(this);
-  token_service_->LoadCredentials(GetAuthenticatedAccountId());
+  signin::ConsentLevel consent_level = signin::ConsentLevel::kSync;
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  // TODO(https://crbug.com/1196596): Use kSignin on all platforms.
+  if (base::FeatureList::IsEnabled(switches::kUseAccountManagerFacade))
+    consent_level = signin::ConsentLevel::kSignin;
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+  token_service_->LoadCredentials(GetPrimaryAccountId(consent_level));
 }
 
 bool PrimaryAccountManager::IsInitialized() const {
   return initialized_;
 }
 
-CoreAccountInfo PrimaryAccountManager::GetAuthenticatedAccountInfo() const {
-  if (!HasPrimaryAccount(signin::ConsentLevel::kSync))
+CoreAccountInfo PrimaryAccountManager::GetPrimaryAccountInfo(
+    signin::ConsentLevel consent_level) const {
+  if (!HasPrimaryAccount(consent_level))
     return CoreAccountInfo();
   return primary_account_info();
 }
 
-CoreAccountId PrimaryAccountManager::GetAuthenticatedAccountId() const {
-  return GetAuthenticatedAccountInfo().account_id;
-}
-
-CoreAccountInfo PrimaryAccountManager::GetUnconsentedPrimaryAccountInfo()
-    const {
-  return primary_account_info();
+CoreAccountId PrimaryAccountManager::GetPrimaryAccountId(
+    signin::ConsentLevel consent_level) const {
+  return GetPrimaryAccountInfo(consent_level).account_id;
 }
 
 void PrimaryAccountManager::SetUnconsentedPrimaryAccountInfo(
-    CoreAccountInfo account_info) {
+    const CoreAccountInfo& account_info) {
   if (HasPrimaryAccount(signin::ConsentLevel::kSync)) {
-    DCHECK_EQ(account_info, GetAuthenticatedAccountInfo());
+    DCHECK_EQ(account_info, GetPrimaryAccountInfo(signin::ConsentLevel::kSync));
     return;
   }
 
   bool account_changed = account_info != primary_account_info();
-  PrimaryAccountChangeEvent::State previous_state(
-      primary_account_info(), signin::ConsentLevel::kNotRequired);
+  PrimaryAccountChangeEvent::State previous_state = GetPrimaryAccountState();
   SetPrimaryAccountInternal(account_info, /*consented_to_sync=*/false);
-
-  if (account_changed) {
-    PrimaryAccountChangeEvent::State current_state(
-        account_info, signin::ConsentLevel::kNotRequired);
-    PrimaryAccountChangeEvent event_details(previous_state, current_state);
-    for (Observer& observer : observers_)
-      observer.UnconsentedPrimaryAccountChanged(event_details);
-  }
+  if (account_changed)
+    FirePrimaryAccountChanged(previous_state);
 }
 
-void PrimaryAccountManager::SetAuthenticatedAccountInfo(
+void PrimaryAccountManager::SetSyncPrimaryAccountInternal(
     const CoreAccountInfo& account_info) {
   DCHECK(!account_info.account_id.empty());
   DCHECK(!HasPrimaryAccount(signin::ConsentLevel::kSync));
@@ -199,7 +193,7 @@ void PrimaryAccountManager::SetAuthenticatedAccountInfo(
   client_->GetPrefs()->SetString(prefs::kGoogleServicesLastUsername,
                                  account_info.email);
 
-  // Commit authenticated account info immediately so that it does not get lost
+  // Commit primary sync account info immediately so that it does not get lost
   // if Chrome crashes before the next commit interval.
   client_->GetPrefs()->CommitPendingWrite();
 }
@@ -230,51 +224,46 @@ bool PrimaryAccountManager::HasPrimaryAccount(
     return false;
   }
   switch (consent_level) {
-    case signin::ConsentLevel::kNotRequired:
+    case signin::ConsentLevel::kSignin:
       return true;
     case signin::ConsentLevel::kSync:
       return consented_pref;
   }
 }
 
-void PrimaryAccountManager::SignIn(const std::string& username) {
-  CoreAccountInfo info =
-      account_tracker_service_->FindAccountInfoByEmail(username);
-  DCHECK(!info.gaia.empty());
-  DCHECK(!info.email.empty());
-  DCHECK(!info.account_id.empty());
+void PrimaryAccountManager::SetSyncPrimaryAccountInfo(
+    const CoreAccountInfo& account_info) {
+#if DCHECK_IS_ON()
+  DCHECK(!account_info.account_id.empty());
+  DCHECK(!account_info.gaia.empty());
+  DCHECK(!account_info.email.empty());
+  DCHECK(!account_tracker_service_->GetAccountInfo(account_info.account_id)
+              .IsEmpty())
+      << "Account should have been seeded before being set as primary account";
+#endif
   if (HasPrimaryAccount(signin::ConsentLevel::kSync)) {
-    DCHECK_EQ(info.account_id, GetAuthenticatedAccountId())
-        << "Changing the authenticated account while it is not allowed.";
+    DCHECK_EQ(account_info.account_id,
+              GetPrimaryAccountId(signin::ConsentLevel::kSync))
+        << "Changing the primary sync account is not allowed.";
     return;
   }
 
-  bool account_changed = info != primary_account_info();
-  PrimaryAccountChangeEvent::State previous_state(
-      primary_account_info(), signin::ConsentLevel::kNotRequired);
-  PrimaryAccountChangeEvent::State current_state(info,
-                                                 signin::ConsentLevel::kSync);
-  PrimaryAccountChangeEvent event_details(previous_state, current_state);
-
-  SetAuthenticatedAccountInfo(info);
-
-  for (Observer& observer : observers_) {
-    // TODO(https://crbug.com/1158855): Remove call to
-    // UnconsentedPrimaryAccountChanged() after IdentityManager::Observer
-    // migration has been completed.
-    if (account_changed)
-      observer.UnconsentedPrimaryAccountChanged(event_details);
-    observer.GoogleSigninSucceeded(event_details);
-  }
+  PrimaryAccountChangeEvent::State previous_state = GetPrimaryAccountState();
+  SetSyncPrimaryAccountInternal(account_info);
+  FirePrimaryAccountChanged(previous_state);
 }
 
-void PrimaryAccountManager::UpdateAuthenticatedAccountInfo() {
-  DCHECK(!primary_account_info().account_id.empty());
-  DCHECK(HasPrimaryAccount(signin::ConsentLevel::kSync));
-  const CoreAccountInfo info = account_tracker_service_->GetAccountInfo(
-      primary_account_info().account_id);
-  DCHECK_EQ(info.account_id, primary_account_info().account_id);
-  SetPrimaryAccountInternal(info, /*consented_to_sync=*/true);
+void PrimaryAccountManager::UpdatePrimaryAccountInfo() {
+  const CoreAccountId primary_account_id = primary_account_info().account_id;
+  DCHECK(!primary_account_id.empty());
+
+  const CoreAccountInfo updated_account_info =
+      account_tracker_service_->GetAccountInfo(primary_account_id);
+
+  CHECK_EQ(primary_account_id, updated_account_info.account_id);
+  // Calling SetPrimaryAccountInternal() is avoided in this case as the
+  // primary account id did not change.
+  primary_account_info_ = updated_account_info;
 }
 
 void PrimaryAccountManager::AddObserver(Observer* observer) {
@@ -342,7 +331,6 @@ void PrimaryAccountManager::OnSignoutDecisionReached(
   if (primary_account_info().IsEmpty()) {
     return;
   }
-
   // TODO(crbug.com/887756): Consider moving this higher up, or document why
   // the above blocks are exempt from the |signout_decision| early return.
   if (signout_decision == SigninClient::SignoutDecision::DISALLOW_SIGNOUT) {
@@ -350,39 +338,57 @@ void PrimaryAccountManager::OnSignoutDecisionReached(
     return;
   }
 
-  const CoreAccountInfo account_info = primary_account_info();
-  const bool has_sync_consent = HasPrimaryAccount(signin::ConsentLevel::kSync);
-  client_->GetPrefs()->ClearPref(prefs::kGoogleServicesHostedDomain);
-  // Revoke the sync consent.
-  if (has_sync_consent)
-    SetPrimaryAccountInternal(account_info, /*consented_to_sync=*/false);
+  PrimaryAccountChangeEvent::State previous_state = GetPrimaryAccountState();
 
-  DCHECK(!HasPrimaryAccount(signin::ConsentLevel::kSync));
   // Revoke all tokens before sending signed_out notification, because there
   // may be components that don't listen for token service events when the
   // profile is not connected to an account.
   switch (remove_option) {
     case RemoveAccountsOption::kRemoveAllAccounts:
       VLOG(0) << "Revoking all refresh tokens on server. Reason: sign out";
-      SetUnconsentedPrimaryAccountInfo(CoreAccountInfo());
+      SetPrimaryAccountInternal(CoreAccountInfo(), /*consented_to_sync=*/false);
       token_service_->RevokeAllCredentials(
           signin_metrics::SourceForRefreshTokenOperation::
               kPrimaryAccountManager_ClearAccount);
       break;
     case RemoveAccountsOption::kKeepAllAccounts:
-      // Do nothing.
+      if (previous_state.consent_level == signin::ConsentLevel::kSignin) {
+        // Nothing to update as the primary account is already at kSignin
+        // consent level. Prefer returning to avoid firing useless
+        // OnPrimaryAccountChanged() notifications.
+        return;
+      }
+      SetPrimaryAccountInternal(primary_account_info(),
+                                /*consented_to_sync=*/false);
       break;
   }
 
-  PrimaryAccountChangeEvent::State previous_state;
-  previous_state.primary_account = account_info;
-  previous_state.consent_level = has_sync_consent
-                                     ? signin::ConsentLevel::kSync
-                                     : signin::ConsentLevel::kNotRequired;
-  PrimaryAccountChangeEvent event_details(previous_state,
-                                          PrimaryAccountChangeEvent::State());
+  DCHECK(!HasPrimaryAccount(signin::ConsentLevel::kSync));
+  FirePrimaryAccountChanged(previous_state);
+}
+
+PrimaryAccountChangeEvent::State PrimaryAccountManager::GetPrimaryAccountState()
+    const {
+  PrimaryAccountChangeEvent::State state(primary_account_info(),
+                                         signin::ConsentLevel::kSignin);
+  if (HasPrimaryAccount(signin::ConsentLevel::kSync))
+    state.consent_level = signin::ConsentLevel::kSync;
+  return state;
+}
+
+void PrimaryAccountManager::FirePrimaryAccountChanged(
+    const PrimaryAccountChangeEvent::State& previous_state) {
+  PrimaryAccountChangeEvent::State current_state = GetPrimaryAccountState();
+  PrimaryAccountChangeEvent event_details(previous_state, current_state);
+
+  DCHECK(event_details.GetEventTypeFor(signin::ConsentLevel::kSync) !=
+             PrimaryAccountChangeEvent::Type::kNone ||
+         event_details.GetEventTypeFor(signin::ConsentLevel::kSignin) !=
+             PrimaryAccountChangeEvent::Type::kNone)
+      << "PrimaryAccountChangeEvent with no change: " << event_details;
+
   for (Observer& observer : observers_)
-    observer.GoogleSignedOut(event_details);
+    observer.OnPrimaryAccountChanged(event_details);
 }
 
 void PrimaryAccountManager::OnRefreshTokensLoaded() {
@@ -397,9 +403,15 @@ void PrimaryAccountManager::OnRefreshTokensLoaded() {
   if (token_service_->HasLoadCredentialsFinishedWithNoErrors()) {
     std::vector<AccountInfo> accounts_in_tracker_service =
         account_tracker_service_->GetAccounts();
-    const CoreAccountId authenticated_account_id = GetAuthenticatedAccountId();
+    signin::ConsentLevel consent_level = signin::ConsentLevel::kSync;
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+    // TODO(https://crbug.com/1196596): Use kSignin on all platforms.
+    if (base::FeatureList::IsEnabled(switches::kUseAccountManagerFacade))
+      consent_level = signin::ConsentLevel::kSignin;
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+    const CoreAccountId sync_account_id = GetPrimaryAccountId(consent_level);
     for (const auto& account : accounts_in_tracker_service) {
-      if (authenticated_account_id != account.account_id &&
+      if (sync_account_id != account.account_id &&
           !token_service_->RefreshTokenIsAvailable(account.account_id)) {
         VLOG(0) << "Removed account from account tracker service: "
                 << account.account_id;
@@ -407,4 +419,29 @@ void PrimaryAccountManager::OnRefreshTokensLoaded() {
       }
     }
   }
+
+#if !BUILDFLAG(IS_CHROMEOS_ASH)
+  // TODO(msarda): This code should be removed once migration finishes.
+  // Use histogram Signin.AccountTracker.GaiaIdMigrationState to verify the
+  // migration state.
+  if (!base::FeatureList::IsEnabled(switches::kForceAccountIdMigration))
+    return;
+
+  // On non-ChromeOS platforms, account ID migration started in 2015. Data is
+  // most probably corrupted for profiles that were not migrated. Clear all
+  // accounts to fix this state.
+  if (account_tracker_service_->GetMigrationState() ==
+      AccountTrackerService::MIGRATION_NOT_STARTED) {
+    // Clear the primary account if any.
+    ClearPrimaryAccount(signin_metrics::ACCOUNT_ID_MIGRATION,
+                        signin_metrics::SignoutDelete::kIgnoreMetric);
+    // Clean all remaining account information from the account tracker.
+    for (const auto& account : account_tracker_service_->GetAccounts())
+      account_tracker_service_->RemoveAccount(account.account_id);
+    account_tracker_service_->SetMigrationDone();
+    client_->GetPrefs()->CommitPendingWrite();
+  }
+  DCHECK_EQ(AccountTrackerService::MIGRATION_DONE,
+            account_tracker_service_->GetMigrationState());
+#endif  // !BUILDFLAG(IS_CHROMEOS_ASH)
 }

@@ -93,17 +93,15 @@ void NativeWebContentsModalDialogManagerViews::Show() {
 #if defined(USE_AURA)
   std::unique_ptr<wm::SuspendChildWindowVisibilityAnimations> suspend;
   if (shown_widgets_.find(widget) != shown_widgets_.end()) {
-    suspend.reset(new wm::SuspendChildWindowVisibilityAnimations(
-        widget->GetNativeWindow()->parent()));
+    suspend = std::make_unique<wm::SuspendChildWindowVisibilityAnimations>(
+        widget->GetNativeWindow()->parent());
   }
 #endif
-  // |host_| may be null during tab drag on Views/Win32.
-  //
-  // TODO(https://crbug.com/1119431): This null check may be out of date.
+  // |host_| may be null during tab drag.
   if (host_)
     constrained_window::UpdateWebContentsModalDialogPosition(widget, host_);
   widget->Show();
-  if (host_->ShouldActivateDialog())
+  if (host_ && host_->ShouldActivateDialog())
     Focus();
 
 #if defined(USE_AURA)
@@ -124,9 +122,8 @@ void NativeWebContentsModalDialogManagerViews::Show() {
 void NativeWebContentsModalDialogManagerViews::Hide() {
   views::Widget* widget = GetWidget(dialog());
 #if defined(USE_AURA)
-  std::unique_ptr<wm::SuspendChildWindowVisibilityAnimations> suspend;
-  suspend.reset(new wm::SuspendChildWindowVisibilityAnimations(
-      widget->GetNativeWindow()->parent()));
+  auto suspend = std::make_unique<wm::SuspendChildWindowVisibilityAnimations>(
+      widget->GetNativeWindow()->parent());
 #endif
   widget->Hide();
 }

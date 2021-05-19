@@ -5,7 +5,9 @@
 #include "third_party/blink/renderer/modules/accessibility/inspector_accessibility_agent.h"
 
 #include <memory>
+
 #include "third_party/blink/renderer/core/accessibility/ax_object_cache.h"
+#include "third_party/blink/renderer/core/aom/accessible_node.h"
 #include "third_party/blink/renderer/core/dom/dom_node_ids.h"
 #include "third_party/blink/renderer/core/dom/element.h"
 #include "third_party/blink/renderer/core/dom/flat_tree_traversal.h"
@@ -289,9 +291,12 @@ void FillWidgetProperties(AXObject& ax_object,
           CreateProperty(AXPropertyNameEnum::Valuemax, CreateValue(max_value)));
     }
 
-    properties.emplace_back(
-        CreateProperty(AXPropertyNameEnum::Valuetext,
-                       CreateValue(ax_object.ValueDescription())));
+    properties.emplace_back(CreateProperty(
+        AXPropertyNameEnum::Valuetext,
+        CreateValue(
+            ax_object
+                .GetAOMPropertyOrARIAAttribute(AOMStringProperty::kValueText)
+                .GetString())));
   }
 }
 
@@ -497,15 +502,11 @@ void FillSparseAttributes(AXObject& ax_object,
 }
 
 std::unique_ptr<AXValue> CreateRoleNameValue(ax::mojom::Role role) {
-  AtomicString role_name = AXObject::RoleName(role);
-  std::unique_ptr<AXValue> role_name_value;
-  if (!role_name.IsNull()) {
-    role_name_value = CreateValue(role_name, AXValueTypeEnum::Role);
-  } else {
-    role_name_value = CreateValue(AXObject::InternalRoleName(role),
-                                  AXValueTypeEnum::InternalRole);
-  }
-  return role_name_value;
+  bool is_internal = false;
+  const String& role_name = AXObject::RoleName(role, &is_internal);
+  const auto& value_type =
+      is_internal ? AXValueTypeEnum::InternalRole : AXValueTypeEnum::Role;
+  return CreateValue(role_name, value_type);
 }
 
 }  // namespace
@@ -581,18 +582,10 @@ void InspectorAccessibilityAgent::AddAncestors(
     std::unique_ptr<protocol::Array<AXNode>>& nodes,
     AXObjectCacheImpl& cache) const {
   AXObject* ancestor = &first_ancestor;
-  AXObject* child = inspected_ax_object;
   while (ancestor) {
     std::unique_ptr<AXNode> parent_node_object = BuildProtocolAXObject(
         *ancestor, inspected_ax_object, true, nodes, cache);
-    auto child_ids = std::make_unique<protocol::Array<AXNodeId>>();
-    if (child)
-      child_ids->emplace_back(String::Number(child->AXObjectID()));
-    else
-      child_ids->emplace_back(String::Number(kIDForInspectedNodeWithNoAXNode));
-    parent_node_object->setChildIds(std::move(child_ids));
     nodes->emplace_back(std::move(parent_node_object));
-    child = ancestor;
     ancestor = ancestor->ParentObjectUnignored();
   }
 }
@@ -612,7 +605,7 @@ std::unique_ptr<AXNode> InspectorAccessibilityAgent::BuildObjectForIgnoredNode(
           .setNodeId(String::Number(ax_id))
           .setIgnored(true)
           .build();
-  ax::mojom::Role role = ax::mojom::Role::kIgnored;
+  ax::mojom::blink::Role role = ax::mojom::blink::Role::kNone;
   ignored_node_object->setRole(CreateRoleNameValue(role));
 
   if (ax_object && ax_object->IsAXLayoutObject()) {
@@ -669,8 +662,27 @@ void InspectorAccessibilityAgent::PopulateDOMNodeAncestors(
   if (!parent_ax_object)
     return;
 
-  // Populate parent and ancestors.
-  AddAncestors(*parent_ax_object, nullptr, nodes, cache);
+  std::unique_ptr<AXNode> parent_node_object =
+      BuildProtocolAXObject(*parent_ax_object, nullptr, true, nodes, cache);
+  auto child_ids = std::make_unique<protocol::Array<AXNodeId>>();
+  auto* existing_child_ids = parent_node_object->getChildIds(nullptr);
+
+  // put the Ignored node first regardless of DOM structure
+  child_ids->insert(child_ids->begin(),
+                    String::Number(kIDForInspectedNodeWithNoAXNode));
+  if (existing_child_ids) {
+    for (auto id : *existing_child_ids)
+      child_ids->push_back(id);
+  }
+
+  parent_node_object->setChildIds(std::move(child_ids));
+  nodes->emplace_back(std::move(parent_node_object));
+
+  parent_ax_object = parent_ax_object->ParentObjectUnignored();
+  if (parent_ax_object) {
+    // Populate ancestors.
+    AddAncestors(*parent_ax_object, nullptr, nodes, cache);
+  }
 }
 
 std::unique_ptr<AXNode> InspectorAccessibilityAgent::BuildProtocolAXObject(
@@ -846,9 +858,9 @@ void InspectorAccessibilityAgent::FillCoreProperties(
     if (ax_object.ValueForRange(&value))
       node_object.setValue(CreateValue(value));
   } else {
-    String string_value = ax_object.StringValue();
-    if (!string_value.IsEmpty())
-      node_object.setValue(CreateValue(string_value));
+    String value = ax_object.SlowGetValueForControlIncludingContentEditable();
+    if (!value.IsEmpty())
+      node_object.setValue(CreateValue(value));
   }
 
   if (fetch_relatives)
@@ -896,14 +908,18 @@ void InspectorAccessibilityAgent::AddChildren(
   for (unsigned i = 0; i < children.size(); i++) {
     AXObject& child_ax_object = *children[i].Get();
     child_ids->emplace_back(String::Number(child_ax_object.AXObjectID()));
+
     if (&child_ax_object == inspected_ax_object)
       continue;
+
     if (&ax_object != inspected_ax_object) {
       if (!inspected_ax_object)
         continue;
-      if (&ax_object != inspected_ax_object->ParentObjectUnignored() &&
-          ax_object.GetNode())
+
+      if (ax_object.ParentObject() != inspected_ax_object ||
+          ax_object.GetNode()) {
         continue;
+      }
     }
 
     // Only add children of inspected node (or un-inspectable children of
@@ -953,7 +969,7 @@ Response InspectorAccessibilityAgent::queryAXTree(
 
   auto sought_role = ax::mojom::blink::Role::kUnknown;
   if (role.isJust())
-    sought_role = AXObject::AriaRoleToWebCoreRole(role.fromJust());
+    sought_role = AXObject::AriaRoleStringToRoleEnum(role.fromJust());
   const String sought_name = accessible_name.fromMaybe("");
 
   HeapVector<Member<AXObject>> reachable;

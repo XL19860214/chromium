@@ -10,12 +10,12 @@ modules_idl_files = [
   "media_stream_event.idl",
   "media_stream_track.idl",
   "media_stream_track_event.idl",
-  "media_stream_track_generator.idl",
-  "media_stream_track_processor.idl",
   "overconstrained_error.idl",
 ]
 
 modules_dictionary_idl_files = [
+  "capture_handle.idl",
+  "capture_handle_config.idl",
   "constrain_boolean_parameters.idl",
   "constrain_dom_string_parameters.idl",
   "constrain_double_range.idl",

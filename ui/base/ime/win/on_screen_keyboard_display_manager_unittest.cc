@@ -4,10 +4,12 @@
 
 #include <wrl/event.h>
 
+#include <memory>
+#include <string>
+
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/macros.h"
-#include "base/strings/string16.h"
 #include "base/test/task_environment.h"
 #include "base/win/windows_version.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -111,13 +113,11 @@ class OnScreenKeyboardTest : public ::testing::Test {
       : task_environment_(base::test::TaskEnvironment::MainThreadType::UI) {}
 
   std::unique_ptr<OnScreenKeyboardDisplayManagerTabTip> CreateTabTip() {
-    return std::unique_ptr<OnScreenKeyboardDisplayManagerTabTip>(
-        new OnScreenKeyboardDisplayManagerTabTip(nullptr));
+    return std::make_unique<OnScreenKeyboardDisplayManagerTabTip>(nullptr);
   }
 
   std::unique_ptr<OnScreenKeyboardDisplayManagerInputPane> CreateInputPane() {
-    return std::unique_ptr<OnScreenKeyboardDisplayManagerInputPane>(
-        new OnScreenKeyboardDisplayManagerInputPane(nullptr));
+    return std::make_unique<OnScreenKeyboardDisplayManagerInputPane>(nullptr);
   }
 
   void WaitForEventsWithTimeDelay(int64_t time_delta_ms = 10) {
@@ -145,10 +145,10 @@ TEST_F(OnScreenKeyboardTest, OSKPath) {
       keyboard_display_manager(CreateTabTip());
   EXPECT_NE(nullptr, keyboard_display_manager);
 
-  base::string16 osk_path;
+  std::wstring osk_path;
   EXPECT_TRUE(keyboard_display_manager->GetOSKPath(&osk_path));
   EXPECT_FALSE(osk_path.empty());
-  EXPECT_TRUE(osk_path.find(L"tabtip.exe") != base::string16::npos);
+  EXPECT_TRUE(osk_path.find(L"tabtip.exe") != std::wstring::npos);
 
   // The path read from the registry can be quoted. To check for the existence
   // of the file we use the base::PathExists function which internally uses the

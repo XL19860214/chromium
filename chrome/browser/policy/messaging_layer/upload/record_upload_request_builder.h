@@ -5,12 +5,10 @@
 #ifndef CHROME_BROWSER_POLICY_MESSAGING_LAYER_UPLOAD_RECORD_UPLOAD_REQUEST_BUILDER_H_
 #define CHROME_BROWSER_POLICY_MESSAGING_LAYER_UPLOAD_RECORD_UPLOAD_REQUEST_BUILDER_H_
 
-#include <string>
-
-#include "base/optional.h"
 #include "base/strings/string_piece.h"
 #include "base/values.h"
-#include "components/policy/proto/record.pb.h"
+#include "components/reporting/proto/record.pb.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace reporting {
 
@@ -30,6 +28,11 @@ namespace reporting {
 //         "generationId": 123456789,
 //         "priority": 1
 //       }
+//       "sequenceInformation": {
+//         "sequencingId": 1,
+//         "generationId": 123456789,
+//         "priority": 1
+//       }
 //     },
 //     {
 //       "encryptedWrappedRecord": "EncryptedMessage",
@@ -42,11 +45,22 @@ namespace reporting {
 //         "generationId": 123456789,
 //         "priority": 1
 //       }
+//       "sequenceInformation": {
+//         "sequencingId": 2,
+//         "generationId": 123456789,
+//         "priority": 1
+//       }
 //     }
 //   ]
 //   "attachEncryptionSettings": true  // optional field
 // }
 // TODO(b/159361496): Periodically add memory and disk space usage.
+//
+// Note that there are two identical sub-records - sequencingInformation and
+// sequenceInformation (sequencingId and generationId in the former are
+// Unsigned, in the later - Signed). This is done temporarily for backwards
+// compatibility with the server.
+// TODO(b/177677467): Remove this duplication once server is fully transitioned.
 //
 // This payload is added to the common payload of all reporting jobs, which
 // includes "device" and "browser" sub-fields:
@@ -66,17 +80,19 @@ class UploadEncryptedReportingRequestBuilder {
       bool attach_encryption_settings = false);
   ~UploadEncryptedReportingRequestBuilder();
 
+  // TODO(chromium:1165908) Have AddRecord take ownership of the record that is
+  // passed in.
   UploadEncryptedReportingRequestBuilder& AddRecord(
       const EncryptedRecord& record);
 
-  base::Optional<base::Value> Build();
+  absl::optional<base::Value> Build();
 
   static base::StringPiece GetEncryptedRecordListPath();
   static base::StringPiece GetAttachEncryptionSettingsPath();
 
   static const char kEncryptedRecordListKey_[];
 
-  base::Optional<base::Value> result_;
+  absl::optional<base::Value> result_;
 };
 
 // Builds a |base::Value| dictionary from a |EncryptedRecord|
@@ -86,14 +102,15 @@ class EncryptedRecordDictionaryBuilder {
   explicit EncryptedRecordDictionaryBuilder(const EncryptedRecord& record);
   ~EncryptedRecordDictionaryBuilder();
 
-  base::Optional<base::Value> Build();
+  absl::optional<base::Value> Build();
 
   static base::StringPiece GetEncryptedWrappedRecordPath();
+  static base::StringPiece GetUnsignedSequencingInformationKeyPath();
   static base::StringPiece GetSequencingInformationKeyPath();
   static base::StringPiece GetEncryptionInfoPath();
 
  private:
-  base::Optional<base::Value> result_;
+  absl::optional<base::Value> result_;
 };
 
 // Builds a |base::Value| dictionary from a |SequencingInformation|
@@ -104,14 +121,14 @@ class SequencingInformationDictionaryBuilder {
       const SequencingInformation& sequencing_information);
   ~SequencingInformationDictionaryBuilder();
 
-  base::Optional<base::Value> Build();
+  absl::optional<base::Value> Build();
 
   static base::StringPiece GetSequencingIdPath();
   static base::StringPiece GetGenerationIdPath();
   static base::StringPiece GetPriorityPath();
 
  private:
-  base::Optional<base::Value> result_;
+  absl::optional<base::Value> result_;
 };
 
 // Builds a |base::Value| dictionary from a |EncryptionInfo| proto.
@@ -121,13 +138,13 @@ class EncryptionInfoDictionaryBuilder {
       const EncryptionInfo& encryption_info);
   ~EncryptionInfoDictionaryBuilder();
 
-  base::Optional<base::Value> Build();
+  absl::optional<base::Value> Build();
 
   static base::StringPiece GetEncryptionKeyPath();
   static base::StringPiece GetPublicKeyIdPath();
 
  private:
-  base::Optional<base::Value> result_;
+  absl::optional<base::Value> result_;
 };
 
 }  // namespace reporting

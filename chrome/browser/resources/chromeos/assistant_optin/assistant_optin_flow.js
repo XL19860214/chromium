@@ -49,6 +49,20 @@ Polymer({
     this.browserProxy_ = assistant.BrowserProxyImpl.getInstance();
   },
 
+  /** @override */
+  attached() {
+    window.addEventListener(
+        'orientationchange', this.onWindowResized_.bind(this));
+    window.addEventListener('resize', this.onWindowResized_.bind(this));
+  },
+
+  /** @override */
+  detached() {
+    window.removeEventListener(
+        'orientationchange', this.onWindowResized_.bind(this));
+    window.removeEventListener('resize', this.onWindowResized_.bind(this));
+  },
+
   /**
    * Indicates the type of the opt-in flow.
    */
@@ -75,6 +89,7 @@ Polymer({
   onShow(type, captionBarHeight) {
     captionBarHeight = captionBarHeight ? captionBarHeight + 'px' : '0px';
     this.style.setProperty('--caption-bar-height', captionBarHeight);
+    this.onWindowResized_();
 
     type = type ? type : this.FlowType.CONSENT_FLOW.toString();
     var flowType = Number(type);
@@ -273,6 +288,36 @@ Polymer({
     this.applyToStepElements((screen) => {
       screen.reloadPage();
     }, this.currentStep);
+  },
+
+  /**
+   * Called during initialization, when the window is resized, or the window's
+   * orientation is updated.
+   */
+  onWindowResized_() {
+    // Dialog size and orientation value needs to be updated for in-session
+    // assistant dialog.
+    if (!document.documentElement.hasAttribute('screen')) {
+      document.documentElement.style.setProperty(
+          '--oobe-oobe-dialog-height-base', window.innerHeight + 'px');
+      document.documentElement.style.setProperty(
+          '--oobe-oobe-dialog-width-base', window.innerWidth + 'px');
+      if (loadTimeData.valueExists('newLayoutEnabled') &&
+          loadTimeData.getBoolean('newLayoutEnabled')) {
+        if (window.innerWidth > window.innerHeight) {
+          document.documentElement.setAttribute('orientation', 'horizontal');
+        } else {
+          document.documentElement.setAttribute('orientation', 'vertical');
+        }
+      }
+    }
+    // In landscape mode, animation element should reside in subtitle slot which
+    // is shown at the bottom left of the screen. In portrait mode, animation
+    // element should reside in content slot which allows scrolling with the
+    // rest of the content.
+    const slot = window.innerWidth > window.innerHeight ? 'subtitle' : 'content';
+    this.$.valueProp.getAnimationContainer().slot = slot;
+    this.$.relatedInfo.getAnimationContainer().slot = slot;
   },
 });
 })();

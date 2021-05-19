@@ -4,7 +4,10 @@
 
 #include "chrome/browser/ui/webui/chrome_untrusted_web_ui_controller_factory.h"
 
+#include <memory>
+
 #include "base/no_destructor.h"
+#include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_ui.h"
@@ -13,10 +16,17 @@
 #include "ui/webui/webui_config.h"
 #include "url/gurl.h"
 
+#if defined(OS_ANDROID)
+#include "chrome/browser/ui/webui/video_tutorials/video_player_ui.h"
+#endif  // defined(OS_ANDROID)
+
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-#include "chrome/browser/chromeos/web_applications/terminal_ui.h"
+#include "chrome/browser/ash/web_applications/media_app/media_app_guest_ui_config.h"
+#include "chrome/browser/ash/web_applications/terminal_ui.h"
+#include "chromeos/components/personalization_app/untrusted_personalization_app_ui_config.h"
 #if !defined(OFFICIAL_BUILD)
 #include "chromeos/components/sample_system_web_app_ui/untrusted_sample_system_web_app_ui.h"
+#include "chromeos/components/telemetry_extension_ui/telemetry_extension_untrusted_ui.h"
 #endif  // !defined(OFFICIAL_BUILD)
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
@@ -41,9 +51,18 @@ WebUIConfigList CreateConfigs() {
   ALLOW_UNUSED_LOCAL(register_config);
 
   // Register WebUIConfigs below.
+#if defined(OS_ANDROID)
+  register_config(std::make_unique<video_tutorials::VideoPlayerUIConfig>());
+#endif  // defined(OS_ANDROID)
+
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   register_config(std::make_unique<TerminalUIConfig>());
+  register_config(std::make_unique<MediaAppGuestUIConfig>());
+  register_config(
+      std::make_unique<chromeos::UntrustedPersonalizationAppUIConfig>());
 #if !defined(OFFICIAL_BUILD)
+  register_config(
+      std::make_unique<chromeos::TelemetryExtensionUntrustedUIConfig>());
   register_config(
       std::make_unique<chromeos::UntrustedSampleSystemWebAppUIConfig>());
 #endif  // !defined(OFFICIAL_BUILD)

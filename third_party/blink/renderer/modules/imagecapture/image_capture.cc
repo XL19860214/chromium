@@ -7,6 +7,8 @@
 #include <memory>
 #include <utility>
 
+#include "base/callback_helpers.h"
+#include "base/trace_event/trace_event.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "third_party/blink/public/common/browser_interface_broker_proxy.h"
 #include "third_party/blink/public/mojom/permissions/permission_status.mojom-blink.h"
@@ -207,7 +209,7 @@ ScriptPromise ImageCapture::getPhotoCapabilities(ScriptState* script_state) {
   service_->GetPhotoState(
       stream_track_->Component()->Source()->Id(),
       WTF::Bind(&ImageCapture::OnMojoGetPhotoState, WrapPersistent(this),
-                WrapPersistent(resolver), WTF::Passed(std::move(resolver_cb)),
+                WrapPersistent(resolver), std::move(resolver_cb),
                 false /* trigger_take_photo */));
   return promise;
 }
@@ -239,7 +241,7 @@ ScriptPromise ImageCapture::getPhotoSettings(ScriptState* script_state) {
   service_->GetPhotoState(
       stream_track_->Component()->Source()->Id(),
       WTF::Bind(&ImageCapture::OnMojoGetPhotoState, WrapPersistent(this),
-                WrapPersistent(resolver), WTF::Passed(std::move(resolver_cb)),
+                WrapPersistent(resolver), std::move(resolver_cb),
                 false /* trigger_take_photo */));
   return promise;
 }
@@ -772,9 +774,9 @@ void ImageCapture::SetPanTiltZoomSettingsFromTrack(
   auto* video_track = MediaStreamVideoTrack::From(stream_track_->Component());
   DCHECK(video_track);
 
-  base::Optional<double> pan = video_track->pan();
-  base::Optional<double> tilt = video_track->tilt();
-  base::Optional<double> zoom = video_track->zoom();
+  absl::optional<double> pan = video_track->pan();
+  absl::optional<double> tilt = video_track->tilt();
+  absl::optional<double> zoom = video_track->zoom();
 
   const bool ptz_requested =
       pan.has_value() || tilt.has_value() || zoom.has_value();
@@ -1038,7 +1040,7 @@ void ImageCapture::OnMojoSetOptions(ScriptPromiseResolver* resolver,
   service_->GetPhotoState(
       stream_track_->Component()->Source()->Id(),
       WTF::Bind(&ImageCapture::OnMojoGetPhotoState, WrapPersistent(this),
-                WrapPersistent(resolver), WTF::Passed(std::move(resolver_cb)),
+                WrapPersistent(resolver), std::move(resolver_cb),
                 trigger_take_photo));
 }
 

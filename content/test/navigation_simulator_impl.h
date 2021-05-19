@@ -9,12 +9,10 @@
 #include <string>
 
 #include "base/callback.h"
-#include "base/optional.h"
 #include "content/browser/renderer_host/navigation_request.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/navigation_throttle.h"
 #include "content/public/browser/web_contents_observer.h"
-#include "content/public/common/impression.h"
 #include "content/public/test/navigation_simulator.h"
 #include "content/test/test_render_frame_host.h"
 #include "mojo/public/cpp/bindings/pending_associated_receiver.h"
@@ -22,6 +20,8 @@
 #include "net/base/host_port_pair.h"
 #include "net/base/ip_endpoint.h"
 #include "net/dns/public/resolve_error_info.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
+#include "third_party/blink/public/common/navigation/impression.h"
 #include "third_party/blink/public/mojom/loader/referrer.mojom-forward.h"
 #include "url/gurl.h"
 
@@ -41,6 +41,7 @@ class NavigationSimulatorImpl : public NavigationSimulator,
  public:
   ~NavigationSimulatorImpl() override;
 
+  // TODO(https://crbug.com/1131832): Remove |original_url| as it's not used.
   static std::unique_ptr<NavigationSimulatorImpl> CreateBrowserInitiated(
       const GURL& original_url,
       WebContents* contents);
@@ -49,6 +50,7 @@ class NavigationSimulatorImpl : public NavigationSimulator,
       int offset,
       WebContents* web_contents);
 
+  // TODO(https://crbug.com/1131832): Remove |original_url| as it's not used.
   static std::unique_ptr<NavigationSimulatorImpl> CreateRendererInitiated(
       const GURL& original_url,
       RenderFrameHost* render_frame_host);
@@ -85,8 +87,8 @@ class NavigationSimulatorImpl : public NavigationSimulator,
   void SetWasFetchedViaCache(bool was_fetched_via_cache) override;
   void SetIsSignedExchangeInnerResponse(
       bool is_signed_exchange_inner_response) override;
-  void SetFeaturePolicyHeader(
-      blink::ParsedFeaturePolicy feature_policy_header) override;
+  void SetPermissionsPolicyHeader(
+      blink::ParsedPermissionsPolicy permissions_policy_header) override;
   void SetContentsMimeType(const std::string& contents_mime_type) override;
   void SetResponseHeaders(
       scoped_refptr<net::HttpResponseHeaders> response_headers) override;
@@ -94,6 +96,8 @@ class NavigationSimulatorImpl : public NavigationSimulator,
   void SetResolveErrorInfo(
       const net::ResolveErrorInfo& resolve_error_info) override;
   void SetSSLInfo(const net::SSLInfo& ssl_info) override;
+  void SetResponseDnsAliases(std::vector<std::string> aliases) override;
+  void SetEarlyHintsPreloadLinkHeaderReceived(bool received) override;
 
   NavigationThrottle::ThrottleCheckResult GetLastThrottleCheckResult() override;
   NavigationRequest* GetNavigationHandle() override;
@@ -157,7 +161,7 @@ class NavigationSimulatorImpl : public NavigationSimulator,
 
   void set_origin(const url::Origin& origin) { origin_ = origin; }
 
-  void set_impression(const Impression& impression) {
+  void set_impression(const blink::Impression& impression) {
     impression_ = impression;
   }
 
@@ -185,7 +189,8 @@ class NavigationSimulatorImpl : public NavigationSimulator,
   void StartComplete();
   void RedirectComplete(int previous_num_will_redirect_request_called,
                         int previous_did_redirect_navigation_called);
-  void ReadyToCommitComplete(bool ran_throttles);
+  void WillProcessResponseComplete();
+  void ReadyToCommitComplete();
   void FailComplete(int error_code);
 
   void OnWillStartRequest();
@@ -205,6 +210,10 @@ class NavigationSimulatorImpl : public NavigationSimulator,
   // |auto_advance_|. Otherwise will just set up state for checking the result
   // when the throttles end up finishing.
   void MaybeWaitForThrottleChecksComplete(base::OnceClosure complete_closure);
+
+  // Like above but blocks waiting for the ReadyToCommit checks to complete.
+  // This check calls ReadyToCommitComplete() when finished.
+  void MaybeWaitForReadyToCommitCheckComplete();
 
   // Sets |last_throttle_check_result_| and calls both the
   // |wait_closure_| and the |throttle_checks_complete_closure_|, if they are
@@ -235,6 +244,12 @@ class NavigationSimulatorImpl : public NavigationSimulator,
   void SimulateUnloadCompletionCallbackForPreviousFrameIfNeeded(
       RenderFrameHostImpl* previous_frame);
 
+  // Certain navigations can skip throttle checks:
+  // - same-document navigations
+  // - about:blank navigations
+  // - navigations not handled by the network stack
+  bool NeedsThrottleChecks() const;
+
   enum State {
     INITIALIZATION,
     WAITING_BEFORE_UNLOAD,
@@ -263,7 +278,6 @@ class NavigationSimulatorImpl : public NavigationSimulator,
 
   // Note: additional parameters to modify the navigation should be properly
   // initialized (if needed) in InitializeFromStartedRequest.
-  GURL original_url_;
   GURL navigation_url_;
   net::IPEndPoint remote_endpoint_;
   bool was_fetched_via_cache_ = false;
@@ -284,17 +298,23 @@ class NavigationSimulatorImpl : public NavigationSimulator,
       browser_interface_broker_receiver_;
   std::string contents_mime_type_;
   scoped_refptr<net::HttpResponseHeaders> response_headers_;
-  blink::ParsedFeaturePolicy feature_policy_header_;
+  blink::ParsedPermissionsPolicy permissions_policy_header_;
   network::mojom::CSPDisposition should_check_main_world_csp_ =
       network::mojom::CSPDisposition::CHECK;
   net::HttpResponseInfo::ConnectionInfo http_connection_info_ =
       net::HttpResponseInfo::CONNECTION_INFO_UNKNOWN;
   net::ResolveErrorInfo resolve_error_info_ = net::ResolveErrorInfo(net::OK);
-  base::Optional<net::SSLInfo> ssl_info_;
-  base::Optional<blink::PageState> page_state_;
-  base::Optional<url::Origin> origin_;
-  base::Optional<Impression> impression_;
+  absl::optional<net::SSLInfo> ssl_info_;
+  absl::optional<blink::PageState> page_state_;
+  absl::optional<url::Origin> origin_;
+  absl::optional<blink::Impression> impression_;
   int64_t post_id_ = -1;
+
+  // Any DNS aliases, as read from CNAME records, for the request URL that
+  // would be in the network::mojom::URLResponseHead. The alias chain order
+  // is preserved in reverse, from canonical name (i.e. address record name)
+  // through to query name.
+  std::vector<std::string> response_dns_aliases_;
 
   bool auto_advance_ = true;
   bool drop_unload_ack_ = false;
@@ -307,8 +327,10 @@ class NavigationSimulatorImpl : public NavigationSimulator,
 
   bool history_list_was_cleared_ = false;
   bool should_replace_current_entry_ = false;
-  base::Optional<bool> did_create_new_entry_;
-  bool was_aborted_ = false;
+  absl::optional<bool> did_create_new_entry_;
+  bool was_aborted_prior_to_ready_to_commit_ = false;
+
+  bool early_hints_preload_link_header_received_ = false;
 
   // These are used to sanity check the content/public/ API calls emitted as
   // part of the navigation.
@@ -324,7 +346,7 @@ class NavigationSimulatorImpl : public NavigationSimulator,
   // Holds the last ThrottleCheckResult calculated by the navigation's
   // throttles. Will be unset before WillStartRequest is finished. Will be unset
   // while throttles are being run, but before they finish.
-  base::Optional<NavigationThrottle::ThrottleCheckResult>
+  absl::optional<NavigationThrottle::ThrottleCheckResult>
       last_throttle_check_result_;
 
   // GlobalRequestID for the associated NavigationHandle. Only valid after
@@ -351,4 +373,4 @@ class NavigationSimulatorImpl : public NavigationSimulator,
 
 }  // namespace content
 
-#endif  // CONTENT_PUBLIC_TEST_NAVIGATION_SIMULATOR_H_
+#endif  // CONTENT_TEST_NAVIGATION_SIMULATOR_IMPL_H_

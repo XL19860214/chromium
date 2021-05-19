@@ -12,6 +12,7 @@
 
 #include "base/callback_forward.h"
 #include "base/containers/flat_map.h"
+#include "base/containers/flat_set.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/observer_list.h"
@@ -26,6 +27,7 @@
 #include "cc/trees/layer_tree_host_single_thread_client.h"
 #include "components/viz/common/frame_sinks/begin_frame_args.h"
 #include "components/viz/common/surfaces/frame_sink_id.h"
+#include "components/viz/common/surfaces/subtree_capture_id.h"
 #include "components/viz/host/host_frame_sink_client.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "services/viz/privileged/mojom/compositing/vsync_parameter_observer.mojom-forward.h"
@@ -59,6 +61,9 @@ class TaskGraphRunner;
 }
 
 namespace gfx {
+namespace mojom {
+class DelegatedInkPointRenderer;
+}  // namespace mojom
 struct PresentationFeedback;
 class Rect;
 class ScrollOffset;
@@ -73,13 +78,12 @@ namespace viz {
 namespace mojom {
 class DisplayPrivate;
 class ExternalBeginFrameController;
-class DelegatedInkPointRenderer;
 }  // namespace mojom
 class ContextProvider;
 class HostFrameSinkManager;
 class LocalSurfaceId;
 class RasterContextProvider;
-}
+}  // namespace viz
 
 namespace ui {
 class Compositor;
@@ -125,6 +129,9 @@ class COMPOSITOR_EXPORT ContextFactory {
   // Allocate a new client ID for the display compositor.
   virtual viz::FrameSinkId AllocateFrameSinkId() = 0;
 
+  // Allocates a new capture ID for a layer subtree within a frame sink.
+  virtual viz::SubtreeCaptureId AllocateSubtreeCaptureId() = 0;
+
   // Gets the frame sink manager host instance.
   virtual viz::HostFrameSinkManager* GetHostFrameSinkManager() = 0;
 };
@@ -144,7 +151,8 @@ class COMPOSITOR_EXPORT Compositor : public cc::LayerTreeHostClient,
              scoped_refptr<base::SingleThreadTaskRunner> task_runner,
              bool enable_pixel_canvas,
              bool use_external_begin_frame_control = false,
-             bool force_software_compositor = false);
+             bool force_software_compositor = false,
+             bool enable_compositing_based_throttling = false);
   ~Compositor() override;
 
   ui::ContextFactory* context_factory() { return context_factory_; }
@@ -352,16 +360,19 @@ class COMPOSITOR_EXPORT Compositor : public cc::LayerTreeHostClient,
   void DidSubmitCompositorFrame() override;
   void DidLoseLayerTreeFrameSink() override {}
   void FrameIntervalUpdated(base::TimeDelta interval) override;
+  void FrameSinksToThrottleUpdated(
+      const base::flat_set<viz::FrameSinkId>& ids) override;
 
   // viz::HostFrameSinkClient implementation.
   void OnFirstSurfaceActivation(const viz::SurfaceInfo& surface_info) override;
-  void OnFrameTokenChanged(uint32_t frame_token) override;
+  void OnFrameTokenChanged(uint32_t frame_token,
+                           base::TimeTicks activation_time) override;
 
   // ThroughputTrackerHost implementation.
   void StartThroughputTracker(
       TrackerId tracker_id,
       ThroughputTrackerHost::ReportCallback callback) override;
-  void StopThroughtputTracker(TrackerId tracker_id) override;
+  bool StopThroughtputTracker(TrackerId tracker_id) override;
   void CancelThroughtputTracker(TrackerId tracker_id) override;
 
 // TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
@@ -401,7 +412,7 @@ class COMPOSITOR_EXPORT Compositor : public cc::LayerTreeHostClient,
   }
 
   virtual void SetDelegatedInkPointRenderer(
-      mojo::PendingReceiver<viz::mojom::DelegatedInkPointRenderer> receiver);
+      mojo::PendingReceiver<gfx::mojom::DelegatedInkPointRenderer> receiver);
 
  private:
   friend class base::RefCounted<Compositor>;
@@ -493,8 +504,23 @@ class COMPOSITOR_EXPORT Compositor : public cc::LayerTreeHostClient,
   bool disabled_swap_until_resize_ = false;
 
   TrackerId next_throughput_tracker_id_ = 1u;
-  using ThroughputTrackerMap =
-      base::flat_map<TrackerId, ThroughputTrackerHost::ReportCallback>;
+  struct TrackerState {
+    TrackerState();
+    TrackerState(TrackerState&&);
+    TrackerState& operator=(TrackerState&&);
+    ~TrackerState();
+
+    // Whether a tracker is waiting for report and `report_callback` should be
+    // invoked. This is set to true when a tracker is stopped.
+    bool should_report = false;
+    // Whether the report for a tracker has happened. This is set when an
+    // involuntary report happens before the tracker is stopped and set
+    // `should_report` field above.
+    bool report_attempted = false;
+    // Invoked to send report to the owner of a tracker.
+    ThroughputTrackerHost::ReportCallback report_callback;
+  };
+  using ThroughputTrackerMap = base::flat_map<TrackerId, TrackerState>;
   ThroughputTrackerMap throughput_tracker_map_;
 
   base::WeakPtrFactory<Compositor> context_creation_weak_ptr_factory_{this};

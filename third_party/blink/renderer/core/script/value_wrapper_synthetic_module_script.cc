@@ -5,6 +5,7 @@
 #include "third_party/blink/renderer/core/script/value_wrapper_synthetic_module_script.h"
 
 #include "third_party/blink/public/common/features.h"
+#include "third_party/blink/public/mojom/web_feature/web_feature.mojom-blink.h"
 #include "third_party/blink/public/platform/web_vector.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_core.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_css_style_sheet_init.h"
@@ -16,6 +17,7 @@
 #include "third_party/blink/renderer/core/script/modulator.h"
 #include "third_party/blink/renderer/core/script/module_record_resolver.h"
 #include "third_party/blink/renderer/platform/bindings/to_v8.h"
+#include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
 #include "third_party/blink/renderer/platform/weborigin/kurl.h"
 #include "third_party/blink/renderer/platform/wtf/text/text_position.h"
 #include "v8/include/v8.h"
@@ -35,6 +37,7 @@ ValueWrapperSyntheticModuleScript::CreateCSSWrapperSyntheticModuleScript(
                                  "ModuleScriptLoader",
                                  "CreateCSSWrapperSyntheticModuleScript");
   ExecutionContext* execution_context = ExecutionContext::From(script_state);
+  UseCounter::Count(execution_context, WebFeature::kCreateCSSModuleScript);
   auto* context_window = DynamicTo<LocalDOMWindow>(execution_context);
   if (!context_window) {
     v8::Local<v8::Value> error = V8ThrowException::CreateTypeError(
@@ -83,6 +86,8 @@ ValueWrapperSyntheticModuleScript::CreateJSONWrapperSyntheticModuleScript(
   ExceptionState exception_state(isolate, ExceptionState::kExecutionContext,
                                  "ModuleScriptLoader",
                                  "CreateJSONWrapperSyntheticModuleScript");
+  UseCounter::Count(ExecutionContext::From(settings_object->GetScriptState()),
+                    WebFeature::kCreateJSONModuleScript);
   // Step 1. "Let script be a new module script that this algorithm will
   // subsequently initialize."
   // [spec text]
@@ -191,6 +196,8 @@ v8::MaybeLocal<v8::Value> ValueWrapperSyntheticModuleScript::EvaluationSteps(
       value_wrapper_synthetic_module_script =
           static_cast<const ValueWrapperSyntheticModuleScript*>(
               module_record_resolver->GetModuleScriptFromModuleRecord(module));
+  v8::MicrotasksScope microtasks_scope(
+      isolate, v8::MicrotasksScope::kDoNotRunMicrotasks);
   v8::TryCatch try_catch(isolate);
   v8::Maybe<bool> result = module->SetSyntheticModuleExport(
       isolate, V8String(isolate, "default"),

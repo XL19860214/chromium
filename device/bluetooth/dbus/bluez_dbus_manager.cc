@@ -7,6 +7,7 @@
 #include <memory>
 #include <utility>
 
+#include "ash/constants/ash_features.h"
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/feature_list.h"
@@ -16,7 +17,6 @@
 #include "base/threading/thread.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
-#include "chromeos/constants/chromeos_features.h"
 #include "dbus/bus.h"
 #include "dbus/dbus_statistics.h"
 #include "dbus/message.h"
@@ -24,6 +24,7 @@
 #include "dbus/object_proxy.h"
 #include "device/base/features.h"
 #include "device/bluetooth/dbus/bluetooth_adapter_client.h"
+#include "device/bluetooth/dbus/bluetooth_admin_policy_client.h"
 #include "device/bluetooth/dbus/bluetooth_agent_manager_client.h"
 #include "device/bluetooth/dbus/bluetooth_battery_client.h"
 #include "device/bluetooth/dbus/bluetooth_debug_manager_client.h"
@@ -58,7 +59,8 @@ BluezDBusManager::BluezDBusManager(dbus::Bus* bus,
 #endif
 
   if (!should_check_object_manager || use_dbus_fakes) {
-    client_bundle_.reset(new BluetoothDBusClientBundle(use_dbus_fakes));
+    client_bundle_ =
+        std::make_unique<BluetoothDBusClientBundle>(use_dbus_fakes);
     InitializeClients();
     object_manager_supported_ = true;
     object_manager_support_known_ = true;
@@ -98,6 +100,12 @@ void BluezDBusManager::CallWhenObjectManagerSupportIsKnown(
 BluetoothAdapterClient* bluez::BluezDBusManager::GetBluetoothAdapterClient() {
   DCHECK(object_manager_support_known_);
   return client_bundle_->bluetooth_adapter_client();
+}
+
+BluetoothAdminPolicyClient*
+bluez::BluezDBusManager::GetBluetoothAdminPolicyClient() {
+  DCHECK(object_manager_support_known_);
+  return client_bundle_->bluetooth_admin_policy_client();
 }
 
 BluetoothLEAdvertisingManagerClient*
@@ -177,7 +185,8 @@ void BluezDBusManager::OnObjectManagerSupported(dbus::Response* response) {
   DVLOG(1) << "Bluetooth supported. Initializing clients.";
   object_manager_supported_ = true;
 
-  client_bundle_.reset(new BluetoothDBusClientBundle(false /* use_fakes */));
+  client_bundle_ =
+      std::make_unique<BluetoothDBusClientBundle>(false /* use_fakes */);
   InitializeClients();
 
   object_manager_support_known_ = true;
@@ -202,6 +211,8 @@ void BluezDBusManager::InitializeClients() {
       bluez_object_manager::kBluezObjectManagerServiceName;
   client_bundle_->bluetooth_adapter_client()->Init(GetSystemBus(),
                                                    bluetooth_service_name);
+  client_bundle_->bluetooth_admin_policy_client()->Init(GetSystemBus(),
+                                                        bluetooth_service_name);
   client_bundle_->bluetooth_agent_manager_client()->Init(
       GetSystemBus(), bluetooth_service_name);
   client_bundle_->bluetooth_device_client()->Init(GetSystemBus(),
@@ -227,11 +238,8 @@ void BluezDBusManager::InitializeClients() {
       bluetooth_object_manager::kBluetoothObjectManagerServiceName);
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-  if (base::FeatureList::IsEnabled(
-          chromeos::features::kShowBluetoothDeviceBattery)) {
-    client_bundle_->bluetooth_battery_client()->Init(GetSystemBus(),
-                                                     bluetooth_service_name);
-  }
+  client_bundle_->bluetooth_battery_client()->Init(GetSystemBus(),
+                                                   bluetooth_service_name);
 #endif
 
   if (!alternate_bus_)
@@ -337,6 +345,12 @@ void BluezDBusManagerSetter::SetBluetoothAdapterClient(
     std::unique_ptr<BluetoothAdapterClient> client) {
   bluez::BluezDBusManager::Get()->client_bundle_->bluetooth_adapter_client_ =
       std::move(client);
+}
+
+void BluezDBusManagerSetter::SetBluetoothAdminPolicyClient(
+    std::unique_ptr<BluetoothAdminPolicyClient> client) {
+  bluez::BluezDBusManager::Get()
+      ->client_bundle_->bluetooth_admin_policy_client_ = std::move(client);
 }
 
 void BluezDBusManagerSetter::SetBluetoothLEAdvertisingManagerClient(

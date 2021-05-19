@@ -40,6 +40,7 @@
 #include "gpu/vulkan/vulkan_image.h"
 #include "third_party/skia/include/core/SkPromiseImageTexture.h"
 #include "ui/gfx/android/android_surface_control_compat.h"
+#include "ui/gfx/buffer_format_util.h"
 #include "ui/gfx/color_space.h"
 #include "ui/gfx/geometry/size.h"
 #include "ui/gl/gl_context.h"
@@ -220,7 +221,7 @@ class SharedImageRepresentationOverlayAHB
                                       MemoryTypeTracker* tracker)
       : SharedImageRepresentationOverlay(manager, backing, tracker) {}
 
-  ~SharedImageRepresentationOverlayAHB() override { EndReadAccess(); }
+  ~SharedImageRepresentationOverlayAHB() override { EndReadAccess({}); }
 
  private:
   SharedImageBackingAHB* ahb_backing() {
@@ -232,13 +233,13 @@ class SharedImageRepresentationOverlayAHB
     NOTREACHED();
   }
 
-  bool BeginReadAccess(std::vector<gfx::GpuFence>* acquire_fences,
-                       std::vector<gfx::GpuFence>* release_fences) override {
+  bool BeginReadAccess(std::vector<gfx::GpuFence>* acquire_fences) override {
     gl_image_ = ahb_backing()->BeginOverlayAccess();
     return !!gl_image_;
   }
 
-  void EndReadAccess() override {
+  void EndReadAccess(gfx::GpuFenceHandle release_fence) override {
+    DCHECK(release_fence.is_null());
     if (gl_image_) {
       ahb_backing()->EndOverlayAccess();
       gl_image_ = nullptr;
@@ -584,7 +585,8 @@ bool SharedImageBackingFactoryAHB::ValidateUsage(
   if (size.width() < 1 || size.height() < 1 ||
       size.width() > max_gl_texture_size_ ||
       size.height() > max_gl_texture_size_) {
-    LOG(ERROR) << "CreateSharedImage: invalid size";
+    LOG(ERROR) << "CreateSharedImage: invalid size=" << size.ToString()
+               << " max_gl_texture_size=" << max_gl_texture_size_;
     return false;
   }
 
@@ -748,6 +750,7 @@ SharedImageBackingFactoryAHB::CreateSharedImage(
     int client_id,
     gfx::GpuMemoryBufferHandle handle,
     gfx::BufferFormat buffer_format,
+    gfx::BufferPlane plane,
     SurfaceHandle surface_handle,
     const gfx::Size& size,
     const gfx::ColorSpace& color_space,
@@ -757,6 +760,10 @@ SharedImageBackingFactoryAHB::CreateSharedImage(
   // TODO(vasilyt): support SHARED_MEMORY_BUFFER?
   if (handle.type != gfx::ANDROID_HARDWARE_BUFFER) {
     NOTIMPLEMENTED();
+    return nullptr;
+  }
+  if (plane != gfx::BufferPlane::DEFAULT) {
+    LOG(ERROR) << "Invalid plane " << gfx::BufferPlaneToString(plane);
     return nullptr;
   }
 
@@ -773,10 +780,13 @@ SharedImageBackingFactoryAHB::CreateSharedImage(
     return nullptr;
   }
 
-  return std::make_unique<SharedImageBackingAHB>(
+  auto backing = std::make_unique<SharedImageBackingAHB>(
       mailbox, resource_format, size, color_space, surface_origin, alpha_type,
       usage, std::move(handle.android_hardware_buffer), estimated_size, false,
       base::ScopedFD());
+
+  backing->SetCleared();
+  return backing;
 }
 
 }  // namespace gpu

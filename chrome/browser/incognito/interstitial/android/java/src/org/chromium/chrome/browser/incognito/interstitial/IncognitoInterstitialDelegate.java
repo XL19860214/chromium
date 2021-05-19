@@ -55,7 +55,8 @@ public class IncognitoInterstitialDelegate {
         ThreadUtils.assertOnUiThread();
         mHelpAndFeedbackLauncher.show(mActivity,
                 mActivity.getString(R.string.help_context_incognito_learn_more),
-                Profile.getLastUsedRegularProfile().getPrimaryOTRProfile(), null);
+                Profile.getLastUsedRegularProfile().getPrimaryOTRProfile(/*createIfNeeded=*/true),
+                null);
     }
 
     /**
@@ -67,7 +68,7 @@ public class IncognitoInterstitialDelegate {
         ThreadUtils.assertOnUiThread();
         Tab currentRegularTab = TabModelUtils.getCurrentTab(mRegularTabModel);
         mIncognitoTabCreator.launchUrl(
-                currentRegularTab.getUrlString(), TabLaunchType.FROM_CHROME_UI);
+                currentRegularTab.getUrl().getSpec(), TabLaunchType.FROM_CHROME_UI);
         mRegularTabModel.closeTab(currentRegularTab);
     }
 }

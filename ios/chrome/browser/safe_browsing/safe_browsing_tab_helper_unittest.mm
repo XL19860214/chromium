@@ -22,6 +22,7 @@
 #import "ios/web/public/test/fakes/fake_web_state.h"
 #include "ios/web/public/test/web_task_environment.h"
 #import "net/base/mac/url_conversions.h"
+#include "services/network/public/mojom/fetch_api.mojom.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #import "testing/gtest_mac.h"
 #include "testing/platform_test.h"
@@ -69,7 +70,8 @@ class SafeBrowsingTabHelperTest
       ui::PageTransition transition =
           ui::PageTransition::PAGE_TRANSITION_FIRST) {
     web::WebStatePolicyDecider::RequestInfo request_info(
-        transition, for_main_frame, /*has_user_gesture=*/false);
+        transition, for_main_frame, /*target_frame_is_cross_origin=*/false,
+        /*has_user_gesture=*/false);
     return web_state_.ShouldAllowRequest(
         [NSURLRequest requestWithURL:net::NSURLWithGURL(url)], request_info);
   }
@@ -139,9 +141,9 @@ class SafeBrowsingTabHelperTest
   void StoreUnsafeResource(const GURL& url, bool is_main_frame = true) {
     security_interstitials::UnsafeResource resource;
     resource.url = url;
-    resource.resource_type = is_main_frame
-                                 ? safe_browsing::ResourceType::kMainFrame
-                                 : safe_browsing::ResourceType::kSubFrame;
+    resource.request_destination =
+        is_main_frame ? network::mojom::RequestDestination::kDocument
+                      : network::mojom::RequestDestination::kIframe;
     resource.web_state_getter = web_state_.CreateDefaultGetter();
     SafeBrowsingQueryManager::FromWebState(&web_state_)
         ->StoreUnsafeResource(resource);
@@ -574,6 +576,25 @@ TEST_P(SafeBrowsingTabHelperTest, StaleIframeReload) {
   if (SafeBrowsingDecisionArrivesBeforeResponse())
     base::RunLoop().RunUntilIdle();
   auto response_decision = ShouldAllowResponseUrl(safe_url);
+  EXPECT_TRUE(response_decision.ShouldAllowNavigation());
+}
+
+// Tests the case of a main frame reload request that arrives when both the last
+// committed item and pending items are null.
+TEST_P(SafeBrowsingTabHelperTest, MainFrameReload) {
+  GURL url("http://chromium.test");
+  ASSERT_FALSE(navigation_manager_->GetLastCommittedItem());
+  ASSERT_FALSE(navigation_manager_->GetPendingItem());
+
+  auto request_decision = ShouldAllowRequestUrl(
+      url, /*for_main_frame=*/true, ui::PageTransition::PAGE_TRANSITION_RELOAD);
+  EXPECT_TRUE(request_decision.ShouldAllowNavigation());
+
+  if (SafeBrowsingDecisionArrivesBeforeResponse())
+    base::RunLoop().RunUntilIdle();
+
+  web::WebStatePolicyDecider::PolicyDecision response_decision =
+      ShouldAllowResponseUrl(url);
   EXPECT_TRUE(response_decision.ShouldAllowNavigation());
 }
 

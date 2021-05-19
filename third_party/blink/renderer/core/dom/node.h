@@ -26,6 +26,7 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_DOM_NODE_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_DOM_NODE_H_
 
+#include "base/dcheck_is_on.h"
 #include "base/macros.h"
 #include "third_party/blink/public/mojom/input/focus_type.mojom-blink-forward.h"
 #include "third_party/blink/renderer/core/core_export.h"
@@ -36,6 +37,9 @@
 #include "third_party/blink/renderer/core/dom/tree_scope.h"
 #include "third_party/blink/renderer/core/scroll/scroll_customization.h"
 #include "third_party/blink/renderer/core/style/computed_style_constants.h"
+#include "third_party/blink/renderer/platform/heap/custom_spaces.h"
+#include "third_party/blink/renderer/platform/text/text_direction.h"
+#include "third_party/blink/renderer/platform/wtf/buildflags.h"
 
 // This needs to be here because element.cc also depends on it.
 #define DUMP_NODE_STATISTICS 0
@@ -78,6 +82,8 @@ using StaticNodeList = StaticNodeTypeList<Node>;
 class StringOrTrustedScript;
 class StyleChangeReasonForTracing;
 class V8ScrollStateCallback;
+class V8UnionNodeOrStringOrTrustedScript;
+class V8UnionStringOrTrustedScript;
 class WebPluginContainerImpl;
 struct PhysicalRect;
 
@@ -124,6 +130,16 @@ enum class LegacyLayout {
   kForce
 };
 
+// LinkHighlight determines the largest enclosing node with hand cursor set.
+enum class LinkHighlightCandidate {
+  // This node is with hand cursor set.
+  kYes,
+  // This node is not with hand cursor set.
+  kNo,
+  // |kYes| if its ancestor is |kYes|.
+  kMayBe
+};
+
 // A Node is a base class for all objects in the DOM tree.
 // The spec governing this interface can be found here:
 // https://dom.spec.whatwg.org/#interface-node
@@ -166,6 +182,7 @@ class CORE_EXPORT Node : public EventTarget {
     kDocumentPositionImplementationSpecific = 0x20,
   };
 
+#if !BUILDFLAG(USE_V8_OILPAN)
   template <typename T>
   static void* AllocateObject(size_t size) {
     ThreadState* state =
@@ -175,6 +192,7 @@ class CORE_EXPORT Node : public EventTarget {
         state, size, BlinkGC::kNodeArenaIndex,
         GCInfoTrait<GCInfoFoldedType<T>>::Index(), type_name);
   }
+#endif  // !BUILDFLAG(USE_V8_OILPAN)
 
   static void DumpStatistics();
 
@@ -222,6 +240,26 @@ class CORE_EXPORT Node : public EventTarget {
   // https://dom.spec.whatwg.org/#concept-closed-shadow-hidden
   bool IsClosedShadowHiddenFrom(const Node&) const;
 
+#if defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
+  void Prepend(
+      const HeapVector<Member<V8UnionNodeOrStringOrTrustedScript>>& nodes,
+      ExceptionState& exception_state);
+  void Append(
+      const HeapVector<Member<V8UnionNodeOrStringOrTrustedScript>>& nodes,
+      ExceptionState& exception_state);
+  void Before(
+      const HeapVector<Member<V8UnionNodeOrStringOrTrustedScript>>& nodes,
+      ExceptionState& exception_state);
+  void After(
+      const HeapVector<Member<V8UnionNodeOrStringOrTrustedScript>>& nodes,
+      ExceptionState& exception_state);
+  void ReplaceWith(
+      const HeapVector<Member<V8UnionNodeOrStringOrTrustedScript>>& nodes,
+      ExceptionState& exception_state);
+  void ReplaceChildren(
+      const HeapVector<Member<V8UnionNodeOrStringOrTrustedScript>>& nodes,
+      ExceptionState& exception_state);
+#else   // defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
   void Prepend(const HeapVector<NodeOrStringOrTrustedScript>&, ExceptionState&);
   void Append(const HeapVector<NodeOrStringOrTrustedScript>&, ExceptionState&);
   void Before(const HeapVector<NodeOrStringOrTrustedScript>&, ExceptionState&);
@@ -230,6 +268,7 @@ class CORE_EXPORT Node : public EventTarget {
                    ExceptionState&);
   void ReplaceChildren(const HeapVector<NodeOrStringOrTrustedScript>&,
                        ExceptionState&);
+#endif  // defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
   void remove(ExceptionState&);
   void remove();
 
@@ -265,8 +304,16 @@ class CORE_EXPORT Node : public EventTarget {
 
   String textContent(bool convert_brs_to_newlines = false) const;
   virtual void setTextContent(const String&);
-  void textContent(StringOrTrustedScript& result);
-  virtual void setTextContent(const StringOrTrustedScript&, ExceptionState&);
+#if defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
+  V8UnionStringOrTrustedScript* textContentForBinding() const;
+  virtual void setTextContentForBinding(
+      const V8UnionStringOrTrustedScript* value,
+      ExceptionState& exception_state);
+#else   // defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
+  void textContentForBinding(StringOrTrustedScript& result);
+  virtual void setTextContentForBinding(const StringOrTrustedScript&,
+                                        ExceptionState&);
+#endif  // defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
 
   bool SupportsAltText();
 
@@ -343,7 +390,6 @@ class CORE_EXPORT Node : public EventTarget {
   bool IsTreeScope() const;
   bool IsShadowRoot() const { return IsDocumentFragment() && IsTreeScope(); }
 
-  bool CanParticipateInFlatTree() const;
   bool IsActiveSlot() const;
   bool IsSlotable() const { return IsTextNode() || IsElementNode(); }
   AtomicString SlotName() const;
@@ -564,6 +610,9 @@ class CORE_EXPORT Node : public EventTarget {
   // inert to prevent text selection.
   bool IsInert() const;
 
+  // Returns how |this| participates to the nodes with hand cursor set.
+  LinkHighlightCandidate IsLinkHighlightCandidate() const;
+
   virtual PhysicalRect BoundingBox() const;
   IntRect PixelSnappedBoundingBox() const;
 
@@ -624,6 +673,7 @@ class CORE_EXPORT Node : public EventTarget {
   unsigned CountChildren() const;
 
   bool IsDescendantOf(const Node*) const;
+  bool IsDescendantOrShadowDescendantOf(const Node*) const;
   bool contains(const Node*) const;
   // https://dom.spec.whatwg.org/#concept-shadow-including-inclusive-ancestor
   bool IsShadowIncludingInclusiveAncestorOf(const Node&) const;
@@ -708,8 +758,10 @@ class CORE_EXPORT Node : public EventTarget {
   bool ShouldSkipMarkingStyleDirty() const;
 
   const ComputedStyle* EnsureComputedStyle(
-      PseudoId pseudo_element_specifier = kPseudoIdNone) {
-    return VirtualEnsureComputedStyle(pseudo_element_specifier);
+      PseudoId pseudo_element_specifier = kPseudoIdNone,
+      const AtomicString& pseudo_argument = g_null_atom) {
+    return VirtualEnsureComputedStyle(pseudo_element_specifier,
+                                      pseudo_argument);
   }
 
   // ---------------------------------------------------------------------------
@@ -822,7 +874,6 @@ class CORE_EXPORT Node : public EventTarget {
                                                Event& underlying_event);
 
   void DispatchSimulatedClick(const Event* underlying_event,
-                              SimulatedClickMouseEventOptions = kSendNoEvents,
                               SimulatedClickCreationScope =
                                   SimulatedClickCreationScope::kFromUserAgent);
 
@@ -855,6 +906,7 @@ class CORE_EXPORT Node : public EventTarget {
   StaticNodeList* getDestinationInsertionPoints();
   HTMLSlotElement* AssignedSlot() const;
   HTMLSlotElement* assignedSlotForBinding();
+  HTMLSlotElement* AssignedSlotWithoutRecalc() const;
 
   bool IsFinishedParsingChildren() const {
     return GetFlag(kIsFinishedParsingChildrenFlag);
@@ -887,10 +939,47 @@ class CORE_EXPORT Node : public EventTarget {
   void RegisterScrollTimeline(ScrollTimeline*);
   void UnregisterScrollTimeline(ScrollTimeline*);
 
+  // For the imperative slot distribution API.
+  void SetManuallyAssignedSlot(HTMLSlotElement* slot);
+  HTMLSlotElement* ManuallyAssignedSlot();
+
   // For Element.
   void SetHasDisplayLockContext() { SetFlag(kHasDisplayLockContext); }
   bool HasDisplayLockContext() const { return GetFlag(kHasDisplayLockContext); }
 
+  bool SelfOrAncestorHasDirAutoAttribute() const {
+    return GetFlag(kSelfOrAncestorHasDirAutoAttribute);
+  }
+  void SetSelfOrAncestorHasDirAutoAttribute() {
+    SetFlag(kSelfOrAncestorHasDirAutoAttribute);
+  }
+  void ClearSelfOrAncestorHasDirAutoAttribute() {
+    ClearFlag(kSelfOrAncestorHasDirAutoAttribute);
+  }
+  TextDirection CachedDirectionality() const {
+    return (node_flags_ & kCachedDirectionalityIsRtl) ? TextDirection::kRtl
+                                                      : TextDirection::kLtr;
+  }
+  void SetCachedDirectionality(TextDirection direction) {
+    switch (direction) {
+      case TextDirection::kRtl:
+        SetFlag(kCachedDirectionalityIsRtl);
+        break;
+      case TextDirection::kLtr:
+        ClearFlag(kCachedDirectionalityIsRtl);
+        break;
+    }
+    ClearFlag(kNeedsInheritDirectionalityFromParent);
+  }
+  bool NeedsInheritDirectionalityFromParent() const {
+    return GetFlag(kNeedsInheritDirectionalityFromParent);
+  }
+  void SetNeedsInheritDirectionalityFromParent() {
+    SetFlag(kNeedsInheritDirectionalityFromParent);
+  }
+  void ClearNeedsInheritDirectionalityFromParent() {
+    ClearFlag(kNeedsInheritDirectionalityFromParent);
+  }
   void Trace(Visitor*) const override;
 
  private:
@@ -938,9 +1027,13 @@ class CORE_EXPORT Node : public EventTarget {
 
     kHasDisplayLockContext = 1 << 26,
 
+    kSelfOrAncestorHasDirAutoAttribute = 1 << 27,
+    kCachedDirectionalityIsRtl = 1 << 28,
+    kNeedsInheritDirectionalityFromParent = 1 << 29,
+
     kDefaultNodeFlags = kIsFinishedParsingChildrenFlag,
 
-    // 6 bits remaining.
+    // 3 bits remaining.
   };
 
   ALWAYS_INLINE bool GetFlag(NodeFlags mask) const {
@@ -1063,7 +1156,8 @@ class CORE_EXPORT Node : public EventTarget {
   }
 
   virtual const ComputedStyle* VirtualEnsureComputedStyle(
-      PseudoId = kPseudoIdNone);
+      PseudoId = kPseudoIdNone,
+      const AtomicString& pseudo_argument = g_null_atom);
 
   void TrackForDebugging();
 
@@ -1082,6 +1176,9 @@ class CORE_EXPORT Node : public EventTarget {
     DCHECK(!HasRareData());
     return reinterpret_cast<NodeRenderingData*>(data_.Get());
   }
+  ShadowRoot* GetSlotAssignmentRoot() const;
+
+  void AddCandidateDirectionalityForSlot();
 
   uint32_t node_flags_;
   Member<Node> parent_or_shadow_host_node_;
@@ -1116,5 +1213,25 @@ void showNode(const blink::Node*);
 void showTree(const blink::Node*);
 void showNodePath(const blink::Node*);
 #endif
+
+#if BUILDFLAG(USE_V8_OILPAN)
+namespace cppgc {
+// Assign Node to be allocated on custom NodeSpace.
+template <typename T>
+struct SpaceTrait<T, std::enable_if_t<std::is_base_of<blink::Node, T>::value>> {
+  using Space = blink::NodeSpace;
+};
+}  // namespace cppgc
+
+namespace blink {
+template <typename T>
+struct ThreadingTrait<
+    T,
+    std::enable_if_t<std::is_base_of<blink::Node, T>::value>> {
+  static constexpr ThreadAffinity kAffinity = kMainThreadOnly;
+};
+}  // namespace blink
+
+#endif  // USE_V8_OILPAN
 
 #endif  // THIRD_PARTY_BLINK_RENDERER_CORE_DOM_NODE_H_

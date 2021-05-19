@@ -9,6 +9,7 @@
 
 #include <memory>
 
+#include "base/types/strong_alias.h"
 #include "third_party/blink/renderer/core/core_export.h"
 
 namespace blink {
@@ -20,15 +21,24 @@ class ReadableStreamTransferringOptimizer;
 class ScriptState;
 class UnderlyingSourceBase;
 class WritableStream;
+class WritableStreamTransferringOptimizer;
+
+// A boolean representing whether each chunk can be transferred instead of
+// cloned.
+using AllowPerChunkTransferring =
+    base::StrongAlias<class AllowPerChunkTransferringTag, bool>;
 
 // Creates the writable side of a cross-realm identity transform stream, using
 // |port| for communication. |port| must be entangled with another MessagePort
 // which is passed to CreateCrossRealmTransformReadable().
 // Equivalent to SetUpCrossRealmTransformWritable in the standard:
 // https://streams.spec.whatwg.org/#abstract-opdef-setupcrossrealmtransformwritable
-CORE_EXPORT WritableStream* CreateCrossRealmTransformWritable(ScriptState*,
-                                                              MessagePort* port,
-                                                              ExceptionState&);
+CORE_EXPORT WritableStream* CreateCrossRealmTransformWritable(
+    ScriptState*,
+    MessagePort* port,
+    AllowPerChunkTransferring,
+    std::unique_ptr<WritableStreamTransferringOptimizer> optimizer,
+    ExceptionState&);
 
 // Creates the readable side of a cross-realm identity transform stream. |port|
 // is used symmetrically with CreateCrossRealmTransformWritable().

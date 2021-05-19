@@ -403,7 +403,6 @@ INSTANTIATE_TEST_SUITE_P(InvalidPseudoIsArguments,
                          SelectorParseTest,
                          testing::ValuesIn(invalid_pseudo_is_argments_data));
 
-
 static const SelectorTestCase is_where_nesting_data[] = {
     // clang-format off
     // These pseudos only accept compound selectors:
@@ -419,7 +418,7 @@ static const SelectorTestCase is_where_nesting_data[] = {
     {"::cue(:is(.a .b))", "::cue(:is())"},
     {"::cue(:is(.a + .b))", "::cue(:is())"},
     {"::cue(:is(.a, .b + .c))", "::cue(:is(.a))"},
-    // Only user-action pseudos + :state() are allowed after kPseudoPart:
+    // Only user-action pseudos + :--state are allowed after kPseudoPart:
     {"::part(foo):is(.a)", "::part(foo):is()"},
     {"::part(foo):is(.a:hover)", "::part(foo):is()"},
     {"::part(foo):is(:hover.a)", "::part(foo):is()"},
@@ -430,7 +429,7 @@ static const SelectorTestCase is_where_nesting_data[] = {
     {"::part(foo):is(:hover, :where(.a))",
      "::part(foo):is(:hover, :where())"},
     {"::part(foo):is(:hover, .a)", "::part(foo):is(:hover)"},
-    {"::part(foo):is(:state(bar), .a)", "::part(foo):is(:state(bar))"},
+    {"::part(foo):is(:--bar, .a)", "::part(foo):is(:--bar)"},
     {"::part(foo):is(:enabled)", "::part(foo):is()"},
     // Only scrollbar pseudos after kPseudoScrollbar:
     {"::-webkit-scrollbar:is(:focus)", "::-webkit-scrollbar:is()"},
@@ -444,6 +443,7 @@ static const SelectorTestCase is_where_nesting_data[] = {
 
     // Valid selectors:
     {":is(.a, .b)"},
+    {":is(.a\n)", ":is(.a)"},
     {":is(.a .b, .c)"},
     {":is(.a :is(.b .c), .d)"},
     {":is(.a :where(.b .c), .d)"},
@@ -458,6 +458,7 @@ static const SelectorTestCase is_where_nesting_data[] = {
     {":host(:is(.a))"},
     {":host(:is(div.a))"},
     {":host(:is(.a, .b))"},
+    {":host(:is(.a\n))", ":host(:is(.a))"},
     {":host-context(:is(.a))"},
     {":host-context(:is(div.a))"},
     {":host-context(:is(.a, .b))"},
@@ -469,7 +470,7 @@ static const SelectorTestCase is_where_nesting_data[] = {
     {"::part(foo):is(:is(:hover))"},
     {"::part(foo):is(:focus, :hover)"},
     {"::part(foo):is(:focus, :is(:hover))"},
-    {"::part(foo):is(:focus, :state(bar))"},
+    {"::part(foo):is(:focus, :--bar)"},
     {"::-webkit-scrollbar:is(:enabled)"},
     {"::selection:is(:window-inactive)"},
     {"::-webkit-input-placeholder:is(:hover)"},
@@ -686,8 +687,6 @@ TEST(CSSSelectorParserTest, UseCountShadowPseudo) {
               WebFeature::kCSSSelectorWebkitDatetimeEditWeekField);
   ExpectCount("::-webkit-datetime-edit-year-field",
               WebFeature::kCSSSelectorWebkitDatetimeEditYearField);
-  ExpectCount("::-webkit-details-marker",
-              WebFeature::kCSSSelectorWebkitDetailsMarker);
   ExpectCount("::-webkit-file-upload-button",
               WebFeature::kCSSSelectorWebkitFileUploadButton);
   ExpectCount("::-webkit-inner-spin-button",

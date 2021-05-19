@@ -92,12 +92,6 @@ CORE_EXPORT bool IsVisuallyEquivalentCandidate(const PositionInFlatTree&);
 // If true, adjacent candidates are visually distinct.
 CORE_EXPORT bool EndsOfNodeAreVisuallyDistinctPositions(const Node*);
 
-CORE_EXPORT PositionWithAffinity SnapBackward(const Position&);
-CORE_EXPORT PositionInFlatTreeWithAffinity
-SnapBackward(const PositionInFlatTree&);
-CORE_EXPORT PositionWithAffinity SnapForward(const Position&);
-CORE_EXPORT PositionInFlatTreeWithAffinity
-SnapForward(const PositionInFlatTree&);
 CORE_EXPORT Position CanonicalPositionOf(const Position&);
 CORE_EXPORT PositionInFlatTree CanonicalPositionOf(const PositionInFlatTree&);
 
@@ -208,7 +202,7 @@ EndOfParagraph(const VisiblePosition&,
 CORE_EXPORT VisiblePositionInFlatTree
 EndOfParagraph(const VisiblePositionInFlatTree&,
                EditingBoundaryCrossingRule = kCannotCrossEditingBoundary);
-VisiblePosition StartOfNextParagraph(const VisiblePosition&);
+CORE_EXPORT VisiblePosition StartOfNextParagraph(const VisiblePosition&);
 CORE_EXPORT bool IsStartOfParagraph(
     const VisiblePosition&,
     EditingBoundaryCrossingRule = kCannotCrossEditingBoundary);

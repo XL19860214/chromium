@@ -8,25 +8,38 @@
 #include "base/mac/foundation_util.h"
 #include "base/strings/strcat.h"
 #include "base/strings/sys_string_conversions.h"
+#include "chrome/updater/updater_branding.h"
 #include "chrome/updater/updater_version.h"
 
 namespace updater {
 
-const char kUpdateServiceInternalLaunchdName[] =
-    MAC_BUNDLE_IDENTIFIER_STRING ".update-internal." UPDATER_VERSION_STRING;
+namespace {
+
+const char kUpdateServiceInternalLaunchdPrefix[] =
+    MAC_BUNDLE_IDENTIFIER_STRING ".update-internal.";
 const char kUpdateServiceLaunchdName[] = MAC_BUNDLE_IDENTIFIER_STRING ".update";
+
+}  // namespace
+
+std::string GetUpdateServiceLaunchdName() {
+  return kUpdateServiceLaunchdName;
+}
+
+std::string GetUpdateServiceInternalLaunchdName() {
+  return base::StrCat({kUpdateServiceInternalLaunchdPrefix, kUpdaterVersion});
+}
 
 base::ScopedCFTypeRef<CFStringRef> CopyUpdateServiceLaunchdName() {
   return base::SysUTF8ToCFStringRef(kUpdateServiceLaunchdName);
 }
 
 base::ScopedCFTypeRef<CFStringRef> CopyWakeLaunchdName() {
-  return base::SysUTF8ToCFStringRef(MAC_BUNDLE_IDENTIFIER_STRING
-                                    ".wake." UPDATER_VERSION_STRING);
+  return base::SysUTF8ToCFStringRef(
+      base::StrCat({MAC_BUNDLE_IDENTIFIER_STRING ".wake.", kUpdaterVersion}));
 }
 
 base::ScopedCFTypeRef<CFStringRef> CopyUpdateServiceInternalLaunchdName() {
-  return base::SysUTF8ToCFStringRef(kUpdateServiceInternalLaunchdName);
+  return base::SysUTF8ToCFStringRef(GetUpdateServiceInternalLaunchdName());
 }
 
 base::scoped_nsobject<NSString> GetUpdateServiceLaunchdLabel() {

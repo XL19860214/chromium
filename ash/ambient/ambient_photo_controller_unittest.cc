@@ -19,14 +19,14 @@
 #include "base/base_paths.h"
 #include "base/bind.h"
 #include "base/callback.h"
+#include "base/containers/contains.h"
 #include "base/files/file_enumerator.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/hash/sha1.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
-#include "base/scoped_observer.h"
-#include "base/stl_util.h"
+#include "base/scoped_observation.h"
 #include "base/system/sys_info.h"
 #include "base/test/bind.h"
 #include "base/timer/timer.h"
@@ -79,6 +79,10 @@ class AmbientPhotoControllerTest : public AmbientAshTestBase {
                               /*related_image=*/related_image,
                               loop.QuitClosure());
     loop.Run();
+  }
+
+  void ScheduleFetchBackupImages() {
+    photo_controller()->ScheduleFetchBackupImages();
   }
 };
 
@@ -143,6 +147,22 @@ TEST_F(AmbientPhotoControllerTest, ShouldUpdatePhotoPeriodically) {
   EXPECT_FALSE(image3.IsNull());
   EXPECT_FALSE(image1.photo.BackedBySameObjectAs(image3.photo));
   EXPECT_FALSE(image2.photo.BackedBySameObjectAs(image3.photo));
+
+  // Stop to refresh images.
+  photo_controller()->StopScreenUpdate();
+}
+
+// Tests that image details is correctly set.
+TEST_F(AmbientPhotoControllerTest, ShouldSetDetailsCorrectly) {
+  // Start to refresh images.
+  photo_controller()->StartScreenUpdate();
+  FastForwardToNextImage();
+  PhotoWithDetails image =
+      photo_controller()->ambient_backend_model()->GetNextImage();
+  EXPECT_FALSE(image.IsNull());
+
+  // Fake details defined in fake_ambient_backend_controller_impl.cc.
+  EXPECT_EQ(image.details, "fake-photo-attribution");
 
   // Stop to refresh images.
   photo_controller()->StopScreenUpdate();
@@ -251,6 +271,28 @@ TEST_F(AmbientPhotoControllerTest, ShouldReadCacheWhenImageDownloadingFailed) {
   EXPECT_FALSE(image.IsNull());
 }
 
+// Test that image details is read from disk.
+TEST_F(AmbientPhotoControllerTest, ShouldPopulateDetailsWhenReadFromCache) {
+  FetchImage();
+  FastForwardToNextImage();
+  // Topics is empty. Will read from cache, which is empty.
+  auto image = photo_controller()->ambient_backend_model()->GetCurrentImage();
+  EXPECT_TRUE(image.IsNull());
+
+  // Save a file to check if it gets read for display.
+  std::string data("cached image");
+  std::string details("image details");
+  WriteCacheDataBlocking(/*cache_index=*/0, &data, &details);
+
+  // Reset variables in photo controller.
+  photo_controller()->StopScreenUpdate();
+  FetchImage();
+  FastForwardToNextImage();
+  image = photo_controller()->ambient_backend_model()->GetCurrentImage();
+  EXPECT_FALSE(image.IsNull());
+  EXPECT_EQ(image.details, details);
+}
+
 // Test that image is read from disk when image decoding failed.
 TEST_F(AmbientPhotoControllerTest, ShouldReadCacheWhenImageDecodingFailed) {
   SetDecodePhotoImage(gfx::ImageSkia());
@@ -282,7 +324,7 @@ TEST_F(AmbientPhotoControllerTest, ShouldDownloadBackupImagesWhenScheduled) {
   std::string expected_data = "backup data";
   SetBackupDownloadPhotoData(expected_data);
 
-  photo_controller()->ScheduleFetchBackupImages();
+  ScheduleFetchBackupImages();
 
   EXPECT_TRUE(
       photo_controller()->backup_photo_refresh_timer_for_testing().IsRunning());
@@ -308,7 +350,7 @@ TEST_F(AmbientPhotoControllerTest, ShouldDownloadBackupImagesWhenScheduled) {
 }
 
 TEST_F(AmbientPhotoControllerTest, ShouldResetTimerWhenBackupImagesFail) {
-  photo_controller()->ScheduleFetchBackupImages();
+  ScheduleFetchBackupImages();
 
   EXPECT_TRUE(
       photo_controller()->backup_photo_refresh_timer_for_testing().IsRunning());
@@ -326,7 +368,7 @@ TEST_F(AmbientPhotoControllerTest, ShouldResetTimerWhenBackupImagesFail) {
 
 TEST_F(AmbientPhotoControllerTest,
        ShouldStartDownloadBackupImagesOnAmbientModeStart) {
-  photo_controller()->ScheduleFetchBackupImages();
+  ScheduleFetchBackupImages();
 
   EXPECT_TRUE(
       photo_controller()->backup_photo_refresh_timer_for_testing().IsRunning());
@@ -356,10 +398,10 @@ TEST_F(AmbientPhotoControllerTest,
 
 TEST_F(AmbientPhotoControllerTest, ShouldNotLoadDuplicateImages) {
   testing::NiceMock<MockAmbientBackendModelObserver> mock_backend_observer;
-  ScopedObserver<AmbientBackendModel, AmbientBackendModelObserver>
-      scoped_observer{&mock_backend_observer};
+  base::ScopedObservation<AmbientBackendModel, AmbientBackendModelObserver>
+      scoped_observation{&mock_backend_observer};
 
-  scoped_observer.Add(photo_controller()->ambient_backend_model());
+  scoped_observation.Observe(photo_controller()->ambient_backend_model());
 
   // All images downloaded will be identical.
   SetDownloadPhotoData("image data");

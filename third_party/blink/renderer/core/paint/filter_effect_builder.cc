@@ -122,12 +122,11 @@ Vector<float> SepiaMatrix(double amount) {
 
 }  // namespace
 
-FilterEffectBuilder::FilterEffectBuilder(
-    const FloatRect& reference_box,
-    float zoom,
-    const PaintFlags* fill_flags,
-    const PaintFlags* stroke_flags,
-    SkBlurImageFilter::TileMode blur_tile_mode)
+FilterEffectBuilder::FilterEffectBuilder(const FloatRect& reference_box,
+                                         float zoom,
+                                         const PaintFlags* fill_flags,
+                                         const PaintFlags* stroke_flags,
+                                         SkTileMode blur_tile_mode)
     : reference_box_(reference_box),
       zoom_(zoom),
       shorthand_scale_(1),
@@ -194,6 +193,21 @@ FilterEffect* FilterEffectBuilder::BuildFilterEffect(
             To<BasicColorMatrixFilterOperation>(filter_operation)->Amount()));
         effect = MakeGarbageCollected<FEColorMatrix>(
             parent_filter, FECOLORMATRIX_TYPE_HUEROTATE,
+            std::move(input_parameters));
+        break;
+      }
+      case FilterOperation::LUMINANCE_TO_ALPHA: {
+        Vector<float> input_parameters;
+        effect = MakeGarbageCollected<FEColorMatrix>(
+            parent_filter, FECOLORMATRIX_TYPE_LUMINANCETOALPHA,
+            std::move(input_parameters));
+        break;
+      }
+      case FilterOperation::COLOR_MATRIX: {
+        Vector<float> input_parameters =
+            To<ColorMatrixFilterOperation>(filter_operation)->Values();
+        effect = MakeGarbageCollected<FEColorMatrix>(
+            parent_filter, FECOLORMATRIX_TYPE_MATRIX,
             std::move(input_parameters));
         break;
       }
@@ -285,6 +299,19 @@ FilterEffect* FilterEffectBuilder::BuildFilterEffect(
             parent_filter, box_reflect_operation->Reflection());
         break;
       }
+      case FilterOperation::CONVOLVE_MATRIX: {
+        ConvolveMatrixFilterOperation* convolve_matrix_operation =
+            To<ConvolveMatrixFilterOperation>(filter_operation);
+        effect = MakeGarbageCollected<FEConvolveMatrix>(
+            parent_filter, convolve_matrix_operation->KernelSize(),
+            convolve_matrix_operation->Divisor(),
+            convolve_matrix_operation->Bias(),
+            convolve_matrix_operation->TargetOffset(),
+            convolve_matrix_operation->EdgeMode(),
+            convolve_matrix_operation->PreserveAlpha(),
+            convolve_matrix_operation->KernelMatrix());
+        break;
+      }
       default:
         break;
     }
@@ -354,6 +381,17 @@ CompositorFilterOperations FilterEffectBuilder::BuildFilterOperations(
           default:
             NOTREACHED();
         }
+        break;
+      }
+      case FilterOperation::LUMINANCE_TO_ALPHA:
+      case FilterOperation::CONVOLVE_MATRIX:
+        // These filter types only exist for Canvas filters.
+        NOTREACHED();
+        break;
+      case FilterOperation::COLOR_MATRIX: {
+        Vector<float> matrix_values =
+            To<ColorMatrixFilterOperation>(*op).Values();
+        filters.AppendColorMatrixFilter(matrix_values);
         break;
       }
       case FilterOperation::INVERT:

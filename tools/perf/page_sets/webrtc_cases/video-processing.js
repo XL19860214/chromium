@@ -58,6 +58,220 @@ class CameraSource { // eslint-disable-line no-unused-vars
 }
 
 /*
+ *  Copyright (c) 2021 The WebRTC project authors. All Rights Reserved.
+ *
+ *  Use of this source code is governed by a BSD-style license
+ *  that can be found in the LICENSE file in the root of the source
+ *  tree.
+ */
+
+'use strict';
+
+const TEXT_SOURCE =
+    'https://raw.githubusercontent.com/w3c/mediacapture-insertable-streams/main/explainer.md';
+const CANVAS_ASPECT_RATIO = 16 / 9;
+
+/**
+ * @param {number} x
+ * @return {number} x rounded to the nearest even integer
+ */
+function roundToEven(x) {
+  return 2 * Math.round(x / 2);
+}
+
+/**
+ * Draws text on a Canvas.
+ * @implements {MediaStreamSource} in pipeline.js
+ */
+class CanvasSource { // eslint-disable-line no-unused-vars
+  constructor() {
+    /** @private {boolean} */
+    this.visibility_ = false;
+    /**
+     * @private {?HTMLCanvasElement} canvas element providing the MediaStream.
+     */
+    this.canvas_ = null;
+    /**
+     * @private {?CanvasRenderingContext2D} the 2D context used to draw the
+     *     animation.
+     */
+    this.ctx_ = null;
+    /**
+     * @private {?MediaStream} the MediaStream from captureStream.
+     */
+    this.stream_ = null;
+    /**
+     * @private {?CanvasCaptureMediaStreamTrack} the capture track from
+     *     canvas_, obtained from stream_. We manually request new animation
+     *     frames on this track.
+     */
+    this.captureTrack_ = null;
+    /** @private {number} requestAnimationFrame handle */
+    this.requestAnimationFrameHandle_ = 0;
+    /** @private {!Array<string>} text to render */
+    this.text_ = ['WebRTC samples'];
+    /** @private {string} */
+    this.debugPath_ = '<unknown>';
+    fetch(TEXT_SOURCE)
+        .then(response => {
+          if (response.ok) {
+            return response.text();
+          }
+          throw new Error(`Request completed with status ${response.status}.`);
+        })
+        .then(text => {
+          this.text_ = text.trim().split('\n');
+        })
+        .catch((e) => {
+          console.log(`[CanvasSource] The request to retrieve ${
+            TEXT_SOURCE} encountered an error: ${e}.`);
+        });
+  }
+  /** @override */
+  setDebugPath(path) {
+    this.debugPath_ = path;
+  }
+  /** @override */
+  setVisibility(visible) {
+    this.visibility_ = visible;
+    if (this.canvas_) {
+      this.updateCanvasVisibility();
+    }
+  }
+  /** @private */
+  updateCanvasVisibility() {
+    if (this.canvas_.parentNode && !this.visibility_) {
+      this.canvas_.parentNode.removeChild(this.canvas_);
+    } else if (!this.canvas_.parentNode && this.visibility_) {
+      console.log('[CanvasSource] Adding source canvas to page.');
+      const outputVideoContainer =
+          document.getElementById('outputVideoContainer');
+      outputVideoContainer.parentNode.insertBefore(
+          this.canvas_, outputVideoContainer);
+    }
+  }
+  /** @private */
+  requestAnimationFrame() {
+    this.requestAnimationFrameHandle_ =
+        requestAnimationFrame(now => this.animate(now));
+  }
+  /**
+   * @private
+   * @param {number} now current animation timestamp
+   */
+  animate(now) {
+    this.requestAnimationFrame();
+    const ctx = this.ctx_;
+    if (!this.canvas_ || !ctx || !this.captureTrack_) {
+      return;
+    }
+
+    // Resize canvas based on displayed size; or if not visible, based on the
+    // output video size.
+    // VideoFrame prefers to have dimensions that are even numbers.
+    if (this.visibility_) {
+      this.canvas_.width = roundToEven(this.canvas_.clientWidth);
+    } else {
+      const outputVideoContainer =
+          document.getElementById('outputVideoContainer');
+      const outputVideo = outputVideoContainer.firstElementChild;
+      if (outputVideo) {
+        this.canvas_.width = roundToEven(outputVideo.clientWidth);
+      }
+    }
+    this.canvas_.height = roundToEven(this.canvas_.width / CANVAS_ASPECT_RATIO);
+
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, this.canvas_.width, this.canvas_.height);
+
+    const linesShown = 20;
+    const millisecondsPerLine = 1000;
+    const linesIncludingExtraBlank = this.text_.length + linesShown;
+    const totalAnimationLength = linesIncludingExtraBlank * millisecondsPerLine;
+    const currentFrame = now % totalAnimationLength;
+    const firstLineIdx = Math.floor(
+        linesIncludingExtraBlank * (currentFrame / totalAnimationLength) -
+        linesShown);
+    const lineFraction = (now % millisecondsPerLine) / millisecondsPerLine;
+
+    const border = 20;
+    const fontSize = (this.canvas_.height - 2 * border) / (linesShown + 1);
+    ctx.font = `${fontSize}px sansserif`;
+
+    const textWidth = this.canvas_.width - 2 * border;
+
+    // first line
+    if (firstLineIdx >= 0) {
+      const fade = Math.floor(256 * lineFraction);
+      ctx.fillStyle = `rgb(${fade},${fade},${fade})`;
+      const position = (2 - lineFraction) * fontSize;
+      ctx.fillText(this.text_[firstLineIdx], border, position, textWidth);
+    }
+
+    // middle lines
+    for (let line = 2; line <= linesShown - 1; line++) {
+      const lineIdx = firstLineIdx + line - 1;
+      if (lineIdx >= 0 && lineIdx < this.text_.length) {
+        ctx.fillStyle = 'black';
+        const position = (line + 1 - lineFraction) * fontSize;
+        ctx.fillText(this.text_[lineIdx], border, position, textWidth);
+      }
+    }
+
+    // last line
+    const lastLineIdx = firstLineIdx + linesShown - 1;
+    if (lastLineIdx >= 0 && lastLineIdx < this.text_.length) {
+      const fade = Math.floor(256 * (1 - lineFraction));
+      ctx.fillStyle = `rgb(${fade},${fade},${fade})`;
+      const position = (linesShown + 1 - lineFraction) * fontSize;
+      ctx.fillText(this.text_[lastLineIdx], border, position, textWidth);
+    }
+
+    this.captureTrack_.requestFrame();
+  }
+  /** @override */
+  async getMediaStream() {
+    if (this.stream_) return this.stream_;
+
+    console.log('[CanvasSource] Initializing 2D context for source animation.');
+    this.canvas_ =
+      /** @type {!HTMLCanvasElement} */ (document.createElement('canvas'));
+    this.canvas_.classList.add('video', 'sourceVideo');
+    // Generally video frames do not have an alpha channel. Even if the browser
+    // supports it, there may be a performance cost, so we disable alpha.
+    this.ctx_ = /** @type {?CanvasRenderingContext2D} */ (
+      this.canvas_.getContext('2d', {alpha: false}));
+    if (!this.ctx_) {
+      throw new Error('Unable to create CanvasRenderingContext2D');
+    }
+    this.updateCanvasVisibility();
+    this.stream_ = this.canvas_.captureStream(0);
+    this.captureTrack_ = /** @type {!CanvasCaptureMediaStreamTrack} */ (
+      this.stream_.getTracks()[0]);
+    this.requestAnimationFrame();
+    console.log(
+        '[CanvasSource] Initialized canvas, context, and capture stream.',
+        `${this.debugPath_}.canvas_ =`, this.canvas_,
+        `${this.debugPath_}.ctx_ =`, this.ctx_, `${this.debugPath_}.stream_ =`,
+        this.stream_, `${this.debugPath_}.captureTrack_ =`, this.captureTrack_);
+
+    return this.stream_;
+  }
+  /** @override */
+  destroy() {
+    console.log('[CanvasSource] Stopping source animation');
+    if (this.requestAnimationFrameHandle_) {
+      cancelAnimationFrame(this.requestAnimationFrameHandle_);
+    }
+    if (this.canvas_) {
+      if (this.canvas_.parentNode) {
+        this.canvas_.parentNode.removeChild(this.canvas_);
+      }
+    }
+  }
+}
+
+/*
  *  Copyright (c) 2020 The WebRTC project authors. All Rights Reserved.
  *
  *  Use of this source code is governed by a BSD-style license
@@ -73,14 +287,27 @@ class CameraSource { // eslint-disable-line no-unused-vars
  */
 class CanvasTransform { // eslint-disable-line no-unused-vars
   constructor() {
-    // All fields are initialized in init()
-    /** @private {?OffscreenCanvas} canvas used to create the 2D context */
+    /**
+     * @private {?OffscreenCanvas} canvas used to create the 2D context.
+     *     Initialized in init.
+     */
     this.canvas_ = null;
     /**
      * @private {?CanvasRenderingContext2D} the 2D context used to draw the
-     *     effect
+     *     effect. Initialized in init.
      */
     this.ctx_ = null;
+    /**
+     * @private {boolean} If false, pass VideoFrame directly to
+     * CanvasRenderingContext2D.drawImage and create VideoFrame directly from
+     * this.canvas_. If either of these operations fail (it's not supported in
+     * Chrome <90 and broken in Chrome 90: https://crbug.com/1184128), we set
+     * this field to true; in that case we create an ImageBitmap from the
+     * VideoFrame and pass the ImageBitmap to drawImage on the input side and
+     * create the VideoFrame using an ImageBitmap of the canvas on the output
+     * side.
+     */
+    this.use_image_bitmap_ = false;
     /** @private {string} */
     this.debugPath_ = 'debug.pipeline.frameTransform_';
   }
@@ -103,23 +330,35 @@ class CanvasTransform { // eslint-disable-line no-unused-vars
   async transform(frame, controller) {
     const ctx = this.ctx_;
     if (!this.canvas_ || !ctx) {
-      frame.destroy();
+      frame.close();
       return;
     }
     const width = frame.displayWidth;
     const height = frame.displayHeight;
     this.canvas_.width = width;
     this.canvas_.height = height;
-    // VideoFrame.timestamp is technically optional, but that should never
-    // happen here.
-    // TODO(benjaminwagner): Follow up if we should change the spec so this is
-    // non-optional.
-    const timestamp = /** @type {number} */ (frame.timestamp);
-    const inputBitmap = await frame.createImageBitmap();
-    frame.destroy();
+    const timestamp = frame.timestamp;
 
-    ctx.drawImage(inputBitmap, 0, 0);
-    inputBitmap.close();
+    if (!this.use_image_bitmap_) {
+      try {
+        // Supported for Chrome 90+.
+        ctx.drawImage(frame, 0, 0);
+      } catch (e) {
+        // This should only happen on Chrome <90.
+        console.log(
+            '[CanvasTransform] Failed to draw VideoFrame directly. Falling ' +
+                'back to ImageBitmap.',
+            e);
+        this.use_image_bitmap_ = true;
+      }
+    }
+    if (this.use_image_bitmap_) {
+      // Supported for Chrome <92.
+      const inputBitmap = await frame.createImageBitmap();
+      ctx.drawImage(inputBitmap, 0, 0);
+      inputBitmap.close();
+    }
+    frame.close();
 
     ctx.shadowColor = '#000';
     ctx.shadowBlur = 20;
@@ -127,10 +366,24 @@ class CanvasTransform { // eslint-disable-line no-unused-vars
     ctx.strokeStyle = '#000';
     ctx.strokeRect(0, 0, width, height);
 
-    const outputBitmap = await createImageBitmap(this.canvas_);
-    const outputFrame = new VideoFrame(outputBitmap, {timestamp});
-    outputBitmap.close();
-    controller.enqueue(outputFrame);
+    if (!this.use_image_bitmap_) {
+      try {
+        controller.enqueue(new VideoFrame(this.canvas_, {timestamp}));
+      } catch (e) {
+        // This should only happen on Chrome <91.
+        console.log(
+            '[CanvasTransform] Failed to create VideoFrame from ' +
+                'OffscreenCanvas directly. Falling back to ImageBitmap.',
+            e);
+        this.use_image_bitmap_ = true;
+      }
+    }
+    if (this.use_image_bitmap_) {
+      const outputBitmap = await createImageBitmap(this.canvas_);
+      const outputFrame = new VideoFrame(outputBitmap, {timestamp});
+      outputBitmap.close();
+      controller.enqueue(outputFrame);
+    }
   }
 
   /** @override */
@@ -156,15 +409,22 @@ if (typeof MediaStreamTrackProcessor === 'undefined' ||
       'page.');
 }
 
+// In Chrome 88, VideoFrame.close() was called VideoFrame.destroy()
+if (VideoFrame.prototype.close === undefined) {
+  VideoFrame.prototype.close = VideoFrame.prototype.destroy;
+}
+
 /* global CameraSource */ // defined in camera-source.js
+/* global CanvasSource */ // defined in canvas-source.js
 /* global CanvasTransform */ // defined in canvas-transform.js
 /* global PeerConnectionSink */ // defined in peer-connection-sink.js
 /* global PeerConnectionSource */ // defined in peer-connection-source.js
 /* global Pipeline */ // defined in pipeline.js
-/* global DropTransform, DelayTransform */ // defined in simple-transforms.js
+/* global NullTransform, DropTransform, DelayTransform */ // defined in simple-transforms.js
 /* global VideoSink */ // defined in video-sink.js
 /* global VideoSource */ // defined in video-source.js
 /* global WebGLTransform */ // defined in webgl-transform.js
+/* global WebCodecTransform */ // defined in webcodec-transform.js
 
 /**
  * Allows inspecting objects in the console. See console log messages for
@@ -177,7 +437,7 @@ let debug = {};
  * FrameTransformFn applies a transform to a frame and queues the output frame
  * (if any) using the controller. The first argument is the input frame and the
  * second argument is the stream controller.
- * The VideoFrame should be destroyed as soon as it is no longer needed to free
+ * The VideoFrame should be closed as soon as it is no longer needed to free
  * resources and maintain good performance.
  * @typedef {function(
  *     !VideoFrame,
@@ -292,6 +552,9 @@ function initUI() {
       case 'video':
         source = new VideoSource();
         break;
+      case 'canvas':
+        source = new CanvasSource();
+        break;
       case 'pc':
         source = new PeerConnectionSource(new CameraSource());
         break;
@@ -342,6 +605,9 @@ function initUI() {
    * UI element.
    */
   function updatePipelineTransform() {
+    if (!pipeline) {
+      return;
+    }
     const transformType =
         transformSelector.options[transformSelector.selectedIndex].value;
     console.log(`[UI] Selected transform: ${transformType}`);
@@ -356,9 +622,17 @@ function initUI() {
         // Defined in simple-transforms.js.
         pipeline.updateTransform(new DropTransform());
         break;
+      case 'noop':
+        // Defined in simple-transforms.js.
+        pipeline.updateTransform(new NullTransform());
+        break;
       case 'delay':
         // Defined in simple-transforms.js.
         pipeline.updateTransform(new DelayTransform());
+        break;
+      case 'webcodec':
+        // Defined in webcodec-transform.js
+        pipeline.updateTransform(new WebCodecTransform());
         break;
       default:
         alert(`unknown transform ${transformType}`);
@@ -887,6 +1161,21 @@ class Pipeline { // eslint-disable-line no-unused-vars
 'use strict';
 
 /**
+ * Does nothing.
+ * @implements {FrameTransform} in pipeline.js
+ */
+class NullTransform { // eslint-disable-line no-unused-vars
+  /** @override */
+  async init() {}
+  /** @override */
+  async transform(frame, controller) {
+    controller.enqueue(frame);
+  }
+  /** @override */
+  destroy() {}
+}
+
+/**
  * Drops frames at random.
  * @implements {FrameTransform} in pipeline.js
  */
@@ -898,7 +1187,7 @@ class DropTransform { // eslint-disable-line no-unused-vars
     if (Math.random() < 0.5) {
       controller.enqueue(frame);
     } else {
-      frame.destroy();
+      frame.close();
     }
   }
   /** @override */
@@ -988,8 +1277,10 @@ class VideoMirrorHelper { // eslint-disable-line no-unused-vars
           `${this.debugPath_}.video_ =`, this.video_);
       this.video_.classList.add('video', 'sourceVideo');
       this.video_.srcObject = this.stream_;
-      const outputVideo = document.getElementById('outputVideo');
-      outputVideo.parentNode.insertBefore(this.video_, outputVideo);
+      const outputVideoContainer =
+          document.getElementById('outputVideoContainer');
+      outputVideoContainer.parentNode.insertBefore(
+          this.video_, outputVideoContainer);
       this.video_.play();
     }
   }
@@ -1041,7 +1332,7 @@ class VideoSink { // eslint-disable-line no-unused-vars
       this.video_ =
         /** @type {!HTMLVideoElement} */ (document.createElement('video'));
       this.video_.classList.add('video', 'sinkVideo');
-      document.getElementById('outputVideo').appendChild(this.video_);
+      document.getElementById('outputVideoContainer').appendChild(this.video_);
       console.log(
           '[VideoSink] Added video element to page.',
           `${this.debugPath_}.video_ =`, this.video_);
@@ -1115,8 +1406,10 @@ class VideoSource { // eslint-disable-line no-unused-vars
       console.log(
           '[VideoSource] Adding source video element to page.',
           `${this.debugPath_}.video_ =`, this.video_);
-      const outputVideo = document.getElementById('outputVideo');
-      outputVideo.parentNode.insertBefore(this.video_, outputVideo);
+      const outputVideoContainer =
+          document.getElementById('outputVideoContainer');
+      outputVideoContainer.parentNode.insertBefore(
+          this.video_, outputVideoContainer);
     }
   }
   /** @override */
@@ -1172,6 +1465,73 @@ class VideoSource { // eslint-disable-line no-unused-vars
 }
 
 /*
+ *  Copyright (c) 2021 The WebRTC project authors. All Rights Reserved.
+ *
+ *  Use of this source code is governed by a BSD-style license
+ *  that can be found in the LICENSE file in the root of the source
+ *  tree.
+ */
+
+'use strict';
+
+/**
+ * Encodes and decodes frames using the WebCodec API.
+ * @implements {FrameTransform} in pipeline.js
+ */
+class WebCodecTransform { // eslint-disable-line no-unused-vars
+  constructor() {
+    // Encoder and decoder are initialized in init()
+    this.decoder_ = null;
+    this.encoder_ = null;
+    this.controller_ = null;
+  }
+  /** @override */
+  async init() {
+    console.log('[WebCodecTransform] Initializing encoder and decoder');
+    this.decoder_ = new VideoDecoder({
+      output: frame => this.handleDecodedFrame(frame),
+      error: this.error
+    });
+    this.encoder_ = new VideoEncoder({
+      output: frame => this.handleEncodedFrame(frame),
+      error: this.error
+    });
+    this.encoder_.configure({codec: 'vp8', width: 640, height: 480});
+    this.decoder_.configure({codec: 'vp8', width: 640, height: 480});
+  }
+
+  /** @override */
+  async transform(frame, controller) {
+    if (!this.encoder_) {
+      frame.close();
+      return;
+    }
+    this.controller_ = controller;
+    this.encoder_.encode(frame);
+  }
+
+  /** @override */
+  destroy() {}
+
+  /* Helper functions */
+  handleEncodedFrame(encodedFrame) {
+    this.decoder_.decode(encodedFrame);
+  }
+
+  handleDecodedFrame(videoFrame) {
+    if (!this.controller_) {
+      videoFrame.close();
+      return;
+    }
+    this.controller_.enqueue(videoFrame);
+  }
+
+  error(e) {
+    console.log('[WebCodecTransform] Bad stuff happened: ' + e);
+  }
+}
+
+/*
  *  Copyright (c) 2020 The WebRTC project authors. All Rights Reserved.
  *
  *  Use of this source code is governed by a BSD-style license
@@ -1198,6 +1558,17 @@ class WebGLTransform { // eslint-disable-line no-unused-vars
     this.program_ = null;
     /** @private {?WebGLTexture} input texture */
     this.texture_ = null;
+    /**
+     * @private {boolean} If false, pass VideoFrame directly to
+     * WebGLRenderingContext.texImage2D and create VideoFrame directly from
+     * this.canvas_. If either of these operations fail (it's not supported in
+     * Chrome <90 and broken in Chrome 90: https://crbug.com/1184128), we set
+     * this field to true; in that case we create an ImageBitmap from the
+     * VideoFrame and pass the ImageBitmap to texImage2D on the input side and
+     * create the VideoFrame using an ImageBitmap of the canvas on the output
+     * side.
+     */
+    this.use_image_bitmap_ = false;
     /** @private {string} */
     this.debugPath_ = 'debug.pipeline.frameTransform_';
   }
@@ -1326,7 +1697,7 @@ class WebGLTransform { // eslint-disable-line no-unused-vars
   async transform(frame, controller) {
     const gl = this.gl_;
     if (!gl || !this.canvas_) {
-      frame.destroy();
+      frame.close();
       return;
     }
     const width = frame.displayWidth;
@@ -1336,27 +1707,55 @@ class WebGLTransform { // eslint-disable-line no-unused-vars
       this.canvas_.height = height;
       gl.viewport(0, 0, width, height);
     }
-    // VideoFrame.timestamp is technically optional, but that should never
-    // happen here.
-    // TODO(benjaminwagner): Follow up if we should change the spec so this is
-    // non-optional.
-    const timestamp = /** @type {number} */ (frame.timestamp);
-    const inputBitmap = await frame.createImageBitmap();
-    frame.destroy();
+    const timestamp = frame.timestamp;
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, this.texture_);
     gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
-    gl.texImage2D(
-        gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, inputBitmap);
-    inputBitmap.close();
+    if (!this.use_image_bitmap_) {
+      try {
+        // Supported for Chrome 90+.
+        gl.texImage2D(
+            gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, frame);
+      } catch (e) {
+        // This should only happen on Chrome <90.
+        console.log(
+            '[WebGLTransform] Failed to upload VideoFrame directly. Falling ' +
+                'back to ImageBitmap.',
+            e);
+        this.use_image_bitmap_ = true;
+      }
+    }
+    if (this.use_image_bitmap_) {
+      // Supported for Chrome <92.
+      const inputBitmap =
+            await frame.createImageBitmap({imageOrientation: 'flipY'});
+      gl.texImage2D(
+          gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, inputBitmap);
+      inputBitmap.close();
+    }
+    frame.close();
     gl.useProgram(this.program_);
     gl.uniform1i(this.sampler_, 0);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     gl.bindTexture(gl.TEXTURE_2D, null);
-    const outputBitmap = await createImageBitmap(this.canvas_);
-    const outputFrame = new VideoFrame(outputBitmap, {timestamp});
-    outputBitmap.close();
-    controller.enqueue(outputFrame);
+    if (!this.use_image_bitmap_) {
+      try {
+        controller.enqueue(new VideoFrame(this.canvas_, {timestamp}));
+      } catch (e) {
+        // This should only happen on Chrome <91.
+        console.log(
+            '[WebGLTransform] Failed to create VideoFrame from ' +
+                'OffscreenCanvas directly. Falling back to ImageBitmap.',
+            e);
+        this.use_image_bitmap_ = true;
+      }
+    }
+    if (this.use_image_bitmap_) {
+      const outputBitmap = await createImageBitmap(this.canvas_);
+      const outputFrame = new VideoFrame(outputBitmap, {timestamp});
+      outputBitmap.close();
+      controller.enqueue(outputFrame);
+    }
   }
 
   /** @override */

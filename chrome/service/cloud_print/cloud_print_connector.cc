@@ -12,6 +12,7 @@
 
 #include "base/bind.h"
 #include "base/callback_helpers.h"
+#include "base/containers/contains.h"
 #include "base/hash/md5.h"
 #include "base/location.h"
 #include "base/rand_util.h"
@@ -465,7 +466,7 @@ void CloudPrintConnector::UpdateSettingsFromPrintersList(
     for (const auto& printer : printer_list->GetList()) {
       if (printer.is_dict()) {
         int xmpp_timeout = 0;
-        base::Optional<int> timeout =
+        absl::optional<int> timeout =
             printer.FindIntKey(kLocalSettingsPendingXmppValue);
         if (timeout) {
           xmpp_timeout = *timeout;
@@ -609,7 +610,7 @@ void CloudPrintConnector::OnReceivePrinterCaps(
     LOG(ERROR) << "CP_CONNECTOR: Failed to get printer info"
                << ", printer name: " << printer_name;
     // This printer failed to register, notify the server of this failure.
-    base::string16 printer_name_utf16 = base::UTF8ToUTF16(printer_name);
+    std::u16string printer_name_utf16 = base::UTF8ToUTF16(printer_name);
     std::string status_message = l10n_util::GetStringFUTF8(
         IDS_CLOUD_PRINT_REGISTER_PRINTER_FAILED,
         printer_name_utf16,

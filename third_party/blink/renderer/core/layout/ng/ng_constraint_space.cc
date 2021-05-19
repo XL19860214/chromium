@@ -97,7 +97,7 @@ NGConstraintSpace NGConstraintSpace::CreateFromLayoutObject(
         !cell_style.LogicalHeight().IsAuto() ||
         !table_style.LogicalHeight().IsAuto());
     const LayoutBlock& cell_block = To<LayoutBlock>(*cell.ToLayoutObject());
-    if (RuntimeEnabledFeatures::TableCellNewPercentsEnabled() && fixed_block) {
+    if (fixed_block) {
       fixed_block_is_definite = cell_block.HasDefiniteLogicalHeight() ||
                                 !table_style.LogicalHeight().IsAuto();
     }
@@ -124,8 +124,11 @@ NGConstraintSpace NGConstraintSpace::CreateFromLayoutObject(
   builder.SetIsFixedInlineSize(fixed_inline);
   builder.SetIsFixedBlockSize(fixed_block);
   builder.SetIsFixedBlockSizeIndefinite(!fixed_block_is_definite);
-  builder.SetStretchInlineSizeIfAuto(
-      !block.SizesLogicalWidthToFitContent(style.LogicalWidth()));
+  // HTML element with display:table is shrink-to-fit.
+  bool shrink_to_fit =
+      block.SizesLogicalWidthToFitContent(style.LogicalWidth()) ||
+      (block.IsTable() && block.Parent() && block.Parent()->IsLayoutView());
+  builder.SetStretchInlineSizeIfAuto(!shrink_to_fit);
   return builder.ToConstraintSpace();
 }
 

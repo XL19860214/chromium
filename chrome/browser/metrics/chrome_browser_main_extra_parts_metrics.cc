@@ -5,6 +5,7 @@
 #include "chrome/browser/metrics/chrome_browser_main_extra_parts_metrics.h"
 
 #include <cmath>
+#include <memory>
 #include <string>
 
 #include "base/allocator/partition_allocator/partition_alloc_features.h"
@@ -15,6 +16,7 @@
 #include "base/macros.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/sparse_histogram.h"
+#include "base/partition_alloc_buildflags.h"
 #include "base/rand_util.h"
 #include "base/system/sys_info.h"
 #include "base/task/task_traits.h"
@@ -28,15 +30,21 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/buildflags.h"
 #include "chrome/browser/chrome_browser_main.h"
-#include "chrome/browser/metrics/authenticator_utility.h"
+#include "chrome/browser/google/google_brand.h"
 #include "chrome/browser/metrics/bluetooth_available_utility.h"
 #include "chrome/browser/metrics/chrome_metrics_service_accessor.h"
+#include "chrome/browser/metrics/power/battery_level_provider.h"
+#include "chrome/browser/metrics/power/power_metrics_reporter.h"
 #include "chrome/browser/metrics/process_memory_metrics_emitter.h"
+#include "chrome/browser/metrics/usage_scenario/usage_scenario_tracker.h"
 #include "chrome/browser/shell_integration.h"
 #include "components/flags_ui/pref_service_flags_storage.h"
+#include "components/policy/core/common/management/management_service.h"
+#include "components/policy/core/common/management/platform_management_service.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/common/content_switches.h"
+#include "crypto/unexportable_key.h"
 #include "services/resource_coordinator/public/cpp/memory_instrumentation/browser_metrics.h"
 #include "ui/base/pointer/pointer_device.h"
 #include "ui/base/ui_base_switches.h"
@@ -44,7 +52,7 @@
 
 #if !defined(OS_ANDROID)
 #include "chrome/browser/metrics/first_web_contents_profiler.h"
-#include "chrome/browser/metrics/tab_stats_tracker.h"
+#include "chrome/browser/metrics/tab_stats/tab_stats_tracker.h"
 #endif  // !defined(OS_ANDROID)
 
 #if defined(OS_ANDROID) && defined(__arm__)
@@ -215,6 +223,8 @@ void RecordStartupMetrics() {
   // Determine if Applocker is enabled and running. This does not check if
   // Applocker rules are being enforced.
   base::UmaHistogramBoolean("Windows.ApplockerRunning", IsApplockerRunning());
+
+  crypto::MeasureTPMAvailability();
 #endif  // defined(OS_WIN)
 
   bluetooth_utility::ReportBluetoothAvailability();
@@ -224,8 +234,6 @@ void RecordStartupMetrics() {
       shell_integration::GetDefaultBrowser();
   base::UmaHistogramEnumeration("DefaultBrowser.State", default_state,
                                 shell_integration::NUM_DEFAULT_STATES);
-
-  authenticator_utility::ReportUVPlatformAuthenticatorAvailability();
 
 #if BUILDFLAG(IS_CHROMEOS_LACROS)
   RecordChromeOSChannel();
@@ -486,6 +494,25 @@ bool IsApplockerRunning() {
 
 #endif  // defined(OS_WIN)
 
+#if !defined(OS_ANDROID)
+// Returns whether the instance has an enterprise brand code.
+bool HasEnterpriseBrandCode() {
+  std::string brand;
+  google_brand::GetBrand(&brand);
+  return google_brand::IsEnterprise(brand);
+}
+
+// Returns whether the instance is domain joined. This doesn't include CBCM
+// (EnterpriseManagementAuthority::DOMAIN_LOCAL).
+bool IsDomainJoined() {
+  auto enterprise_management_authorities =
+      policy::PlatformManagementService::GetInstance()
+          .GetManagementAuthorities();
+  return enterprise_management_authorities.contains(
+      policy::EnterpriseManagementAuthority::DOMAIN_LOCAL);
+}
+#endif  // !defined(OS_ANDROID)
+
 }  // namespace
 
 ChromeBrowserMainExtraPartsMetrics::ChromeBrowserMainExtraPartsMetrics()
@@ -504,7 +531,7 @@ void ChromeBrowserMainExtraPartsMetrics::PreProfileInit() {
 void ChromeBrowserMainExtraPartsMetrics::PreBrowserStart() {
   flags_ui::PrefServiceFlagsStorage flags_storage(
       g_browser_process->local_state());
-  about_flags::RecordUMAStatistics(&flags_storage);
+  about_flags::RecordUMAStatistics(&flags_storage, "Launch.FlagsAtStartup");
 
   // Log once here at browser start rather than at each renderer launch.
   ChromeMetricsServiceAccessor::RegisterSyntheticFieldTrial("ClangPGO",
@@ -547,18 +574,127 @@ void ChromeBrowserMainExtraPartsMetrics::PreBrowserStart() {
 
 #endif  // defined(OS_WIN)
 
-  // Records whether or not PartitionAlloc is used as the default allocator,
-  // plus whether or not PCScan is enabled.
+  // Records whether or not PartitionAlloc is used as the default allocator.
   ChromeMetricsServiceAccessor::RegisterSyntheticFieldTrial(
-      "PartitionAllocEverywhereAndPCScan",
-#if BUILDFLAG(USE_PARTITION_ALLOC_EVERYWHERE)
-      base::features::IsPartitionAllocPCScanBrowserOnlyEnabled()
-          ? "EnabledWithPCScan"
-          : "EnabledWithoutPCScan"
+      "PartitionAllocEverywhere",
+#if BUILDFLAG(USE_PARTITION_ALLOC_AS_MALLOC)
+      "Enabled"
 #else
       "Disabled"
 #endif
   );
+
+  // Records whether or not PartitionAlloc-Everywhere is enabled, and whether
+  // PCScan is enabled on top of it. This is meant for a 3-way experiment with 2
+  // binaries:
+  // - binary A: deployed to 33% users, with PA-E and PCScan off.
+  // - binary B: deployed to 66% users, with PA-E on, half of which having
+  //             PCScan on
+  //
+  // NOTE, deliberately don't use PA_ALLOW_PCSCAN which depends on bitness.
+  // In the 32-bit case, PCScan is always disabled, but we'll deliberately
+  // misrepresent it as enabled here (and later ignored when analyzing results),
+  // in order to keep each population at 33%.
+  ChromeMetricsServiceAccessor::RegisterSyntheticFieldTrial(
+      "PartitionAllocEverywhereAndPCScan",
+#if BUILDFLAG(USE_PARTITION_ALLOC_AS_MALLOC)
+      base::FeatureList::IsEnabled(
+          base::features::kPartitionAllocPCScanBrowserOnly)
+          ? "EnabledWithPCScan"
+          : "EnabledWithoutPCScan"
+#else
+      "Disabled"
+#endif  // BUILDFLAG(USE_PARTITION_ALLOC_AS_MALLOC)
+  );
+
+#if BUILDFLAG(USE_PARTITION_ALLOC_AS_MALLOC)
+  // Records whether or not BackupRefPtr and/or PCScan is enabled. This is meant
+  // for a 3-way experiment with 2 binaries:
+  // - binary A: deployed to 66% users, with half of them having PCScan on and
+  //             half off (BackupRefPtr fully off)
+  // - binary B: deployed to 33% users, with BackupRefPtr on (PCSCan fully off)
+  //
+  // NOTE, deliberately don't use PA_ALLOW_PCSCAN which depends on bitness.
+  // In the 32-bit case, PCScan is always disabled, but we'll deliberately
+  // misrepresent it as enabled here (and later ignored when analyzing results),
+  // in order to keep each population at 33%.
+  //
+  // Alsto note that USE_BACKUP_REF_PTR_FAKE is only used to fake that the
+  // feature is enabled for the purpose of this Finch setting, while in fact
+  // there are no behavior changes.
+  ChromeMetricsServiceAccessor::RegisterSyntheticFieldTrial(
+      "BackupRefPtrAndPCScan",
+#if BUILDFLAG(USE_BACKUP_REF_PTR) || BUILDFLAG(USE_BACKUP_REF_PTR_FAKE)
+      "BackupRefPtrEnabled"
+#else
+      base::FeatureList::IsEnabled(
+          base::features::kPartitionAllocPCScanBrowserOnly)
+          ? "PCScanEnabled"
+          : "Disabled"
+#endif  // BUILDFLAG(USE_BACKUP_REF_PTR) || BUILDFLAG(USE_BACKUP_REF_PTR_FAKE)
+  );
+#endif  // BUILDFLAG(USE_PARTITION_ALLOC_AS_MALLOC)
+
+#if defined(OS_ANDROID)
+  // No need to filter out on Android, because it doesn't support
+  // ChromeVariations policy.
+  constexpr bool is_enterprise = false;
+#else
+  // Check for enterprises the same way that Google Update can check, to match
+  // with the experiment population (see the comment below).
+  // NOTE, this isn't perfect and won't catch all enterprises.
+  const bool is_enterprise = HasEnterpriseBrandCode() || IsDomainJoined();
+#endif
+
+  // TODO(bartekn): Remove once the enterprise inclusion is verified. This is
+  // just meant to ensure that the enterprise portion of the
+  // BackupRefPtrNoEnterprise setting below does what's expected.
+  ChromeMetricsServiceAccessor::RegisterSyntheticFieldTrial(
+      "EnterpriseSynthetic",
+      is_enterprise ? "IsEnterprise" : "IsNotEnterprise");
+
+  // This synthetic field trial for the BackupRefPtr binary A/B experiment is
+  // set up such that:
+  // 1) Enterprises are excluded from experiment, to make sure we honor
+  //    ChromeVariations policy.
+  // 2) The experiment binary (USE_BACKUP_REF_PTR) is delivered via Google
+  //    Update to fraction X of the non-enterprise population.
+  //    Note, USE_BACKUP_REF_PTR_FAKE is only used to fake that the feature is
+  //    enabled for the purpose of this Finch setting, while in fact there are
+  //    no behavior changes.
+  // 3) The control group is established in fraction X of non-enterprise
+  //    popluation via Finch (PartitionAllocBackupRefPtrControl). Since this
+  //    Finch is applicable only to 1-X of the non-enterprise population, we
+  //    need to set it to Y=X/(1-X). E.g. if X=.333, Y=.5; if X=.01, Y=.0101.
+#if BUILDFLAG(USE_PARTITION_ALLOC_AS_MALLOC)
+#if BUILDFLAG(USE_BACKUP_REF_PTR) || BUILDFLAG(USE_BACKUP_REF_PTR_FAKE)
+  constexpr bool kIsBrpOn = true;  // experiment binary only
+#else
+  constexpr bool kIsBrpOn = false;  // non-experiment binary
+#endif
+  const bool is_brp_control = base::FeatureList::IsEnabled(
+      base::features::kPartitionAllocBackupRefPtrControl);
+  const char* group_name;
+  if (is_enterprise) {
+    if (kIsBrpOn) {  // is_enterprise && kIsBrpOn
+      group_name = "Excluded_Enterprise_BrpOn";
+    } else {  // is_enterprise && !kIsBrpOn
+      group_name = "Excluded_Enterprise_BrpOff";
+    }
+  } else {
+    if (kIsBrpOn) {  // !is_enterprise && kIsBrpOn
+      group_name = "Enabled";
+    } else {  // !is_enterprise && !kIsBrpOn
+      if (is_brp_control) {
+        group_name = "Control";
+      } else {
+        group_name = "Excluded_NonEnterprise";
+      }
+    }
+  }
+  ChromeMetricsServiceAccessor::RegisterSyntheticFieldTrial(
+      "BackupRefPtrNoEnterprise", group_name);
+#endif  // BUILDFLAG(USE_PARTITION_ALLOC_AS_MALLOC)
 }
 
 void ChromeBrowserMainExtraPartsMetrics::PostBrowserStart() {
@@ -589,8 +725,8 @@ void ChromeBrowserMainExtraPartsMetrics::PostBrowserStart() {
   if (ui::DeviceDataManager::GetInstance()->AreDeviceListsComplete()) {
     RecordTouchEventState();
   } else {
-    input_device_event_observer_.reset(
-        new AsynchronousTouchEventStateRecorder());
+    input_device_event_observer_ =
+        std::make_unique<AsynchronousTouchEventStateRecorder>();
   }
 #else
   RecordTouchEventState();
@@ -617,9 +753,14 @@ void ChromeBrowserMainExtraPartsMetrics::PostBrowserStart() {
   auto background_task_runner =
       base::ThreadPool::CreateSequencedTaskRunner(kBestEffortTaskTraits);
 
-  background_task_runner->PostDelayedTask(
-      FROM_HERE, base::BindOnce(&RecordIsPinnedToTaskbarHistogram),
-      base::TimeDelta::FromSeconds(45));
+  // The PinnedToTaskbar histogram is CPU intensive and can trigger a crashing
+  // bug in Windows or in shell extensions so just sample the data to reduce the
+  // cost.
+  if (base::RandGenerator(100) == 0) {
+    background_task_runner->PostDelayedTask(
+        FROM_HERE, base::BindOnce(&RecordIsPinnedToTaskbarHistogram),
+        base::TimeDelta::FromSeconds(45));
+  }
 #endif  // defined(OS_WIN)
 
   display_count_ = display::Screen::GetScreen()->GetNumDisplays();
@@ -639,6 +780,16 @@ void ChromeBrowserMainExtraPartsMetrics::PostBrowserStart() {
             g_browser_process->local_state()));
   }
 #endif  // !defined(OS_ANDROID)
+#if defined(OS_MAC) || defined(OS_WIN)
+  // BatteryLevelProvider is supported on mac and windows only, thus we report
+  // power metrics only on those platforms.
+  if (performance_monitor::ProcessMonitor::Get()) {
+    // PowerMetricsReporter needs ProcessMonitor to be created.
+    usage_scenario_tracker_ = std::make_unique<UsageScenarioTracker>();
+    power_metrics_reporter_ = std::make_unique<PowerMetricsReporter>(
+        usage_scenario_tracker_->data_store(), BatteryLevelProvider::Create());
+  }
+#endif  // defined(OS_MAC) || defined (OS_WIN)
 }
 
 void ChromeBrowserMainExtraPartsMetrics::PreMainMessageLoopRun() {

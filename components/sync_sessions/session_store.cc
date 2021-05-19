@@ -12,8 +12,8 @@
 
 #include "base/bind.h"
 #include "base/callback_helpers.h"
-#include "base/feature_list.h"
 #include "base/location.h"
+#include "base/logging.h"
 #include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/pickle.h"
@@ -27,7 +27,6 @@
 #include "components/sync/protocol/sync.pb.h"
 #include "components/sync_device_info/local_device_info_util.h"
 #include "components/sync_sessions/session_sync_prefs.h"
-#include "components/sync_sessions/switches.h"
 #include "components/sync_sessions/sync_sessions_client.h"
 
 namespace sync_sessions {
@@ -90,21 +89,12 @@ std::string GetSessionTagWithPrefs(const std::string& cache_guid,
     return persisted_guid;
   }
 
-  if (base::FeatureList::IsEnabled(
-          switches::kSyncUseCacheGuidAsSyncSessionTag)) {
-    DVLOG(1) << "Using sync cache guid as session sync guid: " << cache_guid;
-    return cache_guid;
-  }
-
-  const std::string new_guid =
-      base::StringPrintf("session_sync%s", cache_guid.c_str());
-  DVLOG(1) << "Creating session sync guid: " << new_guid;
-  sync_prefs->SetLegacySyncSessionsGUID(new_guid);
-  return new_guid;
+  DVLOG(1) << "Using sync cache guid as session sync guid: " << cache_guid;
+  return cache_guid;
 }
 
 void ForwardError(syncer::OnceModelErrorHandler error_handler,
-                  const base::Optional<syncer::ModelError>& error) {
+                  const absl::optional<syncer::ModelError>& error) {
   if (error) {
     std::move(error_handler).Run(*error);
   }
@@ -112,7 +102,7 @@ void ForwardError(syncer::OnceModelErrorHandler error_handler,
 
 // Parses the content of |record_list| into |*initial_data|. The output
 // parameters are first for binding purposes.
-base::Optional<syncer::ModelError> ParseInitialDataOnBackendSequence(
+absl::optional<syncer::ModelError> ParseInitialDataOnBackendSequence(
     std::map<std::string, sync_pb::SessionSpecifics>* initial_data,
     std::string* session_name,
     std::unique_ptr<ModelTypeStore::RecordList> record_list) {
@@ -133,7 +123,7 @@ base::Optional<syncer::ModelError> ParseInitialDataOnBackendSequence(
 
   *session_name = syncer::GetPersonalizableDeviceNameBlocking();
 
-  return base::nullopt;
+  return absl::nullopt;
 }
 
 }  // namespace
@@ -333,7 +323,7 @@ std::string SessionStore::GetTabClientTagForTest(const std::string& session_tag,
 // static
 void SessionStore::OnStoreCreated(
     std::unique_ptr<Builder> builder,
-    const base::Optional<syncer::ModelError>& error,
+    const absl::optional<syncer::ModelError>& error,
     std::unique_ptr<ModelTypeStore> underlying_store) {
   DCHECK(builder);
 
@@ -355,7 +345,7 @@ void SessionStore::OnStoreCreated(
 // static
 void SessionStore::OnReadAllMetadata(
     std::unique_ptr<Builder> builder,
-    const base::Optional<syncer::ModelError>& error,
+    const absl::optional<syncer::ModelError>& error,
     std::unique_ptr<syncer::MetadataBatch> metadata_batch) {
   DCHECK(builder);
 
@@ -381,7 +371,7 @@ void SessionStore::OnReadAllMetadata(
 // static
 void SessionStore::OnReadAllData(
     std::unique_ptr<Builder> builder,
-    const base::Optional<syncer::ModelError>& error) {
+    const absl::optional<syncer::ModelError>& error) {
   DCHECK(builder);
 
   if (error) {
@@ -405,7 +395,7 @@ void SessionStore::OnReadAllData(
       builder->metadata_batch->GetAllMetadata(), builder->sessions_client));
 
   std::move(builder->callback)
-      .Run(/*error=*/base::nullopt, std::move(session_store),
+      .Run(/*error=*/absl::nullopt, std::move(session_store),
            std::move(builder->metadata_batch));
 }
 
@@ -552,11 +542,7 @@ std::unique_ptr<SessionStore::WriteBatch> SessionStore::CreateWriteBatch(
 void SessionStore::DeleteAllDataAndMetadata() {
   session_tracker_.Clear();
   store_->DeleteAllDataAndMetadata(base::DoNothing());
-
-  if (base::FeatureList::IsEnabled(
-          switches::kSyncUseCacheGuidAsSyncSessionTag)) {
-    sessions_client_->GetSessionSyncPrefs()->ClearLegacySyncSessionsGUID();
-  }
+  sessions_client_->GetSessionSyncPrefs()->ClearLegacySyncSessionsGUID();
 
   // At all times, the local session must be tracked.
   session_tracker_.InitLocalSession(local_session_info_.session_tag,

@@ -5,56 +5,65 @@
 #include "chromeos/services/assistant/libassistant_service_host_impl.h"
 
 #include "base/check.h"
-#include "base/synchronization/lock.h"
+#include "base/sequence_checker.h"
+#include "build/buildflag.h"
+#include "chromeos/assistant/buildflags.h"
+
+#if BUILDFLAG(ENABLE_CROS_LIBASSISTANT)
 #include "chromeos/services/libassistant/libassistant_service.h"
+
+#if BUILDFLAG(ENABLE_LIBASSISTANT_SANDBOX)
+#include "chromeos/services/assistant/public/cpp/assistant_client.h"  // nogncheck
+#include "chromeos/services/libassistant/public/mojom/service.mojom-forward.h"  // nogncheck
+#endif  // BUILDFLAG(ENABLE_LIBASSISTANT_SANDBOX)
+#endif  // BUILDFLAG(ENABLE_CROS_LIBASSISTANT)
 
 namespace chromeos {
 namespace assistant {
 
-LibassistantServiceHostImpl::LibassistantServiceHostImpl(
-    assistant_client::PlatformApi* platform_api,
-    AssistantManagerServiceDelegate* delegate)
-    : platform_api_(platform_api), delegate_(delegate) {
-  DCHECK(platform_api_);
-  DCHECK(delegate_);
+#if BUILDFLAG(ENABLE_CROS_LIBASSISTANT)
+
+LibassistantServiceHostImpl::LibassistantServiceHostImpl() {
+#if !BUILDFLAG(ENABLE_LIBASSISTANT_SANDBOX)
+  DETACH_FROM_SEQUENCE(sequence_checker_);
+#endif
 }
 
 LibassistantServiceHostImpl::~LibassistantServiceHostImpl() = default;
 
 void LibassistantServiceHostImpl::Launch(
-    mojo::PendingReceiver<LibassistantServiceMojom> receiver) {
-  DCHECK_EQ(libassistant_service_, nullptr);
-
-  base::AutoLock lock(libassistant_service_lock_);
+    mojo::PendingReceiver<chromeos::libassistant::mojom::LibassistantService>
+        receiver) {
+#if BUILDFLAG(ENABLE_LIBASSISTANT_SANDBOX)
+  AssistantClient::Get()->RequestLibassistantService(std::move(receiver));
+#else
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  DCHECK(!libassistant_service_);
   libassistant_service_ =
       std::make_unique<chromeos::libassistant::LibassistantService>(
-          std::move(receiver), platform_api_, delegate_);
-
-  if (pending_initialize_callback_) {
-    libassistant_service_->SetInitializeCallback(
-        std::move(pending_initialize_callback_));
-  }
+          std::move(receiver));
+#endif  // BUILDFLAG(ENABLE_LIBASSISTANT_SANDBOX)
 }
 
 void LibassistantServiceHostImpl::Stop() {
-  base::AutoLock lock(libassistant_service_lock_);
+#if !BUILDFLAG(ENABLE_LIBASSISTANT_SANDBOX)
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   libassistant_service_ = nullptr;
+#endif
 }
 
-void LibassistantServiceHostImpl::SetInitializeCallback(
-    InitializeCallback callback) {
-  base::AutoLock lock(libassistant_service_lock_);
+#else
 
-  if (libassistant_service_) {
-    libassistant_service_->SetInitializeCallback(std::move(callback));
-  } else {
-    // Launch() is called on the background thread and SetInitializeCallback()
-    // on the main thread, so it is possible we come here before Launch() has
-    // had a chance to run. If that happens we remember the callback and pass
-    // it to the service in Launch().
-    pending_initialize_callback_ = std::move(callback);
-  }
-}
+LibassistantServiceHostImpl::LibassistantServiceHostImpl() = default;
+LibassistantServiceHostImpl::~LibassistantServiceHostImpl() = default;
+
+void LibassistantServiceHostImpl::Launch(
+    mojo::PendingReceiver<chromeos::libassistant::mojom::LibassistantService>
+        receiver) {}
+
+void LibassistantServiceHostImpl::Stop() {}
+
+#endif
 
 }  // namespace assistant
 }  // namespace chromeos

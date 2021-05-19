@@ -5,11 +5,11 @@
 #ifndef CONTENT_BROWSER_PRERENDER_PRERENDER_PROCESSOR_H_
 #define CONTENT_BROWSER_PRERENDER_PRERENDER_PROCESSOR_H_
 
-#include <memory>
-
+#include "base/scoped_observation.h"
 #include "content/browser/prerender/prerender_host_registry.h"
 #include "content/common/content_export.h"
 #include "content/public/browser/global_routing_id.h"
+#include "content/public/browser/render_frame_host.h"
 #include "third_party/blink/public/mojom/prerender/prerender.mojom.h"
 #include "url/gurl.h"
 #include "url/origin.h"
@@ -27,7 +27,8 @@ class RenderFrameHostImpl;
 // When Start() is called from a renderer process, this asks
 // PrerenderHostRegistry to create a PrerenderHost and start prerendering.
 class CONTENT_EXPORT PrerenderProcessor final
-    : public blink::mojom::PrerenderProcessor {
+    : public blink::mojom::PrerenderProcessor,
+      public PrerenderHostRegistry::Observer {
  public:
   explicit PrerenderProcessor(RenderFrameHostImpl& initiator_render_frame_host);
   ~PrerenderProcessor() override;
@@ -41,10 +42,11 @@ class CONTENT_EXPORT PrerenderProcessor final
   void Start(blink::mojom::PrerenderAttributesPtr attributes) override;
   void Cancel() override;
 
+  // PrerenderHostRegistry::Observer implementation:
+  void OnRegistryDestroyed() override;
+
  private:
   void CancelPrerendering();
-
-  PrerenderHostRegistry& GetPrerenderHostRegistry();
 
   // The initiator render frame host owns `this`, so the reference is safe.
   RenderFrameHostImpl& initiator_render_frame_host_;
@@ -54,11 +56,18 @@ class CONTENT_EXPORT PrerenderProcessor final
   // may navigate away before Start() is called from a renderer process.
   const url::Origin initiator_origin_;
 
-  // URL to be prerendered.
-  GURL prerendering_url_;
+  // The root frame tree node id of the prerendered page.
+  int prerender_frame_tree_node_id_ = RenderFrameHost::kNoFrameTreeNodeId;
 
   enum class State { kInitial, kStarted, kCancelled };
   State state_ = State::kInitial;
+
+  // `this` may outlive the registry. The registry is set on the constructor and
+  // unset on OnRegistryDestroyed().
+  PrerenderHostRegistry* registry_;
+  base::ScopedObservation<PrerenderHostRegistry,
+                          PrerenderHostRegistry::Observer>
+      observation_{this};
 };
 
 }  // namespace content

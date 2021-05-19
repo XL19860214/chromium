@@ -52,10 +52,6 @@ class BookmarkModelMerger {
   // and metadata entities in the injected tracker.
   void Merge();
 
-  size_t valid_updates_without_full_title_for_uma() const {
-    return valid_updates_without_full_title_;
-  }
-
  private:
   // Internal representation of a remote tree, composed of nodes.
   class RemoteTreeNode final {
@@ -122,6 +118,11 @@ class BookmarkModelMerger {
   // specifics as well as tombstones, in the unlikely event that the server
   // sends tombstones as part of the initial download.
   static RemoteForest BuildRemoteForest(syncer::UpdateResponseDataList updates);
+
+  // Recursively counts and returns the number of descendants for |node|,
+  // excluding |node| itself.
+  static int CountRemoteTreeNodeDescendantsForUma(
+      const BookmarkModelMerger::RemoteTreeNode& node);
 
   // Computes bookmark pairs that should be matched by GUID. Local bookmark
   // GUIDs may be regenerated for the case where they collide with a remote GUID
@@ -204,8 +205,6 @@ class BookmarkModelMerger {
   // permanent node. Computed upon construction via BuildRemoteForest().
   const RemoteForest remote_forest_;
   std::unordered_map<base::GUID, GuidMatch, base::GUIDHash> guid_to_match_map_;
-
-  size_t valid_updates_without_full_title_ = 0;
 
   DISALLOW_COPY_AND_ASSIGN(BookmarkModelMerger);
 };

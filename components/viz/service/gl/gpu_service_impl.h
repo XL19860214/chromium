@@ -87,18 +87,17 @@ enum class ExitCode {
 class VIZ_SERVICE_EXPORT GpuServiceImpl : public gpu::GpuChannelManagerDelegate,
                                           public mojom::GpuService {
  public:
-  GpuServiceImpl(
-      const gpu::GPUInfo& gpu_info,
-      std::unique_ptr<gpu::GpuWatchdogThread> watchdog,
-      scoped_refptr<base::SingleThreadTaskRunner> io_runner,
-      const gpu::GpuFeatureInfo& gpu_feature_info,
-      const gpu::GpuPreferences& gpu_preferences,
-      const base::Optional<gpu::GPUInfo>& gpu_info_for_hardware_gpu,
-      const base::Optional<gpu::GpuFeatureInfo>&
-          gpu_feature_info_for_hardware_gpu,
-      const gfx::GpuExtraInfo& gpu_extra_info,
-      gpu::VulkanImplementation* vulkan_implementation,
-      base::OnceCallback<void(base::Optional<ExitCode>)> exit_callback);
+  GpuServiceImpl(const gpu::GPUInfo& gpu_info,
+                 std::unique_ptr<gpu::GpuWatchdogThread> watchdog,
+                 scoped_refptr<base::SingleThreadTaskRunner> io_runner,
+                 const gpu::GpuFeatureInfo& gpu_feature_info,
+                 const gpu::GpuPreferences& gpu_preferences,
+                 const absl::optional<gpu::GPUInfo>& gpu_info_for_hardware_gpu,
+                 const absl::optional<gpu::GpuFeatureInfo>&
+                     gpu_feature_info_for_hardware_gpu,
+                 const gfx::GpuExtraInfo& gpu_extra_info,
+                 gpu::VulkanImplementation* vulkan_implementation,
+                 base::OnceCallback<void(ExitCode)> exit_callback);
 
   ~GpuServiceImpl() override;
 
@@ -163,6 +162,9 @@ class VIZ_SERVICE_EXPORT GpuServiceImpl : public gpu::GpuChannelManagerDelegate,
   void DestroyGpuMemoryBuffer(gfx::GpuMemoryBufferId id,
                               int client_id,
                               const gpu::SyncToken& sync_token) override;
+  void CopyGpuMemoryBuffer(gfx::GpuMemoryBufferHandle buffer_handle,
+                           base::UnsafeSharedMemoryRegion shared_memory,
+                           CopyGpuMemoryBufferCallback callback) override;
   void GetVideoMemoryUsageStats(
       GetVideoMemoryUsageStatsCallback callback) override;
   void StartPeakMemoryMonitor(uint32_t sequence_num) override;
@@ -197,7 +199,6 @@ class VIZ_SERVICE_EXPORT GpuServiceImpl : public gpu::GpuChannelManagerDelegate,
   void Crash() override;
   void Hang() override;
   void ThrowJavaException() override;
-  void Stop(StopCallback callback) override;
 
   // gpu::GpuChannelManagerDelegate:
   void RegisterDisplayContext(gpu::DisplayContext* display_context) override;
@@ -218,6 +219,8 @@ class VIZ_SERVICE_EXPORT GpuServiceImpl : public gpu::GpuChannelManagerDelegate,
   void StoreShaderToDisk(int client_id,
                          const std::string& key,
                          const std::string& shader) override;
+  // Attempts to atomically shut down the process but only if not running in
+  // host process. An error message will be logged.
   void MaybeExitOnContextLost() override;
   bool IsExiting() const override;
   gpu::Scheduler* GetGpuScheduler() override;
@@ -314,6 +317,10 @@ class VIZ_SERVICE_EXPORT GpuServiceImpl : public gpu::GpuChannelManagerDelegate,
   DawnContextProvider* dawn_context_provider() { return nullptr; }
 #endif
 
+  using VisibilityChangedCallback =
+      base::RepeatingCallback<void(bool /*visible*/)>;
+  void SetVisibilityChangedCallback(VisibilityChangedCallback);
+
  private:
   void RecordLogMessage(int severity,
                         const std::string& header,
@@ -334,6 +341,7 @@ class VIZ_SERVICE_EXPORT GpuServiceImpl : public gpu::GpuChannelManagerDelegate,
   void RequestHDRStatusOnMainThread(RequestHDRStatusCallback callback);
 
   void OnBackgroundedOnMainThread();
+  void OnForegroundedOnMainThread();
 
   // Ensure that all peak memory tracking occurs on the main thread as all
   // MemoryTracker are created on that thread. All requests made before
@@ -341,10 +349,6 @@ class VIZ_SERVICE_EXPORT GpuServiceImpl : public gpu::GpuChannelManagerDelegate,
   void StartPeakMemoryMonitorOnMainThread(uint32_t sequence_num);
   void GetPeakMemoryUsageOnMainThread(uint32_t sequence_num,
                                       GetPeakMemoryUsageCallback callback);
-
-  // Attempts to cleanly exit the process but only if not running in host
-  // process. If |for_context_loss| is true an error message will be logged.
-  void MaybeExit(bool for_context_loss);
 
   // Update overlay info and HDR status on the GPU process and send the updated
   // info back to the browser process if there is a change.
@@ -371,8 +375,8 @@ class VIZ_SERVICE_EXPORT GpuServiceImpl : public gpu::GpuChannelManagerDelegate,
 
   // What we would have gotten if we haven't fallen back to SwiftShader or
   // pure software (in the viz case).
-  base::Optional<gpu::GPUInfo> gpu_info_for_hardware_gpu_;
-  base::Optional<gpu::GpuFeatureInfo> gpu_feature_info_for_hardware_gpu_;
+  absl::optional<gpu::GPUInfo> gpu_info_for_hardware_gpu_;
+  absl::optional<gpu::GpuFeatureInfo> gpu_feature_info_for_hardware_gpu_;
 
   // Information about the GPU process populated on creation.
   gfx::GpuExtraInfo gpu_extra_info_;
@@ -406,7 +410,7 @@ class VIZ_SERVICE_EXPORT GpuServiceImpl : public gpu::GpuChannelManagerDelegate,
   base::WaitableEvent* shutdown_event_ = nullptr;
 
   // Callback that safely exits GPU process.
-  base::OnceCallback<void(base::Optional<ExitCode>)> exit_callback_;
+  base::OnceCallback<void(ExitCode)> exit_callback_;
   base::AtomicFlag is_exiting_;
 
   // Used for performing hardware decode acceleration of images. This is shared
@@ -427,6 +431,8 @@ class VIZ_SERVICE_EXPORT GpuServiceImpl : public gpu::GpuChannelManagerDelegate,
 
   // Display compositor contexts that don't have a corresponding GPU channel.
   base::ObserverList<gpu::DisplayContext>::Unchecked display_contexts_;
+
+  VisibilityChangedCallback visibility_changed_callback_;
 
   base::WeakPtr<GpuServiceImpl> weak_ptr_;
   base::WeakPtrFactory<GpuServiceImpl> weak_ptr_factory_{this};

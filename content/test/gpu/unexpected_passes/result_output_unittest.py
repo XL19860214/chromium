@@ -2,6 +2,8 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+from __future__ import print_function
+
 import itertools
 import tempfile
 import unittest
@@ -87,36 +89,47 @@ class ConvertUnmatchedResultsToStringDictUnittest(unittest.TestCase):
 class ConvertTestExpectationMapToStringDictUnittest(unittest.TestCase):
   def testEmptyMap(self):
     """Tests that providing an empty map is a no-op."""
-    self.assertEqual(result_output._ConvertTestExpectationMapToStringDict({}),
-                     {})
+    self.assertEqual(
+        result_output._ConvertTestExpectationMapToStringDict(
+            data_types.TestExpectationMap()), {})
 
   def testSemiStaleMap(self):
     """Tests that everything functions when regular data is provided."""
-    expectation_map = {
-        'foo': {
+    expectation_map = data_types.TestExpectationMap({
+        'foo':
+        data_types.ExpectationBuilderMap({
             data_types.Expectation('foo', ['win', 'intel'], ['RetryOnFailure']):
-            {
-                'builder': {
-                    'all_pass': uu.CreateStatsWithPassFails(2, 0),
-                    'all_fail': uu.CreateStatsWithPassFails(0, 2),
-                    'some_pass': uu.CreateStatsWithPassFails(1, 1),
-                },
-            },
+            data_types.BuilderStepMap({
+                'builder':
+                data_types.StepBuildStatsMap({
+                    'all_pass':
+                    uu.CreateStatsWithPassFails(2, 0),
+                    'all_fail':
+                    uu.CreateStatsWithPassFails(0, 2),
+                    'some_pass':
+                    uu.CreateStatsWithPassFails(1, 1),
+                }),
+            }),
             data_types.Expectation('foo', ['linux', 'intel'], [
                                        'RetryOnFailure'
-                                   ]): {
-                'builder': {
-                    'all_pass': uu.CreateStatsWithPassFails(2, 0),
-                }
-            },
+                                   ]):
+            data_types.BuilderStepMap({
+                'builder':
+                data_types.StepBuildStatsMap({
+                    'all_pass':
+                    uu.CreateStatsWithPassFails(2, 0),
+                }),
+            }),
             data_types.Expectation('foo', ['mac', 'intel'], ['RetryOnFailure']):
-            {
-                'builder': {
-                    'all_fail': uu.CreateStatsWithPassFails(0, 2),
-                }
-            },
-        },
-    }
+            data_types.BuilderStepMap({
+                'builder':
+                data_types.StepBuildStatsMap({
+                    'all_fail':
+                    uu.CreateStatsWithPassFails(0, 2),
+                }),
+            }),
+        }),
+    })
     expected_ouput = {
         'foo': {
             '"RetryOnFailure" expectation on "win intel"': {
@@ -374,31 +387,46 @@ class OutputResultsUnittest(fake_filesystem_unittest.TestCase):
   def testOutputResultsUnsupportedFormat(self):
     """Tests that passing in an unsupported format is an error."""
     with self.assertRaises(RuntimeError):
-      result_output.OutputResults({}, {}, {}, {}, [], 'asdf')
+      result_output.OutputResults(data_types.TestExpectationMap(),
+                                  data_types.TestExpectationMap(),
+                                  data_types.TestExpectationMap(), {}, [],
+                                  'asdf')
 
   def testOutputResultsSmoketest(self):
     """Test that nothing blows up when outputting."""
-    expectation_map = {
-        'foo': {
-            data_types.Expectation('foo', ['win', 'intel'], 'RetryOnFailure'): {
-                'stale': {
-                    'all_pass': uu.CreateStatsWithPassFails(2, 0),
-                },
-            },
-            data_types.Expectation('foo', ['linux'], 'Failure'): {
-                'semi_stale': {
-                    'all_pass': uu.CreateStatsWithPassFails(2, 0),
-                    'some_pass': uu.CreateStatsWithPassFails(1, 1),
-                    'none_pass': uu.CreateStatsWithPassFails(0, 2),
-                },
-            },
-            data_types.Expectation('foo', ['mac'], 'Failure'): {
-                'active': {
-                    'none_pass': uu.CreateStatsWithPassFails(0, 2),
-                },
-            },
-        },
-    }
+    expectation_map = data_types.TestExpectationMap({
+        'foo':
+        data_types.ExpectationBuilderMap({
+            data_types.Expectation('foo', ['win', 'intel'], 'RetryOnFailure'):
+            data_types.BuilderStepMap({
+                'stale':
+                data_types.StepBuildStatsMap({
+                    'all_pass':
+                    uu.CreateStatsWithPassFails(2, 0),
+                }),
+            }),
+            data_types.Expectation('foo', ['linux'], 'Failure'):
+            data_types.BuilderStepMap({
+                'semi_stale':
+                data_types.StepBuildStatsMap({
+                    'all_pass':
+                    uu.CreateStatsWithPassFails(2, 0),
+                    'some_pass':
+                    uu.CreateStatsWithPassFails(1, 1),
+                    'none_pass':
+                    uu.CreateStatsWithPassFails(0, 2),
+                }),
+            }),
+            data_types.Expectation('foo', ['mac'], 'Failure'):
+            data_types.BuilderStepMap({
+                'active':
+                data_types.StepBuildStatsMap({
+                    'none_pass':
+                    uu.CreateStatsWithPassFails(0, 2),
+                }),
+            }),
+        }),
+    })
     unmatched_results = {
         'builder': [
             data_types.Result('foo', ['win', 'intel'], 'Failure', 'step_name',
@@ -435,7 +463,7 @@ class OutputResultsUnittest(fake_filesystem_unittest.TestCase):
                                 self._file_handle)
 
 
-class OutputUrlsForCommandLineUnittest(fake_filesystem_unittest.TestCase):
+class OutputAffectedUrlsUnittest(fake_filesystem_unittest.TestCase):
   def setUp(self):
     self.setUpPyfakefs()
     self._file_handle = tempfile.NamedTemporaryFile(delete=False)
@@ -449,13 +477,17 @@ class OutputUrlsForCommandLineUnittest(fake_filesystem_unittest.TestCase):
         'http://crbug.com/2345',
         'crbug.com/3456',
     ]
-    result_output._OutputUrlsForCommandLine(urls, self._file_handle)
+    orphaned_urls = ['https://crbug.com/1234', 'crbug.com/3456']
+    result_output._OutputAffectedUrls(urls, orphaned_urls, self._file_handle)
     self._file_handle.close()
     with open(self._filepath) as f:
       self.assertEqual(f.read(), ('Affected bugs: '
                                   'https://crbug.com/1234 '
                                   'https://crbug.com/angleproject/1234 '
                                   'http://crbug.com/2345 '
+                                  'https://crbug.com/3456\n'
+                                  'Closable bugs: '
+                                  'https://crbug.com/1234 '
                                   'https://crbug.com/3456\n'))
 
 
@@ -471,10 +503,10 @@ class OutputUrlsForClDescriptionUnittest(fake_filesystem_unittest.TestCase):
         'crbug.com/1234',
         'https://crbug.com/angleproject/2345',
     ]
-    result_output._OutputUrlsForClDescription(urls, self._file_handle)
+    result_output._OutputUrlsForClDescription(urls, [], self._file_handle)
     self._file_handle.close()
     with open(self._filepath) as f:
-      self.assertEqual(f.read(), ('Affected bugs:\n'
+      self.assertEqual(f.read(), ('Affected bugs for CL description:\n'
                                   'Bug: 1234, angleproject:2345\n'))
 
   def testBugLimit(self):
@@ -487,10 +519,10 @@ class OutputUrlsForClDescriptionUnittest(fake_filesystem_unittest.TestCase):
         'crbug.com/5',
         'crbug.com/6',
     ]
-    result_output._OutputUrlsForClDescription(urls, self._file_handle)
+    result_output._OutputUrlsForClDescription(urls, [], self._file_handle)
     self._file_handle.close()
     with open(self._filepath) as f:
-      self.assertEqual(f.read(), ('Affected bugs:\n'
+      self.assertEqual(f.read(), ('Affected bugs for CL description:\n'
                                   'Bug: 1, 2, 3, 4, 5\n'
                                   'Bug: 6\n'))
 
@@ -500,11 +532,11 @@ class OutputUrlsForClDescriptionUnittest(fake_filesystem_unittest.TestCase):
         'crbug.com/averylongprojectthatwillgooverthelinelength/1',
         'crbug.com/averylongprojectthatwillgooverthelinelength/2',
     ]
-    result_output._OutputUrlsForClDescription(urls, self._file_handle)
+    result_output._OutputUrlsForClDescription(urls, [], self._file_handle)
     self._file_handle.close()
     with open(self._filepath) as f:
       self.assertEqual(f.read(),
-                       ('Affected bugs:\n'
+                       ('Affected bugs for CL description:\n'
                         'Bug: averylongprojectthatwillgooverthelinelength:1\n'
                         'Bug: averylongprojectthatwillgooverthelinelength:2\n'))
 
@@ -515,10 +547,10 @@ class OutputUrlsForClDescriptionUnittest(fake_filesystem_unittest.TestCase):
         'crbug.com/2',
     ]
     with open(self._filepath, 'w') as f:
-      result_output._OutputUrlsForClDescription(urls, f)
+      result_output._OutputUrlsForClDescription(urls, [], f)
     with open(self._filepath) as f:
-      self.assertEqual(f.read(), ('Affected bugs:\n'
-                                  'Bug: %s:1, 2\n' % project_name))
+      self.assertEqual(f.read(), ('Affected bugs for CL description:\n'
+                                  'Bug: 2, %s:1\n' % project_name))
 
     project_name += 'a'
     urls = [
@@ -526,10 +558,10 @@ class OutputUrlsForClDescriptionUnittest(fake_filesystem_unittest.TestCase):
         'crbug.com/2',
     ]
     with open(self._filepath, 'w') as f:
-      result_output._OutputUrlsForClDescription(urls, f)
+      result_output._OutputUrlsForClDescription(urls, [], f)
     with open(self._filepath) as f:
-      self.assertEqual(f.read(), ('Affected bugs:\n'
-                                  'Bug: %s:1\nBug: 2\n' % project_name))
+      self.assertEqual(f.read(), ('Affected bugs for CL description:\n'
+                                  'Bug: 2\nBug: %s:1\n' % project_name))
 
   def testSingleBugOverLineLimit(self):
     """Tests the behavior when a single bug by itself is over the line limit."""
@@ -538,12 +570,45 @@ class OutputUrlsForClDescriptionUnittest(fake_filesystem_unittest.TestCase):
         'crbug.com/%s/1' % project_name,
         'crbug.com/2',
     ]
-    result_output._OutputUrlsForClDescription(urls, self._file_handle)
+    result_output._OutputUrlsForClDescription(urls, [], self._file_handle)
     self._file_handle.close()
     with open(self._filepath) as f:
-      self.assertEqual(f.read(), ('Affected bugs:\n'
-                                  'Bug: %s:1\n'
-                                  'Bug: 2\n' % project_name))
+      self.assertEqual(f.read(), ('Affected bugs for CL description:\n'
+                                  'Bug: 2\n'
+                                  'Bug: %s:1\n' % project_name))
+
+  def testOrphanedBugs(self):
+    """Tests that orphaned bugs are output properly alongside affected ones."""
+    urls = [
+        'crbug.com/1',
+        'crbug.com/2',
+        'crbug.com/3',
+    ]
+    orphaned_urls = ['crbug.com/2']
+    result_output._OutputUrlsForClDescription(urls, orphaned_urls,
+                                              self._file_handle)
+    self._file_handle.close()
+    with open(self._filepath) as f:
+      self.assertEqual(f.read(), ('Affected bugs for CL description:\n'
+                                  'Bug: 1, 3\n'
+                                  'Fixed: 2\n'))
+
+  def testOnlyOrphanedBugs(self):
+    """Tests output when all affected bugs are orphaned bugs."""
+    urls = [
+        'crbug.com/1',
+        'crbug.com/2',
+    ]
+    orphaned_urls = [
+        'crbug.com/1',
+        'crbug.com/2',
+    ]
+    result_output._OutputUrlsForClDescription(urls, orphaned_urls,
+                                              self._file_handle)
+    self._file_handle.close()
+    with open(self._filepath) as f:
+      self.assertEqual(f.read(), ('Affected bugs for CL description:\n'
+                                  'Fixed: 1, 2\n'))
 
 
 def _Dedent(s):

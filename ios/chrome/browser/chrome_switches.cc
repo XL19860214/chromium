@@ -39,8 +39,8 @@ const char kEnableSpotlightActions[] = "enable-spotlight-actions";
 const char kEnableThirdPartyKeyboardWorkaround[] =
     "enable-third-party-keyboard-workaround";
 
-// Installs the BrowserSignin policy handler.
-const char kInstallBrowserSigninHandler[] = "install-browser-signin-handler";
+// Enabled the NTP Discover feed.
+const char kEnableDiscoverFeed[] = "enable-discover-feed";
 
 // Installs the URLBlocklist and URLAllowlist handlers.
 const char kInstallURLBlocklistHandlers[] = "install-url-blocklist-handlers";

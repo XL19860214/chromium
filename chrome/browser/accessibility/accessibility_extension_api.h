@@ -5,8 +5,6 @@
 #ifndef CHROME_BROWSER_ACCESSIBILITY_ACCESSIBILITY_EXTENSION_API_H_
 #define CHROME_BROWSER_ACCESSIBILITY_ACCESSIBILITY_EXTENSION_API_H_
 
-#include <string>
-
 #include "build/chromeos_buildflags.h"
 #include "extensions/browser/extension_function.h"
 
@@ -214,6 +212,17 @@ class AccessibilityPrivateUpdateSelectToSpeakPanelFunction
   ResponseAction Run() override;
   DECLARE_EXTENSION_FUNCTION("accessibilityPrivate.updateSelectToSpeakPanel",
                              ACCESSIBILITY_PRIVATE_UPDATESELECTTOSPEAKPANEL)
+};
+
+// API function that shows a confirmation dialog, with callbacks for
+// confirm/cancel.
+class AccessibilityPrivateShowConfirmationDialogFunction
+    : public ExtensionFunction {
+  ~AccessibilityPrivateShowConfirmationDialogFunction() override = default;
+  ResponseAction Run() override;
+  void OnDialogResult(bool confirmed);
+  DECLARE_EXTENSION_FUNCTION("accessibilityPrivate.showConfirmationDialog",
+                             ACCESSIBILITY_PRIVATE_SHOWCONFIRMATIONDIALOG)
 };
 #endif  // defined (OS_CHROMEOS)
 

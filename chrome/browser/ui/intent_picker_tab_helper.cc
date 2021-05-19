@@ -16,6 +16,7 @@
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/common/chrome_features.h"
 #include "content/public/browser/navigation_handle.h"
+#include "ui/base/models/image_model.h"
 #include "ui/gfx/favicon_size.h"
 #include "ui/gfx/image/image.h"
 
@@ -79,7 +80,8 @@ void IntentPickerTabHelper::OnAppIconLoaded(
     IntentPickerIconLoaderCallback callback,
     size_t index,
     apps::mojom::IconValuePtr icon_value) {
-  apps[index].icon = gfx::Image(icon_value->uncompressed);
+  apps[index].icon_model =
+      ui::ImageModel::FromImage(gfx::Image(icon_value->uncompressed));
 
   if (index == apps.size() - 1)
     std::move(callback).Run(std::move(apps));
@@ -102,19 +104,16 @@ void IntentPickerTabHelper::LoadAppIcon(
   Profile* profile =
       Profile::FromBrowserContext(web_contents()->GetBrowserContext());
 
-  apps::AppServiceProxy* proxy =
-      apps::AppServiceProxyFactory::GetForProfile(profile);
-
   constexpr bool allow_placeholder_icon = false;
   auto icon_type =
       (base::FeatureList::IsEnabled(features::kAppServiceAdaptiveIcon))
           ? apps::mojom::IconType::kStandard
           : apps::mojom::IconType::kUncompressed;
-  proxy->LoadIcon(app_type, app_id, icon_type, gfx::kFaviconSize,
-                  allow_placeholder_icon,
-                  base::BindOnce(&IntentPickerTabHelper::OnAppIconLoaded,
-                                 weak_factory_.GetWeakPtr(), std::move(apps),
-                                 std::move(callback), index));
+  apps::AppServiceProxyFactory::GetForProfile(profile)->LoadIcon(
+      app_type, app_id, icon_type, gfx::kFaviconSize, allow_placeholder_icon,
+      base::BindOnce(&IntentPickerTabHelper::OnAppIconLoaded,
+                     weak_factory_.GetWeakPtr(), std::move(apps),
+                     std::move(callback), index));
 }
 
 void IntentPickerTabHelper::DidFinishNavigation(

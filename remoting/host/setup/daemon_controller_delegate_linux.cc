@@ -6,14 +6,12 @@
 
 #include <unistd.h>
 
-#include "base/base_paths.h"
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
 #include "base/environment.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
-#include "base/hash/md5.h"
 #include "base/json/json_writer.h"
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
@@ -26,8 +24,8 @@
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/values.h"
 #include "build/build_config.h"
-#include "net/base/network_interfaces.h"
 #include "remoting/host/host_config.h"
+#include "remoting/host/linux/file_path_util.h"
 #include "remoting/host/usage_stats_consent.h"
 
 namespace remoting {
@@ -50,11 +48,8 @@ base::FilePath GetConfigPath() {
   if (current_process->HasSwitch(kHostConfigSwitchName)) {
     return current_process->GetSwitchValuePath(kHostConfigSwitchName);
   }
-  std::string filename =
-      "host#" + base::MD5String(net::GetHostName()) + ".json";
-  base::FilePath homedir;
-  base::PathService::Get(base::DIR_HOME, &homedir);
-  return homedir.Append(".config/chrome-remote-desktop").Append(filename);
+  std::string filename = GetHostHash() + ".json";
+  return GetConfigDirectoryPath().Append(filename);
 }
 
 bool GetScriptPath(base::FilePath* result) {
@@ -175,13 +170,6 @@ void DaemonControllerDelegateLinux::SetConfigAndStart(
     std::unique_ptr<base::DictionaryValue> config,
     bool consent,
     DaemonController::CompletionCallback done) {
-  // Add the user to chrome-remote-desktop group first.
-  if (!RunHostScript({"--add-user"})) {
-    LOG(ERROR) << "Failed to add user to chrome-remote-desktop group.";
-    std::move(done).Run(DaemonController::RESULT_FAILED);
-    return;
-  }
-
   // Ensure the configuration directory exists.
   base::FilePath config_dir = GetConfigPath().DirName();
   if (!base::DirectoryExists(config_dir)) {
@@ -202,9 +190,13 @@ void DaemonControllerDelegateLinux::SetConfigAndStart(
   }
 
   // Finally start the host.
-  std::vector<std::string> args = {"--start",
-                                   "--config=" + GetConfigPath().value()};
+  std::vector<std::string> args = {"--enable-and-start"};
 
+  // TODO(rkjnsn): At this point, the host is configured and just requires an
+  // administrator to enable and start it. If that fails here, e.g., due to no
+  // policy kit agent running, it might be nice to tell the user what they need
+  // to do so they can perform the last step manually (or have an administrator
+  // do it, if the user isn't one).
   DaemonController::AsyncResult result = DaemonController::RESULT_FAILED;
   if (RunHostScript(args))
     result = DaemonController::RESULT_OK;

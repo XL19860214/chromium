@@ -5,15 +5,12 @@
 #ifndef UI_GFX_X_CONNECTION_H_
 #define UI_GFX_X_CONNECTION_H_
 
-#include <list>
-#include <queue>
-
 #include "base/callback.h"
 #include "base/component_export.h"
 #include "base/containers/circular_deque.h"
 #include "base/containers/flat_map.h"
-#include "base/optional.h"
 #include "base/sequence_checker.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/events/platform/platform_event_source.h"
 #include "ui/gfx/x/extension_manager.h"
 #include "ui/gfx/x/xlib_support.h"
@@ -93,10 +90,7 @@ class COMPONENT_EXPORT(X11) Connection : public XProto,
   XlibDisplayWrapper GetXlibDisplay(
       XlibDisplayType type = XlibDisplayType::kNormal);
 
-  uint32_t extended_max_request_length() const {
-    DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-    return extended_max_request_length_;
-  }
+  size_t MaxRequestSizeInBytes() const;
 
   const Setup& setup() const {
     DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
@@ -183,8 +177,10 @@ class COMPONENT_EXPORT(X11) Connection : public XProto,
 
   uint32_t KeycodeToKeysym(KeyCode keycode, uint32_t modifiers) const;
 
-  // Access the event buffer.  Clients can add, delete, or modify events.
-  std::list<Event>& events() {
+  // Access the event buffer.  Clients may modify the queue, including
+  // "deleting" events by setting events[i] = x11::Event(), which will
+  // guarantee all calls to x11::Event::As() will return nullptr.
+  base::circular_deque<Event>& events() {
     DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
     return events_;
   }
@@ -268,6 +264,8 @@ class COMPONENT_EXPORT(X11) Connection : public XProto,
 
   bool HasNextResponse();
 
+  bool HasNextEvent();
+
   // Creates a new Request and adds it to the end of the queue.
   // |request_name_for_tracing| must be valid until the response is
   // dispatched; currently the string values are only stored in .rodata, so
@@ -312,7 +310,7 @@ class COMPONENT_EXPORT(X11) Connection : public XProto,
 
   std::unique_ptr<KeyboardState> keyboard_state_;
 
-  std::list<Event> events_;
+  base::circular_deque<Event> events_;
 
   base::ObserverList<EventObserver>::Unchecked event_observers_;
 
@@ -325,8 +323,8 @@ class COMPONENT_EXPORT(X11) Connection : public XProto,
   // the 0'th request is handled internally by XCB when opening the connection.
   SequenceType first_request_id_ = 1;
   // If any request in |requests_| will generate a reply, this is the ID of the
-  // latest one, otherwise this is base::nullopt.
-  base::Optional<SequenceType> last_non_void_request_id_;
+  // latest one, otherwise this is absl::nullopt.
+  absl::optional<SequenceType> last_non_void_request_id_;
 
   using ErrorParser = std::unique_ptr<Error> (*)(RawError error_bytes);
   std::array<ErrorParser, 256> error_parsers_{};

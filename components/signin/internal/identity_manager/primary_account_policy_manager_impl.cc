@@ -6,6 +6,7 @@
 
 #include "base/bind.h"
 #include "base/logging.h"
+#include "build/build_config.h"
 #include "components/signin/internal/identity_manager/primary_account_manager.h"
 #include "components/signin/public/base/signin_client.h"
 #include "components/signin/public/base/signin_metrics.h"
@@ -40,8 +41,8 @@ void PrimaryAccountPolicyManagerImpl::InitializePolicy(
           &PrimaryAccountPolicyManagerImpl::OnSigninAllowedPrefChanged,
           base::Unretained(this), primary_account_manager));
 
-  CoreAccountInfo account_info =
-      primary_account_manager->GetAuthenticatedAccountInfo();
+  CoreAccountInfo account_info = primary_account_manager->GetPrimaryAccountInfo(
+      signin::ConsentLevel::kSync);
   if (!account_info.account_id.empty() &&
       (!IsAllowedUsername(account_info.email) || !IsSigninAllowed())) {
     // User is signed in, but the username is invalid or signin is no longer
@@ -65,7 +66,7 @@ void PrimaryAccountPolicyManagerImpl::InitializePolicy(
     // RevokeSyncConsent() does not do anything.
     primary_account_manager->RevokeSyncConsent(
         signin_metrics::SIGNIN_PREF_CHANGED_DURING_SIGNIN,
-        signin_metrics::SignoutDelete::IGNORE_METRIC);
+        signin_metrics::SignoutDelete::kIgnoreMetric);
   }
 }
 
@@ -73,12 +74,14 @@ void PrimaryAccountPolicyManagerImpl::OnGoogleServicesUsernamePatternChanged(
     PrimaryAccountManager* primary_account_manager) {
   if (primary_account_manager->HasPrimaryAccount(signin::ConsentLevel::kSync) &&
       !IsAllowedUsername(
-          primary_account_manager->GetAuthenticatedAccountInfo().email)) {
+          primary_account_manager
+              ->GetPrimaryAccountInfo(signin::ConsentLevel::kSync)
+              .email)) {
     // Signed in user is invalid according to the current policy so sign
     // the user out.
     primary_account_manager->ClearPrimaryAccount(
         signin_metrics::GOOGLE_SERVICE_NAME_PATTERN_CHANGED,
-        signin_metrics::SignoutDelete::IGNORE_METRIC);
+        signin_metrics::SignoutDelete::kIgnoreMetric);
   }
 }
 
@@ -93,7 +96,7 @@ void PrimaryAccountPolicyManagerImpl::OnSigninAllowedPrefChanged(
     VLOG(0) << "IsSigninAllowed() set to false, signing out the user";
     primary_account_manager->ClearPrimaryAccount(
         signin_metrics::SIGNOUT_PREF_CHANGED,
-        signin_metrics::SignoutDelete::IGNORE_METRIC);
+        signin_metrics::SignoutDelete::kIgnoreMetric);
   }
 }
 

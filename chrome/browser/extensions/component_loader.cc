@@ -51,14 +51,17 @@
 #include "ui/base/resource/resource_bundle.h"
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
+#include "ash/constants/ash_features.h"
+#include "ash/constants/ash_pref_names.h"
+#include "ash/constants/ash_switches.h"
 #include "ash/keyboard/ui/grit/keyboard_resources.h"
-#include "chromeos/constants/chromeos_features.h"
-#include "chromeos/constants/chromeos_pref_names.h"
-#include "chromeos/constants/chromeos_switches.h"
+#include "base/system/sys_info.h"
+#include "chrome/browser/chromeos/file_manager/app_id.h"
 #include "components/user_manager/user_manager.h"
 #include "content/public/browser/site_instance.h"
 #include "content/public/browser/storage_partition.h"
 #include "extensions/browser/extensions_browser_client.h"
+#include "extensions/common/switches.h"
 #include "storage/browser/file_system/file_system_context.h"
 #include "ui/chromeos/devicetype_utils.h"
 #include "ui/file_manager/grit/file_manager_resources.h"
@@ -181,7 +184,7 @@ std::unique_ptr<base::DictionaryValue> ComponentLoader::ParseManifest(
 
   if (!manifest.get() || !manifest->is_dict()) {
     LOG(ERROR) << "Failed to parse extension manifest.";
-    return std::unique_ptr<base::DictionaryValue>();
+    return nullptr;
   }
   return base::DictionaryValue::From(std::move(manifest));
 }
@@ -384,7 +387,13 @@ void ComponentLoader::AddAudioPlayerExtension() {
 }
 
 void ComponentLoader::AddGalleryExtension() {
-  Add(IDR_GALLERY_MANIFEST, base::FilePath(FILE_PATH_LITERAL("gallery")));
+  // TODO(crbug.com/1030935): Delete this entirely around M93 when it has has a
+  // chance to be cleaned up.
+  if (extensions::ExtensionPrefs::Get(profile_)
+          ->ShouldInstallObsoleteComponentExtension(
+              file_manager::kGalleryAppId)) {
+    Add(IDR_GALLERY_MANIFEST, base::FilePath(FILE_PATH_LITERAL("gallery")));
+  }
 }
 
 void ComponentLoader::AddImageLoaderExtension() {
@@ -392,19 +401,22 @@ void ComponentLoader::AddImageLoaderExtension() {
       base::FilePath(FILE_PATH_LITERAL("image_loader")));
 }
 
+void ComponentLoader::AddGuestModeTestExtension(const base::FilePath& path) {
+  base::SysInfo::CrashIfChromeOSNonTestImage();
+  AddComponentFromDirWithManifestFilename(
+      path, extension_misc::kGuestModeTestExtensionId,
+      extensions::kManifestFilename, extensions::kManifestFilename,
+      base::RepeatingClosure());
+}
+
 void ComponentLoader::AddKeyboardApp() {
   Add(IDR_KEYBOARD_MANIFEST, base::FilePath(FILE_PATH_LITERAL("keyboard")));
 }
 
 void ComponentLoader::AddChromeCameraApp() {
-  // TODO(crbug.com/1135280): Remove all the logic here once CCA is fully
-  // migrated to SWA.
-
-  // If users should use the SWA version of CCA and the status from the platform
-  // app version is already migrated, there is no need to install the platform
-  // version of CCA.
-  if (base::FeatureList::IsEnabled(chromeos::features::kCameraSystemWebApp) &&
-      profile_->GetPrefs()->GetBoolean(
+  // Only adding the Chrome App version of camera app for migration purpose.
+  // We should remove this method totally after a few milestones.
+  if (profile_->GetPrefs()->GetBoolean(
           chromeos::prefs::kHasCameraAppMigratedToSWA)) {
     return;
   }
@@ -434,8 +446,9 @@ scoped_refptr<const Extension> ComponentLoader::CreateExtension(
   // TODO(abarth): We should REQUIRE_MODERN_MANIFEST_VERSION once we've updated
   //               our component extensions to the new manifest version.
   int flags = Extension::REQUIRE_KEY;
-  return Extension::Create(info.root_directory, Manifest::COMPONENT,
-                           *info.manifest, flags, utf8_error);
+  return Extension::Create(info.root_directory,
+                           mojom::ManifestLocation::kComponent, *info.manifest,
+                           flags, utf8_error);
 }
 
 // static
@@ -461,11 +474,6 @@ void ComponentLoader::AddDefaultComponentExtensions(
   AddKeyboardApp();
 #else  // BUILDFLAG(IS_CHROMEOS_ASH)
   DCHECK(!skip_session_components);
-#if BUILDFLAG(ENABLE_PRINTING)
-  // Cloud Print component app. Not required on Chrome OS.
-  Add(IDR_CLOUDPRINT_MANIFEST,
-      base::FilePath(FILE_PATH_LITERAL("cloud_print")));
-#endif  // BUILDFLAG(ENABLE_PRINTING)
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
   if (!skip_session_components) {
@@ -539,6 +547,11 @@ void ComponentLoader::AddDefaultComponentExtensionsWithBackgroundPages(
     }
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
+    if (command_line->HasSwitch(switches::kLoadGuestModeTestExtension)) {
+      base::FilePath path = base::FilePath(command_line->GetSwitchValueASCII(
+          switches::kLoadGuestModeTestExtension));
+      AddGuestModeTestExtension(path);
+    }
     AddChromeCameraApp();
     AddVideoPlayerExtension();
     AddAudioPlayerExtension();
@@ -643,7 +656,7 @@ void ComponentLoader::AddComponentFromDirWithManifestFilename(
                      manifest_filename, true),
       base::BindOnce(&ComponentLoader::FinishAddComponentFromDir,
                      weak_factory_.GetWeakPtr(), root_directory, extension_id,
-                     base::nullopt, base::nullopt, std::move(done_cb)));
+                     absl::nullopt, absl::nullopt, std::move(done_cb)));
 }
 
 void ComponentLoader::AddWithNameAndDescriptionFromDir(
@@ -686,8 +699,8 @@ void ComponentLoader::AddChromeOsSpeechSynthesisExtensions() {
 void ComponentLoader::FinishAddComponentFromDir(
     const base::FilePath& root_directory,
     const char* extension_id,
-    const base::Optional<std::string>& name_string,
-    const base::Optional<std::string>& description_string,
+    const absl::optional<std::string>& name_string,
+    const absl::optional<std::string>& description_string,
     base::OnceClosure done_cb,
     std::unique_ptr<base::DictionaryValue> manifest) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);

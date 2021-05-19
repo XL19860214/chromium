@@ -32,19 +32,19 @@ import org.chromium.chrome.browser.compositor.layouts.Layout.Orientation;
 import org.chromium.chrome.browser.compositor.layouts.components.LayoutTab;
 import org.chromium.chrome.browser.compositor.layouts.content.TabContentManager;
 import org.chromium.chrome.browser.compositor.overlays.strip.StripLayoutHelperManager;
+import org.chromium.chrome.browser.continuous_search.ContinuousSearchContainerCoordinator;
 import org.chromium.chrome.browser.fullscreen.BrowserControlsManager;
 import org.chromium.chrome.browser.gesturenav.HistoryNavigationCoordinator;
 import org.chromium.chrome.browser.layouts.CompositorModelChangeProcessor;
 import org.chromium.chrome.browser.layouts.EventFilter;
-import org.chromium.chrome.browser.layouts.LayoutManager;
 import org.chromium.chrome.browser.layouts.LayoutStateProvider;
 import org.chromium.chrome.browser.layouts.LayoutType;
+import org.chromium.chrome.browser.layouts.ManagedLayoutManager;
 import org.chromium.chrome.browser.layouts.SceneOverlay;
 import org.chromium.chrome.browser.layouts.animation.CompositorAnimationHandler;
 import org.chromium.chrome.browser.layouts.components.VirtualView;
 import org.chromium.chrome.browser.layouts.scene_layer.SceneLayer;
 import org.chromium.chrome.browser.layouts.scene_layer.SceneOverlayLayer;
-import org.chromium.chrome.browser.native_page.NativePageFactory;
 import org.chromium.chrome.browser.status_indicator.StatusIndicatorCoordinator;
 import org.chromium.chrome.browser.tab.SadTab;
 import org.chromium.chrome.browser.tab.Tab;
@@ -52,7 +52,6 @@ import org.chromium.chrome.browser.tab.TabCreationState;
 import org.chromium.chrome.browser.tab.TabHidingType;
 import org.chromium.chrome.browser.tab.TabLaunchType;
 import org.chromium.chrome.browser.tab.TabSelectionType;
-import org.chromium.chrome.browser.tabmodel.EmptyTabModelSelectorObserver;
 import org.chromium.chrome.browser.tabmodel.TabCreatorManager;
 import org.chromium.chrome.browser.tabmodel.TabModel;
 import org.chromium.chrome.browser.tabmodel.TabModelObserver;
@@ -60,11 +59,12 @@ import org.chromium.chrome.browser.tabmodel.TabModelSelector;
 import org.chromium.chrome.browser.tabmodel.TabModelSelectorObserver;
 import org.chromium.chrome.browser.tabmodel.TabModelSelectorTabObserver;
 import org.chromium.chrome.browser.tabmodel.TabModelUtils;
+import org.chromium.chrome.browser.theme.ThemeUtils;
 import org.chromium.chrome.browser.theme.TopUiThemeColorProvider;
 import org.chromium.chrome.browser.toolbar.ControlContainer;
-import org.chromium.chrome.browser.toolbar.ToolbarColors;
 import org.chromium.chrome.browser.toolbar.bottom.ScrollingBottomViewSceneLayer;
 import org.chromium.chrome.browser.toolbar.top.TopToolbarOverlayCoordinator;
+import org.chromium.chrome.browser.ui.native_page.NativePage;
 import org.chromium.components.browser_ui.widget.gesture.SwipeGestureListener.SwipeHandler;
 import org.chromium.components.embedder_support.util.UrlConstants;
 import org.chromium.ui.base.LocalizationUtils;
@@ -75,6 +75,7 @@ import org.chromium.ui.modelutil.PropertyModelChangeProcessor;
 import org.chromium.ui.resources.ResourceManager;
 import org.chromium.ui.resources.dynamics.DynamicResourceLoader;
 import org.chromium.ui.util.TokenHolder;
+import org.chromium.url.GURL;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -85,7 +86,7 @@ import java.util.Map;
  * A class that is responsible for managing an active {@link Layout} to show to the screen.  This
  * includes lifecycle managment like showing/hiding this {@link Layout}.
  */
-public class LayoutManagerImpl implements LayoutManager, LayoutUpdateHost, LayoutProvider,
+public class LayoutManagerImpl implements ManagedLayoutManager, LayoutUpdateHost, LayoutProvider,
                                           TabModelSelector.CloseAllTabsDelegate {
     /** Sampling at 60 fps. */
     private static final long FRAME_DELTA_TIME_MS = 16;
@@ -220,6 +221,7 @@ public class LayoutManagerImpl implements LayoutManager, LayoutUpdateHost, Layou
             } else {
                 boolean incognito = tab.isIncognito();
                 boolean willBeSelected = launchType != TabLaunchType.FROM_LONGPRESS_BACKGROUND
+                                && launchType != TabLaunchType.FROM_LONGPRESS_BACKGROUND_IN_GROUP
                         || (!getTabModelSelector().isIncognitoSelected() && incognito);
                 float lastTapX = LocalizationUtils.isLayoutRtl() ? mHost.getWidth() * mPxToDp : 0.f;
                 float lastTapY = 0.f;
@@ -285,6 +287,7 @@ public class LayoutManagerImpl implements LayoutManager, LayoutUpdateHost, Layou
         // Overlays are ordered back (closest to the web content) to front.
         Class[] overlayOrder = new Class[] {
                 HistoryNavigationCoordinator.getSceneOverlayClass(),
+                ContinuousSearchContainerCoordinator.getSceneOverlayClass(),
                 TopToolbarOverlayCoordinator.class,
                 ScrollingBottomViewSceneLayer.class,
                 StripLayoutHelperManager.class,
@@ -474,10 +477,12 @@ public class LayoutManagerImpl implements LayoutManager, LayoutUpdateHost, Layou
      * @param creator                  A {@link TabCreatorManager} instance.
      * @param controlContainer         A {@link ControlContainer} for browser controls' layout.
      * @param dynamicResourceLoader    A {@link DynamicResourceLoader} instance.
+     * @param topUiColorProvider       A theme color provider for the top browser controls.
      */
     public void init(TabModelSelector selector, TabCreatorManager creator,
             @Nullable ControlContainer controlContainer,
-            DynamicResourceLoader dynamicResourceLoader) {
+            DynamicResourceLoader dynamicResourceLoader,
+            TopUiThemeColorProvider topUiColorProvider) {
         LayoutRenderHost renderHost = mHost.getLayoutRenderHost();
 
         // Build Layouts
@@ -541,7 +546,7 @@ public class LayoutManagerImpl implements LayoutManager, LayoutUpdateHost, Layou
 
         if (mNextActiveLayout != null) startShowing(mNextActiveLayout, true);
 
-        mTabModelSelectorObserver = new EmptyTabModelSelectorObserver() {
+        mTabModelSelectorObserver = new TabModelSelectorObserver() {
             @Override
             public void onTabModelSelected(TabModel newModel, TabModel oldModel) {
                 tabModelSwitched(newModel.isIncognito());
@@ -555,9 +560,7 @@ public class LayoutManagerImpl implements LayoutManager, LayoutUpdateHost, Layou
                 mTabModelFilterObserver);
     }
 
-    /**
-     * Cleans up and destroys this object.  It should not be used after this.
-     */
+    @Override
     public void destroy() {
         mAnimationHandler.destroy();
         mSceneChangeObservers.clear();
@@ -795,9 +798,9 @@ public class LayoutManagerImpl implements LayoutManager, LayoutUpdateHost, Layou
         LayoutTab layoutTab = mTabCache.get(tabId);
         if (layoutTab == null) return;
 
-        String url = tab.getUrlString();
-        boolean isNativePage = tab.isNativePage()
-                || (url != null && url.startsWith(UrlConstants.CHROME_NATIVE_URL_PREFIX));
+        GURL url = tab.getUrl();
+        boolean isNativePage =
+                tab.isNativePage() || url.getScheme().equals(UrlConstants.CHROME_NATIVE_SCHEME);
 
         boolean canUseLiveTexture = tab.getWebContents() != null && !SadTab.isShowing(tab)
                 && !isNativePage && !tab.isHidden();
@@ -805,7 +808,7 @@ public class LayoutManagerImpl implements LayoutManager, LayoutUpdateHost, Layou
         TopUiThemeColorProvider topUiTheme = mTopUiThemeColorProvider.get();
         layoutTab.initFromHost(topUiTheme.getBackgroundColor(tab), shouldStall(tab),
                 canUseLiveTexture, topUiTheme.getSceneLayerBackground(tab),
-                ToolbarColors.getTextBoxColorForToolbarBackground(mContext.getResources(), tab,
+                ThemeUtils.getTextBoxColorForToolbarBackground(mContext.getResources(), tab,
                         topUiTheme.calculateColor(tab, tab.getThemeColor())),
                 topUiTheme.getTextBoxBackgroundAlpha(tab));
 
@@ -815,7 +818,7 @@ public class LayoutManagerImpl implements LayoutManager, LayoutUpdateHost, Layou
     // Whether the tab is ready to display or it should be faded in as it loads.
     private static boolean shouldStall(Tab tab) {
         return (tab.isFrozen() || tab.needsReload())
-                && !NativePageFactory.isNativePageUrl(tab.getUrlString(), tab.isIncognito());
+                && !NativePage.isNativePageUrl(tab.getUrlString(), tab.isIncognito());
     }
 
     @Override
@@ -955,7 +958,6 @@ public class LayoutManagerImpl implements LayoutManager, LayoutUpdateHost, Layou
      * @param animate Whether or not {@code layout} should animate as it shows.
      */
     protected void startShowing(Layout layout, boolean animate) {
-        assert mTabModelSelector != null : "init() must be called first.";
         assert layout != null : "Can't show a null layout.";
 
         // Set the new layout

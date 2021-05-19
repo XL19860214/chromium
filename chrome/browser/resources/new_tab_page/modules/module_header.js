@@ -2,11 +2,19 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {html, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+import 'chrome://resources/cr_elements/cr_action_menu/cr_action_menu.m.js';
 
-/** @fileoverview Element that displays a header inside a module. */
+import {html, mixinBehaviors, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
-class ModuleHeaderElement extends PolymerElement {
+import {I18nBehavior} from '../i18n_setup.js';
+
+/**
+ * Element that displays a header inside a module.
+ * @polymer
+ * @extends {PolymerElement}
+ */
+export class ModuleHeaderElement extends mixinBehaviors
+([I18nBehavior], PolymerElement) {
   static get is() {
     return 'ntp-module-header';
   }
@@ -18,10 +26,16 @@ class ModuleHeaderElement extends PolymerElement {
   static get properties() {
     return {
       /**
-       * The title to be displayed.
-       * @type {!string}
+       * The chip text showing on the header.
+       * @type {string}
        */
-      title: String,
+      chipText: String,
+
+      /**
+       * The description text showing in the header.
+       * @type {string}
+       */
+      descriptionText: String,
 
       /**
        * True if the header should display an info button.
@@ -40,18 +54,45 @@ class ModuleHeaderElement extends PolymerElement {
         type: Boolean,
         value: false,
       },
+
+      /** @type {string} */
+      dismissText: String,
+
+      /** @type {string} */
+      disableText: String,
     };
   }
 
   /** @private */
   onInfoButtonClick_() {
-    this.dispatchEvent(new CustomEvent('info-button-click', {bubbles: true}));
+    this.dispatchEvent(new Event('info-button-click', {bubbles: true}));
+  }
+
+  /**
+   * @param {!Event} e
+   * @private
+   */
+  onMenuButtonClick_(e) {
+    this.$.actionMenu.showAt(e.target);
   }
 
   /** @private */
   onDismissButtonClick_() {
+    this.$.actionMenu.close();
+    this.dispatchEvent(new Event('dismiss-button-click', {bubbles: true}));
+  }
+
+  /** @private */
+  onDisableButtonClick_() {
+    this.$.actionMenu.close();
+    this.dispatchEvent(new Event('disable-button-click', {bubbles: true}));
+  }
+
+  /** @private */
+  onCustomizeButtonClick_() {
+    this.$.actionMenu.close();
     this.dispatchEvent(
-        new CustomEvent('dismiss-button-click', {bubbles: true}));
+        new Event('customize-module', {bubbles: true, composed: true}));
   }
 }
 

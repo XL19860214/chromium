@@ -6,6 +6,7 @@
 
 #include <utility>
 
+#include "ash/constants/ash_switches.h"
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/feature_list.h"
@@ -18,6 +19,8 @@
 #include "base/task/thread_pool.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
+#include "chrome/browser/ash/profiles/profile_helper.h"
+#include "chrome/browser/ash/settings/cros_settings.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_process_platform_part.h"
 #include "chrome/browser/chromeos/policy/active_directory_policy_manager.h"
@@ -25,15 +28,12 @@
 #include "chrome/browser/chromeos/policy/user_cloud_external_data_manager.h"
 #include "chrome/browser/chromeos/policy/user_cloud_policy_manager_chromeos.h"
 #include "chrome/browser/chromeos/policy/user_cloud_policy_store_chromeos.h"
-#include "chrome/browser/chromeos/profiles/profile_helper.h"
-#include "chrome/browser/chromeos/settings/cros_settings.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
 #include "chrome/browser/policy/schema_registry_service.h"
 #include "chrome/common/chrome_features.h"
-#include "chromeos/constants/chromeos_switches.h"
 #include "chromeos/dbus/constants/dbus_paths.h"
-#include "chromeos/dbus/cryptohome/cryptohome_client.h"
 #include "chromeos/dbus/session_manager/session_manager_client.h"
+#include "chromeos/dbus/userdataauth/cryptohome_misc_client.h"
 #include "chromeos/tpm/install_attributes.h"
 #include "components/arc/arc_features.h"
 #include "components/policy/core/browser/browser_policy_connector.h"
@@ -46,7 +46,7 @@
 #include "components/user_manager/user_manager.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 
-using user_manager::known_user::ProfileRequiresPolicy;
+using user_manager::ProfileRequiresPolicy;
 namespace policy {
 
 using PolicyEnforcement = UserCloudPolicyManagerChromeOS::PolicyEnforcement;
@@ -116,7 +116,7 @@ void CreateConfigurationPolicyProvider(
   //   |UserCloudPolicyManagerChromeOS| is created here.
   // All other user types do not have user policy.
   const AccountId& account_id = user->GetAccountId();
-  if (user->GetType() == user_manager::USER_TYPE_SUPERVISED ||
+  if (user->GetType() == user_manager::USER_TYPE_SUPERVISED_DEPRECATED ||
       (user->GetType() != user_manager::USER_TYPE_CHILD &&
        BrowserPolicyConnector::IsNonEnterpriseUser(
            account_id.GetUserEmail()))) {
@@ -253,7 +253,7 @@ void CreateConfigurationPolicyProvider(
 
   std::unique_ptr<UserCloudPolicyStoreChromeOS> store =
       std::make_unique<UserCloudPolicyStoreChromeOS>(
-          chromeos::CryptohomeClient::Get(),
+          chromeos::CryptohomeMiscClient::Get(),
           chromeos::SessionManagerClient::Get(), background_task_runner,
           account_id, policy_key_dir, is_active_directory);
 
@@ -286,7 +286,7 @@ void CreateConfigurationPolicyProvider(
 
     bool wildcard_match = false;
     if (connector->IsEnterpriseManaged() &&
-        chromeos::CrosSettings::Get()->IsUserAllowlisted(
+        ash::CrosSettings::Get()->IsUserAllowlisted(
             account_id.GetUserEmail(), &wildcard_match, user->GetType()) &&
         wildcard_match &&
         !connector->IsNonEnterpriseUser(account_id.GetUserEmail())) {

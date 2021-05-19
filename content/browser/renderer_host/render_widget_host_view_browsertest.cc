@@ -11,6 +11,7 @@
 #include "base/path_service.h"
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
+#include "base/strings/stringprintf.h"
 #include "base/task/current_thread.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
@@ -20,7 +21,6 @@
 #include "content/browser/renderer_host/dip_util.h"
 #include "content/browser/renderer_host/render_widget_host_impl.h"
 #include "content/browser/renderer_host/render_widget_host_view_base.h"
-#include "content/common/frame_messages.h"
 #include "content/public/browser/gpu_data_manager.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_view_host.h"
@@ -385,10 +385,10 @@ namespace {
 
 std::unique_ptr<net::test_server::HttpResponse> HandleSlowStyleSheet(
     const net::test_server::HttpRequest& request) {
-  auto response = std::make_unique<SlowHttpResponse>(request.relative_url);
-  if (!response->IsHandledUrl())
+  // The CSS stylesheet we want to be slow will have this path.
+  if (request.relative_url != "/slow-response")
     return nullptr;
-  return std::move(response);
+  return std::make_unique<SlowHttpResponse>(SlowHttpResponse::NoResponse());
 }
 
 class DOMContentLoadedObserver : public WebContentsObserver {

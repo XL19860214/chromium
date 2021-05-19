@@ -405,7 +405,7 @@ void DevToolsDeviceDiscovery::DiscoveryRequest::Start(
   auto request =
       base::WrapRefCounted(new DiscoveryRequest(std::move(callback)));
   device_manager->QueryDevices(
-      base::Bind(&DiscoveryRequest::ReceivedDevices, request));
+      base::BindOnce(&DiscoveryRequest::ReceivedDevices, request));
 }
 
 DevToolsDeviceDiscovery::DiscoveryRequest::DiscoveryRequest(
@@ -424,7 +424,7 @@ void DevToolsDeviceDiscovery::DiscoveryRequest::ReceivedDevices(
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   for (const auto& device : devices) {
     device->QueryDeviceInfo(
-        base::Bind(&DiscoveryRequest::ReceivedDeviceInfo, this, device));
+        base::BindOnce(&DiscoveryRequest::ReceivedDeviceInfo, this, device));
   }
 }
 
@@ -439,7 +439,7 @@ void DevToolsDeviceDiscovery::DiscoveryRequest::ReceivedDeviceInfo(
        it != remote_device->browsers().end(); ++it) {
     device->SendJsonRequest(
         (*it)->socket(), kVersionRequest,
-        base::Bind(&DiscoveryRequest::ReceivedVersion, this, device, *it));
+        base::BindOnce(&DiscoveryRequest::ReceivedVersion, this, device, *it));
   }
 }
 
@@ -452,12 +452,12 @@ void DevToolsDeviceDiscovery::DiscoveryRequest::ReceivedVersion(
 
   device->SendJsonRequest(
       browser->socket(), kPageListRequest,
-      base::Bind(&DiscoveryRequest::ReceivedPages, this, device, browser));
+      base::BindOnce(&DiscoveryRequest::ReceivedPages, this, device, browser));
 
   if (result < 0)
     return;
   // Parse version, append to package name if available,
-  base::Optional<base::Value> value = base::JSONReader::Read(response);
+  absl::optional<base::Value> value = base::JSONReader::Read(response);
   if (value && value->is_dict()) {
     const std::string* browser_name = value->FindStringKey("Browser");
     if (browser_name) {
@@ -487,7 +487,7 @@ void DevToolsDeviceDiscovery::DiscoveryRequest::ReceivedPages(
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   if (result < 0)
     return;
-  base::Optional<base::Value> value = base::JSONReader::Read(response);
+  absl::optional<base::Value> value = base::JSONReader::Read(response);
   if (value && value->is_list()) {
     for (base::Value& page_value : value->GetList()) {
       if (page_value.is_dict())

@@ -15,18 +15,17 @@
 #include "base/files/file_path.h"
 #include "base/gtest_prod_util.h"
 #include "base/memory/ref_counted.h"
-#include "base/optional.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/profiles/profile_io_data_handle.h"
 #include "chrome/common/buildflags.h"
 #include "components/keyed_service/core/simple_factory_key.h"
 #include "components/prefs/pref_change_registrar.h"
 #include "content/public/browser/content_browser_client.h"
 #include "extensions/buildflags/buildflags.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 #if !defined(OS_ANDROID)
 #include "chrome/browser/ui/zoom/chrome_zoom_level_prefs.h"
@@ -80,7 +79,6 @@ class ProfileImpl : public Profile {
       const base::FilePath& partition_path) override;
 #endif
   content::DownloadManagerDelegate* GetDownloadManagerDelegate() override;
-  content::ResourceContext* GetResourceContext() override;
   content::BrowserPluginGuestManager* GetGuestManager() override;
   storage::SpecialStoragePolicy* GetSpecialStoragePolicy() override;
   content::PushMessagingService* GetPushMessagingService() override;
@@ -94,18 +92,16 @@ class ProfileImpl : public Profile {
       override;
   content::BackgroundFetchDelegate* GetBackgroundFetchDelegate() override;
   content::BackgroundSyncController* GetBackgroundSyncController() override;
-  void SetCorsOriginAccessListForOrigin(
-      const url::Origin& source_origin,
-      std::vector<network::mojom::CorsOriginPatternPtr> allow_patterns,
-      std::vector<network::mojom::CorsOriginPatternPtr> block_patterns,
-      base::OnceClosure closure) override;
-  content::SharedCorsOriginAccessList* GetSharedCorsOriginAccessList() override;
   std::string GetMediaDeviceIDSalt() override;
   download::InProgressDownloadManager* RetriveInProgressDownloadManager()
       override;
-  content::NativeFileSystemPermissionContext*
-  GetNativeFileSystemPermissionContext() override;
+  content::FileSystemAccessPermissionContext*
+  GetFileSystemAccessPermissionContext() override;
   content::ContentIndexProvider* GetContentIndexProvider() override;
+  content::FederatedIdentityRequestPermissionContextDelegate*
+  GetFederatedIdentityRequestPermissionContext() override;
+  content::FederatedIdentitySharingPermissionContextDelegate*
+  GetFederatedIdentitySharingPermissionContext() override;
 
   // Profile implementation:
   scoped_refptr<base::SequencedTaskRunner> GetIOTaskRunner() override;
@@ -121,7 +117,8 @@ class ProfileImpl : public Profile {
 #endif  // BUILDFLAG(IS_CHROMEOS_LACROS)
   const OTRProfileID& GetOTRProfileID() const override;
   base::FilePath GetPath() const override;
-  Profile* GetOffTheRecordProfile(const OTRProfileID& otr_profile_id) override;
+  Profile* GetOffTheRecordProfile(const OTRProfileID& otr_profile_id,
+                                  bool create_if_needed) override;
   std::vector<Profile*> GetAllOffTheRecordProfiles() override;
   void DestroyOffTheRecordProfile(Profile* otr_profile) override;
   bool HasOffTheRecordProfile(const OTRProfileID& otr_profile_id) override;
@@ -130,7 +127,6 @@ class ProfileImpl : public Profile {
   const Profile* GetOriginalProfile() const override;
   bool IsSupervised() const override;
   bool IsChild() const override;
-  bool IsLegacySupervised() const override;
   bool AllowsBrowserWindows() const override;
   ExtensionSpecialStoragePolicy* GetExtensionSpecialStoragePolicy() override;
   PrefService* GetPrefs() override;
@@ -138,9 +134,6 @@ class ProfileImpl : public Profile {
 #if !defined(OS_ANDROID)
   ChromeZoomLevelPrefs* GetZoomLevelPrefs() override;
 #endif
-  // TODO(https://crbug.com/1065444): Only supports primary OTR profile. Either
-  // update to support all OTR profiles or remove this function.
-  PrefService* GetOffTheRecordPrefs() override;
   PrefService* GetReadOnlyOffTheRecordPrefs() override;
   policy::SchemaRegistryService* GetPolicySchemaRegistryService() override;
 #if BUILDFLAG(IS_CHROMEOS_ASH)
@@ -172,6 +165,8 @@ class ProfileImpl : public Profile {
   void OnLogin() override;
   void InitChromeOSPreferences() override;
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+
+  bool IsNewProfile() const override;
 
   void SetCreationTimeForTesting(base::Time creation_time) override;
   void RecordMainFrameNavigation() override {}
@@ -281,10 +276,7 @@ class ProfileImpl : public Profile {
   // first.
   scoped_refptr<user_prefs::PrefRegistrySyncable> pref_registry_;
   std::unique_ptr<sync_preferences::PrefServiceSyncable> prefs_;
-  // See comment in GetOffTheRecordPrefs. Field exists so something owns the
-  // dummy.
   std::unique_ptr<sync_preferences::PrefServiceSyncable> dummy_otr_prefs_;
-  ProfileIODataHandle io_data_;
 #if BUILDFLAG(ENABLE_EXTENSIONS)
   scoped_refptr<ExtensionSpecialStoragePolicy>
       extension_special_storage_policy_;
@@ -333,9 +325,6 @@ class ProfileImpl : public Profile {
   // components/keyed_service/content/browser_context_keyed_service_factory.*
 
   Profile::Delegate* delegate_;
-
-  scoped_refptr<content::SharedCorsOriginAccessList>
-      shared_cors_origin_access_list_;
 };
 
 #endif  // CHROME_BROWSER_PROFILES_PROFILE_IMPL_H_

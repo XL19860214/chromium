@@ -14,7 +14,6 @@
 #include "base/containers/span.h"
 #include "base/location.h"
 #include "base/memory/weak_ptr.h"
-#include "base/optional.h"
 #include "base/run_loop.h"
 #include "base/stl_util.h"
 #include "base/strings/strcat.h"
@@ -23,15 +22,15 @@
 #include "base/strings/stringprintf.h"
 #include "base/task/post_task.h"
 #include "base/threading/thread_restrictions.h"
-#include "chrome/browser/chromeos/login/test/device_state_mixin.h"
-#include "chrome/browser/chromeos/login/test/login_manager_mixin.h"
-#include "chrome/browser/chromeos/login/test/scoped_policy_update.h"
-#include "chrome/browser/chromeos/login/test/user_policy_mixin.h"
+#include "chrome/browser/ash/login/test/device_state_mixin.h"
+#include "chrome/browser/ash/login/test/login_manager_mixin.h"
+#include "chrome/browser/ash/login/test/scoped_policy_update.h"
+#include "chrome/browser/ash/login/test/user_policy_mixin.h"
+#include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/chromeos/platform_keys/platform_keys.h"
 #include "chrome/browser/chromeos/platform_keys/platform_keys_service.h"
 #include "chrome/browser/chromeos/platform_keys/platform_keys_service_factory.h"
 #include "chrome/browser/chromeos/platform_keys/platform_keys_service_test_util.h"
-#include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/chromeos/scoped_test_system_nss_key_slot_mixin.h"
 #include "chrome/browser/net/nss_context.h"
 #include "chrome/browser/policy/policy_test_utils.h"
@@ -40,7 +39,6 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/test/base/mixin_based_in_process_browser_test.h"
 #include "chrome/test/base/testing_profile.h"
-#include "chromeos/constants/chromeos_switches.h"
 #include "chromeos/login/auth/user_context.h"
 #include "components/policy/core/common/cloud/policy_builder.h"
 #include "components/policy/core/common/policy_switches.h"
@@ -59,6 +57,7 @@
 #include "net/test/test_data_directory.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/cros_system_api/constants/pkcs11_custom_attributes.h"
 
 namespace chromeos {
@@ -235,10 +234,9 @@ class PlatformKeysServiceBrowserTestBase
   }
 
  private:
-  void SetUserSlot(const base::Closure& done_callback,
-                   net::NSSCertDatabase* db) {
+  void SetUserSlot(base::OnceClosure done_callback, net::NSSCertDatabase* db) {
     user_slot_ = db->GetPrivateSlot();
-    done_callback.Run();
+    std::move(done_callback).Run();
   }
 
   const AccountId test_user_account_id_ = AccountId::FromUserEmailGaiaId(

@@ -15,6 +15,7 @@
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
+#include "chrome/browser/profiles/profile_attributes_init_params.h"
 #include "chrome/browser/profiles/profile_attributes_storage.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/common/chrome_features.h"
@@ -119,8 +120,8 @@ class AnnouncementNotificationServiceTest : public testing::Test {
                                                        disabled_features);
 
     // Setup sign in status.
-    test_profile_manager_.reset(
-        new TestingProfileManager(TestingBrowserProcess::GetGlobal()));
+    test_profile_manager_ = std::make_unique<TestingProfileManager>(
+        TestingBrowserProcess::GetGlobal());
     ASSERT_TRUE(test_profile_manager_->SetUp());
 
     // Build the testing profile.
@@ -130,7 +131,7 @@ class AnnouncementNotificationServiceTest : public testing::Test {
     builder.SetPrefService(
         std::unique_ptr<sync_preferences::PrefServiceSyncable>());
     builder.SetProfileName(kProfileId);
-    builder.OverrideIsNewProfile(new_profile);
+    builder.SetIsNewProfile(new_profile);
     if (guest_profile || ephemeral_guest_profile)
       builder.SetGuestSession();
     test_profile_ = builder.Build();
@@ -138,12 +139,14 @@ class AnnouncementNotificationServiceTest : public testing::Test {
     // Mock the sign in profile data.
     DCHECK_EQ(test_profile_->GetPath(),
               test_profile_manager_->profiles_dir().AppendASCII(kProfileId));
-    std::string gaia_id = sign_in ? "dummy_gaia_id" : std::string();
+    ProfileAttributesInitParams params;
+    params.profile_path =
+        test_profile_manager_->profiles_dir().AppendASCII(kProfileId);
+    params.profile_name = u"dummy_name";
+    params.gaia_id = sign_in ? "dummy_gaia_id" : std::string();
+    params.is_consented_primary_account = sign_in;
     test_profile_manager_->profile_attributes_storage()->AddProfile(
-        test_profile_manager_->profiles_dir().AppendASCII(kProfileId),
-        base::ASCIIToUTF16("dummy_name"), gaia_id, base::string16(),
-        sign_in /*is_consented_primary_account*/, 0, std::string(),
-        EmptyAccountId());
+        std::move(params));
 
     // Register pref.
     pref_service_ = std::make_unique<TestingPrefServiceSimple>();

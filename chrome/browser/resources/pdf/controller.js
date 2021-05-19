@@ -3,7 +3,6 @@
 // found in the LICENSE file.
 
 import {assert} from 'chrome://resources/js/assert.m.js';
-import {addSingletonGetter} from 'chrome://resources/js/cr.m.js';
 import {NativeEventTarget as EventTarget} from 'chrome://resources/js/cr/event_target.m.js';
 import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
 import {PromiseResolver} from 'chrome://resources/js/promise_resolver.m.js';
@@ -259,7 +258,7 @@ export class PluginController {
   beforeZoom() {
     this.postMessage_({type: 'stopScrolling'});
 
-    if (this.viewport_.pinchPhase === PinchPhase.PINCH_START) {
+    if (this.viewport_.pinchPhase === PinchPhase.START) {
       const position = this.viewport_.position;
       const zoom = this.viewport_.getZoom();
       const pinchPhase = this.viewport_.pinchPhase;
@@ -398,11 +397,14 @@ export class PluginController {
     });
   }
 
-  /** @param {string} newColor New color, in hex, for the PDF plugin. */
-  backgroundColorChanged(newColor) {
+  /**
+   * @param {number} color New color, as a 32-bit integer, of the PDF plugin
+   *     background.
+   */
+  setBackgroundColor(color) {
     this.postMessage_({
-      type: 'backgroundColorChanged',
-      backgroundColor: newColor,
+      type: 'setBackgroundColor',
+      color: color,
     });
   }
 
@@ -533,10 +535,6 @@ export class PluginController {
    * @private
    */
   saveData_(messageData) {
-    assert(
-        loadTimeData.getBoolean('pdfFormSaveEnabled') ||
-        loadTimeData.getBoolean('pdfAnnotationsEnabled'));
-
     // Verify a token that was created by this instance is included to avoid
     // being spammed.
     const resolver = this.pendingTokens_.get(messageData.token);
@@ -565,6 +563,12 @@ export class PluginController {
 
     resolver.resolve(messageData);
   }
+
+  /** @return {!PluginController} */
+  static getInstance() {
+    return instance || (instance = new PluginController());
+  }
 }
 
-addSingletonGetter(PluginController);
+/** @type {?PluginController} */
+let instance = null;

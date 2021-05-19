@@ -78,15 +78,8 @@ using chrome_test_util::WebStateScrollViewMatcher;
 - (void)testSignInFromSyncOffLink {
   FakeChromeIdentity* fakeIdentity = [SigninEarlGrey fakeIdentity1];
   [SigninEarlGrey addFakeIdentity:fakeIdentity];
-  [ChromeEarlGreyUI openSettingsMenu];
-  [ChromeEarlGreyUI tapSettingsMenuButton:PrimarySignInButton()];
 
-  // Select advanced Sync Settings link.
-  [SigninEarlGreyUI tapSettingsLink];
-  [ChromeEarlGreyUI waitForAppToIdle];
-
-  // Open new tab to cancel sign-in.
-  [ChromeEarlGrey simulateExternalAppURLOpening];
+  [SigninEarlGreyUI signinWithFakeIdentity:fakeIdentity enableSync:NO];
 
   [ChromeEarlGreyUI openSettingsMenu];
   // Check Sync Off label is visible and user is signed in.
@@ -114,6 +107,89 @@ using chrome_test_util::WebStateScrollViewMatcher;
   [[EarlGrey selectElementWithMatcher:SettingsDoneButton()]
       performAction:grey_tap()];
   [ChromeEarlGreyUI waitForToolbarVisible:YES];
+}
+
+// Tests that the sign-in promo for no identities is displayed in Settings when
+// the user is signed out and has not added any identities to the device.
+- (void)testSigninPromoWithNoIdentitiesOnDevice {
+  [ChromeEarlGreyUI openSettingsMenu];
+
+  [SigninEarlGrey verifySignedOut];
+  [SigninEarlGreyUI
+      verifySigninPromoVisibleWithMode:SigninPromoViewModeNoAccounts];
+}
+
+// Tests that the sign-in promo with user name is displayed in Settings when the
+// user is signed out.
+- (void)testSigninPromoWhenSignedOut {
+  // Add identity to the device.
+  FakeChromeIdentity* fakeIdentity = [SigninEarlGrey fakeIdentity1];
+  [SigninEarlGrey addFakeIdentity:fakeIdentity];
+
+  [ChromeEarlGreyUI openSettingsMenu];
+
+  [SigninEarlGrey verifySignedOut];
+  [SigninEarlGreyUI
+      verifySigninPromoVisibleWithMode:SigninPromoViewModeSigninWithAccount];
+}
+
+// Tests that the sign-in promo is removed from Settings when the user
+// is signed out and has closed the sign-in promo with user name.
+- (void)testSigninPromoClosedWhenSignedOut {
+  // Add identity to the device.
+  FakeChromeIdentity* fakeIdentity = [SigninEarlGrey fakeIdentity1];
+  [SigninEarlGrey addFakeIdentity:fakeIdentity];
+
+  [ChromeEarlGreyUI openSettingsMenu];
+  [SigninEarlGreyUI
+      verifySigninPromoVisibleWithMode:SigninPromoViewModeSigninWithAccount
+                           closeButton:YES];
+  [[EarlGrey
+      selectElementWithMatcher:grey_allOf(grey_accessibilityID(
+                                              kSigninPromoCloseButtonId),
+                                          grey_sufficientlyVisible(), nil)]
+      performAction:grey_tap()];
+
+  [SigninEarlGrey verifySignedOut];
+  [SigninEarlGreyUI verifySigninPromoNotVisible];
+}
+
+// Tests that the sign-in promo for Sync is displayed when the user is signed in
+// with Sync off.
+- (void)testSigninPromoWhenSyncOff {
+  // Add identity to the device.
+  FakeChromeIdentity* fakeIdentity = [SigninEarlGrey fakeIdentity1];
+  [SigninEarlGrey addFakeIdentity:fakeIdentity];
+
+  [SigninEarlGreyUI signinWithFakeIdentity:fakeIdentity enableSync:NO];
+
+  [ChromeEarlGreyUI openSettingsMenu];
+  [SigninEarlGrey verifySignedInWithFakeIdentity:fakeIdentity];
+  [SigninEarlGreyUI
+      verifySigninPromoVisibleWithMode:SigninPromoViewModeSigninWithAccount];
+}
+
+// Tests that no sign-in promo for Sync is displayed when the user is signed in
+// with Sync off and has closed the sign-in promo for Sync.
+- (void)testSigninPromoClosedWhenSyncOff {
+  // Add identity to the device.
+  FakeChromeIdentity* fakeIdentity = [SigninEarlGrey fakeIdentity1];
+  [SigninEarlGrey addFakeIdentity:fakeIdentity];
+
+  [SigninEarlGreyUI signinWithFakeIdentity:fakeIdentity enableSync:NO];
+
+  [ChromeEarlGreyUI openSettingsMenu];
+  [SigninEarlGreyUI
+      verifySigninPromoVisibleWithMode:SigninPromoViewModeSigninWithAccount];
+  // Tap on dismiss button.
+  [[EarlGrey
+      selectElementWithMatcher:grey_allOf(grey_accessibilityID(
+                                              kSigninPromoCloseButtonId),
+                                          grey_sufficientlyVisible(), nil)]
+      performAction:grey_tap()];
+
+  [SigninEarlGrey verifySignedInWithFakeIdentity:fakeIdentity];
+  [SigninEarlGreyUI verifySigninPromoNotVisible];
 }
 
 @end

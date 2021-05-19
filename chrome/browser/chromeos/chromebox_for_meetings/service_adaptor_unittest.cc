@@ -9,7 +9,6 @@
 
 #include "base/bind.h"
 #include "base/macros.h"
-#include "base/optional.h"
 #include "base/run_loop.h"
 #include "base/test/bind.h"
 #include "base/test/mock_callback.h"
@@ -24,6 +23,7 @@
 #include "mojo/public/cpp/bindings/remote.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 using ::testing::_;
 using ::testing::Invoke;
@@ -55,9 +55,9 @@ class FakeDelegate : public ServiceAdaptor::Delegate {
   int connect_count = 0;
   int disconnect_count = 0;
   int bind_request_count = 0;
-  base::Closure connect_callback_;
-  base::Closure disconnect_callback_;
-  base::Closure bind_service_callback_;
+  base::RepeatingClosure connect_callback_;
+  base::RepeatingClosure disconnect_callback_;
+  base::RepeatingClosure bind_service_callback_;
 };
 
 class CfmServiceAdaptorTest : public testing::Test {

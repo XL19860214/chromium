@@ -57,7 +57,7 @@ class LayoutSVGResourceFilter final : public LayoutSVGResourceContainer {
   }
 
  private:
-  bool FindCycleFromSelf(SVGResourcesCycleSolver&) const override;
+  bool FindCycleFromSelf() const override;
 };
 
 template <>
@@ -69,4 +69,4 @@ struct DowncastTraits<LayoutSVGResourceFilter> {
 
 }  // namespace blink
 
-#endif
+#endif  // THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_SVG_LAYOUT_SVG_RESOURCE_FILTER_H_

@@ -6,13 +6,17 @@
 
 #include <array>
 
-#include "ash/public/cpp/ash_features.h"
 #include "ash/public/cpp/tablet_mode.h"
 #include "ash/shell.h"
 #include "ash/wm/desks/desk.h"
+#include "ash/wm/desks/desks_bar_view.h"
 #include "ash/wm/desks/desks_controller.h"
+#include "ash/wm/overview/overview_controller.h"
+#include "ash/wm/overview/overview_grid.h"
+#include "ash/wm/overview/overview_session.h"
 #include "ash/wm/window_util.h"
 #include "ui/aura/window.h"
+#include "ui/compositor/layer.h"
 
 namespace ash {
 
@@ -20,10 +24,7 @@ namespace desks_util {
 
 namespace {
 
-constexpr size_t kMaxNumberOfDesks = 4;
-constexpr size_t kBentoMaxNumberOfDesks = 8;
-
-constexpr std::array<int, kBentoMaxNumberOfDesks> kDesksContainersIds = {
+constexpr std::array<int, kMaxNumberOfDesks> kDesksContainersIds = {
     kShellWindowId_DefaultContainerDeprecated,
     kShellWindowId_DeskContainerB,
     kShellWindowId_DeskContainerC,
@@ -36,16 +37,7 @@ constexpr std::array<int, kBentoMaxNumberOfDesks> kDesksContainersIds = {
 
 }  // namespace
 
-size_t GetMaxNumberOfDesks() {
-  return features::IsBentoEnabled() ? kBentoMaxNumberOfDesks
-                                    : kMaxNumberOfDesks;
-}
-
 std::vector<int> GetDesksContainersIds() {
-  if (!features::IsBentoEnabled()) {
-    return std::vector<int>(kDesksContainersIds.begin(),
-                            kDesksContainersIds.begin() + kMaxNumberOfDesks);
-  }
   return std::vector<int>(kDesksContainersIds.begin(),
                           kDesksContainersIds.end());
 }
@@ -100,7 +92,7 @@ const char* GetDeskContainerName(int container_id) {
 
 bool IsDeskContainer(const aura::Window* container) {
   DCHECK(container);
-  return IsDeskContainerId(container->id());
+  return IsDeskContainerId(container->GetId());
 }
 
 bool IsDeskContainerId(int id) {
@@ -123,7 +115,7 @@ int GetActiveDeskContainerId() {
 
 ASH_EXPORT bool IsActiveDeskContainer(const aura::Window* container) {
   DCHECK(container);
-  return container->id() == GetActiveDeskContainerId();
+  return container->GetId() == GetActiveDeskContainerId();
 }
 
 aura::Window* GetActiveDeskContainerForRoot(aura::Window* root) {
@@ -136,14 +128,14 @@ ASH_EXPORT bool BelongsToActiveDesk(aura::Window* window) {
 
   const int active_desk_id = GetActiveDeskContainerId();
   aura::Window* desk_container = GetDeskContainerForContext(window);
-  return desk_container && desk_container->id() == active_desk_id;
+  return desk_container && desk_container->GetId() == active_desk_id;
 }
 
 aura::Window* GetDeskContainerForContext(aura::Window* context) {
   DCHECK(context);
 
   while (context) {
-    if (IsDeskContainerId(context->id()))
+    if (IsDeskContainerId(context->GetId()))
       return context;
 
     context = context->parent();
@@ -166,6 +158,21 @@ ui::Compositor* GetSelectedCompositorForPerformanceMetrics() {
                             : Shell::GetPrimaryRootWindow();
   DCHECK(selected_root);
   return selected_root->layer()->GetCompositor();
+}
+
+bool IsDraggingAnyDesk() {
+  OverviewSession* overview_session =
+      Shell::Get()->overview_controller()->overview_session();
+  if (!overview_session)
+    return false;
+
+  for (auto& grid : overview_session->grid_list()) {
+    const DesksBarView* desks_bar_view = grid->desks_bar_view();
+    if (desks_bar_view && desks_bar_view->IsDraggingDesk())
+      return true;
+  }
+
+  return false;
 }
 
 }  // namespace desks_util

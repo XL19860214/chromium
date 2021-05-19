@@ -81,8 +81,7 @@ class DividerView : public views::View, public views::ViewTargeterDelegate {
 
     divider_handler_view_ =
         AddChildView(std::make_unique<SplitViewDividerHandlerView>());
-    SetEventTargeter(
-        std::unique_ptr<views::ViewTargeter>(new views::ViewTargeter(this)));
+    SetEventTargeter(std::make_unique<views::ViewTargeter>(this));
   }
   ~DividerView() override = default;
 
@@ -380,8 +379,8 @@ void SplitViewDivider::OnWindowBoundsChanged(aura::Window* window,
     return;
 
   // We only care about the bounds change of windows in
-  // |transient_windows_observer_|.
-  if (!transient_windows_observer_.IsObserving(window))
+  // |transient_windows_observations_|.
+  if (!transient_windows_observations_.IsObservingSource(window))
     return;
 
   // |window|'s transient parent must be one of the windows in
@@ -432,7 +431,7 @@ void SplitViewDivider::CreateDividerWidget(SplitViewController* controller) {
   divider_widget_ = new views::Widget;
   views::Widget::InitParams params(views::Widget::InitParams::TYPE_POPUP);
   params.opacity = views::Widget::InitParams::WindowOpacity::kOpaque;
-  params.activatable = views::Widget::InitParams::ACTIVATABLE_NO;
+  params.activatable = views::Widget::InitParams::Activatable::kNo;
   params.parent = Shell::GetContainer(controller->root_window(),
                                       kShellWindowId_AlwaysOnTopContainer);
   params.init_properties_container.SetProperty(kHideInDeskMiniViewKey, true);
@@ -456,12 +455,12 @@ void SplitViewDivider::StartObservingTransientChild(aura::Window* transient) {
 
   // At this moment, the transient window may not have the valid bounds yet.
   // Start observe the transient window.
-  transient_windows_observer_.Add(transient);
+  transient_windows_observations_.AddObservation(transient);
 }
 
 void SplitViewDivider::StopObservingTransientChild(aura::Window* transient) {
-  if (transient_windows_observer_.IsObserving(transient))
-    transient_windows_observer_.Remove(transient);
+  if (transient_windows_observations_.IsObservingSource(transient))
+    transient_windows_observations_.RemoveObservation(transient);
 }
 
 }  // namespace ash

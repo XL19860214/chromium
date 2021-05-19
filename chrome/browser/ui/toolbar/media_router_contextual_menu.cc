@@ -9,6 +9,7 @@
 
 #include "base/metrics/user_metrics.h"
 #include "base/notreached.h"
+#include "base/strings/strcat.h"
 #include "build/build_config.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/media/router/event_page_request_manager.h"
@@ -18,7 +19,6 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/signin/identity_manager_factory.h"
 #include "chrome/browser/ui/browser.h"
-#include "chrome/browser/ui/media_router/cloud_services_dialog.h"
 #include "chrome/browser/ui/singleton_tabs.h"
 #include "chrome/browser/ui/toolbar/media_router_action_controller.h"
 #include "chrome/common/pref_names.h"
@@ -80,10 +80,6 @@ MediaRouterContextualMenu::CreateMenuModel() {
                                        IDS_MEDIA_ROUTER_TOGGLE_MEDIA_REMOTING);
   if (!browser_->profile()->IsOffTheRecord()) {
     menu_model->AddSeparator(ui::NORMAL_SEPARATOR);
-    menu_model->AddCheckItemWithStringId(
-        IDC_MEDIA_ROUTER_CLOUD_SERVICES_TOGGLE,
-        IDS_MEDIA_ROUTER_CLOUD_SERVICES_TOGGLE);
-
     if (browser_->profile()->GetPrefs()->GetBoolean(
             prefs::kUserFeedbackAllowed)) {
       menu_model->AddItemWithStringId(IDC_MEDIA_ROUTER_REPORT_ISSUE,
@@ -106,9 +102,6 @@ void MediaRouterContextualMenu::SetAlwaysShowActionPref(bool always_show) {
 bool MediaRouterContextualMenu::IsCommandIdChecked(int command_id) const {
   PrefService* pref_service = browser_->profile()->GetPrefs();
   switch (command_id) {
-    case IDC_MEDIA_ROUTER_CLOUD_SERVICES_TOGGLE:
-      return pref_service->GetBoolean(
-          media_router::prefs::kMediaRouterEnableCloudServices);
     case IDC_MEDIA_ROUTER_ALWAYS_SHOW_TOOLBAR_ACTION:
       return GetAlwaysShowActionPref();
     case IDC_MEDIA_ROUTER_TOGGLE_MEDIA_REMOTING:
@@ -124,13 +117,6 @@ bool MediaRouterContextualMenu::IsCommandIdEnabled(int command_id) const {
 }
 
 bool MediaRouterContextualMenu::IsCommandIdVisible(int command_id) const {
-  if (command_id == IDC_MEDIA_ROUTER_CLOUD_SERVICES_TOGGLE) {
-    // Cloud services preference is not set or used if the user is not signed
-    // in.
-    signin::IdentityManager* identity_manager =
-        IdentityManagerFactory::GetForProfile(browser_->profile());
-    return identity_manager && identity_manager->HasPrimaryAccount();
-  }
   return true;
 }
 
@@ -150,13 +136,10 @@ void MediaRouterContextualMenu::ExecuteCommand(int command_id,
     case IDC_MEDIA_ROUTER_ALWAYS_SHOW_TOOLBAR_ACTION:
       SetAlwaysShowActionPref(!GetAlwaysShowActionPref());
       break;
-    case IDC_MEDIA_ROUTER_CLOUD_SERVICES_TOGGLE:
-      ToggleCloudServices();
-      break;
     case IDC_MEDIA_ROUTER_HELP:
       ShowSingletonTab(browser_, GURL(kCastHelpCenterPageUrl));
-      base::RecordAction(base::UserMetricsAction(
-          "MediaRouter_Ui_Navigate_Help"));
+      base::RecordAction(
+          base::UserMetricsAction("MediaRouter_Ui_Navigate_Help"));
       break;
     case IDC_MEDIA_ROUTER_LEARN_MORE:
       ShowSingletonTab(browser_, GURL(kCastLearnMorePageUrl));
@@ -180,20 +163,6 @@ void MediaRouterContextualMenu::MenuClosed(ui::SimpleMenuModel* source) {
   observer_->OnContextMenuHidden();
 }
 
-void MediaRouterContextualMenu::ToggleCloudServices() {
-  PrefService* pref_service = browser_->profile()->GetPrefs();
-  if (pref_service->GetBoolean(
-          media_router::prefs::kMediaRouterCloudServicesPrefSet)) {
-    pref_service->SetBoolean(
-        media_router::prefs::kMediaRouterEnableCloudServices,
-        !pref_service->GetBoolean(
-            media_router::prefs::kMediaRouterEnableCloudServices));
-  } else {
-    // If the user hasn't enabled cloud services before, show the opt-in dialog.
-    media_router::ShowCloudServicesDialog(browser_);
-  }
-}
-
 void MediaRouterContextualMenu::ToggleMediaRemoting() {
   PrefService* pref_service = browser_->profile()->GetPrefs();
   pref_service->SetBoolean(
@@ -203,6 +172,13 @@ void MediaRouterContextualMenu::ToggleMediaRemoting() {
 }
 
 void MediaRouterContextualMenu::ReportIssue() {
+  if (base::FeatureList::IsEnabled(media_router::kCastFeedbackDialog)) {
+    ShowSingletonTab(
+        browser_,
+        GURL(base::StrCat({"chrome://", chrome::kChromeUICastFeedbackHost})));
+    return;
+  }
+
   // Opens feedback page loaded from the media router extension.
   // This is temporary until feedback UI is redesigned.
   media_router::EventPageRequestManager* request_manager =

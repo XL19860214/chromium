@@ -20,6 +20,7 @@ import androidx.annotation.IntDef;
 import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
 import androidx.collection.ArraySet;
+import androidx.fragment.app.FragmentActivity;
 import androidx.preference.Preference;
 import androidx.preference.PreferenceFragmentCompat;
 
@@ -159,6 +160,8 @@ public abstract class ClearBrowsingDataFragment extends PreferenceFragmentCompat
 
     @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
     static final String PREF_TIME_RANGE = "time_period_spinner";
+
+    static final String PREF_SEARCH_HISTORY_TEXT = "clear_search_history_text";
 
     /** The "Clear" button preference. */
     @VisibleForTesting
@@ -429,7 +432,8 @@ public abstract class ClearBrowsingDataFragment extends PreferenceFragmentCompat
                 && mFetcher.isDialogAboutOtherFormsOfBrowsingHistoryEnabled()
                 && !OtherFormsOfHistoryDialogFragment.wasDialogShown()) {
             mDialogAboutOtherFormsOfBrowsingHistory = new OtherFormsOfHistoryDialogFragment();
-            mDialogAboutOtherFormsOfBrowsingHistory.show(getActivity());
+            FragmentActivity fragmentActivity = (FragmentActivity) getActivity();
+            mDialogAboutOtherFormsOfBrowsingHistory.show(fragmentActivity);
             dismissProgressDialog();
             RecordHistogram.recordBooleanHistogram(DIALOG_HISTOGRAM, true);
         } else {

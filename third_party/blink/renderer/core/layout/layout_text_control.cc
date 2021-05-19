@@ -92,7 +92,8 @@ void LayoutTextControl::StyleDidChange(HTMLElement* inner_editor,
 int LayoutTextControl::ScrollbarThickness(const LayoutBox& box) {
   const Page& page = *box.GetDocument().GetPage();
   return page.GetScrollbarTheme().ScrollbarThickness(
-      page.GetChromeClient().WindowToViewportScalar(box.GetFrame(), 1.0f));
+      page.GetChromeClient().WindowToViewportScalar(box.GetFrame(), 1.0f),
+      box.StyleRef().ScrollbarWidth());
 }
 
 void LayoutTextControl::HitInnerEditorElement(
@@ -101,7 +102,6 @@ void LayoutTextControl::HitInnerEditorElement(
     HitTestResult& result,
     const HitTestLocation& hit_test_location,
     const PhysicalOffset& accumulated_offset) {
-  NOT_DESTROYED();
   if (!inner_editor.GetLayoutObject())
     return;
 

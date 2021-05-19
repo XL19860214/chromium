@@ -100,6 +100,8 @@ cc::ScrollState CreateScrollStateForGesture(const WebGestureEvent& event) {
           WebGestureEvent::InertialPhaseState::kMomentum;
       scroll_state_data.delta_granularity =
           event.data.scroll_update.delta_units;
+      if (event.SourceDevice() == WebGestureDevice::kScrollbar)
+        scroll_state_data.is_scrollbar_interaction = true;
       break;
     case WebInputEvent::Type::kGestureScrollEnd:
       scroll_state_data.is_ending = true;
@@ -394,7 +396,7 @@ void InputHandlerProxy::ContinueScrollBeginAfterMainThreadHitTest(
   // unexpected scroll begin arrives. We currently think we're in a scroll
   // because of the first ScrollBegin so clear this so we don't spurriously
   // call ScrollEnd. It will be set again in HandleGestureScrollBegin.
-  currently_active_gesture_device_ = base::nullopt;
+  currently_active_gesture_device_ = absl::nullopt;
 
   auto* gesture_event =
       static_cast<blink::WebGestureEvent*>(event->EventPointer());
@@ -482,7 +484,7 @@ void InputHandlerProxy::DispatchSingleInputEvent(
     case WebGestureEvent::Type::kGestureScrollEnd:
     case WebGestureEvent::Type::kGesturePinchEnd:
       if (!handling_gesture_on_impl_thread_)
-        currently_active_gesture_device_ = base::nullopt;
+        currently_active_gesture_device_ = absl::nullopt;
       break;
     default:
       break;
@@ -546,9 +548,14 @@ void InputHandlerProxy::InjectScrollbarGestureScroll(
           type, original_timestamp, WebGestureDevice::kScrollbar,
           position_in_widget, scroll_delta, pointer_result.scroll_units);
 
-  // This will avoid hit testing and directly scroll the scroller with the
-  // provided element_id.
   if (type == WebInputEvent::Type::kGestureScrollBegin) {
+    // Gesture events for scrollbars are considered synthetic because they're
+    // created in response to mouse events. Additionally, synthetic GSB(s) are
+    // ignored by the blink::ElasticOverscrollController.
+    synthetic_gesture_event->data.scroll_begin.synthetic = true;
+
+    // This will avoid hit testing and directly scroll the scroller with the
+    // provided element_id.
     synthetic_gesture_event->data.scroll_begin.scrollable_area_element_id =
         pointer_result.target_scroller.GetStableId();
   }
@@ -566,7 +573,7 @@ void InputHandlerProxy::InjectScrollbarGestureScroll(
   DCHECK(!scrollbar_latency_info.FindLatency(
       ui::INPUT_EVENT_LATENCY_RENDERING_SCHEDULED_IMPL_COMPONENT, nullptr));
 
-  base::Optional<cc::EventMetrics::ScrollUpdateType> scroll_update_type;
+  absl::optional<cc::EventMetrics::ScrollUpdateType> scroll_update_type;
   if (type == WebInputEvent::Type::kGestureScrollBegin) {
     last_injected_gesture_was_begin_ = true;
   } else {
@@ -644,7 +651,7 @@ InputHandlerProxy::RouteToTypeSpecificHandler(
     return DROP_EVENT;
   }
 
-  if (base::Optional<InputHandlerProxy::EventDisposition> handled =
+  if (absl::optional<InputHandlerProxy::EventDisposition> handled =
           cursor_control_handler_->ObserveInputEvent(event))
     return *handled;
 
@@ -819,7 +826,7 @@ void InputHandlerProxy::RecordMainThreadScrollingReasons(
   const bool is_compositor_scroll =
       reasons == cc::MainThreadScrollingReason::kNotScrollingOnMain;
 
-  base::Optional<EventDisposition> disposition =
+  absl::optional<EventDisposition> disposition =
       (device == WebGestureDevice::kTouchpad ? mouse_wheel_result_
                                              : touch_result_);
 
@@ -842,46 +849,7 @@ void InputHandlerProxy::RecordMainThreadScrollingReasons(
                     : cc::MainThreadScrollingReason::kTouchEventHandlerRegion);
   }
 
-  // Note: This is slightly different from |is_compositor_scroll| above because
-  // at this point, we've also included wheel handler region reasons which will
-  // scroll on the compositor but require blocking on the main thread. The
-  // histograms below don't consider this "not scrolling on main".
-  const bool is_unblocked_compositor_scroll =
-      reasons == cc::MainThreadScrollingReason::kNotScrollingOnMain;
-
-  if (is_unblocked_compositor_scroll) {
-    RecordScrollReasonMetric(
-        device, cc::MainThreadScrollingReason::kNotScrollingOnMain);
-  }
-
-  // The enum in cc::MainThreadScrollingReason simultaneously defines actual
-  // bitmask values and indices into the bitmask, making this loop a bit
-  // confusing.
-  //
-  // This stems from the fact that kNotScrollingOnMain is recorded in the
-  // histograms as value 0. However, the 0th bit is not actually reserved and
-  // has a separate, well-defined meaning. kNotScrollingOnMain is only recorded
-  // when *no* bits are set.
-  //
-  // As such, when recording any reason that's not kNotScrollingOnMain (i.e.
-  // recording the index of a set bit), the index must be incremented by 1 to be
-  // recorded properly.
-  for (uint32_t i = 0;
-       i < cc::MainThreadScrollingReason::kMainThreadScrollingReasonCount;
-       ++i) {
-    unsigned val = 1 << i;
-    if (reasons & val) {
-      if (val == cc::MainThreadScrollingReason::kHandlingScrollFromMainThread) {
-        // We only want to record "Handling scroll from main thread" reason if
-        // it's the only reason. If it's not the only reason, the "real" reason
-        // for scrolling on main is something else, and we only want to pay
-        // attention to that reason.
-        if (reasons & ~val)
-          continue;
-      }
-      RecordScrollReasonMetric(device, i + 1);
-    }
-  }
+  RecordScrollReasonsMetric(device, reasons);
 }
 
 InputHandlerProxy::EventDisposition InputHandlerProxy::HandleMouseWheel(
@@ -897,7 +865,7 @@ InputHandlerProxy::EventDisposition InputHandlerProxy::HandleMouseWheel(
            wheel_event.momentum_phase != WebMouseWheelEvent::kPhaseNone);
 
     // TODO(bokan): This should never happen but after changing
-    // mouse_event_result_ to a base::Optional, crashes indicate that it does
+    // mouse_event_result_ to a absl::optional, crashes indicate that it does
     // so |if| maintains prior behavior. https://crbug.com/1069760.
     if (mouse_wheel_result_.has_value()) {
       result = mouse_wheel_result_.value();
@@ -923,7 +891,7 @@ InputHandlerProxy::EventDisposition InputHandlerProxy::HandleMouseWheel(
     switch (properties) {
       case cc::EventListenerProperties::kBlockingAndPassive:
       case cc::EventListenerProperties::kPassive:
-        result = DID_HANDLE_NON_BLOCKING;
+        result = DID_NOT_HANDLE_NON_BLOCKING;
         break;
       case cc::EventListenerProperties::kNone:
         result = DROP_EVENT;
@@ -1055,7 +1023,7 @@ InputHandlerProxy::HandleGestureScrollUpdate(
     TRACE_EVENT_INSTANT0("input", "Move Scroll To Main Thread",
                          TRACE_EVENT_SCOPE_THREAD);
     handling_gesture_on_impl_thread_ = false;
-    currently_active_gesture_device_ = base::nullopt;
+    currently_active_gesture_device_ = absl::nullopt;
     client_->GenerateScrollBeginAndSendToMainThread(
         gesture_event, original_attribution, original_metrics);
 
@@ -1129,7 +1097,7 @@ void InputHandlerProxy::InputHandlerScrollEnd() {
   handling_gesture_on_impl_thread_ = false;
 
   DCHECK(!gesture_pinch_in_progress_);
-  currently_active_gesture_device_ = base::nullopt;
+  currently_active_gesture_device_ = absl::nullopt;
 }
 
 InputHandlerProxy::EventDisposition InputHandlerProxy::HitTestTouchEvent(
@@ -1182,7 +1150,7 @@ InputHandlerProxy::EventDisposition InputHandlerProxy::HitTestTouchEvent(
           *allowed_touch_action != cc::TouchAction::kNone) {
         TRACE_EVENT_INSTANT0("input", "NonBlocking due to allowed touchaction",
                              TRACE_EVENT_SCOPE_THREAD);
-        result = DID_HANDLE_NON_BLOCKING;
+        result = DID_NOT_HANDLE_NON_BLOCKING;
       } else {
         TRACE_EVENT_INSTANT0("input", "DidNotHandle due to no touchaction",
                              TRACE_EVENT_SCOPE_THREAD);
@@ -1200,7 +1168,7 @@ InputHandlerProxy::EventDisposition InputHandlerProxy::HitTestTouchEvent(
                          "listener", event_listener_class);
     switch (event_listener_class) {
       case cc::EventListenerProperties::kPassive:
-        result = DID_HANDLE_NON_BLOCKING;
+        result = DID_NOT_HANDLE_NON_BLOCKING;
         break;
       case cc::EventListenerProperties::kBlocking:
         // The touch area rects above already have checked whether it hits
@@ -1210,7 +1178,7 @@ InputHandlerProxy::EventDisposition InputHandlerProxy::HitTestTouchEvent(
       case cc::EventListenerProperties::kBlockingAndPassive:
         // There is at least one passive listener that needs to possibly
         // be notified so it can't be dropped.
-        result = DID_HANDLE_NON_BLOCKING;
+        result = DID_NOT_HANDLE_NON_BLOCKING;
         break;
       case cc::EventListenerProperties::kNone:
         result = DROP_EVENT;
@@ -1230,12 +1198,12 @@ InputHandlerProxy::EventDisposition InputHandlerProxy::HitTestTouchEvent(
         touch_event.GetType() == WebInputEvent::Type::kTouchStart))) {
     TRACE_EVENT_INSTANT0("input", "Non blocking due to skip filter",
                          TRACE_EVENT_SCOPE_THREAD);
-    result = DID_HANDLE_NON_BLOCKING;
+    result = DID_NOT_HANDLE_NON_BLOCKING;
   }
 
   // Merge |touch_result_| and |result| so the result has the highest
   // priority value according to the sequence; (DROP_EVENT,
-  // DID_HANDLE_NON_BLOCKING, DID_NOT_HANDLE).
+  // DID_NOT_HANDLE_NON_BLOCKING, DID_NOT_HANDLE).
   if (!touch_result_.has_value() || touch_result_ == DROP_EVENT ||
       result == DID_NOT_HANDLE) {
     TRACE_EVENT_INSTANT2(
@@ -1282,7 +1250,7 @@ InputHandlerProxy::EventDisposition InputHandlerProxy::HandleTouchStart(
                                   cc::EventListenerProperties::kNone) {
     TRACE_EVENT_INSTANT0("input", "NonBlocking due to TouchEnd handler",
                          TRACE_EVENT_SCOPE_THREAD);
-    result = DID_HANDLE_NON_BLOCKING;
+    result = DID_NOT_HANDLE_NON_BLOCKING;
   }
 
   bool is_in_inertial_scrolling_on_impl =
@@ -1409,7 +1377,7 @@ void InputHandlerProxy::DeliverInputForBeginFrame(
   while (!compositor_event_queue_->empty()) {
     std::unique_ptr<EventWithCallback> event_with_callback =
         scroll_predictor_->ResampleScrollEvents(compositor_event_queue_->Pop(),
-                                                args.frame_time);
+                                                args.frame_time, args.interval);
 
     DispatchSingleInputEvent(std::move(event_with_callback), args.frame_time);
   }

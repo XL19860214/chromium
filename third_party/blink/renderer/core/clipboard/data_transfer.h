@@ -34,6 +34,8 @@
 #include "third_party/blink/renderer/platform/geometry/int_point.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/platform/wtf/forward.h"
+#include "third_party/blink/renderer/platform/wtf/text/atomic_string.h"
+#include "ui/base/dragdrop/mojom/drag_drop_types.mojom-blink-forward.h"
 
 namespace blink {
 
@@ -78,15 +80,13 @@ class CORE_EXPORT DataTransfer final : public ScriptWrappable,
   bool IsForCopyAndPaste() const { return transfer_type_ == kCopyAndPaste; }
   bool IsForDragAndDrop() const { return transfer_type_ == kDragAndDrop; }
 
-  String dropEffect() const {
-    return DropEffectIsUninitialized() ? "none" : drop_effect_;
+  AtomicString dropEffect() const {
+    return DropEffectIsInitialized() ? drop_effect_ : "none";
   }
-  void setDropEffect(const String&);
-  bool DropEffectIsUninitialized() const {
-    return drop_effect_ == "uninitialized";
-  }
-  String effectAllowed() const { return effect_allowed_; }
-  void setEffectAllowed(const String&);
+  void setDropEffect(const AtomicString&);
+  bool DropEffectIsInitialized() const { return !drop_effect_.IsNull(); }
+  AtomicString effectAllowed() const { return effect_allowed_; }
+  void setEffectAllowed(const AtomicString&);
 
   void clearData(const String& type = String());
   String getData(const String& type) const;
@@ -124,10 +124,10 @@ class CORE_EXPORT DataTransfer final : public ScriptWrappable,
   // anyway.
   bool CanSetDragImage() const;
 
-  DragOperation SourceOperation() const;
-  DragOperation DestinationOperation() const;
-  void SetSourceOperation(DragOperation);
-  void SetDestinationOperation(DragOperation);
+  DragOperationsMask SourceOperation() const;
+  ui::mojom::blink::DragOperation DestinationOperation() const;
+  void SetSourceOperation(DragOperationsMask);
+  void SetDestinationOperation(ui::mojom::blink::DragOperation);
 
   DataTransferItemList* items();
 
@@ -167,8 +167,8 @@ class CORE_EXPORT DataTransfer final : public ScriptWrappable,
   // Instead of using this member directly, prefer to use the can*() methods
   // above.
   DataTransferAccessPolicy policy_;
-  String drop_effect_;
-  String effect_allowed_;
+  AtomicString drop_effect_;
+  AtomicString effect_allowed_;
   DataTransferType transfer_type_;
   Member<DataObject> data_object_;
 

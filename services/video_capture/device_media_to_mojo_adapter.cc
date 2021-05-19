@@ -152,7 +152,7 @@ void DeviceMediaToMojoAdapter::TakePhoto(TakePhotoCallback callback) {
 }
 
 void DeviceMediaToMojoAdapter::ProcessFeedback(
-    const media::VideoFrameFeedback& feedback) {
+    const media::VideoCaptureFeedback& feedback) {
   // Feedback ID is not propagated by mojo interface.
   device_->OnUtilizationReport(/*frame_feedback_id=*/0, feedback);
 }
@@ -193,6 +193,16 @@ int DeviceMediaToMojoAdapter::max_buffer_pool_buffer_count() {
   // concurrent streams of camera pipeline depth ~6. We allow at most 30 buffers
   // here to take into account the delay caused by the consumer (e.g. display or
   // video encoder).
+  if (!base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kDisableVideoCaptureUseGpuMemoryBuffer) &&
+      base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kVideoCaptureUseGpuMemoryBuffer)) {
+    kMaxBufferCount = 30;
+  }
+#elif defined(OS_WIN)
+  // On Windows, for GMB backed zero-copy more buffers are needed because it's
+  // routinely observed that it runs out of default buffer count when just
+  // displaying 60 FPS media in a video element
   if (!base::CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kDisableVideoCaptureUseGpuMemoryBuffer) &&
       base::CommandLine::ForCurrentProcess()->HasSwitch(

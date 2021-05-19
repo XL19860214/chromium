@@ -5,13 +5,14 @@
 #import "ios/chrome/browser/main/browser_agent_util.h"
 
 #include "base/feature_list.h"
+#include "components/breadcrumbs/core/features.h"
 #import "ios/chrome/browser/app_launcher/app_launcher_browser_agent.h"
 #include "ios/chrome/browser/browser_state/chrome_browser_state.h"
 #include "ios/chrome/browser/crash_report/breadcrumbs/breadcrumb_manager_browser_agent.h"
-#include "ios/chrome/browser/crash_report/breadcrumbs/features.h"
 #import "ios/chrome/browser/device_sharing/device_sharing_browser_agent.h"
 #include "ios/chrome/browser/infobars/overlays/browser_agent/infobar_overlay_browser_agent_util.h"
 #import "ios/chrome/browser/metrics/tab_usage_recorder_browser_agent.h"
+#import "ios/chrome/browser/policy/policy_watcher_browser_agent.h"
 #include "ios/chrome/browser/send_tab_to_self/send_tab_to_self_browser_agent.h"
 #import "ios/chrome/browser/sessions/live_tab_context_browser_agent.h"
 #import "ios/chrome/browser/sessions/session_restoration_browser_agent.h"
@@ -19,6 +20,7 @@
 #import "ios/chrome/browser/snapshots/snapshot_browser_agent.h"
 #import "ios/chrome/browser/tabs/closing_web_state_observer_browser_agent.h"
 #include "ios/chrome/browser/tabs/synced_window_delegate_browser_agent.h"
+#import "ios/chrome/browser/ui/start_surface/start_surface_recent_tab_browser_agent.h"
 #import "ios/chrome/browser/url_loading/url_loading_browser_agent.h"
 #import "ios/chrome/browser/url_loading/url_loading_notifier_browser_agent.h"
 #import "ios/chrome/browser/web/web_navigation_browser_agent.h"
@@ -33,7 +35,7 @@
 #endif
 
 void AttachBrowserAgents(Browser* browser) {
-  if (base::FeatureList::IsEnabled(kLogBreadcrumbs)) {
+  if (base::FeatureList::IsEnabled(breadcrumbs::kLogBreadcrumbs)) {
     BreadcrumbManagerBrowserAgent::CreateForBrowser(browser);
   }
   LiveTabContextBrowserAgent::CreateForBrowser(browser);
@@ -48,6 +50,7 @@ void AttachBrowserAgents(Browser* browser) {
 
   ClosingWebStateObserverBrowserAgent::CreateForBrowser(browser);
   SnapshotBrowserAgent::CreateForBrowser(browser);
+  PolicyWatcherBrowserAgent::CreateForBrowser(browser);
 
   // Send Tab To Self is non-OTR only.
   if (!browser->GetBrowserState()->IsOffTheRecord())
@@ -69,6 +72,9 @@ void AttachBrowserAgents(Browser* browser) {
   // Normal browser states are the only ones to get tab usage recorder.
   if (!browser->GetBrowserState()->IsOffTheRecord())
     TabUsageRecorderBrowserAgent::CreateForBrowser(browser);
+
+  if (!browser->GetBrowserState()->IsOffTheRecord())
+    StartSurfaceRecentTabBrowserAgent::CreateForBrowser(browser);
 
   // This needs to be called last in case any downstream browser agents need to
   // access upstream agents created earlier in this function.

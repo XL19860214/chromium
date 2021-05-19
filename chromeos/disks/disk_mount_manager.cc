@@ -8,11 +8,13 @@
 #include <stdint.h>
 
 #include <map>
+#include <memory>
 #include <set>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "ash/constants/ash_features.h"
 #include "base/barrier_closure.h"
 #include "base/bind.h"
 #include "base/callback_helpers.h"
@@ -23,7 +25,6 @@
 #include "base/metrics/histogram_functions.h"
 #include "base/observer_list.h"
 #include "base/strings/string_util.h"
-#include "chromeos/constants/chromeos_features.h"
 #include "chromeos/dbus/cros_disks_client.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/disks/disk.h"
@@ -73,7 +74,7 @@ class DiskMountManagerImpl : public DiskMountManager,
   DiskMountManagerImpl() : already_refreshed_(false) {
     DBusThreadManager* dbus_thread_manager = DBusThreadManager::Get();
     cros_disks_client_ = dbus_thread_manager->GetCrosDisksClient();
-    suspend_unmount_manager_.reset(new SuspendUnmountManager(this));
+    suspend_unmount_manager_ = std::make_unique<SuspendUnmountManager>(this);
 
     cros_disks_client_->AddObserver(this);
   }
@@ -106,11 +107,8 @@ class DiskMountManagerImpl : public DiskMountManager,
         return;
       }
     }
-    std::vector<std::string> options = mount_options;
-    if (base::FeatureList::IsEnabled(chromeos::features::kFsNosymfollow))
-      options.push_back("nosymfollow");
     cros_disks_client_->Mount(
-        source_path, source_format, mount_label, options, access_mode,
+        source_path, source_format, mount_label, mount_options, access_mode,
         REMOUNT_OPTION_MOUNT_NEW_DEVICE,
         base::BindOnce(&DiskMountManagerImpl::OnMount,
                        weak_ptr_factory_.GetWeakPtr(), source_path, type));

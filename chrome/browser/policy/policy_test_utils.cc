@@ -5,7 +5,6 @@
 #include "chrome/browser/policy/policy_test_utils.h"
 
 #include "base/callback_helpers.h"
-#include "base/optional.h"
 #include "base/path_service.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/current_thread.h"
@@ -39,6 +38,7 @@
 #include "net/dns/mock_host_resolver.h"
 #include "net/http/transport_security_state.h"
 #include "services/network/public/mojom/network_service_test.mojom.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "ui/snapshot/screenshot_grabber.h"
@@ -71,7 +71,7 @@ void PolicyTest::CheckURLIsBlockedInWebContents(
     const GURL& url) {
   EXPECT_EQ(url, web_contents->GetURL());
 
-  base::string16 blocked_page_title;
+  std::u16string blocked_page_title;
   if (url.has_host()) {
     blocked_page_title = base::UTF8ToUTF16(url.host());
   } else {
@@ -187,8 +187,7 @@ scoped_refptr<const extensions::Extension> PolicyTest::LoadUnpackedExtension(
 }
 
 void PolicyTest::UpdateProviderPolicy(const PolicyMap& policy) {
-  PolicyMap policy_with_defaults;
-  policy_with_defaults.CopyFrom(policy);
+  PolicyMap policy_with_defaults = policy.Clone();
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   SetEnterpriseUsersDefaults(&policy_with_defaults);
 #endif
@@ -208,23 +207,26 @@ void PolicyTest::PerformClick(int x, int y) {
   click_event.button = blink::WebMouseEvent::Button::kLeft;
   click_event.click_count = 1;
   click_event.SetPositionInWidget(x, y);
-  contents->GetRenderViewHost()->GetWidget()->ForwardMouseEvent(click_event);
+  contents->GetMainFrame()->GetRenderViewHost()->GetWidget()->ForwardMouseEvent(
+      click_event);
   click_event.SetType(blink::WebInputEvent::Type::kMouseUp);
-  contents->GetRenderViewHost()->GetWidget()->ForwardMouseEvent(click_event);
+  contents->GetMainFrame()->GetRenderViewHost()->GetWidget()->ForwardMouseEvent(
+      click_event);
 }
 
+// static
 void PolicyTest::SetPolicy(PolicyMap* policies,
                            const char* key,
-                           base::Optional<base::Value> value) {
+                           absl::optional<base::Value> value) {
   policies->Set(key, POLICY_LEVEL_MANDATORY, POLICY_SCOPE_USER,
                 POLICY_SOURCE_CLOUD, std::move(value), nullptr);
 }
 
 void PolicyTest::ApplySafeSearchPolicy(
-    base::Optional<base::Value> legacy_safe_search,
-    base::Optional<base::Value> google_safe_search,
-    base::Optional<base::Value> legacy_youtube,
-    base::Optional<base::Value> youtube_restrict) {
+    absl::optional<base::Value> legacy_safe_search,
+    absl::optional<base::Value> google_safe_search,
+    absl::optional<base::Value> legacy_youtube,
+    absl::optional<base::Value> youtube_restrict) {
   PolicyMap policies;
   SetPolicy(&policies, key::kForceSafeSearch, std::move(legacy_safe_search));
   SetPolicy(&policies, key::kForceGoogleSafeSearch,
@@ -341,30 +343,6 @@ bool PolicyTest::IsShowingInterstitial(content::WebContents* tab) {
 void PolicyTest::WaitForInterstitial(content::WebContents* tab) {
   ASSERT_TRUE(IsShowingInterstitial(tab));
   ASSERT_TRUE(WaitForRenderFrameReady(tab->GetMainFrame()));
-}
-
-int PolicyTest::IsExtendedReportingCheckboxVisibleOnInterstitial() {
-  const std::string command = base::StringPrintf(
-      "var node = document.getElementById('extended-reporting-opt-in');"
-      "if (node) {"
-      "  window.domAutomationController.send(node.offsetWidth > 0 || "
-      "      node.offsetHeight > 0 ? %d : %d);"
-      "} else {"
-      // The node should be present but not visible, so trigger an error
-      // by sending false if it's not present.
-      "  window.domAutomationController.send(%d);"
-      "}",
-      security_interstitials::CMD_TEXT_FOUND,
-      security_interstitials::CMD_TEXT_NOT_FOUND,
-      security_interstitials::CMD_ERROR);
-
-  content::WebContents* tab =
-      browser()->tab_strip_model()->GetActiveWebContents();
-  WaitForInterstitial(tab);
-  int result = 0;
-  EXPECT_TRUE(content::ExecuteScriptAndExtractInt(tab->GetMainFrame(), command,
-                                                  &result));
-  return result;
 }
 
 void PolicyTest::SendInterstitialCommand(

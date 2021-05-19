@@ -12,11 +12,10 @@
 #include "base/sequence_checker.h"
 #include "media/base/decryptor.h"
 #include "media/fuchsia/common/stream_processor_helper.h"
-#include "media/fuchsia/common/sysmem_buffer_pool.h"
-#include "media/fuchsia/common/sysmem_buffer_writer_queue.h"
+#include "media/fuchsia/common/sysmem_client.h"
+#include "media/fuchsia/common/vmo_buffer_writer_queue.h"
 
 namespace media {
-class SysmemBufferReader;
 
 // Base class for media stream decryptor implementations.
 class FuchsiaStreamDecryptorBase : public StreamProcessorHelper::Client {
@@ -40,9 +39,9 @@ class FuchsiaStreamDecryptorBase : public StreamProcessorHelper::Client {
 
   const size_t min_buffer_size_;
 
-  BufferAllocator allocator_;
+  SysmemAllocatorClient allocator_;
 
-  SysmemBufferWriterQueue input_writer_queue_;
+  VmoBufferWriterQueue input_writer_queue_;
 
   // Key ID for which we received the last OnNewKey() event.
   std::string last_new_key_id_;
@@ -50,14 +49,14 @@ class FuchsiaStreamDecryptorBase : public StreamProcessorHelper::Client {
   SEQUENCE_CHECKER(sequence_checker_);
 
  private:
-  void OnInputBufferPoolCreated(std::unique_ptr<SysmemBufferPool> pool);
-  void OnWriterCreated(std::unique_ptr<SysmemBufferWriter> writer);
+  void OnInputBuffersAcquired(
+      std::vector<VmoBuffer> buffers,
+      const fuchsia::sysmem::SingleBufferSettings& buffer_settings);
   void SendInputPacket(const DecoderBuffer* buffer,
                        StreamProcessorHelper::IoPacket packet);
   void ProcessEndOfStream();
 
-  std::unique_ptr<SysmemBufferPool::Creator> input_pool_creator_;
-  std::unique_ptr<SysmemBufferPool> input_pool_;
+  std::unique_ptr<SysmemCollectionClient> input_buffer_collection_;
 
   DISALLOW_COPY_AND_ASSIGN(FuchsiaStreamDecryptorBase);
 };
@@ -88,15 +87,14 @@ class FuchsiaClearStreamDecryptor : public FuchsiaStreamDecryptorBase {
   void OnNoKey() final;
   void OnError() final;
 
-  void OnOutputBufferPoolCreated(std::unique_ptr<SysmemBufferPool> pool);
-  void OnOutputBufferPoolReaderCreated(
-      std::unique_ptr<SysmemBufferReader> reader);
+  void OnOutputBuffersAcquired(
+      std::vector<VmoBuffer> buffers,
+      const fuchsia::sysmem::SingleBufferSettings& buffer_settings);
 
   Decryptor::DecryptCB decrypt_cb_;
 
-  std::unique_ptr<SysmemBufferPool::Creator> output_pool_creator_;
-  std::unique_ptr<SysmemBufferPool> output_pool_;
-  std::unique_ptr<SysmemBufferReader> output_reader_;
+  std::unique_ptr<SysmemCollectionClient> output_buffer_collection_;
+  std::vector<VmoBuffer> output_buffers_;
 
   // Used to re-assemble decrypted output that was split between multiple sysmem
   // buffers.

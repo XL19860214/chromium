@@ -39,16 +39,11 @@ const int kIncrementalTransferTimeoutMs = 10000;
 static_assert(KSelectionOwnerTimerPeriodMs <= kIncrementalTransferTimeoutMs,
               "timer period must be <= transfer timeout");
 
-// Returns a conservative max size of the data we can pass into
-// XChangeProperty(). Copied from GTK.
-size_t GetMaxRequestSize(x11::Connection* connection) {
-  long extended_max_size = connection->extended_max_request_length();
-  long max_size =
-      (extended_max_size ? extended_max_size
-                         : connection->setup().maximum_request_length) -
-      100;
-  return std::min(static_cast<long>(0x40000),
-                  std::max(static_cast<long>(0), max_size));
+size_t GetMaxIncrementalTransferSize() {
+  ssize_t size = x11::Connection::Get()->MaxRequestSizeInBytes();
+  // Conservatively subtract 100 bytes for the GetProperty request, padding etc.
+  DCHECK_GT(size, 100);
+  return std::min<size_t>(size - 100, 0x100000);
 }
 
 // Gets the value of an atom pair array property. On success, true is returned
@@ -60,7 +55,7 @@ bool GetAtomPairArrayProperty(
   std::vector<x11::Atom> atoms;
   // Since this is an array of atom pairs, ensure ensure |atoms|
   // has an element count that's a multiple of 2.
-  if (!x11::GetArrayProperty(window, property, &atoms) || atoms.size() % 2 != 0)
+  if (!GetArrayProperty(window, property, &atoms) || atoms.size() % 2 != 0)
     return false;
 
   value->clear();
@@ -85,9 +80,7 @@ void SetSelectionOwner(x11::Window window,
 SelectionOwner::SelectionOwner(x11::Connection* connection,
                                x11::Window x_window,
                                x11::Atom selection_name)
-    : x_window_(x_window),
-      selection_name_(selection_name),
-      max_request_size_(GetMaxRequestSize(connection)) {}
+    : x_window_(x_window), selection_name_(selection_name) {}
 
 SelectionOwner::~SelectionOwner() {
   // If we are the selection owner, we need to release the selection so we
@@ -149,8 +142,8 @@ void SelectionOwner::OnSelectionRequest(
 
       // Set the property to indicate which conversions succeeded. This matches
       // what GTK does.
-      x11::SetArrayProperty(requestor, requested_property,
-                            x11::GetAtom(kAtomPair), conversion_results);
+      SetArrayProperty(requestor, requested_property, x11::GetAtom(kAtomPair),
+                       conversion_results);
 
       reply.property = requested_property;
     }
@@ -164,7 +157,7 @@ void SelectionOwner::OnSelectionRequest(
 }
 
 void SelectionOwner::OnSelectionClear(const x11::SelectionClearEvent& event) {
-  DLOG(ERROR) << "SelectionClear";
+  DVLOG(1) << "SelectionClear";
 
   // TODO(erg): If we receive a SelectionClear event while we're handling data,
   // we need to delay clearing.
@@ -198,8 +191,8 @@ bool SelectionOwner::ProcessTarget(x11::Atom target,
     return false;
 
   if (target == timestamp_atom) {
-    x11::SetProperty(requestor, property, x11::Atom::INTEGER,
-                     acquired_selection_timestamp_);
+    SetProperty(requestor, property, x11::Atom::INTEGER,
+                acquired_selection_timestamp_);
     return true;
   }
 
@@ -210,19 +203,19 @@ bool SelectionOwner::ProcessTarget(x11::Atom target,
                                       save_targets_atom, multiple_atom};
     RetrieveTargets(&targets);
 
-    x11::SetArrayProperty(requestor, property, x11::Atom::ATOM, targets);
+    SetArrayProperty(requestor, property, x11::Atom::ATOM, targets);
     return true;
   }
 
   // Try to find the data type in map.
   auto it = format_map_.find(target);
   if (it != format_map_.end()) {
-    if (it->second->size() > max_request_size_) {
+    if (it->second->size() > GetMaxIncrementalTransferSize()) {
       // We must send the data back in several chunks due to a limitation in
       // the size of X requests. Notify the selection requestor that the data
       // will be sent incrementally by returning data of type "INCR".
       uint32_t length = it->second->size();
-      x11::SetProperty(requestor, property, x11::GetAtom(kIncr), length);
+      SetProperty(requestor, property, x11::GetAtom(kIncr), length);
 
       // Wait for the selection requestor to indicate that it has processed
       // the selection result before sending the first chunk of data. The
@@ -248,7 +241,7 @@ bool SelectionOwner::ProcessTarget(x11::Atom target,
     } else {
       auto& mem = it->second;
       std::vector<uint8_t> data(mem->data(), mem->data() + mem->size());
-      x11::SetArrayProperty(requestor, property, target, data);
+      SetArrayProperty(requestor, property, target, data);
     }
     return true;
   }
@@ -260,11 +253,10 @@ bool SelectionOwner::ProcessTarget(x11::Atom target,
 
 void SelectionOwner::ProcessIncrementalTransfer(IncrementalTransfer* transfer) {
   size_t remaining = transfer->data->size() - transfer->offset;
-  size_t chunk_length = std::min(remaining, max_request_size_);
+  size_t chunk_length = std::min(remaining, GetMaxIncrementalTransferSize());
   const uint8_t* data = transfer->data->front() + transfer->offset;
   std::vector<uint8_t> buf(data, data + chunk_length);
-  x11::SetArrayProperty(transfer->window, transfer->property, transfer->target,
-                        buf);
+  SetArrayProperty(transfer->window, transfer->property, transfer->target, buf);
   transfer->offset += chunk_length;
   transfer->timeout =
       base::TimeTicks::Now() +

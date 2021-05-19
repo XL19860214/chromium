@@ -14,6 +14,7 @@
 #include "base/files/file_path.h"
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
+#include "base/metrics/histogram_functions.h"
 #include "base/path_service.h"
 #include "base/sequenced_task_runner.h"
 #include "base/strings/sys_string_conversions.h"
@@ -21,6 +22,9 @@
 #include "base/task/thread_pool.h"
 #include "base/time/default_clock.h"
 #include "base/time/default_tick_clock.h"
+#include "components/breadcrumbs/core/breadcrumb_manager.h"
+#include "components/breadcrumbs/core/breadcrumb_persistent_storage_manager.h"
+#include "components/breadcrumbs/core/features.h"
 #include "components/component_updater/component_updater_service.h"
 #include "components/component_updater/timer_update_scheduler.h"
 #include "components/gcm_driver/gcm_client_factory.h"
@@ -48,9 +52,7 @@
 #include "ios/chrome/browser/chrome_paths.h"
 #include "ios/chrome/browser/component_updater/ios_component_updater_configurator.h"
 #import "ios/chrome/browser/crash_report/breadcrumbs/application_breadcrumbs_logger.h"
-#include "ios/chrome/browser/crash_report/breadcrumbs/breadcrumb_manager.h"
-#include "ios/chrome/browser/crash_report/breadcrumbs/breadcrumb_persistent_storage_manager.h"
-#include "ios/chrome/browser/crash_report/breadcrumbs/features.h"
+#include "ios/chrome/browser/crash_report/breadcrumbs/breadcrumb_persistent_storage_util.h"
 #include "ios/chrome/browser/gcm/ios_chrome_gcm_profile_service_factory.h"
 #include "ios/chrome/browser/history/history_service_factory.h"
 #include "ios/chrome/browser/ios_chrome_io_thread.h"
@@ -111,6 +113,21 @@ void BindNetworkChangeManagerReceiver(
   network_change_manager->AddReceiver(std::move(receiver));
 }
 
+// Used to enable the workaround for a local state not persisting sometimes.
+NSString* const kLastSessionExitedCleanly = @"LastSessionExitedCleanly";
+
+// Set both local_state and user defaults kLastSessionExitedCleanly to |clean|.
+void SetLastSessionExitedCleanly(PrefService* local_state, bool clean) {
+  NSUserDefaults* defaults = [NSUserDefaults standardUserDefaults];
+  [defaults setBool:clean forKey:kLastSessionExitedCleanly];
+  [defaults synchronize];
+  local_state->SetBoolean(prefs::kLastSessionExitedCleanly, clean);
+}
+
+// If enabled, keep logging and reporting UMA while chrome is backgrounded.
+const base::Feature kUmaBackgroundSessions{"IOSUMABackgroundSessions",
+                                           base::FEATURE_DISABLED_BY_DEFAULT};
+
 }  // namespace
 
 ApplicationContextImpl::ApplicationContextImpl(
@@ -156,8 +173,8 @@ void ApplicationContextImpl::PreMainMessageLoopRun() {
                                    GetSharedURLLoaderFactory());
   }
 
-  if (base::FeatureList::IsEnabled(kLogBreadcrumbs)) {
-    breadcrumb_manager_ = std::make_unique<BreadcrumbManager>();
+  if (base::FeatureList::IsEnabled(breadcrumbs::kLogBreadcrumbs)) {
+    breadcrumb_manager_ = std::make_unique<breadcrumbs::BreadcrumbManager>();
     application_breadcrumbs_logger_ =
         std::make_unique<ApplicationBreadcrumbsLogger>(
             breadcrumb_manager_.get());
@@ -167,7 +184,12 @@ void ApplicationContextImpl::PreMainMessageLoopRun() {
     DCHECK(result);
 
     auto breadcrumb_persistent_storage_manager =
-        std::make_unique<BreadcrumbPersistentStorageManager>(storage_dir);
+        std::make_unique<breadcrumbs::BreadcrumbPersistentStorageManager>(
+            storage_dir,
+            breadcrumb_persistent_storage_util::
+                GetOldBreadcrumbPersistentStorageFilePath(storage_dir),
+            breadcrumb_persistent_storage_util::
+                GetOldBreadcrumbPersistentStorageTempFilePath(storage_dir));
 
     application_breadcrumbs_logger_->SetPersistentStorageManager(
         std::move(breadcrumb_persistent_storage_manager));
@@ -233,7 +255,7 @@ void ApplicationContextImpl::OnAppEnterForeground() {
   DCHECK(thread_checker_.CalledOnValidThread());
 
   PrefService* local_state = GetLocalState();
-  local_state->SetBoolean(prefs::kLastSessionExitedCleanly, false);
+  SetLastSessionExitedCleanly(local_state, false);
 
   // Tell the metrics services that the application resumes.
   metrics::MetricsService* metrics_service = GetMetricsService();
@@ -267,12 +289,15 @@ void ApplicationContextImpl::OnAppEnterBackground() {
   }
 
   PrefService* local_state = GetLocalState();
-  local_state->SetBoolean(prefs::kLastSessionExitedCleanly, true);
+  SetLastSessionExitedCleanly(local_state, true);
 
   // Tell the metrics services they were cleanly shutdown.
   metrics::MetricsService* metrics_service = GetMetricsService();
-  if (metrics_service && local_state)
-    metrics_service->OnAppEnterBackground();
+  if (metrics_service && local_state) {
+    const bool keep_reporting =
+        base::FeatureList::IsEnabled(kUmaBackgroundSessions);
+    metrics_service->OnAppEnterBackground(keep_reporting);
+  }
   ukm::UkmService* ukm_service = GetMetricsServicesManager()->GetUkmService();
   if (ukm_service)
     ukm_service->OnAppEnterBackground();
@@ -350,11 +375,6 @@ ukm::UkmRecorder* ApplicationContextImpl::GetUkmRecorder() {
 variations::VariationsService* ApplicationContextImpl::GetVariationsService() {
   DCHECK(thread_checker_.CalledOnValidThread());
   return GetMetricsServicesManager()->GetVariationsService();
-}
-
-rappor::RapporServiceImpl* ApplicationContextImpl::GetRapporServiceImpl() {
-  DCHECK(thread_checker_.CalledOnValidThread());
-  return GetMetricsServicesManager()->GetRapporServiceImpl();
 }
 
 net::NetLog* ApplicationContextImpl::GetNetLog() {
@@ -470,7 +490,7 @@ BrowserPolicyConnectorIOS* ApplicationContextImpl::GetBrowserPolicyConnector() {
   return browser_policy_connector_.get();
 }
 
-BreadcrumbPersistentStorageManager*
+breadcrumbs::BreadcrumbPersistentStorageManager*
 ApplicationContextImpl::GetBreadcrumbPersistentStorageManager() {
   DCHECK(thread_checker_.CalledOnValidThread());
   return application_breadcrumbs_logger_
@@ -520,6 +540,38 @@ void ApplicationContextImpl::CreateLocalState() {
     was_last_shutdown_clean_ =
         local_state_->GetBoolean(prefs::kLastSessionExitedCleanly);
   }
+
+  // The logic below mirrors clean_exit_beacon.  For historical reasons ios/
+  // does not use this beacon directly.  This code should be merged with clean
+  // exit beacon (as long as the user default workaround can also go into the
+  // clean exit beacon).
+  // TODO(crbug.com/1208077): Use the CleanExitBeacon.
+
+  // An enumeration of all possible permutations of the the beacon state in the
+  // registry and in Local State.
+  enum {
+    DIRTY_DIRTY,
+    DIRTY_CLEAN,
+    CLEAN_DIRTY,
+    CLEAN_CLEAN,
+    MISSING_DIRTY,
+    MISSING_CLEAN,
+    NUM_CONSISTENCY_ENUMS
+  } consistency = DIRTY_DIRTY;
+  NSUserDefaults* defaults = [NSUserDefaults standardUserDefaults];
+  if ([defaults objectForKey:kLastSessionExitedCleanly] != nil) {
+    bool user_defaults_was_last_shutdown_clean_ =
+        [defaults boolForKey:kLastSessionExitedCleanly];
+    if (user_defaults_was_last_shutdown_clean_) {
+      consistency = was_last_shutdown_clean_ ? CLEAN_CLEAN : CLEAN_DIRTY;
+    } else {
+      consistency = was_last_shutdown_clean_ ? DIRTY_CLEAN : DIRTY_DIRTY;
+    }
+  } else {
+    consistency = was_last_shutdown_clean_ ? MISSING_CLEAN : MISSING_DIRTY;
+  }
+  base::UmaHistogramEnumeration("UMA.CleanExitBeaconConsistency", consistency,
+                                NUM_CONSISTENCY_ENUMS);
 }
 
 void ApplicationContextImpl::CreateGCMDriver() {

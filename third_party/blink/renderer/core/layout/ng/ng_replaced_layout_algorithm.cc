@@ -11,31 +11,33 @@ namespace blink {
 
 NGReplacedLayoutAlgorithm::NGReplacedLayoutAlgorithm(
     const NGLayoutAlgorithmParams& params)
-    : NGLayoutAlgorithm(params),
-      // TODO(dgrogan): Use something from NGLayoutInputNode instead of
-      // accessing LayoutBox directly.
-      natural_size_(PhysicalSize(Node().GetLayoutBox()->IntrinsicSize())
-                        .ConvertToLogical(Style().GetWritingMode())) {}
+    : NGLayoutAlgorithm(params) {}
 
 scoped_refptr<const NGLayoutResult> NGReplacedLayoutAlgorithm::Layout() {
-  DCHECK(!BreakToken());
-  LayoutUnit intrinsic_block_size = natural_size_.block_size;
-  LayoutUnit block_size = ComputeBlockSizeForFragment(
-      ConstraintSpace(), Style(), BorderPadding(),
-      intrinsic_block_size + BorderPadding().BlockSum(),
-      container_builder_.InitialBorderBoxSize().inline_size);
-  container_builder_.SetIntrinsicBlockSize(intrinsic_block_size);
-  container_builder_.SetFragmentsTotalBlockSize(block_size);
+  DCHECK(!BreakToken() || BreakToken()->IsBreakBefore());
   // Set this as a legacy root so that legacy painters are used.
   container_builder_.SetIsLegacyLayoutRoot();
+
+  const LayoutUnit intrinsic_block_size =
+      ComputeReplacedSize(Node(), ConstraintSpace(), BorderPadding(),
+                          ReplacedSizeMode::kIgnoreBlockLengths)
+          .block_size;
+  container_builder_.SetIntrinsicBlockSize(intrinsic_block_size);
+
   return container_builder_.ToBoxFragment();
 }
 
 MinMaxSizesResult NGReplacedLayoutAlgorithm::ComputeMinMaxSizes(
-    const MinMaxSizesInput& child_input) const {
-  MinMaxSizes sizes({natural_size_.inline_size, natural_size_.inline_size});
-  sizes += BorderScrollbarPadding().InlineSum();
-  return {sizes, false};
+    const MinMaxSizesFloatInput&) const {
+  // Most layouts are interested in the min/max content contribution which will
+  // call |ComputeReplacedSize| directly. (Which doesn't invoke the code below).
+  // This is only used by flex, which expects inline-lengths to be ignored for
+  // the min/max content size.
+  MinMaxSizes sizes;
+  sizes = ComputeReplacedSize(Node(), ConstraintSpace(), BorderPadding(),
+                              ReplacedSizeMode::kIgnoreInlineLengths)
+              .inline_size;
+  return {sizes, /* depends_on_block_constraints */ false};
 }
 
 }  // namespace blink

@@ -18,7 +18,9 @@
 #include "base/callback_helpers.h"
 #include "base/check.h"
 #include "base/command_line.h"
+#include "base/containers/contains.h"
 #include "base/debug/alias.h"
+#include "base/debug/dump_without_crashing.h"
 #include "base/files/file_path.h"
 #include "base/hash/hash.h"
 #include "base/i18n/rtl.h"
@@ -27,9 +29,9 @@
 #include "base/macros.h"
 #include "base/metrics/field_trial.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/optional.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/current_thread.h"
 #include "base/task/post_task.h"
@@ -40,6 +42,9 @@
 #include "cc/base/switches.h"
 #include "cc/trees/browser_controls_params.h"
 #include "cc/trees/render_frame_metadata.h"
+#include "components/power_scheduler/power_mode.h"
+#include "components/power_scheduler/power_mode_arbiter.h"
+#include "components/power_scheduler/power_mode_voter.h"
 #include "components/viz/common/features.h"
 #include "components/viz/host/host_frame_sink_manager.h"
 #include "content/browser/accessibility/browser_accessibility_manager.h"
@@ -48,15 +53,17 @@
 #include "content/browser/browser_main_loop.h"
 #include "content/browser/child_process_security_policy_impl.h"
 #include "content/browser/compositor/surface_utils.h"
+#include "content/browser/devtools/devtools_instrumentation.h"
 #include "content/browser/file_system/browser_file_system_helper.h"
-#include "content/browser/file_system_access/native_file_system_manager_impl.h"
+#include "content/browser/file_system_access/file_system_access_manager_impl.h"
 #include "content/browser/gpu/compositor_util.h"
 #include "content/browser/renderer_host/agent_scheduling_group_host.h"
+#include "content/browser/renderer_host/data_transfer_util.h"
 #include "content/browser/renderer_host/dip_util.h"
 #include "content/browser/renderer_host/display_feature.h"
 #include "content/browser/renderer_host/display_util.h"
-#include "content/browser/renderer_host/drop_data_util.h"
 #include "content/browser/renderer_host/frame_token_message_queue.h"
+#include "content/browser/renderer_host/frame_tree.h"
 #include "content/browser/renderer_host/input/fling_scheduler.h"
 #include "content/browser/renderer_host/input/input_router_config_helper.h"
 #include "content/browser/renderer_host/input/input_router_impl.h"
@@ -76,8 +83,6 @@
 #include "content/browser/storage_partition_impl.h"
 #include "content/common/content_constants_internal.h"
 #include "content/common/cursors/webcursor.h"
-#include "content/common/frame_messages.h"
-#include "content/common/input_messages.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/device_service.h"
@@ -108,13 +113,14 @@
 #include "skia/ext/platform_canvas.h"
 #include "skia/ext/skia_utils_base.h"
 #include "storage/browser/file_system/isolated_context.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/common/input/synthetic_web_input_event_builders.h"
 #include "third_party/blink/public/common/web_preferences/web_preferences.h"
 #include "third_party/blink/public/common/widget/visual_properties.h"
-#include "third_party/blink/public/mojom/file_system_access/native_file_system_drag_drop_token.mojom.h"
 #include "third_party/blink/public/mojom/input/touch_event.mojom.h"
 #include "third_party/blink/public/mojom/page/drag.mojom.h"
 #include "ui/base/clipboard/clipboard_constants.h"
+#include "ui/base/dragdrop/mojom/drag_drop_types.mojom.h"
 #include "ui/base/ui_base_switches.h"
 #include "ui/display/display_switches.h"
 #include "ui/display/screen.h"
@@ -141,9 +147,6 @@
 #include "ui/accelerated_widget_mac/window_resize_helper_mac.h"
 #endif
 
-using base::TimeDelta;
-using base::TimeTicks;
-using blink::DragOperation;
 using blink::DragOperationsMask;
 using blink::WebGestureEvent;
 using blink::WebInputEvent;
@@ -184,8 +187,7 @@ class RenderWidgetHostIteratorImpl : public RenderWidgetHostIterator {
   ~RenderWidgetHostIteratorImpl() override = default;
 
   void Add(RenderWidgetHost* host) {
-    hosts_.push_back(
-        RenderWidgetHostID(host->GetProcess()->GetID(), host->GetRoutingID()));
+    hosts_.emplace_back(host->GetProcess()->GetID(), host->GetRoutingID());
   }
 
   // RenderWidgetHostIterator:
@@ -268,14 +270,14 @@ class UnboundWidgetInputHandler : public blink::mojom::WidgetInputHandler {
   void CursorVisibilityChanged(bool visible) override {
     DLOG(WARNING) << "Input request on unbound interface";
   }
-  void ImeSetComposition(const base::string16& text,
+  void ImeSetComposition(const std::u16string& text,
                          const std::vector<ui::ImeTextSpan>& ime_text_spans,
                          const gfx::Range& range,
                          int32_t start,
                          int32_t end) override {
     DLOG(WARNING) << "Input request on unbound interface";
   }
-  void ImeCommitText(const base::string16& text,
+  void ImeCommitText(const std::u16string& text,
                      const std::vector<ui::ImeTextSpan>& ime_text_spans,
                      const gfx::Range& range,
                      int32_t relative_cursor_position,
@@ -303,6 +305,7 @@ class UnboundWidgetInputHandler : public blink::mojom::WidgetInputHandler {
   void WaitForInputProcessed(WaitForInputProcessedCallback callback) override {
     DLOG(WARNING) << "Input request on unbound interface";
   }
+#if defined(OS_ANDROID)
   void AttachSynchronousCompositor(
       mojo::PendingRemote<blink::mojom::SynchronousCompositorControlHost>
           control_host,
@@ -312,6 +315,7 @@ class UnboundWidgetInputHandler : public blink::mojom::WidgetInputHandler {
           compositor_request) override {
     NOTREACHED() << "Input request on unbound interface";
   }
+#endif
   void GetFrameWidgetInputHandler(
       mojo::PendingAssociatedReceiver<blink::mojom::FrameWidgetInputHandler>
           request) override {
@@ -329,36 +333,45 @@ base::LazyInstance<UnboundWidgetInputHandler>::Leaky g_unbound_input_handler =
 
 // static
 std::unique_ptr<RenderWidgetHostImpl> RenderWidgetHostImpl::Create(
+    FrameTree* frame_tree,
     RenderWidgetHostDelegate* delegate,
     AgentSchedulingGroupHost& agent_scheduling_host,
     int32_t routing_id,
     bool hidden,
+    bool renderer_initiated_creation,
     std::unique_ptr<FrameTokenMessageQueue> frame_token_message_queue) {
   return base::WrapUnique(new RenderWidgetHostImpl(
+      frame_tree,
       /*self_owned=*/false, delegate, agent_scheduling_host, routing_id, hidden,
-      std::move(frame_token_message_queue)));
+      renderer_initiated_creation, std::move(frame_token_message_queue)));
 }
 
 // static
 RenderWidgetHostImpl* RenderWidgetHostImpl::CreateSelfOwned(
+    FrameTree* frame_tree,
     RenderWidgetHostDelegate* delegate,
     AgentSchedulingGroupHost& agent_scheduling_host,
     int32_t routing_id,
     bool hidden,
     std::unique_ptr<FrameTokenMessageQueue> frame_token_message_queue) {
-  return new RenderWidgetHostImpl(/*self_owned=*/true, delegate,
+  return new RenderWidgetHostImpl(frame_tree, /*self_owned=*/true, delegate,
                                   agent_scheduling_host, routing_id, hidden,
+                                  /*renderer_initiated_creation=*/true,
                                   std::move(frame_token_message_queue));
 }
 
 RenderWidgetHostImpl::RenderWidgetHostImpl(
+    FrameTree* frame_tree,
     bool self_owned,
     RenderWidgetHostDelegate* delegate,
     AgentSchedulingGroupHost& agent_scheduling_group,
     int32_t routing_id,
     bool hidden,
+    bool renderer_initiated_creation,
     std::unique_ptr<FrameTokenMessageQueue> frame_token_message_queue)
-    : self_owned_(self_owned),
+    : frame_tree_(frame_tree),
+      self_owned_(self_owned),
+      waiting_for_init_(renderer_initiated_creation),
       delegate_(delegate),
       agent_scheduling_group_(agent_scheduling_group),
       routing_id_(routing_id),
@@ -377,7 +390,13 @@ RenderWidgetHostImpl::RenderWidgetHostImpl(
           frame_token_message_queue_.get()),
       frame_sink_id_(base::checked_cast<uint32_t>(
                          agent_scheduling_group.GetProcess()->GetID()),
-                     base::checked_cast<uint32_t>(routing_id_)) {
+                     base::checked_cast<uint32_t>(routing_id_)),
+      power_mode_input_voter_(
+          power_scheduler::PowerModeArbiter::GetInstance()->NewVoter(
+              "PowerModeVoter.Input")),
+      power_mode_loading_voter_(
+          power_scheduler::PowerModeArbiter::GetInstance()->NewVoter(
+              "PowerModeVoter.Loading")) {
   DCHECK(frame_token_message_queue_);
   frame_token_message_queue_->Init(this);
 
@@ -495,6 +514,20 @@ void RenderWidgetHostImpl::SetView(RenderWidgetHostViewBase* view) {
     view_ = view->GetWeakPtr();
     if (!create_frame_sink_callback_.is_null())
       std::move(create_frame_sink_callback_).Run(view_->GetFrameSinkId());
+
+    // SendScreenRects() and SynchronizeVisualProperties() delay until a view
+    // is set, however we come here with a newly created `view` that is not
+    // initialized and ready to be used.
+    // The portal codepath comes here because it replaces the view while the
+    // renderer-side widget is already created. In that case the renderer will
+    // hear about geometry changes from the view being moved/resized as a result
+    // of the change.
+    // Speculative RenderViews also end up setting a `view` after creating the
+    // renderer-side widget, as per https://crbug.com/1161585. That path must
+    // be responsible for updating the renderer geometry itself, which it does
+    // because it will start hidden, and will send them when shown.
+    // TODO(crbug.com/1161585): Once RendererWidgetCreated() is always called
+    // with a non-null `view` then this comment can go away. :)
   } else {
     view_.reset();
   }
@@ -521,21 +554,28 @@ const viz::FrameSinkId& RenderWidgetHostImpl::GetFrameSinkId() {
 }
 
 void RenderWidgetHostImpl::SendScreenRects() {
-  if (!renderer_initialized_ || !blink_widget_ || waiting_for_screen_rects_ack_)
+  // Sending screen rects are deferred until we have a connection to a
+  // renderer-side Widget to send them to. Further, if we're waiting for the
+  // renderer to show (aka Init()) the widget then we defer sending updates
+  // until the renderer is ready.
+  if (!renderer_widget_created_ || waiting_for_init_)
     return;
-
+  // TODO(danakj): The `renderer_widget_created_` flag is set to true for
+  // widgets owned by inactive RenderViewHosts, even though there is no widget
+  // created. In that case the `view_` will not be created.
+  if (!view_)
+    return;
+  // Throttle to one update at a time.
+  if (waiting_for_screen_rects_ack_)
+    return;
   if (is_hidden_) {
     // On GTK, this comes in for backgrounded tabs. Ignore, to match what
     // happens on Win & Mac, and when the view is shown it'll call this again.
     return;
   }
 
-  if (!view_)
-    return;
-
   last_view_screen_rect_ = view_->GetViewBounds();
   last_window_screen_rect_ = view_->GetBoundsInRootWindow();
-  view_->WillSendScreenRects();
   blink_widget_->UpdateScreenRects(
       last_view_screen_rect_, last_window_screen_rect_,
       base::BindOnce(&RenderWidgetHostImpl::OnUpdateScreenRectsAck,
@@ -564,53 +604,12 @@ void RenderWidgetHostImpl::UpdatePriority() {
     GetProcess()->UpdateClientPriority(this);
 }
 
-void RenderWidgetHostImpl::Init() {
-  DCHECK(GetProcess()->IsInitializedAndNotDead());
-
-  set_renderer_initialized(true);
-
-  blink_widget_->GetWidgetInputHandler(
-      widget_input_handler_.BindNewPipeAndPassReceiver(),
-      input_router_->BindNewHost());
-  // If this is for a frame be sure to connect that handler too.
-  if (blink_frame_widget_) {
-    widget_input_handler_->GetFrameWidgetInputHandler(
-        frame_widget_input_handler_.BindNewEndpointAndPassReceiver());
-    blink_frame_widget_->BindInputTargetClient(
-        input_target_client_.BindNewPipeAndPassReceiver());
-  }
-
-  SendScreenRects();
-  SynchronizeVisualProperties();
-
-  if (owner_delegate_)
-    owner_delegate_->RenderWidgetDidInit();
-
-  if (view_)
-    view_->OnRenderWidgetInit();
-
-  if (pending_show_closure_)
-    std::move(pending_show_closure_).Run();
-}
-
-std::pair<mojo::PendingAssociatedRemote<blink::mojom::WidgetHost>,
-          mojo::PendingAssociatedReceiver<blink::mojom::Widget>>
-RenderWidgetHostImpl::BindNewWidgetInterfaces() {
-  // This API may get called on a RenderWidgetHostImpl from a
-  // reused RenderViewHostImpl so we need to ensure old channels are dropped.
-  blink_widget_host_receiver_.reset();
-  blink_widget_.reset();
-  widget_input_handler_.reset();
-  return std::make_pair(
-      blink_widget_host_receiver_.BindNewEndpointAndPassRemote(),
-      blink_widget_.BindNewEndpointAndPassReceiver());
-}
-
 void RenderWidgetHostImpl::BindWidgetInterfaces(
     mojo::PendingAssociatedReceiver<blink::mojom::WidgetHost> widget_host,
     mojo::PendingAssociatedRemote<blink::mojom::Widget> widget) {
   // This API may get called on a RenderWidgetHostImpl from a
   // reused RenderViewHostImpl so we need to ensure old channels are dropped.
+  // TODO(dcheng): Rather than resetting here, reset when the process goes away.
   blink_widget_host_receiver_.reset();
   blink_widget_.reset();
   widget_input_handler_.reset();
@@ -625,27 +624,13 @@ void RenderWidgetHostImpl::BindPopupWidgetInterface(
   blink_popup_widget_host_receiver_.Bind(std::move(popup_widget_host));
 }
 
-std::pair<mojo::PendingAssociatedRemote<blink::mojom::FrameWidgetHost>,
-          mojo::PendingAssociatedReceiver<blink::mojom::FrameWidget>>
-RenderWidgetHostImpl::BindNewFrameWidgetInterfaces() {
-  // This API may get called on a RenderWidgetHostImpl from a
-  // reused RenderViewHostImpl so we need to ensure old channels are dropped.
-  blink_frame_widget_host_receiver_.reset();
-  blink_frame_widget_.reset();
-  frame_widget_input_handler_.reset();
-  input_target_client_.reset();
-  widget_compositor_.reset();
-  return std::make_pair(
-      blink_frame_widget_host_receiver_.BindNewEndpointAndPassRemote(),
-      blink_frame_widget_.BindNewEndpointAndPassReceiver());
-}
-
 void RenderWidgetHostImpl::BindFrameWidgetInterfaces(
     mojo::PendingAssociatedReceiver<blink::mojom::FrameWidgetHost>
         frame_widget_host,
     mojo::PendingAssociatedRemote<blink::mojom::FrameWidget> frame_widget) {
   // This API may get called on a RenderWidgetHostImpl from a
   // reused RenderViewHostImpl so we need to ensure old channels are dropped.
+  // TODO(dcheng): Rather than resetting here, reset when the process goes away.
   blink_frame_widget_host_receiver_.reset();
   blink_frame_widget_.reset();
   frame_widget_input_handler_.reset();
@@ -655,27 +640,50 @@ void RenderWidgetHostImpl::BindFrameWidgetInterfaces(
   blink_frame_widget_.Bind(std::move(frame_widget));
 }
 
-void RenderWidgetHostImpl::InitForFrame() {
+void RenderWidgetHostImpl::RendererWidgetCreated(bool for_frame_widget) {
   DCHECK(GetProcess()->IsInitializedAndNotDead());
-  set_renderer_initialized(true);
 
-  // In situations where RenderFrameHostImpl::CreateNewFrame calls this
-  // the |blink_widget_| will not be bound before this method is called.
-  // However RenderWidgetHostImpl::Init will be called once the widget
-  // is shown and these handlers will be bound there.
-  if (blink_widget_) {
-    blink_widget_->GetWidgetInputHandler(
-        widget_input_handler_.BindNewPipeAndPassReceiver(),
-        input_router_->BindNewHost());
+  renderer_widget_created_ = true;
+
+  blink_widget_->GetWidgetInputHandler(
+      widget_input_handler_.BindNewPipeAndPassReceiver(),
+      input_router_->BindNewHost());
+  if (for_frame_widget) {
     widget_input_handler_->GetFrameWidgetInputHandler(
         frame_widget_input_handler_.BindNewEndpointAndPassReceiver());
     blink_frame_widget_->BindInputTargetClient(
         input_target_client_.BindNewPipeAndPassReceiver());
   }
 
+  // TODO(crbug.com/1161585): The `view_` can be null. :( Speculative
+  // RenderViews along with the main frame and its widget before the
+  // RenderWidgetHostView is created. Normally the RenderWidgetHostView should
+  // come first. Historically, unit tests also set things up in the wrong order
+  // and could get here with a null, but that is no longer the case (hopefully
+  // that remains true).
   if (view_)
-    view_->OnRenderWidgetInit();
+    view_->OnRendererWidgetCreated();
 
+  // These two methods avoid running until `renderer_widget_created_` is true,
+  // so we run them here after we set it.
+  SendScreenRects();
+  SynchronizeVisualProperties();
+}
+
+void RenderWidgetHostImpl::Init() {
+  DCHECK(renderer_widget_created_);
+  DCHECK(waiting_for_init_);
+
+  waiting_for_init_ = false;
+
+  // These two methods avoid running while we are `waiting_for_init_`, so we
+  // run them here after we clear it.
+  SendScreenRects();
+  SynchronizeVisualProperties();
+  // Show/Hide state is not given to the renderer while we are
+  // `waiting_for_init_`, but Init() signals that the renderer is ready to
+  // receive them. This closure will inform the renderer that the widget is
+  // shown.
   if (pending_show_closure_)
     std::move(pending_show_closure_).Run();
 }
@@ -693,6 +701,9 @@ void RenderWidgetHostImpl::ShutdownAndDestroyWidget(bool also_delete) {
 
 void RenderWidgetHostImpl::SetIsLoading(bool is_loading) {
   is_loading_ = is_loading;
+  power_mode_loading_voter_->VoteFor(is_loading_
+                                         ? power_scheduler::PowerMode::kLoading
+                                         : power_scheduler::PowerMode::kIdle);
   if (view_)
     view_->SetIsLoading(is_loading);
 }
@@ -714,12 +725,17 @@ void RenderWidgetHostImpl::WasHidden() {
   // Don't bother reporting hung state when we aren't active.
   StopInputEventAckTimeout();
 
-  // If we have bound the blink widget interface, then inform it that we are
-  // being hidden so it can reduce its resource utilization.
-  if (blink_widget_)
-    blink_widget_->WasHidden();
-  else
+  // Show/Hide state is not sent to the renderer when it has requested for us to
+  // wait until it requests them via Init().
+  if (pending_show_closure_) {
     pending_show_closure_.Reset();
+  } else {
+    // Widgets start out hidden, so we must have previously been shown to get
+    // here, and we'd have a `pending_show_closure_` if we are
+    // `waiting_for_init_`.
+    DCHECK(!waiting_for_init_);
+    blink_widget_->WasHidden();
+  }
 
   // Tell the RenderProcessHost we were hidden.
   GetProcess()->UpdateClientPriority(this);
@@ -745,14 +761,20 @@ void RenderWidgetHostImpl::WasShown(
   // If we navigated in background, clear the displayed graphics of the
   // previous page before going visible.
   ForceFirstFrameAfterNavigationTimeout();
-
-  SendScreenRects();
   RestartInputEventAckTimeoutIfNecessary();
+
+  // This methods avoids running when the widget is hidden, so we run it here
+  // once it is no longer hidden.
+  SendScreenRects();
+  // SendScreenRects() and SynchronizeVisualProperties() should happen
+  // together as one message, but we send them back-to-back for now so that
+  // all state gets to the renderer as close together as possible.
+  SynchronizeVisualProperties();
 
   auto show_request_timestamp = record_tab_switch_time_request
                                     ? base::TimeTicks::Now()
                                     : base::TimeTicks();
-  if (blink_widget_) {
+  if (!waiting_for_init_) {
     blink_widget_->WasShown(show_request_timestamp, view_->is_evicted(),
                             std::move(record_tab_switch_time_request));
   } else {
@@ -850,8 +872,9 @@ blink::VisualProperties RenderWidgetHostImpl::GetVisualProperties() {
 
   blink::VisualProperties visual_properties;
 
-  GetScreenInfo(&visual_properties.screen_info);
   // Note: Later in this method, ScreenInfo rects might be overridden!
+  visual_properties.screen_infos = GetScreenInfos();
+  auto& current_screen_info = visual_properties.screen_infos.mutable_current();
 
   visual_properties.is_fullscreen_granted = delegate_->IsFullscreen();
 
@@ -882,10 +905,8 @@ blink::VisualProperties RenderWidgetHostImpl::GetVisualProperties() {
   // The top and bottom control sizes are physical pixels but the IPC wants
   // DIPs *when not using page zoom for DSF* because blink layout is working
   // in DIPs then.
-  if (!IsUseZoomForDSFEnabled()) {
-    browser_controls_dsf_multiplier =
-        visual_properties.screen_info.device_scale_factor;
-  }
+  if (!IsUseZoomForDSFEnabled())
+    browser_controls_dsf_multiplier = current_screen_info.device_scale_factor;
   visual_properties.browser_controls_params.top_controls_height =
       top_controls_height / browser_controls_dsf_multiplier;
   visual_properties.browser_controls_params.top_controls_min_height =
@@ -907,9 +928,8 @@ blink::VisualProperties RenderWidgetHostImpl::GetVisualProperties() {
   // and this is not always true for some browser UI features.
   // https://crbug.com/1060795
   if (visual_properties.is_fullscreen_granted) {
-    visual_properties.screen_info.rect.set_size(visual_properties.new_size);
-    visual_properties.screen_info.available_rect.set_size(
-        visual_properties.new_size);
+    current_screen_info.rect.set_size(visual_properties.new_size);
+    current_screen_info.available_rect.set_size(visual_properties.new_size);
   }
 
   // This widget is for a frame that is the main frame of the outermost frame
@@ -953,7 +973,7 @@ blink::VisualProperties RenderWidgetHostImpl::GetVisualProperties() {
       visual_properties.compositor_viewport_pixel_rect =
           gfx::ScaleToEnclosingRect(
               visual_properties.compositor_viewport_pixel_rect,
-              visual_properties.screen_info.device_scale_factor);
+              current_screen_info.device_scale_factor);
     }
   }
 
@@ -994,7 +1014,7 @@ blink::VisualProperties RenderWidgetHostImpl::GetVisualProperties() {
   // The root widget's window segments are computed here - child frames just
   // use the value provided from the parent.
   if (is_top_most_widget) {
-    base::Optional<DisplayFeature> display_feature = view_->GetDisplayFeature();
+    absl::optional<DisplayFeature> display_feature = view_->GetDisplayFeature();
     if (display_feature) {
       visual_properties.root_widget_window_segments =
           display_feature->ComputeWindowSegments(
@@ -1018,20 +1038,24 @@ blink::VisualProperties RenderWidgetHostImpl::GetVisualProperties() {
   }
 
   if (screen_orientation_type_for_testing_) {
-    visual_properties.screen_info.orientation_type =
+    current_screen_info.orientation_type =
         *screen_orientation_type_for_testing_;
   }
 
   if (screen_orientation_angle_for_testing_) {
-    visual_properties.screen_info.orientation_angle =
+    current_screen_info.orientation_angle =
         *screen_orientation_angle_for_testing_;
   }
 
   return visual_properties;
 }
 
+bool RenderWidgetHostImpl::UpdateVisualProperties(bool propagate) {
+  return SynchronizeVisualProperties(false, propagate);
+}
+
 bool RenderWidgetHostImpl::SynchronizeVisualProperties() {
-  return SynchronizeVisualProperties(false);
+  return SynchronizeVisualProperties(false, true);
 }
 
 bool RenderWidgetHostImpl::SynchronizeVisualPropertiesIgnoringPendingAck() {
@@ -1040,7 +1064,8 @@ bool RenderWidgetHostImpl::SynchronizeVisualPropertiesIgnoringPendingAck() {
 }
 
 bool RenderWidgetHostImpl::SynchronizeVisualProperties(
-    bool scroll_focused_node_into_view) {
+    bool scroll_focused_node_into_view,
+    bool propagate) {
   // If the RenderViewHost is inactive, then there is no RenderWidget that can
   // receive visual properties yet, even though we are setting them on the
   // browser side. Wait until there is a local main frame with a RenderWidget
@@ -1059,22 +1084,26 @@ bool RenderWidgetHostImpl::SynchronizeVisualProperties(
   // inactive, so there is no focused node, or anything to scroll and display.
   if (owner_delegate_ && !owner_delegate_->IsMainFrameActive())
     return false;
-  // This is similar to the above but when the renderer process has crashed, so
-  // more objects are gone than the RenderWidget.
-  if (!renderer_initialized_)
+  // Sending VisualProperties are deferred until we have a connection to a
+  // renderer-side Widget to send them to. Further, if we're waiting for the
+  // renderer to show (aka Init()) the widget then we defer sending updates
+  // until the renderer is ready.
+  if (!renderer_widget_created_ || waiting_for_init_)
     return false;
-
-  // If we have not bound the blink widget interface put this request off.
-  // SynchronizeVisualProperties will get called after the channel is bound.
-  if (!blink_widget_)
+  // TODO(danakj): The `renderer_widget_created_` flag is set to true for
+  // widgets owned by inactive RenderViewHosts, even though there is no widget
+  // created. In that case the `view_` will not be created.
+  if (!view_)
+    return false;
+  // Throttle to one update at a time.
+  if (visual_properties_ack_pending_)
     return false;
 
   // Skip if the |delegate_| has already been detached because it's web contents
   // is being deleted, or if LocalSurfaceId is suppressed, as we are
   // first updating our internal state from a child's request, before
   // subsequently merging ids to send.
-  if (visual_properties_ack_pending_ ||
-      !GetProcess()->IsInitializedAndNotDead() || !view_ || !view_->HasSize() ||
+  if (!GetProcess()->IsInitializedAndNotDead() || !view_->HasSize() ||
       !delegate_ || surface_id_allocation_suppressed_ ||
       !view_->CanSynchronizeVisualProperties()) {
     return false;
@@ -1089,34 +1118,42 @@ bool RenderWidgetHostImpl::SynchronizeVisualProperties(
   visual_properties->scroll_focused_node_into_view =
       scroll_focused_node_into_view;
 
-  blink_widget_->UpdateVisualProperties(*visual_properties);
+  if (propagate)
+    blink_widget_->UpdateVisualProperties(*visual_properties);
 
   bool width_changed =
       !old_visual_properties_ || old_visual_properties_->new_size.width() !=
                                      visual_properties->new_size.width();
 
-  // This is copied from RenderWidget::UpdateSurfaceAndScreenInfo and used to
-  // detect if there is a screen orientation change.
+  // WidgetBase::UpdateSurfaceAndScreenInfo uses similar logic to detect
+  // orientation changes on the display currently showing the widget.
   // TODO(lanwei): clean the duplicate code.
   if (visual_properties && old_visual_properties_) {
+    const auto& old_screen_info =
+        old_visual_properties_->screen_infos.current();
+    const auto& screen_info = visual_properties->screen_infos.current();
     bool orientation_changed =
-        old_visual_properties_->screen_info.orientation_angle !=
-            visual_properties->screen_info.orientation_angle ||
-        old_visual_properties_->screen_info.orientation_type !=
-            visual_properties->screen_info.orientation_type;
+        old_screen_info.orientation_angle != screen_info.orientation_angle ||
+        old_screen_info.orientation_type != screen_info.orientation_type;
     if (orientation_changed)
       delegate_->DidChangeScreenOrientation();
   }
 
-  TRACE_EVENT_WITH_FLOW2(
-      TRACE_DISABLED_BY_DEFAULT("viz.surface_id_flow"),
-      "RenderWidgetHostImpl::SynchronizeVisualProperties send message",
-      visual_properties->local_surface_id.value_or(viz::LocalSurfaceId())
-          .submission_trace_id(),
-      TRACE_EVENT_FLAG_FLOW_OUT, "message",
-      "WidgetMsg_SynchronizeVisualProperties", "local_surface_id",
-      visual_properties->local_surface_id.value_or(viz::LocalSurfaceId())
-          .ToString());
+  // If we do not have a valid viz::LocalSurfaceId then we are a child frame
+  // waiting on the id to be propagated from our parent. We cannot create a hash
+  // for tracing of an invalid id.
+  //
+  // TODO(jonross): Untangle startup so that we don't have this invalid partial
+  // state. (https://crbug.com/1185286) (https://crbug.com/419087)
+  if (visual_properties->local_surface_id.has_value()) {
+    TRACE_EVENT_WITH_FLOW2(
+        TRACE_DISABLED_BY_DEFAULT("viz.surface_id_flow"),
+        "RenderWidgetHostImpl::SynchronizeVisualProperties send message",
+        visual_properties->local_surface_id->submission_trace_id(),
+        TRACE_EVENT_FLAG_FLOW_OUT, "message",
+        "WidgetMsg_SynchronizeVisualProperties", "local_surface_id",
+        visual_properties->local_surface_id->ToString());
+  }
   visual_properties_ack_pending_ =
       DoesVisualPropertiesNeedAck(old_visual_properties_, *visual_properties);
   old_visual_properties_ = std::move(visual_properties);
@@ -1329,6 +1366,11 @@ void RenderWidgetHostImpl::ForwardMouseEventWithLatencyInfo(
   DCHECK_GE(mouse_event.GetType(), blink::WebInputEvent::Type::kMouseTypeFirst);
   DCHECK_LE(mouse_event.GetType(), blink::WebInputEvent::Type::kMouseTypeLast);
 
+  // This is used to auto-disable accessibility if we detect user input
+  // but no accessibility API usage.
+  if (mouse_event.GetType() == blink::WebInputEvent::Type::kMouseDown)
+    BrowserAccessibilityStateImpl::GetInstance()->OnUserInputEvent();
+
   for (auto& mouse_event_callback : mouse_event_callbacks_) {
     if (mouse_event_callback.Run(mouse_event))
       return;
@@ -1380,7 +1422,7 @@ void RenderWidgetHostImpl::ForwardWheelEventWithLatencyInfo(
 
 void RenderWidgetHostImpl::WaitForInputProcessed(
     SyntheticGestureParams::GestureType type,
-    SyntheticGestureParams::GestureSourceType source,
+    content::mojom::GestureSourceType source,
     base::OnceClosure callback) {
   // TODO(bokan): Input can be queued and delayed in InputRouterImpl based on
   // the kind of events we're getting. To be truly robust, we should wait until
@@ -1415,6 +1457,12 @@ void RenderWidgetHostImpl::ForwardGestureEventWithLatencyInfo(
     const ui::LatencyInfo& latency) {
   TRACE_EVENT1("input", "RenderWidgetHostImpl::ForwardGestureEvent", "type",
                WebInputEvent::GetName(gesture_event.GetType()));
+
+  // This is used to auto-disable accessibility if we detect user input
+  // but no accessibility API usage.
+  if (gesture_event.GetType() == blink::WebInputEvent::Type::kGestureTapDown)
+    BrowserAccessibilityStateImpl::GetInstance()->OnUserInputEvent();
+
   // Early out if necessary, prior to performing latency logic.
   if (IsIgnoringInputEvents())
     return;
@@ -1455,10 +1503,10 @@ void RenderWidgetHostImpl::ForwardGestureEventWithLatencyInfo(
   } else if (gesture_event.GetType() ==
              blink::WebInputEvent::Type::kGestureFlingStart) {
     if (gesture_event.SourceDevice() == blink::WebGestureDevice::kTouchpad) {
-      // TODO(sahel): Remove the VR specific case when motion events are used
-      // for Android VR event processing and VR touchpad scrolling is handled by
-      // sending wheel events rather than directly injecting Gesture Scroll
-      // Events. https://crbug.com/797322
+      // TODO(crbug.com/797322): Remove the VR specific case when motion events
+      // are used for Android VR event processing and VR touchpad scrolling is
+      // handled by sending wheel events rather than directly injecting Gesture
+      // Scroll Events.
       if (GetView()->IsInVR()) {
         // Regardless of the state of the wheel scroll latching
         // WebContentsEventForwarder doesn't inject any GSE events before GFS.
@@ -1510,6 +1558,11 @@ void RenderWidgetHostImpl::ForwardTouchEventWithLatencyInfo(
     const ui::LatencyInfo& latency) {
   TRACE_EVENT0("input", "RenderWidgetHostImpl::ForwardTouchEvent");
 
+  // This is used to auto-disable accessibility if we detect user input
+  // but no accessibility API usage.
+  if (touch_event.GetType() == blink::WebInputEvent::Type::kTouchStart)
+    BrowserAccessibilityStateImpl::GetInstance()->OnUserInputEvent();
+
   // Always forward TouchEvents for touch stream consistency. They will be
   // ignored if appropriate in FilterInputEvent().
 
@@ -1542,6 +1595,13 @@ void RenderWidgetHostImpl::ForwardKeyboardEventWithCommands(
     std::vector<blink::mojom::EditCommandPtr> commands,
     bool* update_event) {
   DCHECK(WebInputEvent::IsKeyboardEventType(key_event.GetType()));
+
+  // This is used to auto-disable accessibility if we detect user input
+  // but no accessibility API usage.
+  if (key_event.GetType() == blink::WebInputEvent::Type::kRawKeyDown ||
+      key_event.GetType() == blink::WebInputEvent::Type::kKeyDown) {
+    BrowserAccessibilityStateImpl::GetInstance()->OnUserInputEvent();
+  }
 
   TRACE_EVENT0("input", "RenderWidgetHostImpl::ForwardKeyboardEvent");
   if (owner_delegate_ &&
@@ -1736,12 +1796,10 @@ void RenderWidgetHostImpl::RemoveInputEventObserver(
 
 void RenderWidgetHostImpl::AddObserver(RenderWidgetHostObserver* observer) {
   observers_.AddObserver(observer);
-  observers_size_for_debug_++;
 }
 
 void RenderWidgetHostImpl::RemoveObserver(RenderWidgetHostObserver* observer) {
   observers_.RemoveObserver(observer);
-  observers_size_for_debug_--;
 }
 
 void RenderWidgetHostImpl::GetScreenInfo(blink::ScreenInfo* result) {
@@ -1766,8 +1824,13 @@ float RenderWidgetHostImpl::GetDeviceScaleFactor() {
   return GetScaleFactorForView(view_.get());
 }
 
-base::Optional<cc::TouchAction> RenderWidgetHostImpl::GetAllowedTouchAction() {
+absl::optional<cc::TouchAction> RenderWidgetHostImpl::GetAllowedTouchAction() {
   return input_router_->AllowedTouchAction();
+}
+
+void RenderWidgetHostImpl::WriteIntoTrace(perfetto::TracedValue context) {
+  auto dict = std::move(context).WriteDictionary();
+  dict.Add("routing_id", GetRoutingID());
 }
 
 void RenderWidgetHostImpl::DragTargetDragEnter(
@@ -1775,9 +1838,11 @@ void RenderWidgetHostImpl::DragTargetDragEnter(
     const gfx::PointF& client_pt,
     const gfx::PointF& screen_pt,
     DragOperationsMask operations_allowed,
-    int key_modifiers) {
+    int key_modifiers,
+    base::OnceCallback<void(::ui::mojom::DragOperation)> callback) {
   DragTargetDragEnterWithMetaData(DropDataToMetaData(drop_data), client_pt,
-                                  screen_pt, operations_allowed, key_modifiers);
+                                  screen_pt, operations_allowed, key_modifiers,
+                                  std::move(callback));
 }
 
 void RenderWidgetHostImpl::DragTargetDragEnterWithMetaData(
@@ -1785,14 +1850,16 @@ void RenderWidgetHostImpl::DragTargetDragEnterWithMetaData(
     const gfx::PointF& client_pt,
     const gfx::PointF& screen_pt,
     DragOperationsMask operations_allowed,
-    int key_modifiers) {
+    int key_modifiers,
+    base::OnceCallback<void(::ui::mojom::DragOperation)> callback) {
   // TODO(https://crbug.com/1102769): Replace with a for_frame() check.
   if (blink_frame_widget_) {
+    base::OnceCallback<void(::ui::mojom::DragOperation)> callback_wrapper =
+        base::BindOnce(&RenderWidgetHostImpl::OnUpdateDragCursor,
+                       base::Unretained(this), std::move(callback));
     blink_frame_widget_->DragTargetDragEnter(
         DropMetaDataToDragData(metadata), client_pt, screen_pt,
-        operations_allowed, key_modifiers,
-        base::BindOnce(&RenderWidgetHostImpl::OnUpdateDragCursor,
-                       base::Unretained(this)));
+        operations_allowed, key_modifiers, std::move(callback_wrapper));
   }
 }
 
@@ -1800,14 +1867,15 @@ void RenderWidgetHostImpl::DragTargetDragOver(
     const gfx::PointF& client_point,
     const gfx::PointF& screen_point,
     DragOperationsMask operations_allowed,
-    int key_modifiers) {
+    int key_modifiers,
+    base::OnceCallback<void(ui::mojom::DragOperation)> callback) {
   // TODO(https://crbug.com/1102769): Replace with a for_frame() check.
   if (blink_frame_widget_) {
     blink_frame_widget_->DragTargetDragOver(
         ConvertWindowPointToViewport(client_point), screen_point,
         operations_allowed, key_modifiers,
         base::BindOnce(&RenderWidgetHostImpl::OnUpdateDragCursor,
-                       base::Unretained(this)));
+                       base::Unretained(this), std::move(callback)));
   }
 }
 
@@ -1826,7 +1894,8 @@ void RenderWidgetHostImpl::DragTargetDragLeave(
 void RenderWidgetHostImpl::DragTargetDrop(const DropData& drop_data,
                                           const gfx::PointF& client_point,
                                           const gfx::PointF& screen_point,
-                                          int key_modifiers) {
+                                          int key_modifiers,
+                                          base::OnceClosure callback) {
   // TODO(https://crbug.com/1102769): Replace with a for_frame() check.
   if (blink_frame_widget_) {
     DropData drop_data_with_permissions(drop_data);
@@ -1835,20 +1904,22 @@ void RenderWidgetHostImpl::DragTargetDrop(const DropData& drop_data,
         static_cast<StoragePartitionImpl*>(GetProcess()->GetStoragePartition());
     blink_frame_widget_->DragTargetDrop(
         DropDataToDragData(drop_data_with_permissions,
-                           storage_partition->GetNativeFileSystemManager(),
+                           storage_partition->GetFileSystemAccessManager(),
                            GetProcess()->GetID()),
-        ConvertWindowPointToViewport(client_point), screen_point,
-        key_modifiers);
+        ConvertWindowPointToViewport(client_point), screen_point, key_modifiers,
+        std::move(callback));
   }
 }
 
 void RenderWidgetHostImpl::DragSourceEndedAt(const gfx::PointF& client_point,
                                              const gfx::PointF& screen_point,
-                                             blink::DragOperation operation) {
+                                             ui::mojom::DragOperation operation,
+                                             base::OnceClosure callback) {
   // TODO(https://crbug.com/1102769): Replace with a for_frame() check.
   if (blink_frame_widget_) {
     blink_frame_widget_->DragSourceEndedAt(
-        ConvertWindowPointToViewport(client_point), screen_point, operation);
+        ConvertWindowPointToViewport(client_point), screen_point, operation,
+        std::move(callback));
   }
 }
 
@@ -1953,6 +2024,95 @@ void RenderWidgetHostImpl::NotifyScreenInfoChanged() {
     touch_emulator->SetDeviceScaleFactor(GetScaleFactorForView(view_.get()));
 }
 
+blink::ScreenInfos RenderWidgetHostImpl::GetScreenInfos() {
+  TRACE_EVENT0("renderer_host", "RenderWidgetHostImpl::GetScreenInfos");
+
+  // Use GetScreenInfo here to retain legacy behavior for the current screen.
+  blink::ScreenInfo current_screen_info;
+  GetScreenInfo(&current_screen_info);
+
+  // If this widget has not been connected to a view yet (or has been
+  // disconnected), the display code may be using a fake primary display.
+  // In these cases, temporarily return the legacy screen info until
+  // it is connected and visual properties updates this correctly.
+  if (!view_) {
+    return blink::ScreenInfos(current_screen_info);
+  }
+
+  // TODO(enne): add ScreenInfos to FrameVisualProperties and store these
+  // on CrossProcessFrameConnector.  For now, only return the legacy
+  // screen info for any child widgets to avoid races between visual
+  // property propagation of legacy screen info vs GetAllDisplays.
+  // In the future, child frames should use screen_infos from the connector.
+  if (view_->IsRenderWidgetHostViewChildFrame()) {
+    return blink::ScreenInfos(current_screen_info);
+  }
+
+  // Get displays from RenderWidgetHostView, not directly from display::Screen.
+  // This helps maintain consistency with the legacy singular GetScreenInfo().
+  // For example, Mac may cache display info from a remote process NSWindow.
+  const std::vector<display::Display>& displays = view_->GetDisplays();
+
+  // Just return the legacy singular ScreenInfo, if its id is invalid or if the
+  // display::Screen is not initialized; each of which occurs in various tests.
+  // When there are no valid displays, some platforms can also create a
+  // fake default Display as well (e.g. Display::GetDefaultDisplay).
+  if (current_screen_info.display_id == display::kInvalidDisplayId ||
+      current_screen_info.display_id == display::kDefaultDisplayId ||
+      displays.empty()) {
+    return blink::ScreenInfos(current_screen_info);
+  }
+
+  // Build multi-screen info from the displays returned by RenderWidgetHostView,
+  // ensure its legacy singular screen info struct is included in this set.
+  blink::ScreenInfos result;
+  bool current_display_added = false;
+  for (const auto& display : displays) {
+    if (display.id() == current_screen_info.display_id) {
+      DCHECK(!current_display_added);
+      result.screen_infos.push_back(current_screen_info);
+      result.current_display_id = current_screen_info.display_id;
+      current_display_added = true;
+      continue;
+    }
+    blink::ScreenInfo screen_info;
+    DisplayUtil::DisplayToScreenInfo(&screen_info, display);
+    if (display::Display::HasForceRasterColorProfile()) {
+      screen_info.display_color_spaces = gfx::DisplayColorSpaces(
+          display::Display::GetForcedRasterColorProfile());
+    }
+    result.screen_infos.push_back(screen_info);
+  }
+
+  if (current_display_added)
+    return result;
+
+  // TODO(enne): temporary debugging logic.  GetScreens() is called during
+  // frequent visual property updates, and so will crash even when the
+  // multi-screen window placement api is not enabled.  Instead of CHECK, do a
+  // dump here so we can check if this is happening without having a full-on
+  // browser crash.
+  static bool have_crash_dumped = false;
+  if (!have_crash_dumped) {
+    have_crash_dumped = true;
+
+    SCOPED_CRASH_KEY_NUMBER("GetScreenInfos", "display_id",
+                            current_screen_info.display_id);
+    SCOPED_CRASH_KEY_NUMBER("GetScreenInfos", "num_displays", displays.size());
+
+    std::string display_ids;
+    for (const auto& display : displays) {
+      base::StringAppendF(&display_ids, "%" PRId64 ",", display.id());
+    }
+    SCOPED_CRASH_KEY_STRING256("GetScreenInfos", "displays", display_ids);
+
+    base::debug::DumpWithoutCrashing();
+  }
+
+  // Fall back to legacy screen info, if we are in a bad state.
+  return blink::ScreenInfos(current_screen_info);
+}
+
 void RenderWidgetHostImpl::GetSnapshotFromBrowser(
     GetSnapshotFromBrowserCallback callback,
     bool from_surface) {
@@ -1977,7 +2137,7 @@ void RenderWidgetHostImpl::GetSnapshotFromBrowser(
   RequestForceRedraw(snapshot_id);
 }
 
-void RenderWidgetHostImpl::SelectionChanged(const base::string16& text,
+void RenderWidgetHostImpl::SelectionChanged(const std::u16string& text,
                                             uint32_t offset,
                                             const gfx::Range& range) {
   if (view_)
@@ -1989,25 +2149,33 @@ void RenderWidgetHostImpl::SelectionBoundsChanged(
     base::i18n::TextDirection anchor_dir,
     const gfx::Rect& focus_rect,
     base::i18n::TextDirection focus_dir,
+    const gfx::Rect& bounding_box,
     bool is_anchor_first) {
   if (view_)
     view_->SelectionBoundsChanged(anchor_rect, anchor_dir, focus_rect,
-                                  focus_dir, is_anchor_first);
+                                  focus_dir, bounding_box, is_anchor_first);
 }
 
-void RenderWidgetHostImpl::OnUpdateDragCursor(DragOperation current_op) {
+void RenderWidgetHostImpl::OnUpdateDragCursor(
+    DragOperationCallback callback,
+    ui::mojom::DragOperation current_op) {
   RenderViewHostDelegateView* view = delegate_->GetDelegateView();
   if (view)
     view->UpdateDragCursor(current_op);
+  std::move(callback).Run(current_op);
 }
 
 void RenderWidgetHostImpl::RendererExited() {
-  if (!renderer_initialized_)
+  if (!renderer_widget_created_)
     return;
 
   // Clearing this flag causes us to re-create the renderer when recovering
   // from a crashed renderer.
-  set_renderer_initialized(false);
+  renderer_widget_created_ = false;
+  // This flag is set when creating the renderer widget.
+  waiting_for_init_ = false;
+
+  blink_widget_.reset();
 
   // After the renderer crashes, the view is destroyed and so the
   // RenderWidgetHost cannot track its visibility anymore. We assume such
@@ -2067,7 +2235,7 @@ void RenderWidgetHostImpl::NotifyTextDirection() {
 }
 
 void RenderWidgetHostImpl::ImeSetComposition(
-    const base::string16& text,
+    const std::u16string& text,
     const std::vector<ui::ImeTextSpan>& ime_text_spans,
     const gfx::Range& replacement_range,
     int selection_start,
@@ -2082,7 +2250,7 @@ void RenderWidgetHostImpl::ImeSetComposition(
 }
 
 void RenderWidgetHostImpl::ImeCommitText(
-    const base::string16& text,
+    const std::u16string& text,
     const std::vector<ui::ImeTextSpan>& ime_text_spans,
     const gfx::Range& replacement_range,
     int relative_cursor_pos) {
@@ -2106,7 +2274,7 @@ void RenderWidgetHostImpl::ImeFinishComposingText(bool keep_selection) {
 }
 
 void RenderWidgetHostImpl::ImeCancelComposition() {
-  GetWidgetInputHandler()->ImeSetComposition(base::string16(),
+  GetWidgetInputHandler()->ImeSetComposition(std::u16string(),
                                              std::vector<ui::ImeTextSpan>(),
                                              gfx::Range::InvalidRange(), 0, 0);
 }
@@ -2190,32 +2358,11 @@ void RenderWidgetHostImpl::SetAutoResize(bool enable,
 }
 
 void RenderWidgetHostImpl::Destroy(bool also_delete) {
-  // TODO(https://crbug.com/1153966): Turns this back into a DCHECK once the bug
-  // is fixed.
-  CHECK(!destroyed_);
+  DCHECK(!destroyed_);
   destroyed_ = true;
 
-  // TODO(https://crbug.com/1153966): This is instrumentation about a bug
-  // happening while iterating on the |observers_|. Remove this when the bug
-  // will be fixed.
-  base::WeakPtr<RenderWidgetHostImpl> weak_ptr = GetWeakPtr();
-  int observer_list_iteration_before_call = 0;
-  int observer_list_iteration_after_call = 0;
-  int observer_list_size = observers_size_for_debug_;
-  base::debug::Alias(&observer_list_iteration_before_call);
-  base::debug::Alias(&observer_list_iteration_after_call);
-  base::debug::Alias(&observer_list_size);
-
-  for (auto& observer : observers_) {
-    observer_list_iteration_before_call++;
+  for (auto& observer : observers_)
     observer.RenderWidgetHostDestroyed(this);
-    observer_list_iteration_after_call++;
-    CHECK(weak_ptr);
-  }
-
-  NotificationService::current()->Notify(
-      NOTIFICATION_RENDER_WIDGET_HOST_DESTROYED, Source<RenderWidgetHost>(this),
-      NotificationService::NoDetails());
 
   // Tell the view to die.
   // Note that in the process of the view shutting down, it can call a ton
@@ -2231,7 +2378,6 @@ void RenderWidgetHostImpl::Destroy(bool also_delete) {
   blink_popup_widget_host_receiver_.reset();
 
   render_process_blocked_state_changed_subscription_ = {};
-  pending_show_closure_.Reset();
   GetProcess()->RemovePriorityClient(this);
   GetProcess()->RemoveObserver(this);
   g_routing_id_widget_map.Get().erase(
@@ -2328,8 +2474,8 @@ void RenderWidgetHostImpl::ShowPopup(const gfx::Rect& initial_rect,
   std::move(callback).Run();
 }
 
-void RenderWidgetHostImpl::SetToolTipText(
-    const base::string16& tooltip_text,
+void RenderWidgetHostImpl::UpdateTooltipUnderCursor(
+    const std::u16string& tooltip_text,
     base::i18n::TextDirection text_direction_hint) {
   if (!GetView())
     return;
@@ -2347,7 +2493,7 @@ void RenderWidgetHostImpl::SetToolTipText(
   // trying to detect the directionality from the tooltip text rather than the
   // element direction.  One could argue that would be a preferable solution
   // but we use the current approach to match Fx & IE's behavior.
-  base::string16 wrapped_tooltip_text = tooltip_text;
+  std::u16string wrapped_tooltip_text = tooltip_text;
   if (!tooltip_text.empty()) {
     if (text_direction_hint == base::i18n::LEFT_TO_RIGHT) {
       // Force the tooltip to have LTR directionality.
@@ -2359,13 +2505,15 @@ void RenderWidgetHostImpl::SetToolTipText(
       base::i18n::WrapStringWithRTLFormatting(&wrapped_tooltip_text);
     }
   }
-  view_->SetTooltipText(wrapped_tooltip_text);
+  view_->UpdateTooltipUnderCursor(wrapped_tooltip_text);
 }
 
 void RenderWidgetHostImpl::OnUpdateScreenRectsAck() {
   waiting_for_screen_rects_ack_ = false;
   if (!view_)
     return;
+
+  view_->SendInitialPropertiesIfNeeded();
 
   if (view_->GetViewBounds() == last_view_screen_rect_ &&
       view_->GetBoundsInRootWindow() == last_window_screen_rect_) {
@@ -2378,7 +2526,7 @@ void RenderWidgetHostImpl::OnUpdateScreenRectsAck() {
 void RenderWidgetHostImpl::OnLocalSurfaceIdChanged(
     const cc::RenderFrameMetadata& metadata) {
   TRACE_EVENT_WITH_FLOW1(
-      "renderer_host,disabled-by-default-viz.surface_id_flow",
+      "renderer_host," TRACE_DISABLED_BY_DEFAULT("viz.surface_id_flow"),
       "RenderWidgetHostImpl::OnLocalSurfaceIdChanged",
       metadata.local_surface_id && metadata.local_surface_id->is_valid()
           ? metadata.local_surface_id->submission_trace_id() +
@@ -2393,9 +2541,8 @@ void RenderWidgetHostImpl::OnLocalSurfaceIdChanged(
 
   visual_properties_ack_pending_ = false;
 
-  NotificationService::current()->Notify(
-      NOTIFICATION_RENDER_WIDGET_HOST_DID_UPDATE_VISUAL_PROPERTIES,
-      Source<RenderWidgetHost>(this), NotificationService::NoDetails());
+  for (auto& observer : observers_)
+    observer.RenderWidgetHostDidUpdateVisualProperties(this);
 
   if (!view_)
     return;
@@ -2481,8 +2628,8 @@ bool RenderWidgetHostImpl::StoredVisualPropertiesNeedsUpdate(
       old_visual_properties->zoom_level != new_visual_properties.zoom_level;
 
   return zoom_changed || size_changed || parent_local_surface_id_changed ||
-         old_visual_properties->screen_info !=
-             new_visual_properties.screen_info ||
+         old_visual_properties->screen_infos !=
+             new_visual_properties.screen_infos ||
          old_visual_properties->compositor_viewport_pixel_rect !=
              new_visual_properties.compositor_viewport_pixel_rect ||
          old_visual_properties->is_fullscreen_granted !=
@@ -2581,6 +2728,16 @@ void RenderWidgetHostImpl::StartDragging(
   }
 
   DropData drop_data = DragDataToDropData(*drag_data);
+
+  if (frame_tree_) {
+    bool intercepted = false;
+    devtools_instrumentation::WillStartDragging(
+        frame_tree_->root(), std::move(drag_data), drag_operations_mask,
+        &intercepted);
+    if (intercepted)
+      return;
+  }
+
   DropData filtered_data(drop_data);
   RenderProcessHost* process = GetProcess();
   ChildProcessSecurityPolicyImpl* policy =
@@ -2736,7 +2893,7 @@ void RenderWidgetHostImpl::OnInvalidFrameToken(uint32_t frame_token) {
 }
 
 bool RenderWidgetHostImpl::RequestKeyboardLock(
-    base::Optional<base::flat_set<ui::DomCode>> codes) {
+    absl::optional<base::flat_set<ui::DomCode>> codes) {
   if (!delegate_) {
     CancelKeyboardLock();
     return false;
@@ -2836,6 +2993,8 @@ blink::mojom::InputEventResultState RenderWidgetHostImpl::FilterInputEvent(
 
 void RenderWidgetHostImpl::IncrementInFlightEventCount() {
   ++in_flight_event_count_;
+  if (in_flight_event_count_ == 1)
+    power_mode_input_voter_->VoteFor(power_scheduler::PowerMode::kResponse);
   if (!is_hidden_)
     StartInputEventAckTimeout();
 }
@@ -2846,6 +3005,8 @@ void RenderWidgetHostImpl::DecrementInFlightEventCount(
   if (in_flight_event_count_ <= 0) {
     // Cancel pending hung renderer checks since the renderer is responsive.
     StopInputEventAckTimeout();
+    power_mode_input_voter_->ResetVoteAfterTimeout(
+        power_scheduler::PowerModeVoter::kResponseTimeout);
   } else {
     // Only restart the hang monitor timer if we got a response from the
     // main thread.
@@ -2918,11 +3079,56 @@ RenderWidgetHostImpl::GetFrameWidgetInputHandler() {
   return frame_widget_input_handler_.get();
 }
 
-base::Optional<blink::VisualProperties>
-RenderWidgetHostImpl::GetLastVisualPropertiesSentToRendererForTesting() {
+absl::optional<blink::VisualProperties>
+RenderWidgetHostImpl::LastComputedVisualProperties() const {
   if (!old_visual_properties_)
-    return base::nullopt;
+    return absl::nullopt;
   return *old_visual_properties_;
+}
+
+mojom::CreateFrameWidgetParamsPtr
+RenderWidgetHostImpl::BindAndGenerateCreateFrameWidgetParams() {
+  auto params = mojom::CreateFrameWidgetParams::New();
+
+  params->routing_id = GetRoutingID();
+
+  mojo::PendingAssociatedRemote<blink::mojom::Widget> widget_remote;
+  params->widget = widget_remote.InitWithNewEndpointAndPassReceiver();
+  BindWidgetInterfaces(params->widget_host.InitWithNewEndpointAndPassReceiver(),
+                       std::move(widget_remote));
+  mojo::PendingAssociatedRemote<blink::mojom::FrameWidget> frame_widget_remote;
+  params->frame_widget =
+      frame_widget_remote.InitWithNewEndpointAndPassReceiver();
+  BindFrameWidgetInterfaces(
+      params->frame_widget_host.InitWithNewEndpointAndPassReceiver(),
+      std::move(frame_widget_remote));
+
+  params->visual_properties = GetInitialVisualProperties();
+
+  return params;
+}
+
+mojom::CreateFrameWidgetParamsPtr
+RenderWidgetHostImpl::BindAndGenerateCreateFrameWidgetParamsForNewWindow() {
+  auto params = mojom::CreateFrameWidgetParams::New();
+  params->routing_id = GetRoutingID();
+  mojo::PendingAssociatedRemote<blink::mojom::Widget> widget_remote;
+  params->widget = widget_remote.InitWithNewEndpointAndPassReceiver();
+  BindWidgetInterfaces(params->widget_host.InitWithNewEndpointAndPassReceiver(),
+                       std::move(widget_remote));
+  mojo::PendingAssociatedRemote<blink::mojom::FrameWidget> frame_widget_remote;
+  params->frame_widget =
+      frame_widget_remote.InitWithNewEndpointAndPassReceiver();
+  BindFrameWidgetInterfaces(
+      params->frame_widget_host.InitWithNewEndpointAndPassReceiver(),
+      std::move(frame_widget_remote));
+  // TODO(danakj): For some reason, there is no RenderWidgetHostView here, but
+  // it seems like there should be one? In the meantime we send some nonsense
+  // with semi-valid but incorrect screen info (it needs a RenderWidgetHostView
+  // to be correct). An updated VisualProperties will get to the RenderWidget
+  // eventually.
+  params->visual_properties.screen_infos = GetScreenInfos();
+  return params;
 }
 
 void RenderWidgetHostImpl::DispatchInputEventWithLatencyInfo(
@@ -3046,6 +3252,16 @@ void RenderWidgetHostImpl::GotResponseToKeyboardLockRequest(bool allowed) {
 }
 
 void RenderWidgetHostImpl::GotResponseToForceRedraw(int snapshot_id) {
+  // Snapshots from surface do not need to wait for the screen update.
+  if (!pending_surface_browser_snapshots_.empty()) {
+    GetView()->CopyFromSurface(
+        gfx::Rect(), gfx::Size(),
+        base::BindOnce(&RenderWidgetHostImpl::OnSnapshotFromSurfaceReceived,
+                       weak_factory_.GetWeakPtr(), snapshot_id, 0));
+  }
+
+  if (pending_browser_snapshots_.empty())
+    return;
 #if defined(OS_MAC) || defined(OS_WIN)
   // On Mac, when using CoreAnimation, or Win32 when using GDI, there is a
   // delay between when content is drawn to the screen, and when the
@@ -3056,7 +3272,7 @@ void RenderWidgetHostImpl::GotResponseToForceRedraw(int snapshot_id) {
       FROM_HERE,
       base::BindOnce(&RenderWidgetHostImpl::WindowSnapshotReachedScreen,
                      weak_factory_.GetWeakPtr(), snapshot_id),
-      TimeDelta::FromSecondsD(1. / 6));
+      base::TimeDelta::FromSecondsD(1. / 6));
 #else
   WindowSnapshotReachedScreen(snapshot_id);
 #endif
@@ -3069,13 +3285,6 @@ void RenderWidgetHostImpl::DetachDelegate() {
 
 void RenderWidgetHostImpl::WindowSnapshotReachedScreen(int snapshot_id) {
   DCHECK(base::CurrentUIThread::IsSet());
-
-  if (!pending_surface_browser_snapshots_.empty()) {
-    GetView()->CopyFromSurface(
-        gfx::Rect(), gfx::Size(),
-        base::BindOnce(&RenderWidgetHostImpl::OnSnapshotFromSurfaceReceived,
-                       weak_factory_.GetWeakPtr(), snapshot_id, 0));
-  }
 
   if (!pending_browser_snapshots_.empty()) {
 #if defined(OS_ANDROID)
@@ -3233,8 +3442,9 @@ bool RenderWidgetHostImpl::HasGestureStopped() {
   return true;
 }
 
-void RenderWidgetHostImpl::DidProcessFrame(uint32_t frame_token) {
-  frame_token_message_queue_->DidProcessFrame(frame_token);
+void RenderWidgetHostImpl::DidProcessFrame(uint32_t frame_token,
+                                           base::TimeTicks activation_time) {
+  frame_token_message_queue_->DidProcessFrame(frame_token, activation_time);
 }
 
 #if defined(OS_MAC)
@@ -3280,7 +3490,7 @@ void RenderWidgetHostImpl::SetInputTargetClientForTesting(
   input_target_client_ = std::move(input_target_client);
 }
 
-void RenderWidgetHostImpl::ProgressFlingIfNeeded(TimeTicks current_time) {
+void RenderWidgetHostImpl::ProgressFlingIfNeeded(base::TimeTicks current_time) {
   fling_scheduler_->ProgressFlingOnBeginFrameIfneeded(current_time);
 }
 
@@ -3312,7 +3522,7 @@ bool RenderWidgetHostImpl::LockKeyboard() {
   // KeyboardLock can be activated and deactivated several times per request,
   // for example when a fullscreen tab loses and gains focus multiple times,
   // so we need to retain a copy of the keys requested.
-  base::Optional<base::flat_set<ui::DomCode>> copy = keyboard_keys_to_lock_;
+  absl::optional<base::flat_set<ui::DomCode>> copy = keyboard_keys_to_lock_;
   return view_->LockKeyboard(std::move(copy));
 }
 
@@ -3324,7 +3534,8 @@ void RenderWidgetHostImpl::UnlockKeyboard() {
 void RenderWidgetHostImpl::OnRenderFrameMetadataChangedBeforeActivation(
     const cc::RenderFrameMetadata& metadata) {}
 
-void RenderWidgetHostImpl::OnRenderFrameMetadataChangedAfterActivation() {
+void RenderWidgetHostImpl::OnRenderFrameMetadataChangedAfterActivation(
+    base::TimeTicks activation_time) {
   const auto& metadata =
       render_frame_metadata_provider_.LastRenderFrameMetadata();
 

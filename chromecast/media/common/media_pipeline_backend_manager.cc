@@ -173,6 +173,10 @@ void MediaPipelineBackendManager::HandlePlayingAudioStreamsChange(
     power_save_timer_.Start(FROM_HERE, kPowerSaveWaitTime, this,
                             &MediaPipelineBackendManager::EnterPowerSaveMode);
   } else if (!had_playing_audio_streams && new_playing_audio_streams > 0) {
+    if (power_save_timer_.IsRunning()) {
+      metrics::CastMetricsHelper::GetInstance()->RecordSimpleAction(
+          "Cast.Platform.VolumeControl.PowerSaveTimerCancelled");
+    }
     power_save_timer_.Stop();
     if (VolumeControl::SetPowerSaveMode) {
       metrics::CastMetricsHelper::GetInstance()->RecordSimpleAction(
@@ -251,8 +255,27 @@ void MediaPipelineBackendManager::SetBufferDelegate(
 void MediaPipelineBackendManager::SetPowerSaveEnabled(bool power_save_enabled) {
   MAKE_SURE_MEDIA_THREAD(SetPowerSaveEnabled, power_save_enabled);
   power_save_enabled_ = power_save_enabled;
-  if (VolumeControl::SetPowerSaveMode && !power_save_enabled_) {
+  if (!VolumeControl::SetPowerSaveMode) {
+    return;
+  }
+  if (!power_save_enabled_) {
     VolumeControl::SetPowerSaveMode(false);
+  } else if (!power_save_timer_.IsRunning() &&
+             TotalPlayingAudioStreamsCount() == 0) {
+    EnterPowerSaveMode();
+  }
+}
+
+void MediaPipelineBackendManager::TemporaryDisablePowerSave() {
+  MAKE_SURE_MEDIA_THREAD(TemporaryDisablePowerSave);
+  int playing_audio_streams = TotalPlayingAudioStreamsCount();
+  if (playing_audio_streams == 0) {
+    if (VolumeControl::SetPowerSaveMode) {
+      LOG(INFO) << "Temporarily disable power save";
+      VolumeControl::SetPowerSaveMode(false);
+      power_save_timer_.Start(FROM_HERE, kPowerSaveWaitTime, this,
+                              &MediaPipelineBackendManager::EnterPowerSaveMode);
+    }
   }
 }
 

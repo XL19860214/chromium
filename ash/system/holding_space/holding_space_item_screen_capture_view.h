@@ -8,7 +8,11 @@
 #include "ash/ash_export.h"
 #include "ash/public/cpp/holding_space/holding_space_image.h"
 #include "ash/system/holding_space/holding_space_item_view.h"
-#include "ui/views/metadata/metadata_header_macros.h"
+#include "ui/base/metadata/metadata_header_macros.h"
+
+namespace views {
+class ImageView;
+}  // namespace views
 
 namespace ash {
 
@@ -30,12 +34,20 @@ class ASH_EXPORT HoldingSpaceItemScreenCaptureView
   ~HoldingSpaceItemScreenCaptureView() override;
 
  private:
+  // HoldingSpaceItemView:
+  views::View* GetTooltipHandlerForPoint(const gfx::Point& point) override;
+  std::u16string GetTooltipText(const gfx::Point& point) const override;
+  void OnHoldingSpaceItemUpdated(const HoldingSpaceItem* item) override;
+  void OnThemeChanged() override;
+
   void UpdateImage();
 
   // Overlays a play icon over `image_`.
   void AddPlayIcon();
 
+  // Owned by view hierarchy.
   RoundedImageView* image_ = nullptr;
+  views::ImageView* play_icon_ = nullptr;
 
   base::CallbackListSubscription image_subscription_;
 };

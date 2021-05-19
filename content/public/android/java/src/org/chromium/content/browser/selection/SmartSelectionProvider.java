@@ -6,7 +6,6 @@ package org.chromium.content.browser.selection;
 
 import android.annotation.SuppressLint;
 import android.annotation.TargetApi;
-import android.app.RemoteAction;
 import android.content.Context;
 import android.os.Build;
 import android.os.Handler;
@@ -17,8 +16,9 @@ import android.view.textclassifier.TextClassifier;
 import android.view.textclassifier.TextSelection;
 
 import androidx.annotation.IntDef;
+import androidx.annotation.Nullable;
 
-import org.chromium.base.compat.ApiHelperForP;
+import org.chromium.base.Log;
 import org.chromium.base.task.AsyncTask;
 import org.chromium.content.browser.WindowEventObserver;
 import org.chromium.content.browser.WindowEventObserverManager;
@@ -28,7 +28,6 @@ import org.chromium.ui.base.WindowAndroid;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
-import java.util.List;
 
 /**
  * Controls Smart Text selection. Talks to the Android TextClassificationManager API.
@@ -50,9 +49,11 @@ public class SmartSelectionProvider {
 
     private Handler mHandler;
     private Runnable mFailureResponseRunnable;
+    @Nullable
+    private final SmartSelectionEventProcessor mSelectionEventProcessor;
 
-    public SmartSelectionProvider(
-            SelectionClient.ResultCallback callback, WebContents webContents) {
+    public SmartSelectionProvider(SelectionClient.ResultCallback callback, WebContents webContents,
+            @Nullable SmartSelectionEventProcessor selectionEventProcessor) {
         mResultCallback = callback;
         mWindowAndroid = webContents.getTopLevelNativeWindow();
         WindowEventObserverManager manager = WindowEventObserverManager.from(webContents);
@@ -72,6 +73,7 @@ public class SmartSelectionProvider {
                 mResultCallback.onClassified(new SelectionClient.Result());
             }
         };
+        mSelectionEventProcessor = selectionEventProcessor;
     }
 
     public void sendSuggestAndClassifyRequest(CharSequence text, int start, int end) {
@@ -107,6 +109,9 @@ public class SmartSelectionProvider {
     public TextClassifier getTextClassifier() {
         if (mTextClassifier != null) return mTextClassifier;
 
+        if (mWindowAndroid == null) {
+            return null;
+        }
         Context context = mWindowAndroid.getContext().get();
         if (context == null) return null;
 
@@ -120,9 +125,28 @@ public class SmartSelectionProvider {
     }
 
     @TargetApi(Build.VERSION_CODES.O)
+    private TextClassifier getTextClassificationSession() {
+        if (mWindowAndroid == null) {
+            return null;
+        }
+        Context context = mWindowAndroid.getContext().get();
+        if (context == null) {
+            return null;
+        }
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P || mSelectionEventProcessor == null) {
+            return getTextClassifier();
+        }
+        TextClassifier textClassifierSession = mSelectionEventProcessor.getTextClassifierSession();
+        if (textClassifierSession == null || textClassifierSession.isDestroyed()) {
+            return getTextClassifier();
+        }
+        return textClassifierSession;
+    }
+
+    @TargetApi(Build.VERSION_CODES.O)
     private void sendSmartSelectionRequest(
             @RequestType int requestType, CharSequence text, int start, int end) {
-        TextClassifier classifier = getTextClassifier();
+        TextClassifier classifier = getTextClassificationSession();
         if (classifier == null || classifier == TextClassifier.NO_OP) {
             mHandler.post(mFailureResponseRunnable);
             return;
@@ -133,7 +157,10 @@ public class SmartSelectionProvider {
             mClassificationTask = null;
         }
 
-        mClassificationTask = new ClassificationTask(classifier, requestType, text, start, end);
+        // We checked mWindowAndroid.getContext().get() is not null in getTextClassifier(), so pass
+        // the value directly here.
+        mClassificationTask = new ClassificationTask(
+                classifier, requestType, text, start, end, mWindowAndroid.getContext().get());
         mClassificationTask.executeOnExecutor(AsyncTask.SERIAL_EXECUTOR);
     }
 
@@ -144,14 +171,16 @@ public class SmartSelectionProvider {
         private final CharSequence mText;
         private final int mOriginalStart;
         private final int mOriginalEnd;
+        private final Context mContext;
 
         ClassificationTask(TextClassifier classifier, @RequestType int requestType,
-                CharSequence text, int start, int end) {
+                CharSequence text, int start, int end, Context context) {
             mTextClassifier = classifier;
             mRequestType = requestType;
             mText = text;
             mOriginalStart = start;
             mOriginalEnd = end;
+            mContext = context;
         }
 
         @Override
@@ -161,17 +190,27 @@ public class SmartSelectionProvider {
 
             TextSelection textSelection = null;
 
-            if (mRequestType == RequestType.SUGGEST_AND_CLASSIFY) {
-                textSelection = mTextClassifier.suggestSelection(
-                        mText, start, end, LocaleList.getAdjustedDefault());
-                start = Math.max(0, textSelection.getSelectionStartIndex());
-                end = Math.min(mText.length(), textSelection.getSelectionEndIndex());
-                if (isCancelled()) return new SelectionClient.Result();
-            }
+            try {
+                if (mRequestType == RequestType.SUGGEST_AND_CLASSIFY) {
+                    textSelection = mTextClassifier.suggestSelection(
+                            mText, start, end, LocaleList.getAdjustedDefault());
+                    start = Math.max(0, textSelection.getSelectionStartIndex());
+                    end = Math.min(mText.length(), textSelection.getSelectionEndIndex());
+                    if (isCancelled()) {
+                        return new SelectionClient.Result();
+                    }
+                }
 
-            TextClassification tc = mTextClassifier.classifyText(
-                    mText, start, end, LocaleList.getAdjustedDefault());
-            return makeResult(start, end, tc, textSelection);
+                TextClassification tc = mTextClassifier.classifyText(
+                        mText, start, end, LocaleList.getAdjustedDefault());
+                return makeResult(start, end, tc, textSelection);
+            } catch (IllegalStateException ex) {
+                // An IllegalStateException will be thrown if the text classifier session is
+                // destroyed. This could happen if the selection is ended before text classifier
+                // finishes processing the text.
+                Log.e(TAG, "Failed to use text classifier for smart selection", ex);
+                return new SelectionClient.Result();
+            }
         }
 
         private SelectionClient.Result makeResult(
@@ -187,32 +226,17 @@ public class SmartSelectionProvider {
             result.textSelection = ts;
             result.textClassification = tc;
 
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                result.additionalIcons = AdditionalMenuItemProviderImpl.loadIconDrawables(
+                        mContext, result.textClassification);
+            }
+
             return result;
         }
 
         @Override
         protected void onPostExecute(SelectionClient.Result result) {
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
-                mResultCallback.onClassified(result);
-                return;
-            }
-
-            Context context = mWindowAndroid.getContext().get();
-            if (context == null || result.textClassification == null) {
-                mResultCallback.onClassified(result);
-                return;
-            }
-
-            List<RemoteAction> actions = ApiHelperForP.getActions(result.textClassification);
-            if (actions == null || actions.size() == 0) {
-                mResultCallback.onClassified(result);
-                return;
-            }
-
-            RemoteAction primaryAction = actions.get(0);
-            // Wait until the drawable for the primary action is loaded.
-            primaryAction.getIcon().loadDrawableAsync(
-                    context, (drawable) -> mResultCallback.onClassified(result), new Handler());
+            mResultCallback.onClassified(result);
         }
     }
 }

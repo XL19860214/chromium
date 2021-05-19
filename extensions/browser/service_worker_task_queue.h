@@ -117,9 +117,9 @@ class ServiceWorkerTaskQueue : public KeyedService,
                                    int thread_id);
 
   // Returns the current ActivationSequence for an extension, if the extension
-  // is currently activated. Returns base::nullopt if the extension isn't
+  // is currently activated. Returns absl::nullopt if the extension isn't
   // activated.
-  base::Optional<ActivationSequence> GetCurrentSequence(
+  absl::optional<ActivationSequence> GetCurrentSequence(
       const ExtensionId& extension_id) const;
 
   class TestObserver {
@@ -154,7 +154,7 @@ class ServiceWorkerTaskQueue : public KeyedService,
 
   void DidRegisterServiceWorker(const SequencedContextId& context_id,
                                 base::Time start_time,
-                                bool success);
+                                blink::ServiceWorkerStatusCode status);
   void DidUnregisterServiceWorker(const ExtensionId& extension_id,
                                   ActivationSequence sequence,
                                   bool success);

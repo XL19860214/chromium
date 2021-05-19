@@ -8,6 +8,7 @@ import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
 
 import org.chromium.base.Callback;
+import org.chromium.base.Log;
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.TraceEvent;
 import org.chromium.base.UserData;
@@ -46,18 +47,6 @@ public abstract class PersistedTabData implements UserData {
     public ObservableSupplierImpl<Boolean> mIsTabSaveEnabledSupplier;
     private Callback<Boolean> mTabSaveEnabledToggleCallback;
     private boolean mFirstSaveDone;
-
-    /**
-     * @param tab {@link Tab} {@link PersistedTabData} is being stored for
-     * @param data serialized {@link Tab} metadata
-     * @param persistedTabDataStorage storage for {@link PersistedTabData}
-     * @param persistedTabDataId identifier for {@link PersistedTabData} in storage
-     */
-    PersistedTabData(Tab tab, byte[] data, PersistedTabDataStorage persistedTabDataStorage,
-            String persistedTabDataId) {
-        this(tab, persistedTabDataStorage, persistedTabDataId);
-        deserializeAndLog(data);
-    }
 
     /**
      * @param tab {@link Tab} {@link PersistedTabData} is being stored for
@@ -246,23 +235,32 @@ public abstract class PersistedTabData implements UserData {
     @VisibleForTesting(otherwise = VisibleForTesting.PROTECTED)
     protected void save() {
         if (mIsTabSaveEnabledSupplier != null && mIsTabSaveEnabledSupplier.get()) {
-            mPersistedTabDataStorage.save(mTab.getId(), mPersistedTabDataId, serializeAndLog());
+            mPersistedTabDataStorage.save(mTab.getId(), mPersistedTabDataId,
+                    getOomAndMetricsWrapper(getSerializeSupplier()));
         }
     }
 
     /**
-     * @return {@link PersistedTabData} in serialized form.
+     * @return {@link Supplier} for {@link PersistedTabData} in serialized form.
      */
-    abstract byte[] serialize();
+    abstract Supplier<byte[]> getSerializeSupplier();
 
-    private byte[] serializeAndLog() {
-        byte[] res;
-        try (TraceEvent e = TraceEvent.scoped("PersistedTabData.Serialize")) {
-            res = serialize();
-        }
-        RecordHistogram.recordBooleanHistogram(
-                "Tabs.PersistedTabData.Serialize." + getUmaTag(), res != null);
-        return res;
+    @VisibleForTesting
+    protected Supplier<byte[]> getOomAndMetricsWrapper(Supplier<byte[]> serializeSupplier) {
+        return () -> {
+            byte[] res;
+            try (TraceEvent e = TraceEvent.scoped("PersistedTabData.Serialize")) {
+                res = serializeSupplier.get();
+            } catch (OutOfMemoryError oe) {
+                Log.e(TAG, "Out of memory error when attempting to save PersistedTabData");
+                res = null;
+            }
+            // TODO(crbug.com/1162293) convert to enum histogram and differentiate null/not null/out
+            // of memory
+            RecordHistogram.recordBooleanHistogram(
+                    "Tabs.PersistedTabData.Serialize." + getUmaTag(), res != null);
+            return res;
+        };
     }
 
     /**
@@ -272,7 +270,7 @@ public abstract class PersistedTabData implements UserData {
      */
     abstract boolean deserialize(@Nullable byte[] bytes);
 
-    private void deserializeAndLog(@Nullable byte[] bytes) {
+    protected void deserializeAndLog(@Nullable byte[] bytes) {
         boolean success;
         try (TraceEvent e = TraceEvent.scoped("PersistedTabData.Deserialize")) {
             success = deserialize(bytes);

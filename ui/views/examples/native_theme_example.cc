@@ -28,11 +28,10 @@ namespace examples {
 
 namespace {
 
-// Argument utility macro that expands |label| to both a string as the first
-// argument and the corresponding ui::NativeTheme::ColorId as the second
+// Argument utility macro that expands |label| to both a UTF16 string as the
+// first argument and the corresponding ui::NativeTheme::ColorId as the second
 // argument.
-#define COLOR_LABEL_ARGS(label) \
-  base::ASCIIToUTF16(#label), ui::NativeTheme::ColorId::label
+#define COLOR_LABEL_ARGS(label) u## #label, ui::NativeTheme::ColorId::label
 
 // Starts a new row and adds two columns to |layout|, the first displaying
 // |label_string| and the second displaying |color_id| with its color and
@@ -40,7 +39,7 @@ namespace {
 void InsertColorRow(GridLayout* layout,
                     base::StringPiece16 label_string,
                     ui::NativeTheme::ColorId color_id) {
-  auto label_view = std::make_unique<Label>(base::string16(label_string));
+  auto label_view = std::make_unique<Label>(std::u16string(label_string));
   label_view->SetHorizontalAlignment(gfx::HorizontalAlignment::ALIGN_LEFT);
   label_view->SetSelectable(true);
 
@@ -158,7 +157,6 @@ std::unique_ptr<View> CreateAllColorsView() {
   InsertColorRow(layout, COLOR_LABEL_ARGS(kColorId_TableHeaderSeparator));
   InsertColorRow(layout, COLOR_LABEL_ARGS(kColorId_ThrobberSpinningColor));
   InsertColorRow(layout, COLOR_LABEL_ARGS(kColorId_ThrobberWaitingColor));
-  InsertColorRow(layout, COLOR_LABEL_ARGS(kColorId_ThrobberLightColor));
   InsertColorRow(layout, COLOR_LABEL_ARGS(kColorId_AlertSeverityLow));
   InsertColorRow(layout, COLOR_LABEL_ARGS(kColorId_AlertSeverityMedium));
   InsertColorRow(layout, COLOR_LABEL_ARGS(kColorId_AlertSeverityHigh));

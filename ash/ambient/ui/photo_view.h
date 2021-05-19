@@ -32,13 +32,12 @@ class ASH_EXPORT PhotoView : public views::View,
                              public AmbientBackendModelObserver,
                              public ui::ImplicitAnimationObserver {
  public:
+  METADATA_HEADER(PhotoView);
+
   explicit PhotoView(AmbientViewDelegate* delegate);
   PhotoView(const PhotoView&) = delete;
   PhotoView& operator=(PhotoView&) = delete;
   ~PhotoView() override;
-
-  // views::View:
-  const char* GetClassName() const override;
 
   // AmbientBackendModelObserver:
   void OnImageAdded() override;
@@ -58,7 +57,7 @@ class ASH_EXPORT PhotoView : public views::View,
   // Return if can start transition animation.
   bool NeedToAnimateTransition() const;
 
-  const gfx::ImageSkia& GetVisibleImageForTesting();
+  gfx::ImageSkia GetVisibleImageForTesting();
 
   // Note that we should be careful when using |delegate_|, as there is no
   // strong guarantee on the life cycle.

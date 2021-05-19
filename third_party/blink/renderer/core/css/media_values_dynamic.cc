@@ -16,7 +16,7 @@
 namespace blink {
 
 MediaValues* MediaValuesDynamic::Create(Document& document) {
-  return MediaValuesDynamic::Create(document.GetFrameOfTreeRootDocument());
+  return MediaValuesDynamic::Create(document.GetFrame());
 }
 
 MediaValues* MediaValuesDynamic::Create(LocalFrame* frame) {
@@ -169,8 +169,8 @@ ScreenSpanning MediaValuesDynamic::GetScreenSpanning() const {
   return CalculateScreenSpanning(frame_);
 }
 
-ScreenFoldPosture MediaValuesDynamic::GetScreenFoldPosture() const {
-  return CalculateScreenFoldPosture(frame_);
+DevicePosture MediaValuesDynamic::GetDevicePosture() const {
+  return CalculateDevicePosture(frame_);
 }
 
 Document* MediaValuesDynamic::GetDocument() const {

@@ -90,14 +90,16 @@
 #include "third_party/blink/renderer/platform/loader/fetch/resource_fetcher.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_request.h"
 #include "third_party/blink/renderer/platform/weborigin/security_origin.h"
-#include "third_party/blink/renderer/platform/wtf/assertions.h"
 #include "third_party/blink/renderer/platform/wtf/shared_buffer.h"
+#include "ui/base/dragdrop/mojom/drag_drop_types.mojom-blink.h"
 
 #if defined(OS_WIN)
 #include <windows.h>
 #endif
 
 namespace blink {
+
+using ui::mojom::blink::DragOperation;
 
 static const int kMaxOriginalImageArea = 1500 * 1500;
 static const int kLinkDragBorderInset = 2;
@@ -284,7 +286,7 @@ void DragController::PerformDrag(DragData* drag_data, LocalFrame& local_root) {
     return;
   }
 
-  if (OperationForLoad(drag_data, local_root) != kDragOperationNone) {
+  if (OperationForLoad(drag_data, local_root) != DragOperation::kNone) {
     if (page_->GetSettings().GetNavigateOnDragDrop()) {
       ResourceRequest resource_request(drag_data->AsURL());
       resource_request.SetHasUserGesture(LocalFrame::HasTransientUserActivation(
@@ -346,7 +348,7 @@ DragOperation DragController::DragEnteredOrUpdated(DragData* drag_data,
           : static_cast<DragDestinationAction>(kDragDestinationActionDHTML |
                                                kDragDestinationActionEdit);
 
-  DragOperation drag_operation = kDragOperationNone;
+  DragOperation drag_operation = DragOperation::kNone;
   document_is_handling_drag_ = TryDocumentDrag(
       drag_data, drag_destination_action_, drag_operation, local_root);
   if (!document_is_handling_drag_ &&
@@ -445,8 +447,8 @@ bool DragController::TryDocumentDrag(DragData* drag_data,
 
     LocalFrame* inner_frame = element->GetDocument().GetFrame();
     drag_operation = DragIsMove(inner_frame->Selection(), drag_data)
-                         ? kDragOperationMove
-                         : kDragOperationCopy;
+                         ? DragOperation::kMove
+                         : DragOperation::kCopy;
     if (file_input_element_under_mouse_) {
       bool can_receive_dropped_files = false;
       if (!file_input_element_under_mouse_->IsDisabledFormControl()) {
@@ -455,7 +457,7 @@ bool DragController::TryDocumentDrag(DragData* drag_data,
                                         : drag_data->NumberOfFiles() == 1;
       }
       if (!can_receive_dropped_files)
-        drag_operation = kDragOperationNone;
+        drag_operation = DragOperation::kNone;
       file_input_element_under_mouse_->SetCanReceiveDroppedFiles(
           can_receive_dropped_files);
     }
@@ -480,7 +482,7 @@ DragOperation DragController::OperationForLoad(DragData* drag_data,
 
   if (doc && (did_initiate_drag_ || IsA<PluginDocument>(doc) ||
               HasEditableStyle(*doc)))
-    return kDragOperationNone;
+    return DragOperation::kNone;
   return GetDragOperation(drag_data);
 }
 
@@ -754,21 +756,21 @@ bool DragController::CanProcessDrag(DragData* drag_data,
   return true;
 }
 
-static DragOperation DefaultOperationForDrag(DragOperation src_op_mask) {
+static DragOperation DefaultOperationForDrag(DragOperationsMask src_op_mask) {
   // This is designed to match IE's operation fallback for the case where
   // the page calls preventDefault() in a drag event but doesn't set dropEffect.
   if (src_op_mask == kDragOperationEvery)
-    return kDragOperationCopy;
+    return DragOperation::kCopy;
   if (src_op_mask == kDragOperationNone)
-    return kDragOperationNone;
+    return DragOperation::kNone;
   if (src_op_mask & kDragOperationMove)
-    return kDragOperationMove;
+    return DragOperation::kMove;
   if (src_op_mask & kDragOperationCopy)
-    return kDragOperationCopy;
+    return DragOperation::kCopy;
   if (src_op_mask & kDragOperationLink)
-    return kDragOperationLink;
+    return DragOperation::kLink;
 
-  return kDragOperationNone;
+  return DragOperation::kNone;
 }
 
 bool DragController::TryDHTMLDrag(DragData* drag_data,
@@ -781,7 +783,7 @@ bool DragController::TryDHTMLDrag(DragData* drag_data,
 
   DataTransferAccessPolicy policy = DataTransferAccessPolicy::kTypesReadable;
   DataTransfer* data_transfer = CreateDraggingDataTransfer(policy, drag_data);
-  DragOperation src_op_mask = drag_data->DraggingSourceOperationMask();
+  DragOperationsMask src_op_mask = drag_data->DraggingSourceOperationMask();
   data_transfer->SetSourceOperation(src_op_mask);
 
   WebMouseEvent event = CreateMouseEvent(drag_data);
@@ -793,12 +795,14 @@ bool DragController::TryDHTMLDrag(DragData* drag_data,
     return false;
   }
 
-  operation = data_transfer->DestinationOperation();
-  if (data_transfer->DropEffectIsUninitialized()) {
+  if (!data_transfer->DropEffectIsInitialized()) {
     operation = DefaultOperationForDrag(src_op_mask);
-  } else if (!(src_op_mask & operation)) {
-    // The element picked an operation which is not supported by the source
-    operation = kDragOperationNone;
+  } else {
+    operation = data_transfer->DestinationOperation();
+    if (!(src_op_mask & static_cast<int>(operation))) {
+      // The element picked an operation which is not supported by the source.
+      operation = DragOperation::kNone;
+    }
   }
 
   data_transfer->SetAccessPolicy(
@@ -1338,13 +1342,13 @@ void DragController::DoSystemDrag(DragImage* image,
 }
 
 DragOperation DragController::GetDragOperation(DragData* drag_data) {
-  // FIXME: To match the MacOS behaviour we should return DragOperationNone
+  // FIXME: To match the MacOS behaviour we should return DragOperation::kNone
   // if we are a modal window, we are the drag source, or the window is an
   // attached sheet If this can be determined from within WebCore
   // operationForDrag can be pulled into WebCore itself
   DCHECK(drag_data);
-  return drag_data->ContainsURL() && !did_initiate_drag_ ? kDragOperationCopy
-                                                         : kDragOperationNone;
+  return drag_data->ContainsURL() && !did_initiate_drag_ ? DragOperation::kCopy
+                                                         : DragOperation::kNone;
 }
 
 bool DragController::IsCopyKeyDown(DragData* drag_data) {

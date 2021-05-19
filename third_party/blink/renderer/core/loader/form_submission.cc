@@ -30,6 +30,7 @@
 
 #include "third_party/blink/renderer/core/loader/form_submission.h"
 
+#include "services/network/public/cpp/is_potentially_trustworthy.h"
 #include "third_party/blink/public/common/security_context/insecure_request_policy.h"
 #include "third_party/blink/public/mojom/security_context/insecure_request_policy.mojom-blink.h"
 #include "third_party/blink/renderer/core/dom/document.h"
@@ -158,7 +159,10 @@ inline FormSubmission::FormSubmission(
     Frame* target_frame,
     WebFrameLoadType load_type,
     LocalDOMWindow* origin_window,
-    const base::UnguessableToken& initiator_frame_token)
+    const LocalFrameToken& initiator_frame_token,
+    std::unique_ptr<SourceLocation> source_location,
+    mojo::PendingRemote<mojom::blink::PolicyContainerHostKeepAliveHandle>
+        initiator_policy_container_keep_alive_handle)
     : method_(method),
       action_(action),
       target_(target),
@@ -172,7 +176,10 @@ inline FormSubmission::FormSubmission(
       target_frame_(target_frame),
       load_type_(load_type),
       origin_window_(origin_window),
-      initiator_frame_token_(initiator_frame_token) {}
+      initiator_frame_token_(initiator_frame_token),
+      source_location_(std::move(source_location)),
+      initiator_policy_container_keep_alive_handle_(
+          std::move(initiator_policy_container_keep_alive_handle)) {}
 
 inline FormSubmission::FormSubmission(const String& result)
     : method_(kDialogMethod), result_(result) {}
@@ -222,7 +229,7 @@ FormSubmission* FormSubmission::Create(HTMLFormElement* form,
        mojom::blink::InsecureRequestPolicy::kUpgradeInsecureRequests) !=
           mojom::blink::InsecureRequestPolicy::kLeaveInsecureRequestsAlone &&
       action_url.ProtocolIs("http") &&
-      !SecurityOrigin::Create(action_url)->IsPotentiallyTrustworthy()) {
+      !network::IsUrlPotentiallyTrustworthy(action_url)) {
     UseCounter::Count(document,
                       WebFeature::kUpgradeInsecureRequestsUpgradedRequestForm);
     action_url.SetProtocol("https");
@@ -331,7 +338,12 @@ FormSubmission* FormSubmission::Create(HTMLFormElement* form,
       frame_request.GetNavigationPolicy(), triggering_event_info, reason,
       std::move(resource_request), target_frame, load_type,
       form->GetDocument().domWindow(),
-      form->GetDocument().GetFrame()->GetFrameToken());
+      form->GetDocument().GetFrame()->GetLocalFrameToken(),
+      SourceLocation::Capture(form->GetDocument().domWindow()),
+      form->GetDocument()
+          .domWindow()
+          ->GetPolicyContainer()
+          ->IssueKeepAliveHandle());
 }
 
 void FormSubmission::Trace(Visitor* visitor) const {
@@ -354,6 +366,9 @@ void FormSubmission::Navigate() {
   frame_request.SetForm(form_);
   frame_request.SetTriggeringEventInfo(triggering_event_info_);
   frame_request.SetInitiatorFrameToken(initiator_frame_token_);
+  frame_request.SetInitiatorPolicyContainerKeepAliveHandle(
+      std::move(initiator_policy_container_keep_alive_handle_));
+  frame_request.SetSourceLocation(std::move(source_location_));
 
   if (target_frame_ && !target_frame_->GetPage())
     return;

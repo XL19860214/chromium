@@ -36,33 +36,38 @@
 #include "base/feature_list.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/optional.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "services/metrics/public/cpp/mojo_ukm_recorder.h"
 #include "services/metrics/public/cpp/ukm_builders.h"
+#include "services/network/public/cpp/cross_origin_embedder_policy.h"
 #include "services/network/public/cpp/features.h"
 #include "services/network/public/mojom/blocked_by_response_reason.mojom-shared.h"
 #include "services/network/public/mojom/fetch_api.mojom-blink.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/common/client_hints/client_hints.h"
 #include "third_party/blink/public/common/features.h"
 #include "third_party/blink/public/common/thread_safe_browser_interface_broker_proxy.h"
 #include "third_party/blink/public/mojom/blob/blob_registry.mojom-blink.h"
 #include "third_party/blink/public/mojom/devtools/console_message.mojom-blink.h"
 #include "third_party/blink/public/platform/platform.h"
+#include "third_party/blink/public/platform/web_blob_info.h"
 #include "third_party/blink/public/platform/web_code_cache_loader.h"
 #include "third_party/blink/public/platform/web_data.h"
 #include "third_party/blink/public/platform/web_security_origin.h"
 #include "third_party/blink/public/platform/web_url_error.h"
 #include "third_party/blink/public/platform/web_url_request.h"
 #include "third_party/blink/public/platform/web_url_response.h"
+#include "third_party/blink/renderer/platform/back_forward_cache_utils.h"
 #include "third_party/blink/renderer/platform/exported/wrapped_resource_request.h"
 #include "third_party/blink/renderer/platform/exported/wrapped_resource_response.h"
 #include "third_party/blink/renderer/platform/instrumentation/tracing/trace_event.h"
 #include "third_party/blink/renderer/platform/instrumentation/tracing/traced_value.h"
 #include "third_party/blink/renderer/platform/loader/cors/cors.h"
 #include "third_party/blink/renderer/platform/loader/cors/cors_error_string.h"
+#include "third_party/blink/renderer/platform/loader/fetch/back_forward_cache_loader_helper.h"
 #include "third_party/blink/renderer/platform/loader/fetch/cached_metadata_handler.h"
 #include "third_party/blink/renderer/platform/loader/fetch/console_logger.h"
+#include "third_party/blink/renderer/platform/loader/fetch/detachable_use_counter.h"
 #include "third_party/blink/renderer/platform/loader/fetch/fetch_context.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_error.h"
@@ -82,7 +87,6 @@
 #include "third_party/blink/renderer/platform/weborigin/reporting_disposition.h"
 #include "third_party/blink/renderer/platform/weborigin/scheme_registry.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
-#include "third_party/blink/renderer/platform/wtf/assertions.h"
 #include "third_party/blink/renderer/platform/wtf/shared_buffer.h"
 #include "third_party/blink/renderer/platform/wtf/std_lib_extras.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
@@ -91,20 +95,15 @@ namespace blink {
 
 namespace {
 
-enum RequestOutcome { kSuccess, kFail };
+enum class RequestOutcome { kSuccess, kFail };
 
-std::unique_ptr<TracedValue> EndResourceLoadData(RequestOutcome outcome) {
-  auto value = std::make_unique<TracedValue>();
+const char* RequestOutcomeToString(RequestOutcome outcome) {
   switch (outcome) {
     case RequestOutcome::kSuccess:
-      value->SetString("outcome", "Success");
-      break;
+      return "Success";
     case RequestOutcome::kFail:
-      value->SetString("outcome", "Fail");
-      break;
+      return "Fail";
   }
-
-  return value;
 }
 
 bool IsThrottlableRequestContext(mojom::blink::RequestContextType context) {
@@ -120,7 +119,7 @@ bool IsThrottlableRequestContext(mojom::blink::RequestContextType context) {
 }
 
 void LogMixedAutoupgradeMetrics(blink::MixedContentAutoupgradeStatus status,
-                                base::Optional<int> response_or_error_code,
+                                absl::optional<int> response_or_error_code,
                                 ukm::SourceId source_id,
                                 ukm::UkmRecorder* recorder,
                                 Resource* resource) {
@@ -441,7 +440,7 @@ ResourceLoader::ResourceLoader(ResourceFetcher* fetcher,
       // Only when this feature is turned on and the loading tasks keep being
       // processed and the data is queued up on the renderer, a page can stay in
       // BackForwardCache with network requests.
-      if (!base::FeatureList::IsEnabled(features::kLoadingTasksUnfreezable)) {
+      if (!IsInflightNetworkRequestBackForwardCacheSupportEnabled()) {
         feature_handle_for_scheduler_ =
             frame_or_worker_scheduler->RegisterFeature(
                 GetFeatureFromRequestContextType(request_context),
@@ -461,6 +460,7 @@ void ResourceLoader::Trace(Visitor* visitor) const {
   visitor->Trace(resource_);
   visitor->Trace(response_body_loader_);
   visitor->Trace(data_pipe_completion_notifier_);
+  visitor->Trace(cancel_timer_);
   ResourceLoadSchedulerClient::Trace(visitor);
 }
 
@@ -528,7 +528,7 @@ void ResourceLoader::Start() {
     auto recorder =
         std::make_unique<ukm::MojoUkmRecorder>(std::move(pending_recorder));
     LogMixedAutoupgradeMetrics(MixedContentAutoupgradeStatus::kStarted,
-                               base::nullopt, request.GetUkmSourceId(),
+                               absl::nullopt, request.GetUkmSourceId(),
                                recorder.get(), resource_);
   }
   if (resource_->GetResourceRequest().IsDownloadToNetworkCacheOnly()) {
@@ -547,8 +547,8 @@ void ResourceLoader::DidStartLoadingResponseBodyInternal(
   DCHECK(!response_body_loader_);
   ResponseBodyLoaderClient& response_body_loader_client = *this;
   response_body_loader_ = MakeGarbageCollected<ResponseBodyLoader>(
-      bytes_consumer, response_body_loader_client,
-      task_runner_for_body_loader_);
+      bytes_consumer, response_body_loader_client, task_runner_for_body_loader_,
+      fetcher_->GetBackForwardCacheLoaderHelper());
   resource_->ResponseBodyReceived(*response_body_loader_,
                                   task_runner_for_body_loader_);
   if (response_body_loader_->IsDrained()) {
@@ -561,6 +561,8 @@ void ResourceLoader::DidStartLoadingResponseBodyInternal(
 }
 
 void ResourceLoader::Run() {
+  // TODO(crbug.com/1169032): Manage cookies' capability control here for the
+  // Prerender2.
   StartWith(resource_->GetResourceRequest());
 }
 
@@ -574,7 +576,7 @@ void ResourceLoader::DidFinishLoadingBody() {
   const ResourceResponse& response = resource_->GetResponse();
   if (deferred_finish_loading_info_) {
     DidFinishLoading(
-        deferred_finish_loading_info_->response_end,
+        deferred_finish_loading_info_->response_end_time,
         response.EncodedDataLength(), response.EncodedBodyLength(),
         response.DecodedBodyLength(),
         deferred_finish_loading_info_->should_report_corb_blocking);
@@ -582,7 +584,8 @@ void ResourceLoader::DidFinishLoadingBody() {
 }
 
 void ResourceLoader::DidFailLoadingBody() {
-  DidFail(WebURLError(ResourceError::Failure(resource_->Url())), 0, 0, 0);
+  DidFail(WebURLError(ResourceError::Failure(resource_->Url())),
+          base::TimeTicks::Now(), 0, 0, 0);
 }
 
 void ResourceLoader::DidCancelLoadingBody() {
@@ -656,7 +659,8 @@ void ResourceLoader::SetDefersLoading(WebURLLoader::DeferType defers) {
         !response_body_loader_->IsSuspended()) {
       response_body_loader_->Suspend(defers);
       if (defers == WebURLLoader::DeferType::kDeferredWithBackForwardCache) {
-        response_body_loader_->EvictFromBackForwardCacheIfDrained();
+        response_body_loader_
+            ->EvictFromBackForwardCacheIfDrainedAsBytesConsumer();
       }
     }
     if (defers == WebURLLoader::DeferType::kNotDeferred &&
@@ -741,8 +745,14 @@ bool ResourceLoader::WillFollowRedirect(
     bool& report_raw_headers,
     std::vector<std::string>* removed_headers) {
   DCHECK(!passed_redirect_response.IsNull());
+
+  if (passed_redirect_response.HasAuthorizationCoveredByWildcardOnPreflight()) {
+    fetcher_->GetUseCounter().CountUse(
+        mojom::WebFeature::kAuthorizationCoveredByWildcard);
+  }
+
   if (removed_headers) {
-    FindClientHintsToRemove(Context().GetFeaturePolicy(),
+    FindClientHintsToRemove(Context().GetPermissionsPolicy(),
                             GURL(new_url.GetString().Utf8()), removed_headers);
   }
 
@@ -803,13 +813,13 @@ bool ResourceLoader::WillFollowRedirect(
         reporting_disposition, url_before_redirects,
         ResourceRequest::RedirectStatus::kFollowedRedirect);
 
-    base::Optional<ResourceRequestBlockedReason> blocked_reason =
+    absl::optional<ResourceRequestBlockedReason> blocked_reason =
         Context().CanRequest(resource_type, *new_request, new_url, options,
                              reporting_disposition,
                              new_request->GetRedirectInfo());
 
     if (Context().CalculateIfAdSubresource(
-            *new_request, base::nullopt /* alias_url */, resource_type,
+            *new_request, absl::nullopt /* alias_url */, resource_type,
             options.initiator_info))
       new_request->SetIsAdResource();
 
@@ -843,9 +853,9 @@ bool ResourceLoader::WillFollowRedirect(
                            unused_virtual_time_pauser, resource_->GetType());
   DCHECK(!new_request->HttpBody());
   if (auto* observer = fetcher_->GetResourceLoadObserver()) {
-    observer->WillSendRequest(resource_->InspectorId(), *new_request,
-                              redirect_response, resource_->GetType(),
-                              options.initiator_info);
+    observer->WillSendRequest(*new_request, redirect_response,
+                              resource_->GetType(), options,
+                              initial_request.GetRenderBlockingBehavior());
   }
 
   // First-party cookie logic moved from DocumentLoader in Blink to
@@ -919,6 +929,11 @@ void ResourceLoader::DidReceiveResponseInternal(
     const ResourceResponse& response) {
   const ResourceRequestHead& request = resource_->GetResourceRequest();
 
+  if (response.HasAuthorizationCoveredByWildcardOnPreflight()) {
+    fetcher_->GetUseCounter().CountUse(
+        mojom::WebFeature::kAuthorizationCoveredByWildcard);
+  }
+
   if (request.IsAutomaticUpgrade()) {
     mojo::PendingRemote<ukm::mojom::UkmRecorderInterface> pending_recorder;
     Platform::Current()->GetBrowserInterfaceBroker()->GetInterface(
@@ -959,7 +974,7 @@ void ResourceLoader::DidReceiveResponseInternal(
           ? resource_->GetResponse()
           : response;
 
-  if (base::Optional<ResourceRequestBlockedReason> blocked_reason =
+  if (absl::optional<ResourceRequestBlockedReason> blocked_reason =
           CheckResponseNosniff(request_context, nosniffed_response)) {
     HandleError(ResourceError::CancelledDueToAccessCheckError(
         response.CurrentRequestUrl(), blocked_reason.value()));
@@ -969,8 +984,8 @@ void ResourceLoader::DidReceiveResponseInternal(
   // https://wicg.github.io/cross-origin-embedder-policy/#integration-html
   // TODO(crbug.com/1064920): Remove this once PlzDedicatedWorker ships.
   if (options.reject_coep_unsafe_none &&
-      response.GetCrossOriginEmbedderPolicy() !=
-          network::mojom::CrossOriginEmbedderPolicyValue::kRequireCorp &&
+      !network::CompatibleWithCrossOriginIsolated(
+          response.GetCrossOriginEmbedderPolicy()) &&
       !response.CurrentRequestUrl().ProtocolIsData() &&
       !response.CurrentRequestUrl().ProtocolIs("blob")) {
     DCHECK(!base::FeatureList::IsEnabled(features::kPlzDedicatedWorker));
@@ -981,7 +996,7 @@ void ResourceLoader::DidReceiveResponseInternal(
   }
 
   // Redirect information for possible post-request checks below.
-  const base::Optional<ResourceRequest::RedirectInfo>& previous_redirect_info =
+  const absl::optional<ResourceRequest::RedirectInfo>& previous_redirect_info =
       request.GetRedirectInfo();
   const KURL& original_url = previous_redirect_info
                                  ? previous_redirect_info->original_url
@@ -1017,7 +1032,7 @@ void ResourceLoader::DidReceiveResponseInternal(
         ReportingDisposition::kReport, original_url,
         ResourceRequest::RedirectStatus::kFollowedRedirect);
 
-    base::Optional<ResourceRequestBlockedReason> blocked_reason =
+    absl::optional<ResourceRequestBlockedReason> blocked_reason =
         Context().CanRequest(resource_type, ResourceRequest(initial_request),
                              response_url, options,
                              ReportingDisposition::kReport, redirect_info);
@@ -1144,14 +1159,14 @@ void ResourceLoader::DidFinishLoadingFirstPartInMultipart() {
       TRACE_DISABLED_BY_DEFAULT("network"), "ResourceLoad",
       TRACE_ID_WITH_SCOPE("BlinkResourceID",
                           TRACE_ID_LOCAL(resource_->InspectorId())),
-      "endData", EndResourceLoadData(RequestOutcome::kSuccess));
+      "outcome", RequestOutcomeToString(RequestOutcome::kSuccess));
 
   fetcher_->HandleLoaderFinish(resource_.Get(), base::TimeTicks(),
                                ResourceFetcher::kDidFinishFirstPartInMultipart,
                                0, false);
 }
 
-void ResourceLoader::DidFinishLoading(base::TimeTicks response_end,
+void ResourceLoader::DidFinishLoading(base::TimeTicks response_end_time,
                                       int64_t encoded_data_length,
                                       int64_t encoded_body_length,
                                       int64_t decoded_body_length,
@@ -1160,13 +1175,15 @@ void ResourceLoader::DidFinishLoading(base::TimeTicks response_end,
   resource_->SetEncodedBodyLength(encoded_body_length);
   resource_->SetDecodedBodyLength(decoded_body_length);
 
+  response_end_time_for_error_cases_ = response_end_time;
+
   if ((response_body_loader_ && !has_seen_end_of_body_ &&
        !response_body_loader_->IsAborted()) ||
       (is_downloading_to_blob_ && !blob_finished_ && blob_response_started_)) {
     // If the body is still being loaded, we defer the completion until all the
     // body is received.
-    deferred_finish_loading_info_ =
-        DeferredFinishLoadingInfo{response_end, should_report_corb_blocking};
+    deferred_finish_loading_info_ = DeferredFinishLoadingInfo{
+        response_end_time, should_report_corb_blocking};
 
     if (data_pipe_completion_notifier_)
       data_pipe_completion_notifier_->SignalComplete();
@@ -1180,24 +1197,26 @@ void ResourceLoader::DidFinishLoading(base::TimeTicks response_end,
   code_cache_request_.reset();
   response_body_loader_ = nullptr;
   has_seen_end_of_body_ = false;
-  deferred_finish_loading_info_ = base::nullopt;
+  deferred_finish_loading_info_ = absl::nullopt;
 
   TRACE_EVENT_NESTABLE_ASYNC_END1(
       TRACE_DISABLED_BY_DEFAULT("network"), "ResourceLoad",
       TRACE_ID_WITH_SCOPE("BlinkResourceID",
                           TRACE_ID_LOCAL(resource_->InspectorId())),
-      "endData", EndResourceLoadData(RequestOutcome::kSuccess));
+      "outcome", RequestOutcomeToString(RequestOutcome::kSuccess));
 
   fetcher_->HandleLoaderFinish(
-      resource_.Get(), response_end, ResourceFetcher::kDidFinishLoading,
+      resource_.Get(), response_end_time, ResourceFetcher::kDidFinishLoading,
       inflight_keepalive_bytes_, should_report_corb_blocking);
 }
 
 void ResourceLoader::DidFail(const WebURLError& error,
+                             base::TimeTicks response_end_time,
                              int64_t encoded_data_length,
                              int64_t encoded_body_length,
                              int64_t decoded_body_length) {
   const ResourceRequestHead& request = resource_->GetResourceRequest();
+  response_end_time_for_error_cases_ = response_end_time;
 
   if (request.IsAutomaticUpgrade()) {
     mojo::PendingRemote<ukm::mojom::UkmRecorderInterface> pending_recorder;
@@ -1216,6 +1235,13 @@ void ResourceLoader::DidFail(const WebURLError& error,
 }
 
 void ResourceLoader::HandleError(const ResourceError& error) {
+  if (error.CorsErrorStatus() &&
+      error.CorsErrorStatus()
+          ->has_authorization_covered_by_wildcard_on_preflight) {
+    fetcher_->GetUseCounter().CountUse(
+        mojom::WebFeature::kAuthorizationCoveredByWildcard);
+  }
+
   if (response_body_loader_)
     response_body_loader_->Abort();
 
@@ -1245,21 +1271,23 @@ void ResourceLoader::HandleError(const ResourceError& error) {
   code_cache_request_.reset();
   response_body_loader_ = nullptr;
   has_seen_end_of_body_ = false;
-  deferred_finish_loading_info_ = base::nullopt;
+  deferred_finish_loading_info_ = absl::nullopt;
 
   TRACE_EVENT_NESTABLE_ASYNC_END1(
       TRACE_DISABLED_BY_DEFAULT("network"), "ResourceLoad",
       TRACE_ID_WITH_SCOPE("BlinkResourceID",
                           TRACE_ID_LOCAL(resource_->InspectorId())),
-      "endData", EndResourceLoadData(RequestOutcome::kFail));
+      "outcome", RequestOutcomeToString(RequestOutcome::kFail));
 
-  fetcher_->HandleLoaderError(resource_.Get(), error,
+  // Set Now() as the response time, in case a more accurate one wasn't set in
+  // DidFinishLoading or DidFail. This is important for error cases that don't
+  // go through those methods.
+  if (response_end_time_for_error_cases_.is_null()) {
+    response_end_time_for_error_cases_ = base::TimeTicks::Now();
+  }
+  fetcher_->HandleLoaderError(resource_.Get(),
+                              response_end_time_for_error_cases_, error,
                               inflight_keepalive_bytes_);
-}
-
-void ResourceLoader::EvictFromBackForwardCache(
-    mojom::RendererEvictionReason reason) {
-  fetcher_->EvictFromBackForwardCache(reason);
 }
 
 void ResourceLoader::RequestSynchronously(const ResourceRequestHead& request) {
@@ -1273,7 +1301,7 @@ void ResourceLoader::RequestSynchronously(const ResourceRequestHead& request) {
   if (form_body)
     request_body_ = ResourceRequestBody(std::move(form_body));
   WebURLResponse response_out;
-  base::Optional<WebURLError> error_out;
+  absl::optional<WebURLError> error_out;
   WebData data_out;
   int64_t encoded_data_length = WebURLLoaderClient::kUnknownEncodedDataLength;
   int64_t encoded_body_length = 0;
@@ -1312,8 +1340,8 @@ void ResourceLoader::RequestSynchronously(const ResourceRequestHead& request) {
     return;
   int64_t decoded_body_length = data_out.size();
   if (error_out) {
-    DidFail(*error_out, encoded_data_length, encoded_body_length,
-            decoded_body_length);
+    DidFail(*error_out, base::TimeTicks::Now(), encoded_data_length,
+            encoded_body_length, decoded_body_length);
     return;
   }
   DidReceiveResponse(response_out);
@@ -1465,14 +1493,14 @@ void ResourceLoader::FinishedCreatingBlob(
   if (deferred_finish_loading_info_) {
     const ResourceResponse& response = resource_->GetResponse();
     DidFinishLoading(
-        deferred_finish_loading_info_->response_end,
+        deferred_finish_loading_info_->response_end_time,
         response.EncodedDataLength(), response.EncodedBodyLength(),
         response.DecodedBodyLength(),
         deferred_finish_loading_info_->should_report_corb_blocking);
   }
 }
 
-base::Optional<ResourceRequestBlockedReason>
+absl::optional<ResourceRequestBlockedReason>
 ResourceLoader::CheckResponseNosniff(
     mojom::blink::RequestContextType request_context,
     const ResourceResponse& response) {
@@ -1480,7 +1508,7 @@ ResourceLoader::CheckResponseNosniff(
       ParseContentTypeOptionsHeader(response.HttpHeaderField(
           http_names::kXContentTypeOptions)) != kContentTypeOptionsNosniff;
   if (sniffing_allowed)
-    return base::nullopt;
+    return absl::nullopt;
 
   String mime_type = response.HttpContentType();
   if (request_context == mojom::blink::RequestContextType::STYLE &&
@@ -1498,7 +1526,7 @@ ResourceLoader::CheckResponseNosniff(
   // TODO(mkwst): Move the 'nosniff' bit of 'AllowedByNosniff::MimeTypeAsScript'
   // here alongside the style checks, and put its use counters somewhere else.
 
-  return base::nullopt;
+  return absl::nullopt;
 }
 
 void ResourceLoader::HandleDataUrl() {
@@ -1520,7 +1548,7 @@ void ResourceLoader::HandleDataUrl() {
   std::tie(result, response, data) = network_utils::ParseDataURL(
       resource_->Url(), resource_->GetResourceRequest().HttpMethod());
   if (result != net::OK) {
-    HandleError(ResourceError(result, resource_->Url(), base::nullopt));
+    HandleError(ResourceError(result, resource_->Url(), absl::nullopt));
     return;
   }
   DCHECK(data);
@@ -1588,7 +1616,7 @@ bool ResourceLoader::ShouldBlockRequestBasedOnSubresourceFilterDnsAliasCheck(
       continue;
     }
 
-    base::Optional<ResourceRequestBlockedReason> blocked_reason =
+    absl::optional<ResourceRequestBlockedReason> blocked_reason =
         Context().CanRequestBasedOnSubresourceFilterOnly(
             resource_type, ResourceRequest(initial_request), alias_url, options,
             ReportingDisposition::kReport, redirect_info);

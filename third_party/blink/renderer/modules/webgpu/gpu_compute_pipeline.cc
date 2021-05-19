@@ -5,7 +5,7 @@
 #include "third_party/blink/renderer/modules/webgpu/gpu_compute_pipeline.h"
 
 #include "third_party/blink/renderer/bindings/modules/v8/v8_gpu_compute_pipeline_descriptor.h"
-#include "third_party/blink/renderer/bindings/modules/v8/v8_gpu_programmable_stage_descriptor.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_gpu_programmable_stage.h"
 #include "third_party/blink/renderer/modules/webgpu/gpu_bind_group_layout.h"
 #include "third_party/blink/renderer/modules/webgpu/gpu_device.h"
 #include "third_party/blink/renderer/modules/webgpu/gpu_pipeline_layout.h"
@@ -16,7 +16,8 @@ namespace blink {
 WGPUComputePipelineDescriptor AsDawnType(
     const GPUComputePipelineDescriptor* webgpu_desc,
     std::string* label,
-    OwnedProgrammableStageDescriptor* computeStageDescriptor) {
+    OwnedProgrammableStageDescriptor* computeStageDescriptor,
+    GPUDevice* device) {
   DCHECK(webgpu_desc);
   DCHECK(label);
   DCHECK(computeStageDescriptor);
@@ -31,7 +32,14 @@ WGPUComputePipelineDescriptor AsDawnType(
     dawn_desc.label = label->c_str();
   }
 
-  *computeStageDescriptor = AsDawnType(webgpu_desc->computeStage());
+  if (webgpu_desc->hasCompute()) {
+    *computeStageDescriptor = AsDawnType(webgpu_desc->compute());
+  } else if (webgpu_desc->hasComputeStage()) {
+    device->AddConsoleWarning(
+        "computeStage is deprecated. Use compute instead.");
+    *computeStageDescriptor = AsDawnType(webgpu_desc->computeStage());
+  }
+
   dawn_desc.computeStage = std::get<0>(*computeStageDescriptor);
 
   return dawn_desc;
@@ -47,23 +55,18 @@ GPUComputePipeline* GPUComputePipeline::Create(
   std::string label;
   OwnedProgrammableStageDescriptor computeStageDescriptor;
   WGPUComputePipelineDescriptor dawn_desc =
-      AsDawnType(webgpu_desc, &label, &computeStageDescriptor);
+      AsDawnType(webgpu_desc, &label, &computeStageDescriptor, device);
 
-  return MakeGarbageCollected<GPUComputePipeline>(
+  GPUComputePipeline* pipeline = MakeGarbageCollected<GPUComputePipeline>(
       device, device->GetProcs().deviceCreateComputePipeline(
                   device->GetHandle(), &dawn_desc));
+  pipeline->setLabel(webgpu_desc->label());
+  return pipeline;
 }
 
 GPUComputePipeline::GPUComputePipeline(GPUDevice* device,
                                        WGPUComputePipeline compute_pipeline)
     : DawnObject<WGPUComputePipeline>(device, compute_pipeline) {}
-
-GPUComputePipeline::~GPUComputePipeline() {
-  if (IsDawnControlClientDestroyed()) {
-    return;
-  }
-  GetProcs().computePipelineRelease(GetHandle());
-}
 
 GPUBindGroupLayout* GPUComputePipeline::getBindGroupLayout(uint32_t index) {
   return MakeGarbageCollected<GPUBindGroupLayout>(

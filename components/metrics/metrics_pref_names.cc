@@ -41,11 +41,15 @@ const char kMetricsInitialLogsMetadata[] =
 // avoid reshuffling experiments using high entropy, but use the new source for
 // experiments requiring low entropy. Newer clients only have the new source,
 // and use it both for low entropy experiments to to incorporate into the high
-// entropy source for high entropy experiments.
+// entropy source for high entropy experiments. The pseudo low entropy source
+// is not used for trial assignment, but only for statistical validation. It
+// should be assigned in the same way as the new source (with suffix "3").
 const char kMetricsLowEntropySource[] =
     "user_experience_metrics.low_entropy_source3";
 const char kMetricsOldLowEntropySource[] =
     "user_experience_metrics.low_entropy_source2";
+const char kMetricsPseudoLowEntropySource[] =
+    "user_experience_metrics.pseudo_low_entropy_source";
 
 // A machine ID used to detect when underlying hardware changes. It is only
 // stored locally and never transmitted in metrics reports.
@@ -88,13 +92,6 @@ const char kMetricsLastSeenPrefix[] =
 const char kMetricsFileMetricsMetadata[] =
     "user_experience_metrics.file_metrics_metadata";
 
-// Number of times the browser has been able to register crash reporting.
-const char kStabilityBreakpadRegistrationSuccess[] =
-    "user_experience_metrics.stability.breakpad_registration_ok";
-
-// Number of times the browser has failed to register crash reporting.
-const char kStabilityBreakpadRegistrationFail[] =
-    "user_experience_metrics.stability.breakpad_registration_fail";
 
 // A time stamp at which time the browser was known to be alive. Used to
 // evaluate whether the browser crash was due to a whole system crash.
@@ -119,13 +116,6 @@ const char kStabilityCrashCount[] =
 const char kStabilityCrashCountDueToGmsCoreUpdate[] =
     "user_experience_metrics.stability.crash_count_due_to_gms_core_update";
 
-// Number of times the browser has been run under a debugger.
-const char kStabilityDebuggerPresent[] =
-    "user_experience_metrics.stability.debugger_present";
-
-// Number of times the browser has not been run under a debugger.
-const char kStabilityDebuggerNotPresent[] =
-    "user_experience_metrics.stability.debugger_not_present";
 
 // True if the previous run of the program exited cleanly.
 const char kStabilityExitedCleanly[] =

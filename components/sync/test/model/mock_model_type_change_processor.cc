@@ -71,7 +71,9 @@ class ForwardingModelTypeChangeProcessor : public ModelTypeChangeProcessor {
     other_->ModelReadyToSync(std::move(batch));
   }
 
-  bool IsTrackingMetadata() override { return other_->IsTrackingMetadata(); }
+  bool IsTrackingMetadata() const override {
+    return other_->IsTrackingMetadata();
+  }
 
   std::string TrackedAccountId() override { return other_->TrackedAccountId(); }
 
@@ -81,7 +83,7 @@ class ForwardingModelTypeChangeProcessor : public ModelTypeChangeProcessor {
     other_->ReportError(error);
   }
 
-  base::Optional<ModelError> GetError() const override {
+  absl::optional<ModelError> GetError() const override {
     return other_->GetError();
   }
 

@@ -91,6 +91,12 @@ base::Value ExecuteScriptAndGetValue(RenderFrameHost* render_frame_host,
 // that is incompatible with --site-per-process.
 bool AreAllSitesIsolatedForTesting();
 
+// Returns true if |origin| is currently isolated with respect to the
+// BrowsingInstance of |site_instance|. This is only relevant for
+// OriginAgentCluster isolation, and not other types of origin isolation.
+bool ShouldOriginGetOptInIsolation(SiteInstance* site_instance,
+                                   const url::Origin& origin);
+
 // Returns true if default SiteInstances are enabled. Typically used in a test
 // to mark expectations specific to default SiteInstances.
 bool AreDefaultSiteInstancesEnabled();
@@ -147,6 +153,11 @@ WebContents* CreateAndAttachInnerContents(RenderFrameHost* rfh);
 // Spins a run loop until IsDocumentOnLoadCompletedInMainFrame() is true.
 void AwaitDocumentOnLoadCompleted(WebContents* web_contents);
 
+// Resets the font enumeration cache for use between tests. Tests that use
+// BrowserTaskEnvironment can leave the font enumeration cache in a bad state,
+// due to the task environment getting torn down by ~BrowserTaskEnvironment.
+void ResetFontEnumerationCache();
+
 // Helper class to Run and Quit the message loop. Run and Quit can only happen
 // once per instance. Make a new instance for each use. Calling Quit after Run
 // has returned is safe and has no effect.
@@ -167,7 +178,7 @@ class MessageLoopRunner : public base::RefCountedThreadSafe<MessageLoopRunner> {
     DEFERRED,
   };
 
-  MessageLoopRunner(QuitMode mode = QuitMode::DEFERRED);
+  explicit MessageLoopRunner(QuitMode mode = QuitMode::DEFERRED);
 
   // Run the current MessageLoop unless the quit closure
   // has already been called.
@@ -318,7 +329,7 @@ class InProcessUtilityThreadHelper : public BrowserChildProcessObserver {
   void BrowserChildProcessHostDisconnected(
       const ChildProcessData& data) override;
 
-  base::Optional<base::RunLoop> run_loop_;
+  absl::optional<base::RunLoop> run_loop_;
 
   DISALLOW_COPY_AND_ASSIGN(InProcessUtilityThreadHelper);
 };
@@ -327,19 +338,20 @@ class InProcessUtilityThreadHelper : public BrowserChildProcessObserver {
 // not to avoid accessing it and causing use-after-free condition.
 class RenderFrameDeletedObserver : public WebContentsObserver {
  public:
-  RenderFrameDeletedObserver(RenderFrameHost* rfh);
+  explicit RenderFrameDeletedObserver(RenderFrameHost* rfh);
   ~RenderFrameDeletedObserver() override;
 
   // Overridden WebContentsObserver methods.
   void RenderFrameDeleted(RenderFrameHost* render_frame_host) override;
 
+  // Returns the supplied RenderFrameHost or nullptr if already deleted.
+  RenderFrameHost* render_frame_host() const { return rfh_; }
   void WaitUntilDeleted();
-  bool deleted();
+  bool deleted() const;
 
  private:
-  int process_id_;
-  int routing_id_;
-  bool deleted_;
+  // Will be nullptr after deletion.
+  RenderFrameHost* rfh_;
   std::unique_ptr<base::RunLoop> runner_;
 
   DISALLOW_COPY_AND_ASSIGN(RenderFrameDeletedObserver);

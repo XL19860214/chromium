@@ -5,10 +5,11 @@
 #ifndef COMPONENTS_FEDERATED_LEARNING_FLOC_ID_H_
 #define COMPONENTS_FEDERATED_LEARNING_FLOC_ID_H_
 
-#include "base/optional.h"
 #include "base/time/time.h"
 #include "base/version.h"
 #include "components/prefs/prefs_export.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
+#include "third_party/blink/public/mojom/federated_learning/floc.mojom-forward.h"
 
 #include <stdint.h>
 
@@ -54,10 +55,14 @@ class FlocId {
   // fresh profile prefs.
   bool IsValid() const;
 
-  // Dot-separated string of floc, finch config version, and sorting-lsh
-  // version. This is the format to be exposed to the JS API. Precondition:
-  // |id_| must be valid.
-  std::string ToStringForJsApi() const;
+  // Get the blink::mojom::InterestCohort representation of this floc, with
+  // interest_cohort.id being "<id>" and interest_cohort.version being
+  // "chrome.<finch_config_version>.<sorting_lsh_version>". This is the format
+  // to be exposed to the JS API. Precondition: |id_| must be valid.
+  blink::mojom::InterestCohortPtr ToInterestCohortForJsApi() const;
+
+  // Returns the internal uint64_t number. Precondition: |id_| must be valid.
+  uint64_t ToUint64() const;
 
   base::Time history_begin_time() const { return history_begin_time_; }
 
@@ -79,19 +84,25 @@ class FlocId {
   // other unaffected field.
   void InvalidateIdAndSaveToPrefs(PrefService* prefs);
 
+  // Resets |compute_time_| to provided |compute_time| and saves it to prefs.
+  // This should at least be called if the floc compute timer is reset, to
+  // ensure that the compute cycle continues at the expected frequency.
+  void ResetComputeTimeAndSaveToPrefs(base::Time compute_time,
+                                      PrefService* prefs);
+
  private:
   friend class FlocIdTester;
 
   // Create a floc with stated params. This will only be used to create a floc
   // read from prefs.
-  explicit FlocId(base::Optional<uint64_t> id,
+  explicit FlocId(absl::optional<uint64_t> id,
                   base::Time history_begin_time,
                   base::Time history_end_time,
                   uint32_t finch_config_version,
                   uint32_t sorting_lsh_version,
                   base::Time compute_time);
 
-  base::Optional<uint64_t> id_;
+  absl::optional<uint64_t> id_;
 
   // The time range of the actual history used to compute the floc. This should
   // always be within the time range of each history query.

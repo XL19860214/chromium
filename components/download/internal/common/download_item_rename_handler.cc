@@ -4,13 +4,15 @@
 
 #include "components/download/public/common/download_item_rename_handler.h"
 
+#include "base/files/file_path.h"
 #include "components/download/public/common/download_interrupt_reasons.h"
 #include "components/download/public/common/download_item.h"
 
 namespace download {
 
 DownloadItemRenameHandler::DownloadItemRenameHandler(
-    DownloadItem* download_item) {}
+    DownloadItem* download_item)
+    : download_item_(download_item) {}
 
 DownloadItemRenameHandler::~DownloadItemRenameHandler() = default;
 

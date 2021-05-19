@@ -6,11 +6,13 @@
 
 #include <stddef.h>
 
+#include <memory>
 #include <string>
 #include <utility>
 
 #include "base/bind.h"
 #include "base/files/file_util.h"
+#include "base/memory/ptr_util.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
@@ -68,7 +70,7 @@ namespace {
 
 #if defined(OS_ANDROID)
 // The MIME type for selecting contacts.
-constexpr char kContactsMimeType[] = "text/json+contacts";
+constexpr char16_t kContactsMimeType[] = u"text/json+contacts";
 #endif
 
 void DeleteFiles(std::vector<base::FilePath> paths) {
@@ -230,7 +232,7 @@ void FileSelectHelper::FileSelectionCanceled(void* params) {
 void FileSelectHelper::StartNewEnumeration(const base::FilePath& path) {
   base_dir_ = path;
   auto entry = std::make_unique<ActiveDirectoryEnumeration>(path);
-  entry->lister_.reset(new net::DirectoryLister(
+  entry->lister_ = base::WrapUnique(new net::DirectoryLister(
       path, net::DirectoryLister::NO_SORT_RECURSIVE, this));
   entry->lister_->Start();
   directory_enumeration_ = std::move(entry);
@@ -280,7 +282,7 @@ void FileSelectHelper::OnListDone(int error) {
     std::vector<FileChooserFileInfoPtr> chooser_files;
     for (const auto& file_path : entry->results_) {
       chooser_files.push_back(FileChooserFileInfo::NewNativeFile(
-          blink::mojom::NativeFileInfo::New(file_path, base::string16())));
+          blink::mojom::NativeFileInfo::New(file_path, std::u16string())));
     }
 
     listener_->FileSelected(std::move(chooser_files), base_dir_,
@@ -306,8 +308,7 @@ void FileSelectHelper::ConvertToFileChooserFileInfoList(
     content::SiteInstance* site_instance =
         render_frame_host_->GetSiteInstance();
     storage::FileSystemContext* file_system_context =
-        content::BrowserContext::GetStoragePartition(profile_, site_instance)
-            ->GetFileSystemContext();
+        profile_->GetStoragePartition(site_instance)->GetFileSystemContext();
     file_manager::util::ConvertSelectedFileInfoListToFileChooserFileInfoList(
         file_system_context, site_instance->GetSiteURL(), files,
         base::BindOnce(&FileSelectHelper::PerformContentAnalysisIfNeeded,
@@ -430,7 +431,7 @@ void FileSelectHelper::DontAbortOnMissingWebContentsForTesting() {
 
 std::unique_ptr<ui::SelectFileDialog::FileTypeInfo>
 FileSelectHelper::GetFileTypesFromAcceptType(
-    const std::vector<base::string16>& accept_types) {
+    const std::vector<std::u16string>& accept_types) {
   std::unique_ptr<ui::SelectFileDialog::FileTypeInfo> base_file_type(
       new ui::SelectFileDialog::FileTypeInfo());
   if (accept_types.empty())
@@ -506,8 +507,7 @@ void FileSelectHelper::RunFileChooser(
 
 #if defined(OS_ANDROID)
   if (params.accept_types.size() == 1 &&
-      params.accept_types[0].compare(base::ASCIIToUTF16(kContactsMimeType)) ==
-          0) {
+      params.accept_types[0] == kContactsMimeType) {
     scoped_refptr<FileSelectHelperContactsAndroid> file_select_helper_android(
         new FileSelectHelperContactsAndroid(profile));
     file_select_helper_android->RunFileChooser(
@@ -555,9 +555,9 @@ void FileSelectHelper::RunFileChooser(
   render_frame_host_ = render_frame_host;
   web_contents_ = WebContents::FromRenderFrameHost(render_frame_host);
   listener_ = std::move(listener);
-  observer_.RemoveAll();
+  observation_.Reset();
   content::WebContentsObserver::Observe(web_contents_);
-  observer_.Add(render_frame_host_->GetRenderViewHost()->GetWidget());
+  observation_.Observe(render_frame_host_->GetRenderViewHost()->GetWidget());
 
   base::ThreadPool::PostTask(
       FROM_HERE, {base::MayBlock()},
@@ -636,7 +636,7 @@ void FileSelectHelper::CheckDownloadRequestWithSafeBrowsing(
       base::BindOnce(
           &InterpretSafeBrowsingVerdict,
           base::BindOnce(&FileSelectHelper::ProceedWithSafeBrowsingVerdict,
-                         this, default_file_path, base::Passed(&params))));
+                         this, default_file_path, std::move(params))));
 #endif
 }
 
@@ -689,7 +689,7 @@ void FileSelectHelper::RunFileChooserOnUIThread(
 
 #if defined(OS_ANDROID)
   // Android needs the original MIME types and an additional capture value.
-  std::pair<std::vector<base::string16>, bool> accept_types =
+  std::pair<std::vector<std::u16string>, bool> accept_types =
       std::make_pair(params->accept_types, params->use_media_capture);
 #endif
 
@@ -754,7 +754,8 @@ void FileSelectHelper::EnumerateDirectoryEnd() {
 void FileSelectHelper::RenderWidgetHostDestroyed(
     content::RenderWidgetHost* widget_host) {
   render_frame_host_ = nullptr;
-  observer_.Remove(widget_host);
+  DCHECK(observation_.IsObservingSource(widget_host));
+  observation_.Reset();
 }
 
 void FileSelectHelper::RenderFrameHostChanged(

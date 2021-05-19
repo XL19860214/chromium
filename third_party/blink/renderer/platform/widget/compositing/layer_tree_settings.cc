@@ -6,6 +6,7 @@
 
 #include "base/base_switches.h"
 #include "base/command_line.h"
+#include "base/logging.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/system/sys_info.h"
 #include "build/build_config.h"
@@ -158,8 +159,6 @@ cc::LayerTreeSettings GenerateLayerTreeSettings(
   const base::CommandLine& cmd = *base::CommandLine::ForCurrentProcess();
   cc::LayerTreeSettings settings;
 
-  settings.force_preferred_interval_for_video =
-      ::features::IsForcePreferredIntervalForVideoEnabled();
   settings.enable_synchronized_scrolling =
       base::FeatureList::IsEnabled(::features::kSynchronizedScrolling);
   Platform* platform = Platform::Current();
@@ -360,10 +359,12 @@ cc::LayerTreeSettings GenerateLayerTreeSettings(
       cmd.HasSwitch(cc::switches::kHighlightNonLCDTextLayers);
   settings.initial_debug_state.show_web_vital_metrics =
       base::FeatureList::IsEnabled(
-          ::features::kHudDisplayForPerformanceMetrics);
+          ::features::kHudDisplayForPerformanceMetrics) &&
+      !for_child_local_root_frame;
   settings.initial_debug_state.show_smoothness_metrics =
       base::FeatureList::IsEnabled(
-          ::features::kHudDisplayForPerformanceMetrics);
+          ::features::kHudDisplayForPerformanceMetrics) &&
+      !for_child_local_root_frame;
 
   settings.initial_debug_state.SetRecordRenderingStats(
       cmd.HasSwitch(cc::switches::kEnableGpuBenchmarking));
@@ -443,8 +444,7 @@ cc::LayerTreeSettings GenerateLayerTreeSettings(
     settings.scrollbar_fade_duration = ui::kOverlayScrollbarFadeDuration;
     settings.scrollbar_thinning_duration =
         ui::kOverlayScrollbarThinningDuration;
-    settings.scrollbar_flash_after_any_scroll_update =
-        ui::OverlayScrollbarFlashAfterAnyScrollUpdate();
+    settings.scrollbar_flash_after_any_scroll_update = true;
   }
 
   // If there's over 4GB of RAM, increase the working set size to 256MB for both

@@ -20,7 +20,7 @@
 #include "components/viz/common/features.h"
 #include "components/viz/common/frame_sinks/copy_output_request.h"
 #include "components/viz/common/quads/compositor_frame.h"
-#include "components/viz/common/resources/single_release_callback.h"
+#include "components/viz/common/resources/release_callback.h"
 #include "content/browser/compositor/surface_utils.h"
 #include "content/browser/gpu/compositor_util.h"
 #include "content/public/common/content_switches.h"
@@ -131,7 +131,8 @@ void DelegatedFrameHost::CopyFromCompositingSurface(
       base::BindOnce(
           [](base::OnceCallback<void(const SkBitmap&)> callback,
              std::unique_ptr<viz::CopyOutputResult> result) {
-            std::move(callback).Run(result->AsSkBitmap());
+            auto scoped_bitmap = result->ScopedAccessSkBitmap();
+            std::move(callback).Run(scoped_bitmap.GetOutScopedBitmap());
           },
           std::move(callback)));
 }
@@ -293,8 +294,9 @@ void DelegatedFrameHost::OnFirstSurfaceActivation(
   NOTREACHED();
 }
 
-void DelegatedFrameHost::OnFrameTokenChanged(uint32_t frame_token) {
-  client_->OnFrameTokenChanged(frame_token);
+void DelegatedFrameHost::OnFrameTokenChanged(uint32_t frame_token,
+                                             base::TimeTicks activation_time) {
+  client_->OnFrameTokenChanged(frame_token, activation_time);
 }
 
 void DelegatedFrameHost::ResetFallbackToFirstNavigationSurface() {
@@ -376,8 +378,7 @@ void DelegatedFrameHost::DidCopyStaleContent(
       result->GetTextureResult()->mailbox, GL_LINEAR, GL_TEXTURE_2D,
       result->GetTextureResult()->sync_token, result->size(),
       false /* is_overlay_candidate */);
-  std::unique_ptr<viz::SingleReleaseCallback> release_callback =
-      result->TakeTextureOwnership();
+  viz::ReleaseCallback release_callback = result->TakeTextureOwnership();
 
   if (stale_content_layer_->parent() != client_->DelegatedFrameHostGetLayer())
     client_->DelegatedFrameHostGetLayer()->Add(stale_content_layer_.get());

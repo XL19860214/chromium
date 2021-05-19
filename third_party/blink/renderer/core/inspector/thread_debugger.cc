@@ -347,13 +347,25 @@ void ThreadDebugger::installAdditionalCommandLineAPI(
       "function getEventListeners(node) { [Command Line API] }",
       v8::SideEffectType::kHasNoSideEffect);
 
+  CreateFunctionProperty(
+      context, object, "getAccessibleName",
+      ThreadDebugger::GetAccessibleNameCallback,
+      "function getAccessibleName(node) { [Command Line API] }",
+      v8::SideEffectType::kHasNoSideEffect);
+
+  CreateFunctionProperty(
+      context, object, "getAccessibleRole",
+      ThreadDebugger::GetAccessibleRoleCallback,
+      "function getAccessibleRole(node) { [Command Line API] }",
+      v8::SideEffectType::kHasNoSideEffect);
+
   v8::Local<v8::Value> function_value;
   bool success =
       V8ScriptRunner::CompileAndRunInternalScript(
           isolate_, ScriptState::From(context),
           ScriptSourceCode("(function(e) { console.log(e.type, e); })",
                            ScriptSourceLocationType::kInternal, nullptr, KURL(),
-                           TextPosition()))
+                           TextPosition::MinimumPosition()))
           .ToLocal(&function_value) &&
       function_value->IsFunction();
   DCHECK(success);
@@ -464,6 +476,36 @@ void ThreadDebugger::UnmonitorEventsCallback(
 }
 
 // static
+void ThreadDebugger::GetAccessibleNameCallback(
+    const v8::FunctionCallbackInfo<v8::Value>& info) {
+  if (info.Length() < 1)
+    return;
+
+  v8::Isolate* isolate = info.GetIsolate();
+  v8::Local<v8::Value> value = info[0];
+
+  Node* node = V8Node::ToImplWithTypeCheck(isolate, value);
+  if (auto* element = DynamicTo<Element>(node)) {
+    V8SetReturnValueString(info, element->computedName(), isolate);
+  }
+}
+
+// static
+void ThreadDebugger::GetAccessibleRoleCallback(
+    const v8::FunctionCallbackInfo<v8::Value>& info) {
+  if (info.Length() < 1)
+    return;
+
+  v8::Isolate* isolate = info.GetIsolate();
+  v8::Local<v8::Value> value = info[0];
+
+  Node* node = V8Node::ToImplWithTypeCheck(isolate, value);
+  if (auto* element = DynamicTo<Element>(node)) {
+    V8SetReturnValueString(info, element->computedRole(), isolate);
+  }
+}
+
+// static
 void ThreadDebugger::GetEventListenersCallback(
     const v8::FunctionCallbackInfo<v8::Value>& callback_info) {
   if (callback_info.Length() < 1)
@@ -539,9 +581,8 @@ void ThreadDebugger::consoleTimeStamp(const v8_inspector::StringView& title) {
   ExecutionContext* ec = CurrentExecutionContext(isolate_);
   // TODO(dgozman): we can save on a copy here if TracedValue would take a
   // StringView.
-  TRACE_EVENT_INSTANT1(
-      "devtools.timeline", "TimeStamp", TRACE_EVENT_SCOPE_THREAD, "data",
-      inspector_time_stamp_event::Data(ec, ToCoreString(title)));
+  DEVTOOLS_TIMELINE_TRACE_EVENT_INSTANT(
+      "TimeStamp", inspector_time_stamp_event::Data, ec, ToCoreString(title));
   probe::ConsoleTimeStamp(ec, ToCoreString(title));
 }
 

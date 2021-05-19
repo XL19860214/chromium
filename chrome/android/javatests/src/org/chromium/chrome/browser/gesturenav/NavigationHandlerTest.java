@@ -4,7 +4,6 @@
 
 package org.chromium.chrome.browser.gesturenav;
 
-import android.app.Activity;
 import android.graphics.Point;
 import android.support.test.InstrumentationRegistry;
 import android.util.DisplayMetrics;
@@ -24,10 +23,10 @@ import org.chromium.base.ApplicationStatus;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.Criteria;
 import org.chromium.base.test.util.CriteriaHelper;
-import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.Restriction;
-import org.chromium.chrome.browser.compositor.layouts.OverviewModeController;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
+import org.chromium.chrome.browser.layouts.LayoutTestUtils;
+import org.chromium.chrome.browser.layouts.LayoutType;
 import org.chromium.chrome.browser.layouts.animation.CompositorAnimationHandler;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tab.TabLaunchType;
@@ -35,6 +34,7 @@ import org.chromium.chrome.browser.tabbed_mode.TabbedRootUiCoordinator;
 import org.chromium.chrome.browser.tabmodel.TabCreator;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
+import org.chromium.chrome.test.util.ChromeApplicationTestUtils;
 import org.chromium.chrome.test.util.ChromeTabUtils;
 import org.chromium.components.embedder_support.util.UrlConstants;
 import org.chromium.content_public.browser.LoadUrlParams;
@@ -43,6 +43,8 @@ import org.chromium.content_public.common.ContentUrlConstants;
 import org.chromium.net.test.EmbeddedTestServer;
 import org.chromium.ui.base.PageTransition;
 import org.chromium.ui.test.util.UiRestriction;
+
+import java.util.concurrent.TimeoutException;
 
 /**
  * Tests {@link NavigationHandler} navigating back/forward using overscroll history navigation.
@@ -89,7 +91,8 @@ public class NavigationHandlerTest {
     }
 
     private Tab currentTab() {
-        return mActivityTestRule.getActivity().getActivityTabProvider().get();
+        return TestThreadUtils.runOnUiThreadBlockingNoException(
+                () -> mActivityTestRule.getActivity().getActivityTabProvider().get());
     }
 
     private void loadNewTabPage() {
@@ -158,12 +161,8 @@ public class NavigationHandlerTest {
     @SmallTest
     public void testCloseChromeAtHistoryStackHead() {
         loadNewTabPage();
-        final Activity activity = mActivityTestRule.getActivity();
         swipeFromEdge(LEFT_EDGE);
-        CriteriaHelper.pollUiThread(() -> {
-            int state = ApplicationStatus.getStateForActivity(activity);
-            return state == ActivityState.STOPPED || state == ActivityState.DESTROYED;
-        }, "Chrome should be in background");
+        ChromeApplicationTestUtils.waitUntilChromeInBackground();
     }
 
     @Test
@@ -223,7 +222,8 @@ public class NavigationHandlerTest {
     @SmallTest
     public void testLeftEdgeSwipeClosesTabLaunchedFromLink() {
         Tab oldTab = currentTab();
-        TabCreator tabCreator = mActivityTestRule.getActivity().getTabCreator(false);
+        TabCreator tabCreator = TestThreadUtils.runOnUiThreadBlockingNoException(
+                () -> mActivityTestRule.getActivity().getTabCreator(false));
         Tab newTab = TestThreadUtils.runOnUiThreadBlockingNoException(() -> {
             return tabCreator.createNewTab(
                     new LoadUrlParams(UrlConstants.RECENT_TABS_URL, PageTransition.LINK),
@@ -241,15 +241,14 @@ public class NavigationHandlerTest {
 
     @Test
     @SmallTest
-    @DisabledTest(message = "https://crbug.com/1147553")
     public void testSwipeAfterDestroy() {
         mTestServer = EmbeddedTestServer.createAndStartServer(
                 InstrumentationRegistry.getInstrumentation().getContext());
         mActivityTestRule.loadUrl(mTestServer.getURL(RENDERED_PAGE));
-        getNavigationCoordinator().destroy();
+        mNavigationHandler.destroy();
 
         // |triggerUi| can be invoked by SwipeRefreshHandler on the rendered
-        // page. Make sure this won't crash after the coordinator (and also
+        // page. Make sure this won't crash after the handler(and also
         // handler action delegate) is destroyed.
         Assert.assertFalse(mNavigationHandler.triggerUi(LEFT_EDGE, 0, 0));
 
@@ -260,8 +259,21 @@ public class NavigationHandlerTest {
 
     @Test
     @SmallTest
+    public void testSwipeAfterTabDestroy() {
+        mTestServer = EmbeddedTestServer.createAndStartServer(
+                InstrumentationRegistry.getInstrumentation().getContext());
+        mActivityTestRule.loadUrl(mTestServer.getURL(RENDERED_PAGE));
+        TestThreadUtils.runOnUiThreadBlocking(currentTab()::destroy);
+
+        // |triggerUi| can be invoked by SwipeRefreshHandler on the rendered
+        // page. Make sure this won't crash after the current tab is destroyed.
+        Assert.assertFalse(mNavigationHandler.triggerUi(/*forward=*/false, 0, 0));
+    }
+
+    @Test
+    @SmallTest
     @Restriction(UiRestriction.RESTRICTION_TYPE_PHONE)
-    public void testEdgeSwipeIsNoopInTabSwitcher() {
+    public void testEdgeSwipeIsNoopInTabSwitcher() throws TimeoutException {
         mActivityTestRule.loadUrl(UrlConstants.NTP_URL);
         mActivityTestRule.loadUrl(UrlConstants.RECENT_TABS_URL);
         setTabSwitcherModeAndWait(true);
@@ -269,7 +281,7 @@ public class NavigationHandlerTest {
         Assert.assertTrue("Chrome should stay in tab switcher",
                 mActivityTestRule.getActivity().isInOverviewMode());
         setTabSwitcherModeAndWait(false);
-        Assert.assertEquals("Current page should not change", UrlConstants.RECENT_TABS_URL,
+        Assert.assertEquals("Current page should not change. ", UrlConstants.RECENT_TABS_URL,
                 ChromeTabUtils.getUrlStringOnUiThread(currentTab()));
     }
 
@@ -277,12 +289,15 @@ public class NavigationHandlerTest {
      * Enter or exit the tab switcher with animations and wait for the scene to change.
      * @param inSwitcher Whether to enter or exit the tab switcher.
      */
-    private void setTabSwitcherModeAndWait(boolean inSwitcher) {
-        OverviewModeController controller = mActivityTestRule.getActivity().getLayoutManager();
-        if (inSwitcher) {
-            TestThreadUtils.runOnUiThreadBlocking(() -> controller.showOverview(false));
-        } else {
-            TestThreadUtils.runOnUiThreadBlocking(() -> controller.hideOverview(false));
-        }
+    private void setTabSwitcherModeAndWait(boolean inSwitcher) throws TimeoutException {
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
+            if (inSwitcher) {
+                mActivityTestRule.getActivity().getLayoutManager().showOverview(false);
+            } else {
+                mActivityTestRule.getActivity().getLayoutManager().hideOverview(false);
+            }
+        });
+        LayoutTestUtils.waitForLayout(
+                mActivityTestRule.getActivity().getLayoutManager(), LayoutType.TAB_SWITCHER);
     }
 }

@@ -46,7 +46,6 @@
 #include "third_party/blink/renderer/core/dom/node.h"
 #include "third_party/blink/renderer/core/inspector/inspector_trace_events.h"
 #include "third_party/blink/renderer/core/style/data_equivalency.h"
-#include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
 
 namespace blink {
@@ -156,7 +155,9 @@ bool SupportsInvalidation(CSSSelector::PseudoType type) {
     case CSSSelector::kPseudoFullScreen:
     case CSSSelector::kPseudoFullScreenAncestor:
     case CSSSelector::kPseudoFullscreen:
+    case CSSSelector::kPseudoPaused:
     case CSSSelector::kPseudoPictureInPicture:
+    case CSSSelector::kPseudoPlaying:
     case CSSSelector::kPseudoInRange:
     case CSSSelector::kPseudoOutOfRange:
     case CSSSelector::kPseudoWebKitCustomElement:
@@ -173,6 +174,7 @@ bool SupportsInvalidation(CSSSelector::PseudoType type) {
     case CSSSelector::kPseudoListBox:
     case CSSSelector::kPseudoMultiSelectFocus:
     case CSSSelector::kPseudoHostHasAppearance:
+    case CSSSelector::kPseudoPopupOpen:
     case CSSSelector::kPseudoSlotted:
     case CSSSelector::kPseudoVideoPersistent:
     case CSSSelector::kPseudoVideoPersistentAncestor:
@@ -180,6 +182,9 @@ bool SupportsInvalidation(CSSSelector::PseudoType type) {
     case CSSSelector::kPseudoIs:
     case CSSSelector::kPseudoWhere:
     case CSSSelector::kPseudoTargetText:
+    case CSSSelector::kPseudoHighlight:
+    case CSSSelector::kPseudoSpellingError:
+    case CSSSelector::kPseudoGrammarError:
       return true;
     case CSSSelector::kPseudoUnknown:
     case CSSSelector::kPseudoLeftPage:
@@ -595,10 +600,13 @@ InvalidationSet* RuleFeatureSet::InvalidationSetForSimpleSelector(
       case CSSSelector::kPseudoFullScreen:
       case CSSSelector::kPseudoFullScreenAncestor:
       case CSSSelector::kPseudoFullscreen:
+      case CSSSelector::kPseudoPaused:
       case CSSSelector::kPseudoPictureInPicture:
+      case CSSSelector::kPseudoPlaying:
       case CSSSelector::kPseudoInRange:
       case CSSSelector::kPseudoOutOfRange:
       case CSSSelector::kPseudoDefined:
+      case CSSSelector::kPseudoPopupOpen:
       case CSSSelector::kPseudoVideoPersistent:
       case CSSSelector::kPseudoVideoPersistentAncestor:
       case CSSSelector::kPseudoXrOverlay:

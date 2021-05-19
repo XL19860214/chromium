@@ -12,6 +12,7 @@
 #include "base/feature_list.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
+#include "base/metrics/field_trial_params.h"
 #include "base/strings/string_piece.h"
 #include "components/subresource_filter/core/common/activation_list.h"
 #include "components/subresource_filter/core/common/activation_scope.h"
@@ -180,7 +181,7 @@ scoped_refptr<ConfigurationList> GetAndSetActivateConfigurations(
 
 // Feature and variation parameter definitions -------------------------------
 
-// The master toggle to enable/disable the Safe Browsing Subresource Filter.
+// The primary toggle to enable/disable the Safe Browsing Subresource Filter.
 extern const base::Feature kSafeBrowsingSubresourceFilter;
 
 // Enables the blocking of ads on sites that are abusive.

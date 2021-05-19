@@ -153,6 +153,8 @@ class CC_EXPORT ScrollbarController {
  private:
   FRIEND_TEST_ALL_PREFIXES(ScrollUnifiedLayerTreeHostImplTest,
                            ThumbDragAfterJumpClick);
+  FRIEND_TEST_ALL_PREFIXES(ScrollUnifiedLayerTreeHostImplTest,
+                           AbortAnimatedScrollBeforeStartingAutoscroll);
 
   // "Autoscroll" here means the continuous scrolling that occurs when the
   // pointer is held down on a hit-testable area of the scrollbar such as an
@@ -285,15 +287,15 @@ class CC_EXPORT ScrollbarController {
   gfx::PointF last_known_pointer_position_;
 
   // Set only while interacting with the scrollbar (eg: drag, click etc).
-  base::Optional<CapturedScrollbarMetadata> captured_scrollbar_metadata_;
+  absl::optional<CapturedScrollbarMetadata> captured_scrollbar_metadata_;
 
   // Holds information pertaining to autoscrolling. This member is empty if and
   // only if an autoscroll is *not* in progress.
-  base::Optional<AutoScrollState> autoscroll_state_;
+  absl::optional<AutoScrollState> autoscroll_state_;
 
   // Holds information pertaining to thumb drags. Useful while making decisions
   // about thumb anchoring/snapping.
-  base::Optional<DragState> drag_state_;
+  absl::optional<DragState> drag_state_;
 
   // Used to track if a GSU was processed for the current frame or not. Without
   // this, thumb drag will appear jittery. The reason this happens is because

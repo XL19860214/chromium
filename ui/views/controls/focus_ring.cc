@@ -7,14 +7,16 @@
 #include <memory>
 #include <utility>
 
+#include "base/i18n/rtl.h"
 #include "base/memory/ptr_util.h"
 #include "base/notreached.h"
 #include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/accessibility/ax_node_data.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
+#include "ui/compositor/layer.h"
 #include "ui/gfx/canvas.h"
 #include "ui/views/controls/focusable_border.h"
 #include "ui/views/controls/highlight_path_generator.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/style/platform_style.h"
 #include "ui/views/view_class_properties.h"
 #include "ui/views/view_utils.h"
@@ -89,7 +91,7 @@ void FocusRing::SetHasFocusPredicate(const ViewPredicate& predicate) {
   RefreshLayer();
 }
 
-void FocusRing::SetColor(base::Optional<SkColor> color) {
+void FocusRing::SetColor(absl::optional<SkColor> color) {
   color_ = color;
   SchedulePaint();
 }
@@ -113,13 +115,13 @@ void FocusRing::ViewHierarchyChanged(
 
   if (details.is_add) {
     // Need to start observing the parent.
-    view_observer_.Add(details.parent);
+    view_observation_.Observe(details.parent);
     RefreshLayer();
-  } else if (view_observer_.IsObserving(details.parent)) {
+  } else if (view_observation_.IsObservingSource(details.parent)) {
     // This view is being removed from its parent. It needs to remove itself
     // from its parent's observer list in the case where the FocusView is
     // removed from its parent but not deleted.
-    view_observer_.Remove(details.parent);
+    view_observation_.Reset();
   }
 }
 

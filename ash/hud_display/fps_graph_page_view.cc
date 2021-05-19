@@ -14,9 +14,10 @@
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "ui/aura/window_tree_host.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
+#include "ui/compositor/compositor.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/presentation_feedback.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/widget/widget.h"
 
 namespace ash {
@@ -58,8 +59,8 @@ FPSGraphPageView::FPSGraphPageView(const base::TimeDelta refresh_interval)
   grid_ = CreateGrid(
       /*left=*/data_width,
       /*top=*/60, /*right=*/0, /*bottom=*/0,
-      /*x_unit=*/base::ASCIIToUTF16("frames"),
-      /*y_unit=*/base::ASCIIToUTF16("fps"),
+      /*x_unit=*/u"frames",
+      /*y_unit=*/u"fps",
       /*horizontal_points_number=*/data_width,
       /*horizontal_ticks_interval=*/10, vertical_ticks_interval);
 
@@ -72,15 +73,14 @@ FPSGraphPageView::FPSGraphPageView(const base::TimeDelta refresh_interval)
   });
 
   const std::vector<Legend::Entry> legend(
-      {{refresh_rate_, base::ASCIIToUTF16("Refresh rate"),
-        base::ASCIIToUTF16("Actual display refresh rate."), formatter_int},
-       {frame_rate_1s_, base::ASCIIToUTF16("1s FPS"),
-        base::ASCIIToUTF16(
-            "Number of frames successfully presented per 1 second."),
+      {{refresh_rate_, u"Refresh rate", u"Actual display refresh rate.",
+        formatter_int},
+       {frame_rate_1s_, u"1s FPS",
+        u"Number of frames successfully presented per 1 second.",
         formatter_float},
-       {frame_rate_500ms_, base::ASCIIToUTF16(".5s FPS"),
-        base::ASCIIToUTF16("Number of frames successfully presented per 0.5 "
-                           "second scaled to a second."),
+       {frame_rate_500ms_, u".5s FPS",
+        u"Number of frames successfully presented per 0.5 second scaled to a "
+        u"second.",
         formatter_float}});
   CreateLegend(legend);
   AddObserver(this);

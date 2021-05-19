@@ -12,7 +12,6 @@
 #include "content/browser/devtools/devtools_background_services_context_impl.h"
 #include "content/browser/service_worker/service_worker_context_wrapper.h"
 #include "content/browser/service_worker/service_worker_registration.h"
-#include "content/browser/service_worker/service_worker_storage.h"
 #include "content/browser/storage_partition_impl.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_task_traits.h"
@@ -99,7 +98,7 @@ void StartServiceWorkerForDispatch(ServiceWorkerMetrics::EventType event_type,
                                    ServiceWorkerStartCallback callback) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   StoragePartition* partition =
-      BrowserContext::GetStoragePartitionForSite(browser_context, origin);
+      browser_context->GetStoragePartitionForUrl(origin);
   scoped_refptr<ServiceWorkerContextWrapper> service_worker_context =
       static_cast<ServiceWorkerContextWrapper*>(
           partition->GetServiceWorkerContext());
@@ -124,7 +123,7 @@ void PushMessagingRouter::DeliverMessage(
     const GURL& origin,
     int64_t service_worker_registration_id,
     const std::string& message_id,
-    base::Optional<std::string> payload,
+    absl::optional<std::string> payload,
     PushEventCallback deliver_message_callback) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   StartServiceWorkerForDispatch(
@@ -137,7 +136,7 @@ void PushMessagingRouter::DeliverMessage(
 // static
 void PushMessagingRouter::DeliverMessageToWorker(
     const std::string& message_id,
-    base::Optional<std::string> payload,
+    absl::optional<std::string> payload,
     PushEventCallback deliver_message_callback,
     scoped_refptr<ServiceWorkerVersion> service_worker,
     scoped_refptr<DevToolsBackgroundServicesContextImpl> devtools_context,

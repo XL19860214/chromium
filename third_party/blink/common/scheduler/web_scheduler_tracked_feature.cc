@@ -99,8 +99,6 @@ FeatureNames FeatureToNames(WebSchedulerTrackedFeature feature) {
       return {"WebLocks", "WebLocks"};
     case WebSchedulerTrackedFeature::kWebHID:
       return {"WebHID", "WebHID"};
-    case WebSchedulerTrackedFeature::kWakeLock:
-      return {"WakeLock", "WakeLock"};
     case WebSchedulerTrackedFeature::kWebShare:
       return {"WebShare", "WebShare"};
     case WebSchedulerTrackedFeature::kRequestedStorageAccessGrant:
@@ -135,6 +133,13 @@ FeatureNames FeatureToNames(WebSchedulerTrackedFeature feature) {
     case WebSchedulerTrackedFeature::kOutstandingNetworkRequestDirectSocket:
       return {"OutstandingNetworkRequestDirectSocket",
               "outstanding network request (direct socket)"};
+    case WebSchedulerTrackedFeature::kIsolatedWorldScript:
+      return {"IsolatedWorldScript", "Isolated world ran script"};
+    case WebSchedulerTrackedFeature::kInjectedStyleSheet:
+      return {"InjectedStyleSheet", "External systesheet injected"};
+    case WebSchedulerTrackedFeature::kMediaSessionImplOnServiceCreated:
+      return {"MediaSessionImplOnServiceCreated",
+              "MediaSessionImplOnServiceCreated"};
   }
   return {};
 }
@@ -165,12 +170,12 @@ std::string FeatureToHumanReadableString(WebSchedulerTrackedFeature feature) {
   return FeatureToNames(feature).human_readable;
 }
 
-base::Optional<WebSchedulerTrackedFeature> StringToFeature(
+absl::optional<WebSchedulerTrackedFeature> StringToFeature(
     const std::string& str) {
   auto map = ShortStringToFeatureMap();
   auto it = map.find(str);
   if (it == map.end()) {
-    return base::nullopt;
+    return absl::nullopt;
   }
   return it->second;
 }
@@ -220,7 +225,9 @@ uint64_t StickyFeaturesBitmask() {
          FeatureToBit(WebSchedulerTrackedFeature::kIdleManager) |
          FeatureToBit(WebSchedulerTrackedFeature::kPaymentManager) |
          FeatureToBit(WebSchedulerTrackedFeature::kKeyboardLock) |
-         FeatureToBit(WebSchedulerTrackedFeature::kWebOTPService);
+         FeatureToBit(WebSchedulerTrackedFeature::kWebOTPService) |
+         FeatureToBit(WebSchedulerTrackedFeature::kIsolatedWorldScript) |
+         FeatureToBit(WebSchedulerTrackedFeature::kInjectedStyleSheet);
 }
 
 }  // namespace scheduler

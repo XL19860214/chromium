@@ -54,7 +54,7 @@
 #include "url/gurl.h"
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-#include "chrome/browser/chromeos/profiles/profile_helper.h"
+#include "chrome/browser/ash/profiles/profile_helper.h"
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 using testing::_;
@@ -230,7 +230,7 @@ class TestSelectFileDialog : public ui::SelectFileDialog {
       : ui::SelectFileDialog(listener, std::move(policy)) {}
 
   void SelectFileImpl(Type type,
-                      const base::string16& title,
+                      const std::u16string& title,
                       const base::FilePath& default_path,
                       const FileTypeInfo* file_types,
                       int file_type_index,
@@ -284,7 +284,7 @@ void PolicyUITest::UpdateProviderPolicyForNamespace(
     const policy::PolicyMap& policy) {
   std::unique_ptr<policy::PolicyBundle> bundle =
       std::make_unique<policy::PolicyBundle>();
-  bundle->Get(policy_namespace).CopyFrom(policy);
+  bundle->Get(policy_namespace) = policy.Clone();
   provider_.UpdatePolicy(std::move(bundle));
 }
 
@@ -382,8 +382,8 @@ void PolicyUITest::VerifyExportingPolicies(
   // The |chrome_metadata| we compare against will have the actual values so
   // those will be cleared to empty values so that the equals comparison below
   // will just compare key existence and value types.
-  for (auto& key_value : *chrome_metadata_dict)
-    *(key_value.second) = base::Value(key_value.second->type());
+  for (auto key_value : chrome_metadata_dict->DictItems())
+    key_value.second = base::Value(key_value.second.type());
 
   // Check that this dictionary is the same as expected.
   EXPECT_EQ(expected, *actual_policies);
@@ -682,7 +682,8 @@ IN_PROC_BROWSER_TEST_P(ExtensionPolicyUITest,
   extensions::ExtensionBuilder builder;
   builder.SetPath(temp_dir_.GetPath());
   builder.SetManifest(manifest.Build());
-  builder.SetLocation(extensions::Manifest::EXTERNAL_POLICY_DOWNLOAD);
+  builder.SetLocation(
+      extensions::mojom::ManifestLocation::kExternalPolicyDownload);
 
   // Install extension.
   extensions::ExtensionService* service =

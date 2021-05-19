@@ -5,7 +5,7 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_LOADER_MODULESCRIPT_MODULE_SCRIPT_FETCHER_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_LOADER_MODULESCRIPT_MODULE_SCRIPT_FETCHER_H_
 
-#include "base/optional.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/loader/modulescript/module_script_creation_params.h"
 #include "third_party/blink/renderer/core/loader/resource/script_resource.h"
@@ -46,6 +46,7 @@ class CORE_EXPORT ModuleScriptFetcher : public ResourceClient {
   // Takes a non-const reference to FetchParameters because
   // ScriptResource::Fetch() requires it.
   virtual void Fetch(FetchParameters&,
+                     ModuleType,
                      ResourceFetcher*,
                      ModuleGraphLevel,
                      Client*) = 0;
@@ -55,8 +56,8 @@ class CORE_EXPORT ModuleScriptFetcher : public ResourceClient {
  protected:
   static bool WasModuleLoadSuccessful(
       ScriptResource* resource,
-      HeapVector<Member<ConsoleMessage>>* error_messages,
-      ModuleScriptCreationParams::ModuleType* module_type);
+      ModuleType expected_module_type,
+      HeapVector<Member<ConsoleMessage>>* error_messages);
 };
 
 }  // namespace blink

@@ -7,12 +7,24 @@
 
 #include <UIKit/UIKit.h>
 
+#import "ios/chrome/browser/ui/gestures/view_revealing_animatee.h"
+
 @protocol CRWWebViewScrollViewProxyObserver;
 class WebStateList;
+class OverlayPresentationContext;
+
+// Protocol for the thumb strip mediator to inform others about navigation
+// changes.
+@protocol ThumbStripNavigationConsumer
+- (void)navigationDidStart;
+@end
 
 // Mediator for the thumb strip. Handles observing changes in the active web
 // state.
-@interface ThumbStripMediator : NSObject
+@interface ThumbStripMediator : NSObject <ViewRevealingAnimatee>
+
+// Consumer for this mediator to inform about updates.
+@property(nonatomic, weak) id<ThumbStripNavigationConsumer> consumer;
 
 // The regular web state list to observe.
 @property(nonatomic, assign) WebStateList* regularWebStateList;
@@ -23,6 +35,15 @@ class WebStateList;
 // the active webstates in the given WebStateLists.
 @property(nonatomic, weak) id<CRWWebViewScrollViewProxyObserver>
     webViewScrollViewObserver;
+
+// The regular mode OverlayPresenter to notify when the thumb strip reveals or
+// hides the associated view.
+@property(nonatomic, assign)
+    OverlayPresentationContext* regularOverlayPresentationContext;
+// The incognito mode OverlayPresenter to notify when the thumb strip reveals or
+// hides the associated view.
+@property(nonatomic, assign)
+    OverlayPresentationContext* incognitoOverlayPresentationContext;
 
 @end
 

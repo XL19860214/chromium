@@ -36,13 +36,18 @@ static_library("esim_manager") {
     "esim_profile.h",
     "euicc.cc",
     "euicc.h",
+    "metrics_util.cc",
+    "metrics_util.h",
   ]
 
   deps = [
     "//base",
     "//chromeos/dbus/hermes",
+    "//chromeos/network",
     "//chromeos/services/cellular_setup/public/mojom",
     "//components/device_event_log",
+    "//components/qr_code_generator",
+    "//components/user_manager",
     "//dbus",
   ]
 }
@@ -109,6 +114,7 @@ source_set("unit_tests") {
     "//chromeos/dbus/shill",
     "//chromeos/network:test_support",
     "//chromeos/services/cellular_setup/public/cpp:test_support",
+    "//components/user_manager:test_support",
     "//dbus",
     "//testing/gmock",
     "//testing/gtest",

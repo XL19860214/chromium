@@ -80,7 +80,7 @@ bool BrowserAccessibilityManagerAndroid::ShouldExposePasswordText() {
 
 BrowserAccessibility* BrowserAccessibilityManagerAndroid::GetFocus() const {
   BrowserAccessibility* focus = BrowserAccessibilityManager::GetFocus();
-  if (focus && !focus->IsPlainTextField())
+  if (focus && !focus->IsAtomicTextField())
     return GetActiveDescendant(focus);
   return focus;
 }
@@ -89,9 +89,10 @@ BrowserAccessibility* BrowserAccessibilityManagerAndroid::RetargetForEvents(
     BrowserAccessibility* node,
     RetargetEventType type) const {
   // Sometimes we get events on nodes in our internal accessibility tree
-  // that aren't exposed on Android. Get |updated| to point to the highest
-  // ancestor that's a leaf node.
-  BrowserAccessibility* updated = node->PlatformGetClosestPlatformObject();
+  // that aren't exposed on Android. Get |updated| to point to the lowest
+  // ancestor that is exposed.
+  BrowserAccessibility* updated = node->PlatformGetLowestPlatformAncestor();
+  DCHECK(updated);
 
   switch (type) {
     case RetargetEventType::RetargetEventTypeGenerated: {
@@ -171,6 +172,9 @@ void BrowserAccessibilityManagerAndroid::FireBlinkEvent(
     case ax::mojom::Event::kClicked:
       wcax->HandleClicked(android_node->unique_id());
       break;
+    case ax::mojom::Event::kEndOfTest:
+      wcax->HandleEndOfTestSignal();
+      break;
     case ax::mojom::Event::kHover:
       HandleHoverEvent(node);
       break;
@@ -204,7 +208,7 @@ void BrowserAccessibilityManagerAndroid::FireGeneratedEvent(
       // When an alertdialog is shown, we will announce the hint, which
       // (should) contain the description set by the author. If it is
       // empty, then we will try GetInnerText() as a fallback.
-      base::string16 text = android_node->GetHint();
+      std::u16string text = android_node->GetHint();
       if (text.empty())
         text = android_node->GetInnerText();
 
@@ -215,7 +219,7 @@ void BrowserAccessibilityManagerAndroid::FireGeneratedEvent(
       wcax->HandleCheckStateChanged(android_node->unique_id());
       break;
     case ui::AXEventGenerator::Event::DOCUMENT_SELECTION_CHANGED: {
-      ui::AXNode::AXID focus_id =
+      ui::AXNodeID focus_id =
           ax_tree()->GetUnignoredSelection().focus_object_id;
       BrowserAccessibility* focus_object = GetFromID(focus_id);
       if (focus_object) {
@@ -247,7 +251,7 @@ void BrowserAccessibilityManagerAndroid::FireGeneratedEvent(
     case ui::AXEventGenerator::Event::LIVE_REGION_NODE_CHANGED: {
       // This event is fired when an object appears in a live region.
       // Speak its text.
-      base::string16 text = android_node->GetInnerText();
+      std::u16string text = android_node->GetInnerText();
       wcax->AnnounceLiveRegionText(text);
       break;
     }
@@ -298,6 +302,8 @@ void BrowserAccessibilityManagerAndroid::FireGeneratedEvent(
     case ui::AXEventGenerator::Event::LIVE_RELEVANT_CHANGED:
     case ui::AXEventGenerator::Event::LIVE_STATUS_CHANGED:
     case ui::AXEventGenerator::Event::LOAD_START:
+    case ui::AXEventGenerator::Event::MENU_POPUP_END:
+    case ui::AXEventGenerator::Event::MENU_POPUP_START:
     case ui::AXEventGenerator::Event::MENU_ITEM_SELECTED:
     case ui::AXEventGenerator::Event::MULTILINE_STATE_CHANGED:
     case ui::AXEventGenerator::Event::MULTISELECTABLE_STATE_CHANGED:
@@ -354,7 +360,7 @@ bool BrowserAccessibilityManagerAndroid::NextAtGranularity(
     int32_t* end_index) {
   switch (granularity) {
     case ANDROID_ACCESSIBILITY_NODE_INFO_MOVEMENT_GRANULARITY_CHARACTER: {
-      base::string16 text = node->GetInnerText();
+      std::u16string text = node->GetInnerText();
       if (cursor_index >= static_cast<int32_t>(text.length()))
         return false;
       base::i18n::UTF16CharIterator iter(text);
@@ -403,7 +409,7 @@ bool BrowserAccessibilityManagerAndroid::PreviousAtGranularity(
     case ANDROID_ACCESSIBILITY_NODE_INFO_MOVEMENT_GRANULARITY_CHARACTER: {
       if (cursor_index <= 0)
         return false;
-      base::string16 text = node->GetInnerText();
+      std::u16string text = node->GetInnerText();
       base::i18n::UTF16CharIterator iter(text);
       int previous_index = 0;
       while (!iter.end() &&
@@ -517,6 +523,40 @@ void BrowserAccessibilityManagerAndroid::OnAtomicUpdateFinished(
 
   if (root_changed) {
     wcax->HandleNavigate();
+  }
+}
+
+void BrowserAccessibilityManagerAndroid::OnNodeCreated(ui::AXTree* tree,
+                                                       ui::AXNode* node) {
+  BrowserAccessibilityManager::OnNodeCreated(tree, node);
+  if (node->data().GetBoolAttribute(
+          ax::mojom::BoolAttribute::kTouchPassthrough)) {
+    auto* root =
+        static_cast<BrowserAccessibilityManagerAndroid*>(GetRootManager());
+    if (root)
+      root->EnableTouchPassthrough();
+    else
+      EnableTouchPassthrough();
+  }
+}
+
+void BrowserAccessibilityManagerAndroid::OnBoolAttributeChanged(
+    ui::AXTree* tree,
+    ui::AXNode* node,
+    ax::mojom::BoolAttribute attr,
+    bool new_value) {
+  BrowserAccessibilityManager::OnBoolAttributeChanged(tree, node, attr,
+                                                      new_value);
+  if (new_value && attr == ax::mojom::BoolAttribute::kTouchPassthrough) {
+    // TODO(accessibility): there's a tiny chance we could get this
+    // called on an iframe before it's attached to the root manager.
+    // If this ever becomes an issue in practice, make this more robust.
+    auto* root =
+        static_cast<BrowserAccessibilityManagerAndroid*>(GetRootManager());
+    if (root)
+      root->EnableTouchPassthrough();
+    else
+      EnableTouchPassthrough();
   }
 }
 

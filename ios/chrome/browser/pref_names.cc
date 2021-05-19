@@ -101,6 +101,11 @@ const char kIosSettingsSigninPromoDisplayedCount[] =
 const char kLastSessionExitedCleanly[] =
     "ios.user_experience_metrics.last_session_exited_cleanly";
 
+// Preference that holds a boolean indicating whether the suggestions on the NTP
+// are enabled.
+const char kNTPContentSuggestionsEnabled[] =
+    "ios.ntp.content_suggestions_enabled";
+
 // Preference that hold a boolean indicating whether metrics reporting should
 // be limited to wifi (when enabled).
 const char kMetricsReportingWifiOnly[] =
@@ -134,17 +139,6 @@ const char kSigninLastAccountsMigrated[] = "ios.signin.last_accounts_migrated";
 // when a new tab is created.
 const char kSigninShouldPromptForSigninAgain[] =
     "ios.signin.should_prompt_for_signin_again";
-
-// Integer which indicates whether the user has authorized using geolocation
-// for Omnibox queries or the progress towards soliciting the user's
-// authorization.
-const char kOmniboxGeolocationAuthorizationState[] =
-    "ios.omnibox.geolocation_authorization_state";
-
-// String which contains the application version when we last showed the
-// authorization alert.
-const char kOmniboxGeolocationLastAuthorizationAlertVersion[] =
-    "ios.omnibox.geolocation_last_authorization_alert_version";
 
 // Dictionary which stores the zoom levels the user has changed. The zoom levels
 // are unique for a given (iOS Dynamic Type, website domain) pair. Thus, the

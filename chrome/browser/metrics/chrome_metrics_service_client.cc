@@ -8,6 +8,7 @@
 
 #include <memory>
 #include <set>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -28,7 +29,6 @@
 #include "base/path_service.h"
 #include "base/rand_util.h"
 #include "base/stl_util.h"
-#include "base/strings/string16.h"
 #include "base/strings/string_piece.h"
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
@@ -44,16 +44,19 @@
 #include "chrome/browser/metrics/cached_metrics_profile.h"
 #include "chrome/browser/metrics/chrome_metrics_extensions_helper.h"
 #include "chrome/browser/metrics/chrome_metrics_service_accessor.h"
+#include "chrome/browser/metrics/chrome_metrics_services_manager_client.h"
 #include "chrome/browser/metrics/desktop_platform_features_metrics_provider.h"
 #include "chrome/browser/metrics/desktop_session_duration/desktop_profile_session_durations_service_factory.h"
 #include "chrome/browser/metrics/https_engagement_metrics_provider.h"
 #include "chrome/browser/metrics/metrics_reporting_state.h"
 #include "chrome/browser/metrics/network_quality_estimator_provider_impl.h"
-#include "chrome/browser/metrics/sampling_metrics_provider.h"
+#include "chrome/browser/metrics/usertype_by_devicetype_metrics_provider.h"
+#include "chrome/browser/privacy_budget/privacy_budget_metrics_provider.h"
 #include "chrome/browser/privacy_budget/privacy_budget_prefs.h"
 #include "chrome/browser/privacy_budget/privacy_budget_ukm_entry_filter.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/safe_browsing/certificate_reporting_metrics_provider.h"
+#include "chrome/browser/safe_browsing/metrics/safe_browsing_metrics_provider.h"
 #include "chrome/browser/sync/device_info_sync_service_factory.h"
 #include "chrome/browser/sync/profile_sync_service_factory.h"
 #include "chrome/browser/tracing/background_tracing_metrics_provider.h"
@@ -88,6 +91,7 @@
 #include "components/metrics/net/net_metrics_log_uploader.h"
 #include "components/metrics/net/network_metrics_provider.h"
 #include "components/metrics/persistent_histograms.h"
+#include "components/metrics/sampling_metrics_provider.h"
 #include "components/metrics/stability_metrics_helper.h"
 #include "components/metrics/ui/screen_info_metrics_provider.h"
 #include "components/metrics/url_constants.h"
@@ -145,9 +149,9 @@
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "base/feature_list.h"
-#include "chrome/browser/chromeos/child_accounts/family_features.h"
+#include "chrome/browser/ash/child_accounts/family_features.h"
+#include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/chromeos/printing/printer_metrics_provider.h"
-#include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/metrics/ambient_mode_metrics_provider.h"
 #include "chrome/browser/metrics/assistant_service_metrics_provider.h"
 #include "chrome/browser/metrics/chromeos_metrics_provider.h"
@@ -173,8 +177,8 @@
 #endif
 
 #if !BUILDFLAG(IS_CHROMEOS_ASH)
-#include "chrome/browser/metrics/accessibility_metrics_provider.h"
 #include "chrome/browser/signin/chrome_signin_status_metrics_provider_delegate.h"
+#include "components/metrics/content/accessibility_metrics_provider.h"
 #include "components/signin/core/browser/signin_status_metrics_provider.h"
 #endif  // !BUILDFLAG(IS_CHROMEOS_ASH)
 
@@ -183,7 +187,7 @@
 #endif  // !defined(OS_ANDROID) && !BUILDFLAG(IS_CHROMEOS_ASH)
 
 #if defined(OS_MAC)
-#include "chrome/browser/metrics/power_metrics_provider_mac.h"
+#include "chrome/browser/metrics/power/power_metrics_provider_mac.h"
 #endif
 
 namespace {
@@ -240,9 +244,8 @@ void RegisterOrRemovePreviousRunMetricsFile(
     base::StringPiece metrics_name,
     metrics::FileMetricsProvider::SourceAssociation association,
     metrics::FileMetricsProvider* file_metrics_provider) {
-  base::FilePath metrics_file;
-  base::GlobalHistogramAllocator::ConstructFilePaths(
-      dir, metrics_name, &metrics_file, nullptr, nullptr);
+  base::FilePath metrics_file =
+      base::GlobalHistogramAllocator::ConstructFilePath(dir, metrics_name);
 
   if (metrics_reporting_enabled) {
     // Enable reading any existing saved metrics.
@@ -292,15 +295,14 @@ std::unique_ptr<metrics::FileMetricsProvider> CreateFileMetricsProvider(
           &ChromeMetricsServiceClient::FilterBrowserMetricsFiles);
       file_metrics_provider->RegisterSource(browser_metrics_params);
 
-      base::FilePath active_path;
-      base::GlobalHistogramAllocator::ConstructFilePaths(
-          user_data_dir, kCrashpadHistogramAllocatorName, nullptr, &active_path,
-          nullptr);
+      base::FilePath crashpad_active_path =
+          base::GlobalHistogramAllocator::ConstructFilePathForActiveFile(
+              user_data_dir, kCrashpadHistogramAllocatorName);
       // Register data that will be populated for the current run. "Active"
       // files need an empty "prefs_key" because they update the file itself.
       file_metrics_provider->RegisterSource(
           metrics::FileMetricsProvider::Params(
-              active_path,
+              crashpad_active_path,
               metrics::FileMetricsProvider::SOURCE_HISTOGRAMS_ACTIVE_FILE,
               metrics::FileMetricsProvider::ASSOCIATE_CURRENT_RUN));
     } else {
@@ -475,6 +477,10 @@ void ChromeMetricsServiceClient::RegisterPrefs(PrefRegistrySimple* registry) {
 
   metrics::RegisterMetricsReportingStatePrefs(registry);
 
+#if defined(OS_ANDROID)
+  ChromeAndroidMetricsProvider::RegisterPrefs(registry);
+#endif  // defined(OS_ANDROID)
+
 #if BUILDFLAG(ENABLE_PLUGINS)
   PluginMetricsProvider::RegisterPrefs(registry);
 #endif  // BUILDFLAG(ENABLE_PLUGINS)
@@ -486,6 +492,11 @@ metrics::MetricsService* ChromeMetricsServiceClient::GetMetricsService() {
 
 ukm::UkmService* ChromeMetricsServiceClient::GetUkmService() {
   return ukm_service_.get();
+}
+
+bool ChromeMetricsServiceClient::ShouldUploadMetricsForUserId(
+    const uint64_t user_id) {
+  return true;
 }
 
 void ChromeMetricsServiceClient::SetMetricsClientId(
@@ -507,6 +518,10 @@ bool ChromeMetricsServiceClient::GetBrand(std::string* brand_code) {
 
 metrics::SystemProfileProto::Channel ChromeMetricsServiceClient::GetChannel() {
   return metrics::AsProtobufChannel(chrome::GetChannel());
+}
+
+bool ChromeMetricsServiceClient::IsExtendedStableChannel() {
+  return chrome::IsExtendedStableChannel();
 }
 
 std::string ChromeMetricsServiceClient::GetVersionString() {
@@ -662,8 +677,13 @@ void ChromeMetricsServiceClient::RegisterMetricsServiceProviders() {
   metrics_service_->RegisterMetricsProvider(
       std::make_unique<metrics::CallStackProfileMetricsProvider>());
 
-  metrics_service_->RegisterMetricsProvider(
-      std::make_unique<metrics::SamplingMetricsProvider>());
+  int sample_rate;
+  // Only log the sample rate if it's defined.
+  if (ChromeMetricsServicesManagerClient::GetSamplingRatePerMille(
+          &sample_rate)) {
+    metrics_service_->RegisterMetricsProvider(
+        std::make_unique<metrics::SamplingMetricsProvider>(sample_rate));
+  }
 
   metrics_service_->RegisterMetricsProvider(
       std::make_unique<translate::TranslateRankerMetricsProvider>());
@@ -678,11 +698,16 @@ void ChromeMetricsServiceClient::RegisterMetricsServiceProviders() {
   metrics_service_->RegisterMetricsProvider(MakeDemographicMetricsProvider(
       metrics::MetricsLogUploader::MetricServiceType::UMA));
 
+  // TODO(crbug.com/1207574): Add metrics registration for WebView, iOS and
+  // WebLayer.
+  metrics_service_->RegisterMetricsProvider(
+      std::make_unique<safe_browsing::SafeBrowsingMetricsProvider>());
+
 #if defined(OS_ANDROID)
   metrics_service_->RegisterMetricsProvider(
       std::make_unique<metrics::AndroidMetricsProvider>());
   metrics_service_->RegisterMetricsProvider(
-      std::make_unique<ChromeAndroidMetricsProvider>());
+      std::make_unique<ChromeAndroidMetricsProvider>(local_state));
   metrics_service_->RegisterMetricsProvider(
       std::make_unique<PageLoadMetricsProvider>());
 #endif  // defined(OS_ANDROID)
@@ -749,14 +774,20 @@ void ChromeMetricsServiceClient::RegisterMetricsServiceProviders() {
   metrics_service_->RegisterMetricsProvider(
       std::make_unique<AmbientModeMetricsProvider>());
 
-  if (base::FeatureList::IsEnabled(chromeos::kFamilyUserMetricsProvider)) {
+  if (base::FeatureList::IsEnabled(ash::kFamilyUserMetricsProvider)) {
     metrics_service_->RegisterMetricsProvider(
         std::make_unique<FamilyUserMetricsProvider>());
   }
 
-  if (base::FeatureList::IsEnabled(chromeos::kFamilyLinkUserMetricsProvider)) {
+  if (base::FeatureList::IsEnabled(ash::kFamilyLinkUserMetricsProvider)) {
     metrics_service_->RegisterMetricsProvider(
         std::make_unique<FamilyLinkUserMetricsProvider>());
+  }
+
+  if (base::FeatureList::IsEnabled(
+          ::features::kUserTypeByDeviceTypeMetricsProvider)) {
+    metrics_service_->RegisterMetricsProvider(
+        std::make_unique<UserTypeByDeviceTypeMetricsProvider>());
   }
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
@@ -766,7 +797,7 @@ void ChromeMetricsServiceClient::RegisterMetricsServiceProviders() {
           std::make_unique<ChromeSigninStatusMetricsProviderDelegate>()));
   // ChromeOS uses ChromeOSMetricsProvider for accessibility metrics provider.
   metrics_service_->RegisterMetricsProvider(
-      std::make_unique<AccessibilityMetricsProvider>());
+      std::make_unique<metrics::AccessibilityMetricsProvider>());
 #endif  // !BUILDFLAG(IS_CHROMEOS_ASH)
 
   metrics_service_->RegisterMetricsProvider(
@@ -818,6 +849,10 @@ void ChromeMetricsServiceClient::RegisterUKMProviders() {
       std::make_unique<metrics::ScreenInfoMetricsProvider>());
 
   ukm_service_->RegisterMetricsProvider(ukm::CreateFieldTrialsProviderForUkm());
+
+  ukm_service_->RegisterMetricsProvider(
+      std::make_unique<PrivacyBudgetMetricsProvider>(
+          identifiability_study_state_.get()));
 }
 
 void ChromeMetricsServiceClient::CollectFinalHistograms() {
@@ -1076,7 +1111,7 @@ bool ChromeMetricsServiceClient::IsWebstoreExtension(base::StringPiece id) {
     if (!registry)
       continue;
     const extensions::Extension* extension = registry->GetExtensionById(
-        id.as_string(), extensions::ExtensionRegistry::ENABLED);
+        std::string(id), extensions::ExtensionRegistry::ENABLED);
     if (!extension)
       continue;
     if (!extension->from_webstore())

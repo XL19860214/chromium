@@ -22,11 +22,12 @@
 #include "chrome/browser/printing/print_preview_dialog_controller.h"
 #include "chrome/browser/printing/print_view_manager.h"
 #include "chrome/browser/ui/webui/print_preview/printer_handler.h"
+#include "chrome/common/printing/printer_capabilities.h"
 #include "components/crash/core/common/crash_keys.h"
-#include "components/printing/browser/printer_capabilities.h"
 #include "content/public/browser/render_frame_host.h"
 #include "printing/backend/print_backend_consts.h"
 #include "printing/page_range.h"
+#include "printing/print_job_constants.h"
 
 namespace printing {
 
@@ -220,7 +221,7 @@ bool ParseSettings(const base::Value& settings,
     NOTREACHED();
     return false;
   }
-  base::Optional<base::Value> ticket_value =
+  absl::optional<base::Value> ticket_value =
       base::JSONReader::Read(*ticket_opt);
   if (!ticket_value)
     return false;

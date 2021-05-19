@@ -20,8 +20,8 @@ constexpr struct {
   EventMetrics::EventType metrics_event_type;
   ui::EventType ui_event_type;
   const char* name;
-  base::Optional<EventMetrics::ScrollUpdateType> scroll_update_type =
-      base::nullopt;
+  absl::optional<EventMetrics::ScrollUpdateType> scroll_update_type =
+      absl::nullopt;
 } kInterestingEvents[] = {
 #define EVENT_TYPE(name, ui_type, ...) \
   { EventMetrics::EventType::k##name, ui_type, #name, __VA_ARGS__ }
@@ -51,6 +51,9 @@ constexpr struct {
                ui::ET_GESTURE_SCROLL_UPDATE,
                EventMetrics::ScrollUpdateType::kStarted),
     EVENT_TYPE(MouseDragged, ui::ET_MOUSE_DRAGGED),
+    EVENT_TYPE(GesturePinchBegin, ui::ET_GESTURE_PINCH_BEGIN),
+    EVENT_TYPE(GesturePinchEnd, ui::ET_GESTURE_PINCH_END),
+    EVENT_TYPE(GesturePinchUpdate, ui::ET_GESTURE_PINCH_UPDATE),
 #undef EVENT_TYPE
 };
 static_assert(base::size(kInterestingEvents) ==
@@ -74,9 +77,9 @@ static_assert(base::size(kScrollTypes) ==
                   static_cast<int>(EventMetrics::ScrollType::kMaxValue) + 1,
               "EventMetrics::ScrollType has changed.");
 
-base::Optional<EventMetrics::EventType> ToInterestingEventType(
+absl::optional<EventMetrics::EventType> ToInterestingEventType(
     ui::EventType ui_event_type,
-    base::Optional<EventMetrics::ScrollUpdateType> scroll_update_type) {
+    absl::optional<EventMetrics::ScrollUpdateType> scroll_update_type) {
   for (size_t i = 0; i < base::size(kInterestingEvents); i++) {
     const auto& interesting_event = kInterestingEvents[i];
     if (ui_event_type == interesting_event.ui_event_type &&
@@ -87,13 +90,13 @@ base::Optional<EventMetrics::EventType> ToInterestingEventType(
       return metrics_event_type;
     }
   }
-  return base::nullopt;
+  return absl::nullopt;
 }
 
-base::Optional<EventMetrics::ScrollType> ToScrollType(
-    const base::Optional<ui::ScrollInputType>& scroll_input_type) {
+absl::optional<EventMetrics::ScrollType> ToScrollType(
+    const absl::optional<ui::ScrollInputType>& scroll_input_type) {
   if (!scroll_input_type)
-    return base::nullopt;
+    return absl::nullopt;
 
   for (size_t i = 0; i < base::size(kScrollTypes); i++) {
     if (*scroll_input_type == kScrollTypes[i].ui_scroll_type) {
@@ -104,7 +107,7 @@ base::Optional<EventMetrics::ScrollType> ToScrollType(
     }
   }
   NOTREACHED();
-  return base::nullopt;
+  return absl::nullopt;
 }
 
 }  // namespace
@@ -112,8 +115,8 @@ base::Optional<EventMetrics::ScrollType> ToScrollType(
 // static
 std::unique_ptr<EventMetrics> EventMetrics::Create(
     ui::EventType type,
-    base::Optional<ScrollUpdateType> scroll_update_type,
-    base::Optional<ui::ScrollInputType> scroll_input_type,
+    absl::optional<ScrollUpdateType> scroll_update_type,
+    absl::optional<ui::ScrollInputType> scroll_input_type,
     base::TimeTicks timestamp) {
   // TODO(crbug.com/1157090): We expect that `timestamp` is not null, but there
   // seems to be some tests that are emitting events with null timestamp. We
@@ -134,8 +137,8 @@ std::unique_ptr<EventMetrics> EventMetrics::Create(
 // static
 std::unique_ptr<EventMetrics> EventMetrics::CreateForTesting(
     ui::EventType type,
-    base::Optional<ScrollUpdateType> scroll_update_type,
-    base::Optional<ui::ScrollInputType> scroll_input_type,
+    absl::optional<ScrollUpdateType> scroll_update_type,
+    absl::optional<ui::ScrollInputType> scroll_input_type,
     base::TimeTicks timestamp,
     const base::TickClock* tick_clock) {
   DCHECK(!timestamp.is_null());
@@ -153,8 +156,8 @@ std::unique_ptr<EventMetrics> EventMetrics::CreateForTesting(
 // static
 std::unique_ptr<EventMetrics> EventMetrics::CreateFromExisting(
     ui::EventType type,
-    base::Optional<ScrollUpdateType> scroll_update_type,
-    base::Optional<ui::ScrollInputType> scroll_input_type,
+    absl::optional<ScrollUpdateType> scroll_update_type,
+    absl::optional<ui::ScrollInputType> scroll_input_type,
     DispatchStage last_dispatch_stage,
     const EventMetrics* existing) {
   std::unique_ptr<EventMetrics> metrics = CreateInternal(
@@ -184,15 +187,15 @@ std::unique_ptr<EventMetrics> EventMetrics::CreateFromExisting(
 // static
 std::unique_ptr<EventMetrics> EventMetrics::CreateInternal(
     ui::EventType type,
-    base::Optional<ScrollUpdateType> scroll_update_type,
-    base::Optional<ui::ScrollInputType> scroll_input_type,
+    absl::optional<ScrollUpdateType> scroll_update_type,
+    absl::optional<ui::ScrollInputType> scroll_input_type,
     base::TimeTicks timestamp,
     const base::TickClock* tick_clock) {
   // `scroll_update_type` should be set for and only for
   // `ui::ET_GESTURE_SCROLL_UPDATE`.
   DCHECK(type == ui::ET_GESTURE_SCROLL_UPDATE && scroll_update_type ||
          type != ui::ET_GESTURE_SCROLL_UPDATE && !scroll_update_type);
-  base::Optional<EventType> interesting_type =
+  absl::optional<EventType> interesting_type =
       ToInterestingEventType(type, scroll_update_type);
   if (!interesting_type)
     return nullptr;
@@ -202,7 +205,7 @@ std::unique_ptr<EventMetrics> EventMetrics::CreateInternal(
 }
 
 EventMetrics::EventMetrics(EventType type,
-                           base::Optional<ScrollType> scroll_type,
+                           absl::optional<ScrollType> scroll_type,
                            base::TimeTicks timestamp,
                            const base::TickClock* tick_clock)
     : type_(type), scroll_type_(scroll_type), tick_clock_(tick_clock) {
@@ -240,6 +243,17 @@ void EventMetrics::ResetToDispatchStage(DispatchStage stage) {
        stage_index++) {
     dispatch_stage_timestamps_[stage_index] = base::TimeTicks();
   }
+}
+
+bool EventMetrics::ShouldReportScrollingTotalLatency() const {
+  return type_ == EventType::kGestureScrollBegin ||
+         type_ == EventType::kGestureScrollEnd ||
+         type_ == EventType::kFirstGestureScrollUpdate ||
+         type_ == EventType::kGestureScrollUpdate;
+}
+
+bool EventMetrics::HasSmoothInputEvent() const {
+  return type_ == EventType::kMouseDragged || type_ == EventType::kTouchMoved;
 }
 
 std::unique_ptr<EventMetrics> EventMetrics::Clone() const {

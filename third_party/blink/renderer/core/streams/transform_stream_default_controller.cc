@@ -16,8 +16,6 @@
 #include "third_party/blink/renderer/platform/bindings/to_v8.h"
 #include "third_party/blink/renderer/platform/bindings/v8_binding.h"
 #include "third_party/blink/renderer/platform/heap/heap.h"
-#include "third_party/blink/renderer/platform/heap/visitor.h"
-#include "third_party/blink/renderer/platform/wtf/assertions.h"
 #include "third_party/blink/renderer/platform/wtf/casting.h"
 
 namespace blink {
@@ -34,7 +32,7 @@ TransformStreamDefaultController::GetDefaultController(
       stream->readable_->GetController());
 }
 
-base::Optional<double> TransformStreamDefaultController::desiredSize() const {
+absl::optional<double> TransformStreamDefaultController::desiredSize() const {
   // https://streams.spec.whatwg.org/#ts-default-controller-desired-size
   // 2. Let readableController be
   //    this.[[controlledTransformStream]].[[readable]].

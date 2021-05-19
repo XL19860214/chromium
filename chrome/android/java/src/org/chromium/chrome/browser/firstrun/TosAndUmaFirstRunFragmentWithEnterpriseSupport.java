@@ -22,8 +22,8 @@ import org.chromium.base.supplier.OneshotSupplierImpl;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.policy.EnterpriseInfo;
 import org.chromium.chrome.browser.policy.PolicyServiceFactory;
-import org.chromium.components.browser_ui.widget.LoadingView;
 import org.chromium.components.policy.PolicyService;
+import org.chromium.ui.widget.LoadingView;
 
 /**
  * Another FirstRunFragment that is only used when running with CCT.
@@ -77,7 +77,6 @@ public class TosAndUmaFirstRunFragmentWithEnterpriseSupport
             new OneshotSupplierImpl<>();
 
     private Handler mHandler;
-    private Runnable mExitFreRunnable;
 
     /** The {@link SystemClock} timestamp when onViewCreated is called. */
     private long mViewCreatedTimeMs;
@@ -92,8 +91,9 @@ public class TosAndUmaFirstRunFragmentWithEnterpriseSupport
             mSkipTosDialogPolicyListener.destroy();
             mSkipTosDialogPolicyListener = null;
         }
-        if (mHandler != null && mExitFreRunnable != null) {
-            mHandler.removeCallbacks(mExitFreRunnable);
+        if (mHandler != null) {
+            // Remove all callback associated.
+            mHandler.removeCallbacksAndMessages(null);
             mHandler = null;
         }
         super.onDestroy();
@@ -104,10 +104,10 @@ public class TosAndUmaFirstRunFragmentWithEnterpriseSupport
         super.onAttach(context);
 
         // TODO(https://crbug.com/1143593): Replace FirstRunAppRestrictionInfo with a supplier.
-        mSkipTosDialogPolicyListener = new SkipTosDialogPolicyListener(
-                getPageDelegate().getFirstRunAppRestrictionInfo(), mPolicyServiceProvider,
-                EnterpriseInfo.getInstance(), new CctTosFragmentMetricsNameProvider());
-        mSkipTosDialogPolicyListener.onAvailable((b) -> onPolicyLoadListenerAvailable());
+        mSkipTosDialogPolicyListener =
+                new SkipTosDialogPolicyListener(getPageDelegate().getPolicyLoadListener(),
+                        EnterpriseInfo.getInstance(), new CctTosFragmentMetricsNameProvider());
+        mSkipTosDialogPolicyListener.onAvailable((ignored) -> onPolicyLoadListenerAvailable());
     }
 
     @Override
@@ -192,17 +192,13 @@ public class TosAndUmaFirstRunFragmentWithEnterpriseSupport
             mPrivacyDisclaimer.announceForAccessibility(mPrivacyDisclaimer.getText());
         }
 
-        if (sOverridenOnExitFreRunnableForTest != null) {
-            mExitFreRunnable = sOverridenOnExitFreRunnableForTest;
-        } else {
-            mExitFreRunnable = () -> {
-                getPageDelegate().exitFirstRun();
-                mExitFreRunnable = null;
-            };
-        }
-
+        // Make sure this function is called at most once by asserting no handler is created yet.
+        assert mHandler == null;
+        Runnable exitFreRunnable = sOverridenOnExitFreRunnableForTest != null
+                ? sOverridenOnExitFreRunnableForTest
+                : () -> getPageDelegate().exitFirstRun();
         mHandler = new Handler(ThreadUtils.getUiThreadLooper());
-        mHandler.postDelayed(mExitFreRunnable, FirstRunUtils.getSkipTosExitDelayMs());
+        mHandler.postDelayed(exitFreRunnable, FirstRunUtils.getSkipTosExitDelayMs());
     }
 
     @VisibleForTesting

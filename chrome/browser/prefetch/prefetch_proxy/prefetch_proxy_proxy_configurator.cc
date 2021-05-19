@@ -90,10 +90,10 @@ void PrefetchProxyProxyConfigurator::OnFallback(
     return;
   }
 
-  base::UmaHistogramSparse("IsolatedPrerender.Proxy.Fallback.NetError",
+  base::UmaHistogramSparse("PrefetchProxy.Proxy.Fallback.NetError",
                            std::abs(net_error));
 
-  OnTunnelProxyConnectionError(base::nullopt);
+  OnTunnelProxyConnectionError(absl::nullopt);
 }
 
 void PrefetchProxyProxyConfigurator::OnTunnelHeadersReceived(
@@ -105,7 +105,7 @@ void PrefetchProxyProxyConfigurator::OnTunnelHeadersReceived(
     return;
   }
 
-  base::UmaHistogramSparse("IsolatedPrerender.Proxy.RespCode",
+  base::UmaHistogramSparse("PrefetchProxy.Proxy.RespCode",
                            response_headers->response_code());
 
   if (response_headers->response_code() == net::HTTP_OK) {
@@ -123,7 +123,7 @@ void PrefetchProxyProxyConfigurator::OnTunnelHeadersReceived(
     }
   }
 
-  OnTunnelProxyConnectionError(base::nullopt);
+  OnTunnelProxyConnectionError(absl::nullopt);
 }
 
 bool PrefetchProxyProxyConfigurator::IsPrefetchProxyAvailable() const {
@@ -135,7 +135,7 @@ bool PrefetchProxyProxyConfigurator::IsPrefetchProxyAvailable() const {
 }
 
 void PrefetchProxyProxyConfigurator::OnTunnelProxyConnectionError(
-    base::Optional<base::TimeDelta> retry_after) {
+    absl::optional<base::TimeDelta> retry_after) {
   base::Time retry_proxy_at;
   if (retry_after) {
     retry_proxy_at = clock_->Now() + *retry_after;

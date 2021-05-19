@@ -47,6 +47,7 @@
 #include "extensions/browser/extension_prefs.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/pref_names.h"
+#include "extensions/common/extensions_client.h"
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "chrome/browser/chromeos/extensions/install_limiter.h"
@@ -247,7 +248,7 @@ size_t ExtensionServiceTestBase::GetPrefKeyCount() {
     ADD_FAILURE();
     return 0;
   }
-  return dict->size();
+  return dict->DictSize();
 }
 
 void ExtensionServiceTestBase::ValidatePrefKeyCount(size_t count) {
@@ -332,12 +333,17 @@ void ExtensionServiceTestBase::SetUp() {
 
   // Force TabManager/TabLifecycleUnitSource creation.
   g_browser_process->resource_coordinator_parts();
+
+  // Update the webstore update url. Some tests leave it set to a non-default
+  // webstore_update_url_. This can make extension_urls::IsWebstoreUpdateUrl
+  // return a false negative.
+  ExtensionsClient::Get()->InitializeWebStoreUrls(
+      base::CommandLine::ForCurrentProcess());
 }
 
 void ExtensionServiceTestBase::TearDown() {
   if (profile_) {
-    auto* partition =
-        content::BrowserContext::GetDefaultStoragePartition(profile_.get());
+    auto* partition = profile_->GetDefaultStoragePartition();
     if (partition)
       partition->WaitForDeletionTasksForTesting();
   }

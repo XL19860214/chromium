@@ -68,8 +68,8 @@ class ActionTracker {
   // Updates the action count for all tabs for the specified |extension_id|'s
   // extension action. Called when the extension calls setExtensionActionOptions
   // to enable setting the action count as badge text.
-  // TODO(karandeepb): Rename to OnActionCountAsBadgeTextPreferenceEnabled.
-  void OnPreferenceEnabled(const ExtensionId& extension_id) const;
+  void OnActionCountAsBadgeTextPreferenceEnabled(
+      const ExtensionId& extension_id) const;
 
   // Clears the TrackedInfo for the specified |extension_id| for all tabs.
   // Called when an extension's ruleset is removed.
@@ -91,7 +91,7 @@ class ActionTracker {
   // rules matched for |tab_id| will be returned.
   std::vector<api::declarative_net_request::MatchedRuleInfo> GetMatchedRules(
       const Extension& extension,
-      const base::Optional<int>& tab_id,
+      const absl::optional<int>& tab_id,
       const base::Time& min_time_stamp);
 
   // Returns the number of matched rules in |rules_tracked_| for the given

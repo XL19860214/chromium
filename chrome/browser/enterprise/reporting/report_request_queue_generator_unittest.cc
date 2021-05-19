@@ -13,6 +13,7 @@
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/enterprise/reporting/reporting_delegate_factory_desktop.h"
+#include "chrome/browser/profiles/profile_attributes_init_params.h"
 #include "chrome/browser/profiles/profile_attributes_storage.h"
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_profile_manager.h"
@@ -84,10 +85,12 @@ class ReportRequestQueueGeneratorTest
   }
 
   void CreateIdleProfile(std::string profile_name) {
+    ProfileAttributesInitParams params;
+    params.profile_path =
+        profile_manager()->profiles_dir().AppendASCII(profile_name);
+    params.profile_name = base::ASCIIToUTF16(profile_name);
     profile_manager_.profile_attributes_storage()->AddProfile(
-        profile_manager()->profiles_dir().AppendASCII(profile_name),
-        base::ASCIIToUTF16(profile_name), std::string(), base::string16(),
-        false, 0, std::string(), EmptyAccountId());
+        std::move(params));
   }
 
   TestingProfile* CreateActiveProfile(std::string profile_name) {
@@ -99,7 +102,7 @@ class ReportRequestQueueGeneratorTest
       std::unique_ptr<policy::PolicyService> policy_service) {
     return profile_manager_.CreateTestingProfile(
         profile_name, {}, base::UTF8ToUTF16(profile_name), 0, {},
-        TestingProfile::TestingFactories(), base::nullopt,
+        TestingProfile::TestingFactories(), absl::nullopt,
         std::move(policy_service));
   }
 
@@ -255,9 +258,8 @@ TEST_P(ReportRequestQueueGeneratorTest, BasicReportIsTooBig) {
                                        0);
 }
 
-// TODO(1153593): Test is very flaky on all bots. Disabling until zmin@ is back.
-TEST_P(ReportRequestQueueGeneratorTest, DISABLED_ReportSeparation) {
-  CreateActiveProfilesWithContent();
+TEST_P(ReportRequestQueueGeneratorTest, ReportSeparation) {
+  auto active_profiles = CreateActiveProfilesWithContent();
   auto basic_request = GenerateBasicRequest();
   auto requests = GenerateRequests(*basic_request);
   EXPECT_EQ(1u, requests.size());
@@ -268,12 +270,27 @@ TEST_P(ReportRequestQueueGeneratorTest, DISABLED_ReportSeparation) {
   requests = GenerateRequests(*basic_request);
   EXPECT_EQ(2u, requests.size());
 
+  // The profile order in requests should match the return value of
+  // GetAllProfilesAttributes().
+  std::vector<std::string> expected_active_profiles_in_requests;
+  for (const auto* entry : profile_manager()
+                               ->profile_attributes_storage()
+                               ->GetAllProfilesAttributes()) {
+    std::string profile_name = base::UTF16ToUTF8(entry->GetName());
+    if (active_profiles.find(profile_name) != active_profiles.end())
+      expected_active_profiles_in_requests.push_back(profile_name);
+  }
+
   // The first profile is activated in the first request only while the second
   // profile is activated in the second request.
-  VerifyProfiles(requests[0]->browser_report(), {kActiveProfileName1},
-                 {kActiveProfileName2});
-  VerifyProfiles(requests[1]->browser_report(), {kActiveProfileName2},
-                 {kActiveProfileName1});
+  VerifyProfiles(
+      requests[0]->browser_report(),
+      {/* idle_profile_names */ expected_active_profiles_in_requests[1]},
+      {/* active_profile_names */ expected_active_profiles_in_requests[0]});
+  VerifyProfiles(
+      requests[1]->browser_report(),
+      {/* idle_profile_names */ expected_active_profiles_in_requests[0]},
+      {/* active_profile_names */ expected_active_profiles_in_requests[1]});
   histogram_tester()->ExpectBucketCount("Enterprise.CloudReportingRequestSize",
                                         /*report size floor to KB*/ 0, 2);
 }

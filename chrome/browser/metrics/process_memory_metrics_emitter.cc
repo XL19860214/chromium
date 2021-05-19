@@ -264,6 +264,8 @@ const Metric kAllocatorDumpNamesForMetrics[] = {
     {"partition_alloc/partitions/layout", "PartitionAlloc.Partitions.Layout",
      MetricSize::kLarge, kSize, EmitTo::kSizeInUkmAndUma,
      &Memory_Experimental::SetPartitionAlloc_Partitions_Layout},
+    {"passwords", "ManualFillingCache", MetricSize::kSmall, kEffectiveSize,
+     EmitTo::kSizeInUmaOnly, nullptr},
     {"site_storage", "SiteStorage", MetricSize::kLarge, kEffectiveSize,
      EmitTo::kSizeInUkmAndUma, &Memory_Experimental::SetSiteStorage},
     {"site_storage/blob_storage", "SiteStorage.BlobStorage", MetricSize::kLarge,
@@ -307,9 +309,12 @@ const Metric kAllocatorDumpNamesForMetrics[] = {
     {"v8/main", "V8.Main.AllocatedObjects", MetricSize::kLarge,
      kAllocatedObjectsSize, EmitTo::kSizeInUkmAndUma,
      &Memory_Experimental::SetV8_Main_AllocatedObjects},
-    {"v8/main/global_handles", "V8.Main.GlobalHandles", MetricSize::kSmall,
+    {"v8/main/global_handles", "V8.Main.GlobalHandles", MetricSize::kLarge,
      kEffectiveSize, EmitTo::kSizeInUkmAndUma,
      &Memory_Experimental::SetV8_Main_GlobalHandles},
+    {"v8/main/global_handles", "V8.Main.GlobalHandles.AllocatedObjects",
+     MetricSize::kLarge, kAllocatedObjectsSize, EmitTo::kSizeInUkmAndUma,
+     &Memory_Experimental::SetV8_Main_GlobalHandles_AllocatedObjects},
     {"v8/main/heap", "V8.Main.Heap", MetricSize::kLarge, kEffectiveSize,
      EmitTo::kSizeInUkmAndUma, &Memory_Experimental::SetV8_Main_Heap},
     {"v8/main/heap", "V8.Main.Heap.AllocatedObjects", MetricSize::kLarge,
@@ -468,11 +473,11 @@ void EmitProcessUma(HistogramProcessType process_type,
 
 void EmitProcessUmaAndUkm(const GlobalMemoryDump::ProcessDump& pmd,
                           HistogramProcessType process_type,
-                          const base::Optional<base::TimeDelta>& uptime,
+                          const absl::optional<base::TimeDelta>& uptime,
                           bool record_uma,
                           Memory_Experimental* builder) {
   for (const auto& item : kAllocatorDumpNamesForMetrics) {
-    base::Optional<uint64_t> value = pmd.GetMetric(item.dump_name, item.metric);
+    absl::optional<uint64_t> value = pmd.GetMetric(item.dump_name, item.metric);
     if (!value)
       continue;
 
@@ -577,7 +582,7 @@ void EmitSummedGpuMemory(const GlobalMemoryDump::ProcessDump& pmd,
 void EmitBrowserMemoryMetrics(const GlobalMemoryDump::ProcessDump& pmd,
                               ukm::SourceId ukm_source_id,
                               ukm::UkmRecorder* ukm_recorder,
-                              const base::Optional<base::TimeDelta>& uptime,
+                              const absl::optional<base::TimeDelta>& uptime,
                               bool record_uma) {
   Memory_Experimental builder(ukm_source_id);
   builder.SetProcessType(static_cast<int64_t>(
@@ -594,7 +599,7 @@ void EmitRendererMemoryMetrics(
     const ProcessMemoryMetricsEmitter::PageInfo* page_info,
     ukm::UkmRecorder* ukm_recorder,
     int number_of_extensions,
-    const base::Optional<base::TimeDelta>& uptime,
+    const absl::optional<base::TimeDelta>& uptime,
     bool record_uma) {
   ukm::SourceId ukm_source_id =
       page_info ? page_info->ukm_source_id : ukm::UkmRecorder::GetNewSourceID();
@@ -622,7 +627,7 @@ void EmitRendererMemoryMetrics(
 void EmitGpuMemoryMetrics(const GlobalMemoryDump::ProcessDump& pmd,
                           ukm::SourceId ukm_source_id,
                           ukm::UkmRecorder* ukm_recorder,
-                          const base::Optional<base::TimeDelta>& uptime,
+                          const absl::optional<base::TimeDelta>& uptime,
                           bool record_uma) {
   Memory_Experimental builder(ukm_source_id);
   builder.SetProcessType(
@@ -637,7 +642,7 @@ void EmitUtilityMemoryMetrics(HistogramProcessType ptype,
                               const GlobalMemoryDump::ProcessDump& pmd,
                               ukm::SourceId ukm_source_id,
                               ukm::UkmRecorder* ukm_recorder,
-                              const base::Optional<base::TimeDelta>& uptime,
+                              const absl::optional<base::TimeDelta>& uptime,
                               bool record_uma) {
   Memory_Experimental builder(ukm_source_id);
   builder.SetProcessType(static_cast<int64_t>(
@@ -785,7 +790,7 @@ int ProcessMemoryMetricsEmitter::GetNumberOfExtensions(base::ProcessId pid) {
   return number_of_extensions;
 }
 
-base::Optional<base::TimeDelta> ProcessMemoryMetricsEmitter::GetProcessUptime(
+absl::optional<base::TimeDelta> ProcessMemoryMetricsEmitter::GetProcessUptime(
     const base::Time& now,
     base::ProcessId pid) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
@@ -795,7 +800,7 @@ base::Optional<base::TimeDelta> ProcessMemoryMetricsEmitter::GetProcessUptime(
     if (!process_info->second.launch_time.is_null())
       return now - process_info->second.launch_time;
   }
-  return base::Optional<base::TimeDelta>();
+  return absl::optional<base::TimeDelta>();
 }
 
 void ProcessMemoryMetricsEmitter::CollateResults() {

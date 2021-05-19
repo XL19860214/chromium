@@ -65,8 +65,8 @@
 #include "remoting/host/host_config.h"
 #include "remoting/host/host_event_logger.h"
 #include "remoting/host/host_exit_codes.h"
-#include "remoting/host/host_main.h"
 #include "remoting/host/host_power_save_blocker.h"
+#include "remoting/host/host_settings.h"
 #include "remoting/host/host_status_logger.h"
 #include "remoting/host/input_injector.h"
 #include "remoting/host/ipc_desktop_environment.h"
@@ -114,6 +114,7 @@
 #if defined(OS_APPLE)
 #include "base/mac/mac_util.h"
 #include "base/mac/scoped_cftyperef.h"
+#include "remoting/host/audio_capturer_mac.h"
 #include "remoting/host/desktop_capturer_checker.h"
 #include "remoting/host/mac/permission_utils.h"
 #endif  // defined(OS_APPLE)
@@ -125,6 +126,7 @@
 #include "remoting/host/audio_capturer_linux.h"
 #include "remoting/host/linux/certificate_watcher.h"
 #include "ui/events/platform/x11/x11_event_source.h"
+#include "ui/gfx/x/xlib_support.h"
 #endif  // defined(OS_LINUX) || defined(OS_CHROMEOS)
 
 #if defined(OS_WIN)
@@ -319,6 +321,7 @@ class HostProcess : public ConfigWatcher::Delegate,
   bool OnFileTransferPolicyUpdate(base::DictionaryValue* policies);
   bool OnEnableUserInterfacePolicyUpdate(base::DictionaryValue* policies);
   bool OnAllowRemoteAccessConnections(base::DictionaryValue* policies);
+  bool OnMaxSessionDurationPolicyUpdate(base::DictionaryValue* policies);
 
   void InitializeSignaling();
 
@@ -396,6 +399,7 @@ class HostProcess : public ConfigWatcher::Delegate,
   ThirdPartyAuthConfig third_party_auth_config_;
   bool security_key_auth_policy_enabled_ = false;
   bool security_key_extension_supported_ = true;
+  int max_session_duration_minutes_ = 0;
 
   // Used to specify which window to stream, if enabled.
   webrtc::WindowId window_id_ = 0;
@@ -427,8 +431,9 @@ class HostProcess : public ConfigWatcher::Delegate,
   // Used to keep this HostProcess alive until it is shutdown.
   scoped_refptr<HostProcess> self_;
 
-#if defined(REMOTING_MULTI_PROCESS)
   std::unique_ptr<mojo::core::ScopedIPCSupport> ipc_support_;
+
+#if defined(REMOTING_MULTI_PROCESS)
 
   // Accessed on the UI thread.
   std::unique_ptr<IPC::ChannelProxy> daemon_channel_;
@@ -512,9 +517,19 @@ bool HostProcess::InitWithCommandLine(const base::CommandLine* cmd_line) {
     permission_granted_ = mac::CanRecordScreen();
     return false;
   }
+  if (cmd_line->HasSwitch(kListAudioDevicesSwitchName)) {
+    std::vector<AudioCapturerMac::AudioDeviceInfo> audio_devices =
+        AudioCapturerMac::GetAudioDevices();
+    printf("Audio devices:\n");
+    for (const auto& audio_device : audio_devices) {
+      printf("\n");
+      printf("  Device name: %s\n", audio_device.device_name.c_str());
+      printf("  Device UID: %s\n", audio_device.device_uid.c_str());
+    }
+    return false;
+  }
 #endif  // defined(OS_APPLE)
 
-#if defined(REMOTING_MULTI_PROCESS)
   // Mojo keeps the task runner passed to it alive forever, so an
   // AutoThreadTaskRunner should not be passed to it. Otherwise, the process may
   // never shut down cleanly.
@@ -522,6 +537,7 @@ bool HostProcess::InitWithCommandLine(const base::CommandLine* cmd_line) {
       context_->network_task_runner()->task_runner(),
       mojo::core::ScopedIPCSupport::ShutdownPolicy::FAST);
 
+#if defined(REMOTING_MULTI_PROCESS)
   auto endpoint =
       mojo::PlatformChannel::RecoverPassedEndpointFromCommandLine(*cmd_line);
   auto invitation = mojo::IncomingInvitation::Accept(std::move(endpoint));
@@ -689,9 +705,9 @@ void HostProcess::StartOnNetworkThread() {
     OnConfigUpdated(host_config_);
   } else {
     // Start watching the host configuration file.
-    config_watcher_.reset(new ConfigFileWatcher(context_->network_task_runner(),
-                                                context_->file_task_runner(),
-                                                host_config_path_));
+    config_watcher_ = std::make_unique<ConfigFileWatcher>(
+        context_->network_task_runner(), context_->file_task_runner(),
+        host_config_path_);
     config_watcher_->Watch(this);
   }
 #endif  // !defined(REMOTING_MULTI_PROCESS)
@@ -778,7 +794,7 @@ void HostProcess::CreateAuthenticatorFactory() {
 
 #if defined(OS_POSIX)
   // On Linux and Mac, perform a PAM authorization step after authentication.
-  factory.reset(new PamAuthorizationFactory(std::move(factory)));
+  factory = std::make_unique<PamAuthorizationFactory>(std::move(factory));
 #endif
   host_->SetAuthenticatorFactory(std::move(factory));
 }
@@ -830,6 +846,8 @@ void HostProcess::StartOnUiThread() {
     ShutdownOnUiThread();
     return;
   }
+
+  HostSettings::Initialize();
 
   if (!report_offline_reason_.empty()) {
     // Don't need to do any UI initialization.
@@ -1058,6 +1076,7 @@ void HostProcess::OnPolicyUpdate(
   restart_required |= OnFileTransferPolicyUpdate(policies.get());
   restart_required |= OnEnableUserInterfacePolicyUpdate(policies.get());
   restart_required |= OnAllowRemoteAccessConnections(policies.get());
+  restart_required |= OnMaxSessionDurationPolicyUpdate(policies.get());
 
   policy_state_ = POLICY_LOADED;
 
@@ -1141,7 +1160,7 @@ bool HostProcess::OnHostDomainListPolicyUpdate(
   }
 
   host_domain_list_.clear();
-  for (const auto& value : *list) {
+  for (const auto& value : list->GetList()) {
     host_domain_list_.push_back(value.GetString());
   }
 
@@ -1160,7 +1179,7 @@ bool HostProcess::OnClientDomainListPolicyUpdate(
   }
 
   client_domain_list_.clear();
-  for (const auto& value : *list) {
+  for (const auto& value : list->GetList()) {
     client_domain_list_.push_back(value.GetString());
   }
 
@@ -1407,6 +1426,27 @@ bool HostProcess::OnEnableUserInterfacePolicyUpdate(
   return true;
 }
 
+bool HostProcess::OnMaxSessionDurationPolicyUpdate(
+    base::DictionaryValue* policies) {
+  DCHECK(context_->network_task_runner()->BelongsToCurrentThread());
+
+  if (!policies->GetInteger(
+          policy::key::kRemoteAccessHostMaximumSessionDurationMinutes,
+          &max_session_duration_minutes_)) {
+    return false;
+  }
+
+  if (max_session_duration_minutes_ > 0) {
+    HOST_LOG << "Policy sets maximum session duration to "
+             << max_session_duration_minutes_ << " minutes.";
+  } else {
+    HOST_LOG << "Policy does not set a maximum session duration.";
+  }
+
+  // Restart required.
+  return true;
+}
+
 bool HostProcess::OnAllowRemoteAccessConnections(
     base::DictionaryValue* policies) {
   // Returns false: never restart the host after this policy update.
@@ -1551,17 +1591,17 @@ void HostProcess::StartHost() {
 
   host_->AddExtension(std::make_unique<TestEchoExtension>());
 
-  // TODO(simonmorris): Get the maximum session duration from a policy.
-#if defined(OS_LINUX) || defined(OS_CHROMEOS)
-  host_->SetMaximumSessionDuration(base::TimeDelta::FromHours(20));
-#endif
+  if (max_session_duration_minutes_ > 0) {
+    host_->SetMaximumSessionDuration(
+        base::TimeDelta::FromMinutes(max_session_duration_minutes_));
+  }
 
   host_status_logger_ = std::make_unique<HostStatusLogger>(
       host_->status_monitor(), log_to_server_.get());
 
-  power_save_blocker_.reset(new HostPowerSaveBlocker(
+  power_save_blocker_ = std::make_unique<HostPowerSaveBlocker>(
       host_->status_monitor(), context_->ui_task_runner(),
-      context_->file_task_runner()));
+      context_->file_task_runner());
 
   ftl_host_change_notification_listener_ =
       std::make_unique<FtlHostChangeNotificationListener>(
@@ -1572,8 +1612,8 @@ void HostProcess::StartHost() {
 
   // Set up reporting the host status notifications.
 #if defined(REMOTING_MULTI_PROCESS)
-  host_event_logger_.reset(
-      new IpcHostEventLogger(host_->status_monitor(), daemon_channel_.get()));
+  host_event_logger_ = std::make_unique<IpcHostEventLogger>(
+      host_->status_monitor(), daemon_channel_.get());
 #else  // !defined(REMOTING_MULTI_PROCESS)
   host_event_logger_ =
       HostEventLogger::Create(host_->status_monitor(), kApplicationName);
@@ -1725,13 +1765,12 @@ int HostProcessMain() {
   HOST_LOG << "Starting host process: version " << STRINGIZE(VERSION);
 
 #if defined(OS_LINUX) || defined(OS_CHROMEOS)
-  std::unique_ptr<ui::X11EventSource> event_source;
+  // Initialize Xlib for multi-threaded use, allowing non-Chromium code to
+  // use X11 safely (such as the WebRTC capturer, GTK ...)
+  x11::InitXlib();
+
   if (!base::CommandLine::ForCurrentProcess()->HasSwitch(
           kReportOfflineReasonSwitchName)) {
-    // Create an X11EventSource so the global X11 connection
-    // (x11::Connection::Get()) can dispatch X events.
-    event_source = std::make_unique<ui::X11EventSource>(x11::Connection::Get());
-
     // Required for any calls into GTK functions, such as the Disconnect and
     // Continue windows, though these should not be used for the Me2Me case
     // (crbug.com/104377).
@@ -1762,6 +1801,17 @@ int HostProcessMain() {
   std::unique_ptr<net::NetworkChangeNotifier> network_change_notifier(
       net::NetworkChangeNotifier::CreateIfNeeded());
 
+#if defined(OS_LINUX) || defined(OS_CHROMEOS)
+  // Create an X11EventSource on all UI threads, so the global X11 connection
+  // (x11::Connection::Get()) can dispatch X events.
+  auto event_source =
+      std::make_unique<ui::X11EventSource>(x11::Connection::Get());
+  auto input_task_runner = context->input_task_runner();
+  input_task_runner->PostTask(FROM_HERE, base::BindOnce([]() {
+                                new ui::X11EventSource(x11::Connection::Get());
+                              }));
+#endif  // defined(OS_LINUX) || defined(OS_CHROMEOS)
+
   // Create & start the HostProcess using these threads.
   // TODO(wez): The HostProcess holds a reference to itself until Shutdown().
   // Remove this hack as part of the multi-process refactoring.
@@ -1772,6 +1822,12 @@ int HostProcessMain() {
 
   // Run the main (also UI) task executor until the host no longer needs it.
   run_loop.Run();
+
+#if defined(OS_LINUX) || defined(OS_CHROMEOS)
+  input_task_runner->PostTask(FROM_HERE, base::BindOnce([]() {
+                                delete ui::X11EventSource::GetInstance();
+                              }));
+#endif  // defined(OS_LINUX) || defined(OS_CHROMEOS)
 
   // Block until tasks blocking shutdown have completed their execution.
   base::ThreadPoolInstance::Get()->Shutdown();

@@ -14,10 +14,10 @@
 #include "components/version_info/channel.h"
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-#include "base/system/sys_info.h"
-#include "chrome/browser/chromeos/login/session/user_session_manager.h"
+#include "chrome/browser/ash/login/session/user_session_manager.h"
+#include "chromeos/cryptohome/cryptohome_parameters.h"
+#include "chromeos/dbus/session_manager/session_manager_client.h"
 #include "components/account_id/account_id.h"
-#include "components/pref_registry/pref_registry_syncable.h"
 #include "components/user_manager/user_manager.h"
 #endif
 
@@ -63,11 +63,16 @@ void FlagsUIHandler::Init(flags_ui::FlagsStorage* flags_storage,
 
 void FlagsUIHandler::HandleRequestExperimentalFeatures(
     const base::ListValue* args) {
+  AllowJavascript();
+  const base::Value& callback_id = args->GetList()[0];
+
   experimental_features_requested_ = true;
   // Bail out if the handler hasn't been initialized yet. The request will be
   // handled after the initialization.
-  if (!flags_storage_)
+  if (!flags_storage_) {
+    ResolveJavascriptCallback(callback_id, base::Value());
     return;
+  }
 
   base::DictionaryValue results;
 
@@ -103,8 +108,7 @@ void FlagsUIHandler::HandleRequestExperimentalFeatures(
   results.SetBoolean(flags_ui::kShowBetaChannelPromotion, false);
   results.SetBoolean(flags_ui::kShowDevChannelPromotion, false);
 #endif
-  web_ui()->CallJavascriptFunctionUnsafe(flags_ui::kReturnExperimentalFeatures,
-                                         results);
+  ResolveJavascriptCallback(callback_id, results);
 }
 
 void FlagsUIHandler::HandleEnableExperimentalFeatureMessage(
@@ -149,28 +153,21 @@ void FlagsUIHandler::HandleSetOriginListFlagMessage(
 void FlagsUIHandler::HandleRestartBrowser(const base::ListValue* args) {
   DCHECK(flags_storage_);
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-  // On ChromeOS be less intrusive and restart inside the user session after
+  // On Chrome OS be less intrusive and restart inside the user session after
   // we apply the newly selected flags.
-  base::CommandLine user_flags(base::CommandLine::NO_PROGRAM);
-  about_flags::ConvertFlagsToSwitches(flags_storage_.get(), &user_flags,
-                                      flags_ui::kAddSentinels);
-
-  // Adhere to policy-enforced command-line switch handling when
-  // applying modified flags..
-  chromeos::UserSessionManager::ApplyUserPolicyToSwitches(
-      Profile::FromWebUI(web_ui())->GetPrefs(), &user_flags);
-
-  base::CommandLine::StringVector flags;
-  // argv[0] is the program name |base::CommandLine::NO_PROGRAM|.
-  flags.assign(user_flags.argv().begin() + 1, user_flags.argv().end());
   VLOG(1) << "Restarting to apply per-session flags...";
+
+  // Adhere to policy-enforced command-line switch handling when applying
+  // modified flags.
+  auto flags = flags_storage_->GetFlags();
+  ash::UserSessionManager::ApplyUserPolicyToFlags(
+      Profile::FromWebUI(web_ui())->GetPrefs(), &flags);
+
   AccountId account_id =
       user_manager::UserManager::Get()->GetActiveUser()->GetAccountId();
-  chromeos::UserSessionManager::GetInstance()->SetSwitchesForUser(
-      account_id,
-      chromeos::UserSessionManager::CommandLineSwitchesType::
-          kPolicyAndFlagsAndKioskControl,
-      flags);
+  chromeos::SessionManagerClient::Get()->SetFeatureFlagsForUser(
+      cryptohome::CreateAccountIdentifierFromAccountId(account_id),
+      {flags.begin(), flags.end()});
 #endif
   chrome::AttemptRestart();
 }

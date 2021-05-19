@@ -37,7 +37,7 @@ using testing::Invoke;
 using testing::StrictMock;
 using testing::WithArg;
 
-namespace syncer {
+namespace invalidation {
 
 namespace {
 
@@ -122,7 +122,6 @@ class MockGCMDriver : public gcm::GCMDriver {
   MOCK_METHOD1(RemoveAccountMapping, void(const CoreAccountId& account_id));
   MOCK_METHOD0(GetLastTokenFetchTime, base::Time());
   MOCK_METHOD1(SetLastTokenFetchTime, void(const base::Time& time));
-  MOCK_METHOD1(WakeFromSuspendForHeartbeat, void(bool wake));
   MOCK_METHOD0(GetInstanceIDHandlerInternal, InstanceIDHandler*());
   MOCK_METHOD2(AddHeartbeatInterval,
                void(const std::string& scope, int interval_ms));
@@ -247,8 +246,8 @@ class FCMNetworkHandlerTestWithTTL : public FCMNetworkHandlerTest {
         {"time_to_live_seconds", base::NumberToString(kTimeToLiveInSeconds)}};
     override_features_.InitWithFeaturesAndParameters(
         /*enabled_features=*/
-        {{invalidation::switches::kSyncInstanceIDTokenTTL, feature_params},
-         {invalidation::switches::kPolicyInstanceIDTokenTTL, feature_params}},
+        {{switches::kSyncInstanceIDTokenTTL, feature_params},
+         {switches::kPolicyInstanceIDTokenTTL, feature_params}},
         /*disabled_features=*/{});
   }
 
@@ -508,4 +507,4 @@ TEST_F(FCMNetworkHandlerTestWithTTL, ShouldNotProvideTTLWithFakeSenderID) {
   MakeHandler(/*sender_id=*/"fake_sender_id")->StartListening();
 }
 
-}  // namespace syncer
+}  // namespace invalidation

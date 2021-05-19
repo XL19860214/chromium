@@ -14,7 +14,6 @@
 #include "base/strings/sys_string_conversions.h"
 #include "components/prefs/pref_service.h"
 #include "components/sessions/core/tab_restore_service.h"
-#include "components/signin/public/base/signin_pref_names.h"
 #include "components/strings/grit/components_strings.h"
 #include "components/sync_sessions/open_tabs_ui_delegate.h"
 #include "components/sync_sessions/session_sync_service.h"
@@ -24,7 +23,6 @@
 #import "ios/chrome/browser/drag_and_drop/table_view_url_drag_drop_handler.h"
 #import "ios/chrome/browser/main/browser.h"
 #import "ios/chrome/browser/metrics/new_tab_page_uma.h"
-#include "ios/chrome/browser/policy/policy_features.h"
 #include "ios/chrome/browser/sessions/live_tab_context_browser_agent.h"
 #include "ios/chrome/browser/sessions/session_util.h"
 #include "ios/chrome/browser/sync/session_sync_service_factory.h"
@@ -32,6 +30,7 @@
 #import "ios/chrome/browser/ui/authentication/cells/signin_promo_view_configurator.h"
 #import "ios/chrome/browser/ui/authentication/cells/signin_promo_view_consumer.h"
 #import "ios/chrome/browser/ui/authentication/cells/table_view_signin_promo_item.h"
+#import "ios/chrome/browser/ui/authentication/signin/signin_utils.h"
 #import "ios/chrome/browser/ui/authentication/signin_promo_view_mediator.h"
 #include "ios/chrome/browser/ui/commands/application_commands.h"
 #import "ios/chrome/browser/ui/commands/open_new_tab_command.h"
@@ -45,7 +44,6 @@
 #import "ios/chrome/browser/ui/settings/sync/utils/sync_util.h"
 #import "ios/chrome/browser/ui/table_view/cells/table_view_activity_indicator_header_footer_item.h"
 #import "ios/chrome/browser/ui/table_view/cells/table_view_cells_constants.h"
-#import "ios/chrome/browser/ui/table_view/cells/table_view_detail_text_item.h"
 #import "ios/chrome/browser/ui/table_view/cells/table_view_disclosure_header_footer_item.h"
 #import "ios/chrome/browser/ui/table_view/cells/table_view_illustrated_item.h"
 #import "ios/chrome/browser/ui/table_view/cells/table_view_image_item.h"
@@ -90,7 +88,6 @@ typedef NS_ENUM(NSInteger, SectionIdentifier) {
 typedef NS_ENUM(NSInteger, ItemType) {
   ItemTypeRecentlyClosedHeader = kItemTypeEnumZero,
   ItemTypeRecentlyClosed,
-  ItemTypeRecentlyClosedEmpty,
   ItemTypeOtherDevicesHeader,
   ItemTypeOtherDevicesSyncOff,
   ItemTypeOtherDevicesNoSessions,
@@ -274,6 +271,11 @@ API_AVAILABLE(ios(13.0))
       [[TableViewDisclosureHeaderFooterItem alloc]
           initWithType:ItemTypeRecentlyClosedHeader];
   header.text = l10n_util::GetNSString(IDS_IOS_RECENT_TABS_RECENTLY_CLOSED);
+  if (base::FeatureList::IsEnabled(kIllustratedEmptyStates) &&
+      self.tabRestoreService->entries().empty()) {
+    header.subtitleText =
+        l10n_util::GetNSString(IDS_IOS_RECENT_TABS_RECENTLY_CLOSED_EMPTY);
+  }
   [model setHeader:header
       forSectionWithIdentifier:SectionIdentifierRecentlyClosedTabs];
   header.collapsed = [self.tableViewModel
@@ -319,18 +321,6 @@ API_AVAILABLE(ios(13.0))
     recentlyClosedTab.title = base::SysUTF16ToNSString(navigationEntry.title());
     recentlyClosedTab.URL = navigationEntry.virtual_url();
     [self.tableViewModel addItem:recentlyClosedTab
-         toSectionWithIdentifier:SectionIdentifierRecentlyClosedTabs];
-  }
-  if (base::FeatureList::IsEnabled(kIllustratedEmptyStates) &&
-      self.tabRestoreService->entries().empty()) {
-    TableViewDetailTextItem* textItem = [[TableViewDetailTextItem alloc]
-        initWithType:ItemTypeRecentlyClosedEmpty];
-    textItem.accessibilityLabel =
-        l10n_util::GetNSString(IDS_IOS_RECENT_TABS_RECENTLY_CLOSED_EMPTY);
-    textItem.detailText =
-        l10n_util::GetNSString(IDS_IOS_RECENT_TABS_RECENTLY_CLOSED_EMPTY);
-    textItem.detailTextColor = [UIColor colorNamed:kTextSecondaryColor];
-    [self.tableViewModel addItem:textItem
          toSectionWithIdentifier:SectionIdentifierRecentlyClosedTabs];
   }
 }
@@ -471,6 +461,14 @@ API_AVAILABLE(ios(13.0))
 
 // Adds Other Devices Section and its header.
 - (void)addOtherDevicesSectionForState:(SessionsSyncUserState)state {
+  // If sign-in is disabled through user Settings, do not show Other Devices
+  // section. However, if sign-in is disabled by policy Chrome will
+  // continue to show the Other Devices section with a specialized mesage.
+  if (!signin::IsSigninAllowed(self.browserState->GetPrefs()) &&
+      signin::IsSigninAllowedByPolicy()) {
+    return;
+  }
+
   TableViewModel* model = self.tableViewModel;
   [model addSectionWithIdentifier:SectionIdentifierOtherDevices];
   [model setSectionIdentifier:SectionIdentifierOtherDevices
@@ -498,9 +496,9 @@ API_AVAILABLE(ios(13.0))
         [self.tableViewModel sectionIsCollapsed:SectionIdentifierOtherDevices];
   }
 
-  if (ShouldInstallBrowserSigninPolicyHandler() &&
-      !self.browserState->GetPrefs()->GetBoolean(prefs::kSigninAllowed)) {
-    // If sign-in is disabled, don't show an illustration or a sign-in promo.
+  if (!signin::IsSigninAllowed(self.browserState->GetPrefs())) {
+    // If sign-in is disabled by policy, don't show an illustration or a sign-in
+    // promo.
     TableViewTextItem* disabledByOrganizationText =
         [[TableViewTextItem alloc] initWithType:ItemTypeSigninDisabled];
     disabledByOrganizationText.text =
@@ -681,7 +679,7 @@ API_AVAILABLE(ios(13.0))
 
 #pragma mark - Public
 
-- (synced_sessions::DistantSession const*)sessionForSectionIdentifier:
+- (synced_sessions::DistantSession const*)sessionForTableSectionWithIdentifier:
     (NSInteger)sectionIdentifer {
   NSInteger section =
       [self.tableViewModel sectionForSectionIdentifier:sectionIdentifer];
@@ -689,33 +687,41 @@ API_AVAILABLE(ios(13.0))
   return _syncedSessions->GetSession(section - kNumberOfSectionsBeforeSessions);
 }
 
-- (void)removeSessionAtSessionSectionIdentifier:(NSInteger)sectionIdentifier {
+- (void)removeSessionAtTableSectionWithIdentifier:(NSInteger)sectionIdentifier {
   DCHECK([self isSessionSectionIdentifier:sectionIdentifier]);
+
+  // Save the sessionTag before removing it from the table. It will be needed to
+  // delete the session later.
   synced_sessions::DistantSession const* session =
-      [self sessionForSectionIdentifier:sectionIdentifier];
-  std::string sessionTagCopy = session->tag;
+      [self sessionForTableSectionWithIdentifier:sectionIdentifier];
+  std::string sessionTag = session->tag;
 
-  NSInteger section =
-      [self.tableViewModel sectionForSectionIdentifier:sectionIdentifier];
-
+  // Remove the section and, on completion, the delete the session.
   __weak __typeof(self) weakSelf = self;
-  void (^tableUpdates)(void) = ^{
-    [weakSelf.tableViewModel removeSectionWithIdentifier:sectionIdentifier];
-    _syncedSessions->EraseSession(section - kNumberOfSectionsBeforeSessions);
-    [weakSelf.tableView deleteSections:[NSIndexSet indexSetWithIndex:section]
-                      withRowAnimation:UITableViewRowAnimationLeft];
-  };
+  [self.tableView
+      performBatchUpdates:^{
+        [weakSelf removeSection:sectionIdentifier];
+      }
+      completion:^(BOOL) {
+        [weakSelf deleteSession:sessionTag];
+      }];
+}
 
-  [self.tableView performBatchUpdates:tableUpdates
-                           completion:^(BOOL) {
-                             if (!weakSelf)
-                               return;
-                             sync_sessions::OpenTabsUIDelegate* openTabs =
-                                 SessionSyncServiceFactory::GetForBrowserState(
-                                     weakSelf.browserState)
-                                     ->GetOpenTabsUIDelegate();
-                             openTabs->DeleteForeignSession(sessionTagCopy);
-                           }];
+// Helper for removeSessionAtTableSectionWithIdentifier
+- (void)removeSection:(NSInteger)sectionIdentifier {
+  NSInteger sectionIndex =
+      [self.tableViewModel sectionForSectionIdentifier:sectionIdentifier];
+  [self.tableViewModel removeSectionWithIdentifier:sectionIdentifier];
+  _syncedSessions->EraseSession(sectionIndex - kNumberOfSectionsBeforeSessions);
+  [self.tableView deleteSections:[NSIndexSet indexSetWithIndex:sectionIndex]
+                withRowAnimation:UITableViewRowAnimationLeft];
+}
+
+// Helper for removeSessionAtTableSectionWithIdentifier
+- (void)deleteSession:(std::string)sessionTag {
+  SessionSyncServiceFactory::GetForBrowserState(self.browserState)
+      ->GetOpenTabsUIDelegate()
+      ->DeleteForeignSession(sessionTag);
 }
 
 #pragma mark - Private
@@ -827,7 +833,6 @@ API_AVAILABLE(ios(13.0))
         [self.presentationDelegate showHistoryFromRecentTabs];
       }
       break;
-    case ItemTypeRecentlyClosedEmpty:
     case ItemTypeOtherDevicesSyncOff:
     case ItemTypeOtherDevicesNoSessions:
     case ItemTypeOtherDevicesSigninPromo:
@@ -869,6 +874,9 @@ API_AVAILABLE(ios(13.0))
           base::mac::ObjCCastStrict<TableViewSigninPromoCell>(cell);
       signinPromoCell.signinPromoView.imageView.hidden = YES;
       signinPromoCell.signinPromoView.textLabel.hidden = YES;
+      if (base::FeatureList::IsEnabled(kSettingsRefresh)) {
+        signinPromoCell.backgroundColor = nil;
+      }
     }
   }
   // Retrieve favicons for closed tabs and remote sessions.
@@ -905,20 +913,6 @@ API_AVAILABLE(ios(13.0))
     cell.separatorInset =
         UIEdgeInsetsMake(0, self.tableView.bounds.size.width, 0, 0);
   }
-  // Setup the cell for multiline and hide the separator.
-  if (itemTypeSelected == ItemTypeRecentlyClosedEmpty) {
-    // This cell should only exist when illustrated-empty-states is enabled.
-    DCHECK(base::FeatureList::IsEnabled(kIllustratedEmptyStates));
-    TableViewDetailTextCell* textCell =
-        base::mac::ObjCCastStrict<TableViewDetailTextCell>(cell);
-    textCell.detailTextLabel.numberOfLines = 0;
-    textCell.detailTextLabel.font =
-        [UIFont preferredFontForTextStyle:UIFontTextStyleSubheadline];
-    textCell.selectionStyle = UITableViewCellSelectionStyleNone;
-    textCell.separatorInset =
-        UIEdgeInsetsMake(0, tableView.bounds.size.width, 0, 0);
-  }
-
   return cell;
 }
 
@@ -1007,7 +1001,6 @@ API_AVAILABLE(ios(13.0))
     }
 
     case ItemTypeRecentlyClosedHeader:
-    case ItemTypeRecentlyClosedEmpty:
     case ItemTypeOtherDevicesHeader:
     case ItemTypeOtherDevicesSyncOff:
     case ItemTypeOtherDevicesNoSessions:
@@ -1363,7 +1356,7 @@ API_AVAILABLE(ios(13.0))
   [self.contextMenuCoordinator
       addItemWithTitle:hideButtonLabel
                 action:^{
-                  [weakSelf removeSessionAtSessionSectionIdentifier:
+                  [weakSelf removeSessionAtTableSectionWithIdentifier:
                                 sectionIdentifier];
                 }
                  style:UIAlertActionStyleDefault];
@@ -1373,7 +1366,7 @@ API_AVAILABLE(ios(13.0))
 
 - (void)openTabsFromSessionSectionIdentifier:(NSInteger)sectionIdentifier {
   synced_sessions::DistantSession const* session =
-      [self sessionForSectionIdentifier:sectionIdentifier];
+      [self sessionForTableSectionWithIdentifier:sectionIdentifier];
   [self.presentationDelegate openAllTabsFromSession:session];
 }
 
@@ -1425,6 +1418,10 @@ API_AVAILABLE(ios(13.0))
   [self.handler showGoogleServicesSettingsFromViewController:self];
 }
 
+- (void)showAccountSettings {
+  [self.handler showAccountsSettingsFromViewController:self];
+}
+
 - (void)showTrustedVaultReauthenticationWithRetrievalTrigger:
     (syncer::KeyRetrievalTriggerForUMA)retrievalTrigger {
   [self.handler
@@ -1458,11 +1455,11 @@ API_AVAILABLE(ios(13.0))
 - (void)updateSyncState {
   SyncSetupService::SyncServiceState syncState =
       GetSyncStateForBrowserState(_browserState);
-  if (ShouldShowSyncSignin(syncState)) {
+  if (syncState == SyncSetupService::kSyncServiceSignInNeedsUpdate) {
     [self showReauthenticateSignin];
   } else if (ShouldShowSyncSettings(syncState)) {
     [self showGoogleServicesSettings];
-  } else if (ShouldShowSyncPassphraseSettings(syncState)) {
+  } else if (syncState == SyncSetupService::kSyncServiceNeedsPassphrase) {
     [self showSyncPassphraseSettings];
   }
 }

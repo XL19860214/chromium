@@ -10,7 +10,9 @@
 #include "base/strings/escape.h"
 #include "base/strings/string_piece.h"
 #include "chrome/browser/continuous_search/internal/jni_headers/SearchUrlHelper_jni.h"
+#include "chrome/browser/continuous_search/page_category.h"
 #include "components/google/core/common/google_util.h"
+#include "net/base/url_util.h"
 #include "url/android/gurl_android.h"
 #include "url/gurl.h"
 #include "url/third_party/mozilla/url_parse.h"
@@ -18,23 +20,46 @@
 
 namespace continuous_search {
 
-base::android::ScopedJavaLocalRef<jstring> JNI_SearchUrlHelper_GetQueryIfSrpUrl(
+jboolean JNI_SearchUrlHelper_IsGoogleDomainUrl(
+    JNIEnv* env,
+    const base::android::JavaParamRef<jobject>& j_gurl) {
+  std::unique_ptr<GURL> url = url::GURLAndroid::ToNativeGURL(env, j_gurl);
+  if (!url->is_valid())
+    return false;
+  return static_cast<jboolean>(
+      google_util::IsGoogleDomainUrl(*url, google_util::DISALLOW_SUBDOMAIN,
+                                     google_util::DISALLOW_NON_STANDARD_PORTS));
+}
+
+base::android::ScopedJavaLocalRef<jstring>
+JNI_SearchUrlHelper_GetQueryIfValidSrpUrl(
     JNIEnv* env,
     const base::android::JavaParamRef<jobject>& j_gurl) {
   std::unique_ptr<GURL> url = url::GURLAndroid::ToNativeGURL(env, j_gurl);
   if (!url->is_valid())
     return base::android::ScopedJavaLocalRef<jstring>();
 
-  base::Optional<std::string> query = ExtractSearchQueryIfGoogle(*url);
+  absl::optional<std::string> query = ExtractSearchQueryIfValidUrl(*url);
 
   return query.has_value()
              ? base::android::ConvertUTF8ToJavaString(env, query.value())
              : base::android::ScopedJavaLocalRef<jstring>();
 }
 
-base::Optional<std::string> ExtractSearchQueryIfGoogle(const GURL& url) {
-  if (!google_util::IsGoogleSearchUrl(url))
-    return base::nullopt;
+jint JNI_SearchUrlHelper_GetSrpPageCategoryFromUrl(
+    JNIEnv* env,
+    const base::android::JavaParamRef<jobject>& j_gurl) {
+  std::unique_ptr<GURL> url = url::GURLAndroid::ToNativeGURL(env, j_gurl);
+  if (!url->is_valid())
+    return static_cast<jint>(PageCategory::kNone);
+
+  return static_cast<jint>(GetSrpPageCategoryForUrl(*url));
+}
+
+absl::optional<std::string> ExtractSearchQueryIfValidUrl(const GURL& url) {
+  if (!google_util::IsGoogleSearchUrl(url) ||
+      GetSrpPageCategoryForUrl(url) == PageCategory::kNone)
+    return absl::nullopt;
 
   base::StringPiece query_str = url.query_piece();
   url::Component query(0, static_cast<int>(query_str.length())), key, value;
@@ -48,7 +73,18 @@ base::Optional<std::string> ExtractSearchQueryIfGoogle(const GURL& url) {
               base::UnescapeRule::URL_SPECIAL_CHARS_EXCEPT_PATH_SEPARATORS);
     }
   }
-  return base::nullopt;
+  return absl::nullopt;
+}
+
+PageCategory GetSrpPageCategoryForUrl(const GURL& url) {
+  std::string value;
+  // Organic results tab
+  if (!net::GetValueForKeyInQuery(url, "tbm", &value))
+    return PageCategory::kOrganicSrp;
+  // News tab
+  if (value == "nws")
+    return PageCategory::kNewsSrp;
+  return PageCategory::kNone;
 }
 
 }  // namespace continuous_search

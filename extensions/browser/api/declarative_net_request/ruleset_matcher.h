@@ -15,12 +15,15 @@
 #include "extensions/common/api/declarative_net_request/constants.h"
 
 namespace content {
+class NavigationHandle;
 class RenderFrameHost;
 }  // namespace content
 
 namespace extensions {
 
 namespace declarative_net_request {
+
+struct RulesCountPair;
 
 namespace flat {
 struct ExtensionIndexedRuleset;
@@ -39,22 +42,23 @@ class RulesetMatcher {
                  const ExtensionId& extension_id);
   ~RulesetMatcher();
 
-  base::Optional<RequestAction> GetBeforeRequestAction(
+  absl::optional<RequestAction> GetBeforeRequestAction(
       const RequestParams& params) const;
 
   // Returns a list of actions corresponding to all matched
   // modifyHeaders rules with priority greater than |min_priority| if specified.
   std::vector<RequestAction> GetModifyHeadersActions(
       const RequestParams& params,
-      base::Optional<uint64_t> min_priority) const;
+      absl::optional<uint64_t> min_priority) const;
 
   bool IsExtraHeadersMatcher() const;
   size_t GetRulesCount() const;
   size_t GetRegexRulesCount() const;
+  RulesCountPair GetRulesCountPair() const;
 
   void OnRenderFrameCreated(content::RenderFrameHost* host);
   void OnRenderFrameDeleted(content::RenderFrameHost* host);
-  void OnDidFinishNavigation(content::RenderFrameHost* host);
+  void OnDidFinishNavigation(content::NavigationHandle* navigation_handle);
 
   // ID of the ruleset. Each extension can have multiple rulesets with
   // their own unique ids.
@@ -62,7 +66,7 @@ class RulesetMatcher {
 
   // Returns the tracked highest priority matching allowsAllRequests action, if
   // any, for |host|.
-  base::Optional<RequestAction> GetAllowlistedFrameActionForTesting(
+  absl::optional<RequestAction> GetAllowlistedFrameActionForTesting(
       content::RenderFrameHost* host) const;
 
  private:

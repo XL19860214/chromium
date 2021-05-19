@@ -22,7 +22,6 @@
 #include "chrome/browser/favicon/favicon_service_factory.h"
 #include "chrome/browser/gcm/gcm_profile_service_factory.h"
 #include "chrome/browser/history/history_service_factory.h"
-#include "chrome/browser/invalidation/profile_invalidation_provider_factory.h"
 #include "chrome/browser/password_manager/account_password_store_factory.h"
 #include "chrome/browser/password_manager/password_store_factory.h"
 #include "chrome/browser/policy/profile_policy_connector.h"
@@ -49,8 +48,6 @@
 #include "chrome/common/buildflags.h"
 #include "chrome/common/channel_info.h"
 #include "components/autofill/core/browser/personal_data_manager.h"
-#include "components/invalidation/impl/profile_identity_provider.h"
-#include "components/invalidation/impl/profile_invalidation_provider.h"
 #include "components/keyed_service/content/browser_context_dependency_manager.h"
 #include "components/network_time/network_time_tracker.h"
 #include "components/sync/driver/profile_sync_service.h"
@@ -75,10 +72,15 @@
 #endif  // BUILDFLAG(ENABLE_SUPERVISED_USERS)
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
+#include "ash/constants/ash_features.h"
 #include "chrome/browser/chromeos/printing/synced_printers_manager_factory.h"
 #include "chrome/browser/sync/wifi_configuration_sync_service_factory.h"
-#include "chromeos/constants/chromeos_features.h"
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+#include "chromeos/crosapi/mojom/crosapi.mojom.h"
+#include "chromeos/lacros/lacros_chrome_service_impl.h"
+#endif  // BUILDFLAG(IS_CHROMEOS_LACROS)
 
 namespace {
 
@@ -152,7 +154,6 @@ ProfileSyncServiceFactory::ProfileSyncServiceFactory()
   DependsOn(gcm::GCMProfileServiceFactory::GetInstance());
   DependsOn(HistoryServiceFactory::GetInstance());
   DependsOn(IdentityManagerFactory::GetInstance());
-  DependsOn(invalidation::ProfileInvalidationProviderFactory::GetInstance());
   DependsOn(SyncInvalidationsServiceFactory::GetInstance());
   DependsOn(ModelTypeStoreServiceFactory::GetInstance());
   DependsOn(PasswordStoreFactory::GetInstance());
@@ -198,9 +199,8 @@ KeyedService* ProfileSyncServiceFactory::BuildServiceInstanceFor(
   init_params.sync_client = std::move(sync_client);
   init_params.network_time_update_callback =
       base::BindRepeating(&UpdateNetworkTime);
-  init_params.url_loader_factory =
-      content::BrowserContext::GetDefaultStoragePartition(profile)
-          ->GetURLLoaderFactoryForBrowserProcess();
+  init_params.url_loader_factory = profile->GetDefaultStoragePartition()
+                                       ->GetURLLoaderFactoryForBrowserProcess();
   init_params.network_connection_tracker =
       content::GetNetworkConnectionTracker();
   init_params.channel = chrome::GetChannel();
@@ -251,14 +251,6 @@ KeyedService* ProfileSyncServiceFactory::BuildServiceInstanceFor(
     init_params.identity_manager =
         IdentityManagerFactory::GetForProfile(profile);
 
-    auto* fcm_invalidation_provider =
-        invalidation::ProfileInvalidationProviderFactory::GetForProfile(
-            profile);
-    if (fcm_invalidation_provider) {
-      init_params.invalidations_identity_provider =
-          fcm_invalidation_provider->GetIdentityProvider();
-    }
-
     // TODO(tim): Currently, AUTO/MANUAL settings refer to the *first* time sync
     // is set up and *not* a browser restart for a manual-start platform (where
     // sync has already been set up, and should be able to start without user
@@ -269,6 +261,16 @@ KeyedService* ProfileSyncServiceFactory::BuildServiceInstanceFor(
 #if BUILDFLAG(IS_CHROMEOS_ASH)
     if (chromeos::features::IsSplitSettingsSyncEnabled())
       is_auto_start = false;
+#elif BUILDFLAG(IS_CHROMEOS_LACROS)
+    // TODO(https://crbug.com/1194983): Figure out how split sync settings will
+    // work here. For now, we will mimic Ash's behaviour of having sync turned
+    // on by default.
+    if (chromeos::LacrosChromeServiceImpl::Get()
+            ->init_params()
+            ->use_new_account_manager &&
+        profile->IsMainProfile()) {
+      is_auto_start = true;
+    }
 #endif
     init_params.start_behavior = is_auto_start
                                      ? syncer::ProfileSyncService::AUTO_START

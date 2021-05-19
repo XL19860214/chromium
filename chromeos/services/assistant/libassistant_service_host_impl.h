@@ -7,12 +7,10 @@
 
 #include <memory>
 
-#include "base/synchronization/lock.h"
-#include "chromeos/services/assistant/proxy/libassistant_service_host.h"
-
-namespace assistant_client {
-class PlatformApi;
-}  // namespace assistant_client
+#include "base/thread_annotations.h"
+#include "build/buildflag.h"
+#include "chromeos/assistant/buildflags.h"
+#include "chromeos/services/assistant/libassistant_service_host.h"
 
 namespace chromeos {
 namespace libassistant {
@@ -23,40 +21,28 @@ class LibassistantService;
 namespace chromeos {
 namespace assistant {
 
-class AssistantManagerServiceDelegate;
-
+// Host class controlling the lifetime of the Libassistant service.
+// The implementation will be stubbed out in the unbranded build.
 class LibassistantServiceHostImpl : public LibassistantServiceHost {
  public:
-  using InitializeCallback =
-      base::OnceCallback<void(assistant_client::AssistantManager*,
-                              assistant_client::AssistantManagerInternal*)>;
-
-  LibassistantServiceHostImpl(assistant_client::PlatformApi* platform_api,
-                              AssistantManagerServiceDelegate* delegate);
+  LibassistantServiceHostImpl();
   LibassistantServiceHostImpl(LibassistantServiceHostImpl&) = delete;
   LibassistantServiceHostImpl& operator=(LibassistantServiceHostImpl&) = delete;
   ~LibassistantServiceHostImpl() override;
 
-  // LibassistantServiceHostImpl implementation:
+  // LibassistantServiceHost implementation:
   void Launch(
-      mojo::PendingReceiver<LibassistantServiceMojom> receiver) override;
+      mojo::PendingReceiver<chromeos::libassistant::mojom::LibassistantService>
+          receiver) override;
   void Stop() override;
-  void SetInitializeCallback(InitializeCallback) override;
 
  private:
-  // Owned by |AssistantManagerServiceImpl| which also owns |this|.
-  assistant_client::PlatformApi* const platform_api_;
-  // Owned by |AssistantManagerServiceImpl| which also owns |this|.
-  AssistantManagerServiceDelegate* const delegate_;
-
-  // Protects access to |libassistant_service_|. This is required because the
-  // service will be launched/stopped on a background thread, where the other
-  // methods will be called from the main thread.
-  base::Lock libassistant_service_lock_;
+#if BUILDFLAG(ENABLE_CROS_LIBASSISTANT) && \
+    !BUILDFLAG(ENABLE_LIBASSISTANT_SANDBOX)
+  SEQUENCE_CHECKER(sequence_checker_);
   std::unique_ptr<chromeos::libassistant::LibassistantService>
-      libassistant_service_;
-  // Used when SetInitializeCallback() is called before Launch().
-  InitializeCallback pending_initialize_callback_;
+      libassistant_service_ GUARDED_BY_CONTEXT(sequence_checker_);
+#endif
 };
 
 }  // namespace assistant

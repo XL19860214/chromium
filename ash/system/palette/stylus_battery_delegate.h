@@ -6,28 +6,56 @@
 #define ASH_SYSTEM_PALETTE_STYLUS_BATTERY_DELEGATE_H_
 
 #include "ash/ash_export.h"
-#include "base/scoped_observer.h"
-#include "base/strings/string16.h"
+#include "ash/system/power/peripheral_battery_listener.h"
+#include "base/callback_forward.h"
+#include "base/scoped_observation.h"
+#include "base/time/time.h"
 #include "ui/gfx/image/image_skia.h"
 
 namespace ash {
 
-class ASH_EXPORT StylusBatteryDelegate {
+class ASH_EXPORT StylusBatteryDelegate
+    : public PeripheralBatteryListener::Observer {
  public:
+  using Callback = base::RepeatingCallback<void()>;
+
   StylusBatteryDelegate();
   StylusBatteryDelegate(const StylusBatteryDelegate& other) = delete;
   StylusBatteryDelegate& operator=(const StylusBatteryDelegate& other) = delete;
+  ~StylusBatteryDelegate() override;
 
   SkColor GetColorForBatteryLevel() const;
-  int GetLabelIdForBatteryLevel() const;
   gfx::ImageSkia GetBatteryImage() const;
+  gfx::ImageSkia GetBatteryStatusUnknownImage() const;
+  void SetBatteryUpdateCallback(Callback battery_update_callback);
+  bool IsBatteryCharging() const;
+  bool IsBatteryLevelLow() const;
+  bool IsBatteryStatusStale() const;
+  bool ShouldShowBatteryStatus() const;
 
-  base::Optional<uint8_t> battery_level() const { return battery_level_; }
+  absl::optional<uint8_t> battery_level() const { return battery_level_; }
 
  private:
-  base::Optional<uint8_t> battery_level_;
+  bool IsBatteryInfoValid(
+      const PeripheralBatteryListener::BatteryInfo& battery) const;
 
-  // Peripheral battery observer to be added here.
+  // PeripheralBatteryListener::Observer:
+  void OnAddingBattery(
+      const PeripheralBatteryListener::BatteryInfo& battery) override;
+  void OnRemovingBattery(
+      const PeripheralBatteryListener::BatteryInfo& battery) override;
+  void OnUpdatedBatteryLevel(
+      const PeripheralBatteryListener::BatteryInfo& battery) override;
+
+  PeripheralBatteryListener::BatteryInfo::ChargeStatus battery_charge_status_ =
+      PeripheralBatteryListener::BatteryInfo::ChargeStatus::kUnknown;
+  absl::optional<uint8_t> battery_level_;
+  absl::optional<base::TimeTicks> last_update_timestamp_;
+
+  Callback battery_update_callback_;
+  base::ScopedObservation<PeripheralBatteryListener,
+                          PeripheralBatteryListener::Observer>
+      battery_observation_{this};
 };
 
 }  // namespace ash

@@ -9,7 +9,6 @@
 #include <vector>
 
 #include "base/bind.h"
-#include "base/optional.h"
 #include "base/run_loop.h"
 #include "base/strings/string_number_conversions.h"
 #include "chrome/browser/chromeos/net/network_diagnostics/fake_host_resolver.h"
@@ -26,9 +25,11 @@
 #include "net/ssl/ssl_server_config.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "net/test/embedded_test_server/http_response.h"
+#include "services/cert_verifier/public/mojom/cert_verifier_service_factory.mojom.h"
 #include "services/network/network_service.h"
 #include "services/network/test/test_network_context.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace chromeos {
 namespace network_diagnostics {
@@ -49,8 +50,8 @@ class TlsProberWithFakeNetworkContextTest : public ::testing::Test {
 
   void InitializeProberNetworkContext(
       std::unique_ptr<FakeHostResolver::DnsResult> fake_dns_result,
-      base::Optional<net::Error> tcp_connect_code,
-      base::Optional<net::Error> tls_upgrade_code) {
+      absl::optional<net::Error> tcp_connect_code,
+      absl::optional<net::Error> tls_upgrade_code) {
     fake_network_context_ = std::make_unique<FakeNetworkContext>();
     fake_network_context_->set_fake_dns_result(std::move(fake_dns_result));
     fake_network_context_->SetTCPConnectCode(tcp_connect_code);
@@ -122,8 +123,8 @@ TEST_F(TlsProberWithFakeNetworkContextTest, FailedDnsLookup) {
       net::ResolveErrorInfo(net::ERR_NAME_NOT_RESOLVED), net::AddressList());
   // Neither TCP connect nor TLS upgrade should not be called in this scenario.
   InitializeProberNetworkContext(std::move(fake_dns_result),
-                                 /*tcp_connect_code=*/base::nullopt,
-                                 /*tls_upgrade_code=*/base::nullopt);
+                                 /*tcp_connect_code=*/absl::nullopt,
+                                 /*tls_upgrade_code=*/absl::nullopt);
   int probe_result = -1;
   ProbeExitEnum probe_exit_enum = ProbeExitEnum::kSuccess;
   base::RunLoop run_loop;
@@ -147,8 +148,8 @@ TEST_F(TlsProberWithFakeNetworkContextTest, MojoDisconnectDuringDnsLookup) {
   // Host resolution will not be successful due to Mojo disconnect. Neither TCP
   // connect nor TLS upgrade should not be called in this scenario.
   InitializeProberNetworkContext(/*fake_dns_result=*/{},
-                                 /*tcp_connect_code=*/base::nullopt,
-                                 /*tls_upgrade_code=*/base::nullopt);
+                                 /*tcp_connect_code=*/absl::nullopt,
+                                 /*tls_upgrade_code=*/absl::nullopt);
   fake_network_context()->set_disconnect_during_host_resolution(true);
   int probe_result = -1;
   ProbeExitEnum probe_exit_enum = ProbeExitEnum::kSuccess;
@@ -176,7 +177,7 @@ TEST_F(TlsProberWithFakeNetworkContextTest, FailedTcpConnection) {
   net::Error tcp_connect_code = net::ERR_CONNECTION_FAILED;
   // TLS upgrade should not be called in this scenario.
   InitializeProberNetworkContext(std::move(fake_dns_result), tcp_connect_code,
-                                 /*tls_upgrade_code=*/base::nullopt);
+                                 /*tls_upgrade_code=*/absl::nullopt);
   int probe_result = -1;
   ProbeExitEnum probe_exit_enum = ProbeExitEnum::kSuccess;
   base::RunLoop run_loop;
@@ -230,8 +231,8 @@ TEST_F(TlsProberWithFakeNetworkContextTest,
       net::AddressList(kFakeIPAddress));
   // Since the TCP connection is disconnected, no connection codes are needed.
   InitializeProberNetworkContext(std::move(fake_dns_result),
-                                 /*tcp_connect_code=*/base::nullopt,
-                                 /*tls_upgrade_code=*/base::nullopt);
+                                 /*tcp_connect_code=*/absl::nullopt,
+                                 /*tls_upgrade_code=*/absl::nullopt);
   fake_network_context()->set_disconnect_during_tcp_connection_attempt(true);
   int probe_result = -1;
   ProbeExitEnum probe_exit_enum = ProbeExitEnum::kSuccess;
@@ -289,7 +290,7 @@ TEST_F(TlsProberWithFakeNetworkContextTest, SuccessfulTcpConnectOnly) {
       net::AddressList(kFakeIPAddress));
   net::Error tcp_connect_code = net::OK;
   InitializeProberNetworkContext(std::move(fake_dns_result), tcp_connect_code,
-                                 /*tls_upgrade_code=*/base::nullopt);
+                                 /*tls_upgrade_code=*/absl::nullopt);
   int probe_result = -1;
   ProbeExitEnum probe_exit_enum = ProbeExitEnum::kTcpConnectionFailure;
   base::RunLoop run_loop;
@@ -324,7 +325,7 @@ class TlsProberWithRealNetworkContextTest : public ::testing::Test {
     service_->Bind(network_service_.BindNewPipeAndPassReceiver());
     auto context_params = network::mojom::NetworkContextParams::New();
     context_params->cert_verifier_params = content::GetCertVerifierParams(
-        network::mojom::CertVerifierCreationParams::New());
+        cert_verifier::mojom::CertVerifierCreationParams::New());
     network_service_->CreateNetworkContext(
         network_context_.BindNewPipeAndPassReceiver(),
         std::move(context_params));

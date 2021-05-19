@@ -39,13 +39,12 @@ class TextPosition;
 
 namespace blink {
 
+class ClassicScript;
 class ExecutionContext;
-class KURL;
 class ModuleScript;
 class ModuleScriptCreationParams;
 class ReferrerScriptInfo;
 class ScriptEvaluationResult;
-class ScriptFetchOptions;
 class ScriptSourceCode;
 class ScriptState;
 
@@ -75,7 +74,7 @@ class CORE_EXPORT V8ScriptRunner final {
 
     // Rethrow errors flag is false.
     static RethrowErrorsOption DoNotRethrow() {
-      return RethrowErrorsOption(base::nullopt);
+      return RethrowErrorsOption(absl::nullopt);
     }
 
     // Rethrow errors flag is true.
@@ -100,11 +99,11 @@ class CORE_EXPORT V8ScriptRunner final {
     String Message() const { return *message_; }
 
    private:
-    explicit RethrowErrorsOption(base::Optional<String> message)
+    explicit RethrowErrorsOption(absl::optional<String> message)
         : message_(std::move(message)) {}
 
     // `nullopt` <=> rethrow errors is false.
-    base::Optional<String> message_;
+    absl::optional<String> message_;
   };
 
   // For the following methods, the caller sites have to hold
@@ -123,13 +122,8 @@ class CORE_EXPORT V8ScriptRunner final {
       v8::ScriptCompiler::CompileOptions,
       v8::ScriptCompiler::NoCacheReason,
       const ReferrerScriptInfo&);
-  static ScriptEvaluationResult CompileAndRunScript(v8::Isolate*,
-                                                    ScriptState*,
-                                                    ExecutionContext*,
-                                                    const ScriptSourceCode&,
-                                                    const KURL&,
-                                                    SanitizeScriptErrors,
-                                                    const ScriptFetchOptions&,
+  static ScriptEvaluationResult CompileAndRunScript(ScriptState*,
+                                                    ClassicScript*,
                                                     ExecuteScriptPolicy,
                                                     RethrowErrorsOption);
   static v8::MaybeLocal<v8::Value> CompileAndRunInternalScript(
@@ -146,7 +140,7 @@ class CORE_EXPORT V8ScriptRunner final {
                                                 ExecutionContext*,
                                                 v8::Local<v8::Value> receiver,
                                                 int argc,
-                                                v8::Local<v8::Value> info[],
+                                                v8::Local<v8::Value> argv[],
                                                 v8::Isolate*);
 
   // https://html.spec.whatwg.org/C/#run-a-module-script

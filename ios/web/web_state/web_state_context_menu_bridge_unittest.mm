@@ -31,6 +31,8 @@
 
 - (void)webState:(web::WebState*)webState
     contextMenuConfigurationForParams:(const web::ContextMenuParams&)params
+                      previewProvider:
+                          (UIContextMenuContentPreviewProvider)previewProvider
                     completionHandler:
                         (void (^)(UIContextMenuConfiguration*))completionHandler
     API_AVAILABLE(ios(13.0)) {
@@ -85,8 +87,7 @@ class WebStateContextMenuBridgeTest : public web::WebTestWithWebController {
   }
 
  private:
-  std::unique_ptr<web::WebStateDelegateBridge> web_state_delegate_bridge_ =
-      nullptr;
+  std::unique_ptr<web::WebStateDelegateBridge> web_state_delegate_bridge_;
 };
 
 TEST_F(WebStateContextMenuBridgeTest, IOS13ContextMenuDelegateBridgeTest) {

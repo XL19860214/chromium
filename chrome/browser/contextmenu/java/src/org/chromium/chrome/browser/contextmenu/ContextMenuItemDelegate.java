@@ -59,6 +59,11 @@ public interface ContextMenuItemDelegate {
     boolean isOpenInOtherWindowSupported();
 
     /**
+     * @return Whether Chrome can get itself into multi-window mode.
+     */
+    boolean canEnterMultiWindowMode();
+
+    /**
      * Called when the context menu is trying to start a download.
      * @param url Url of the download item.
      * @param isLink Whether or not the download is a link (as opposed to an image/video).
@@ -79,6 +84,13 @@ public interface ContextMenuItemDelegate {
      * @param url The URL to open.
      */
     void onOpenInNewTab(GURL url, Referrer referrer);
+
+    /**
+     * Called when {@code url} should be opened in a new tab in the same group as the current
+     * {@link Tab}.
+     * @param url The URL to open.
+     */
+    void onOpenInNewTabInGroup(GURL url, Referrer referrer);
 
     /**
      * Called when the {@code url} should be opened in a new incognito tab.
@@ -215,4 +227,9 @@ public interface ContextMenuItemDelegate {
      * @param title The title text to be shown for this item in the reading list.
      */
     void onReadLater(GURL url, String title);
+
+    /**
+     * Called when a text fragment should be removed from the page.
+     */
+    void removeHighlighting();
 }

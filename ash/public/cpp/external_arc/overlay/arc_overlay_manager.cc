@@ -4,11 +4,13 @@
 
 #include "ash/public/cpp/external_arc/overlay/arc_overlay_manager.h"
 
+#include "ash/public/cpp/app_types.h"
 #include "ash/public/cpp/external_arc/overlay/arc_overlay_controller_impl.h"
 #include "base/logging.h"
 #include "components/exo/shell_surface_base.h"
 #include "components/exo/shell_surface_util.h"
 #include "components/exo/surface.h"
+#include "ui/aura/client/aura_constants.h"
 #include "ui/aura/env.h"
 
 namespace {
@@ -16,6 +18,21 @@ namespace {
 ash::ArcOverlayManager* singleton = nullptr;
 
 const char* kBillingIdPrefix = "billing_id:";
+
+absl::optional<std::string> GetOverlayTokenForArcWindow(aura::Window* window) {
+  auto* shell_surface_base = exo::GetShellSurfaceBaseForWindow(window);
+  DCHECK(shell_surface_base);
+  auto* shell_root_surface = shell_surface_base->root_surface();
+  DCHECK(shell_root_surface);
+
+  // If the client_surface_id doesn't have a particular prefix, it is not an
+  // overlay candidate.
+  std::string client_surface_id = shell_root_surface->GetClientSurfaceId();
+  if (!base::StartsWith(client_surface_id, kBillingIdPrefix))
+    return {};
+
+  return client_surface_id.substr(strlen(kBillingIdPrefix));
+}
 
 }  // namespace
 
@@ -66,83 +83,47 @@ void ArcOverlayManager::DeregisterHostWindow(const std::string& overlay_token) {
 }
 
 void ArcOverlayManager::OnWindowInitialized(aura::Window* window) {
-  // Ignore windows that do not have a delegate set.
-  if (!window->delegate())
+  // Ignore windows that are container (no delegate), or non arc window.
+  if (!window->delegate() || !ash::IsArcWindow(window))
     return;
 
-  // We only ever observe the most recent window being created
-  unknown_window_observation_.Reset();
-  unknown_window_observation_.Observe(window);
+  // See if a potentially valid overlay token is set on the window, to confirm
+  // that it is intended to be an overlay window.
+  absl::optional<std::string> token = GetOverlayTokenForArcWindow(window);
+  if (!token)
+    return;
+
+  // Disable animations on overlay windows.
+  window->SetProperty(aura::client::kAnimationsDisabledKey, true);
+
+  window_observations_.AddObservation(window);
 }
 
 void ArcOverlayManager::OnWindowDestroying(aura::Window* window) {
-  if (unknown_window_observation_.IsObservingSource(window))
-    unknown_window_observation_.Reset();
-
-  if (overlay_window_observations_.IsObservingSource(window))
-    overlay_window_observations_.RemoveObservation(window);
-}
-
-void ArcOverlayManager::OnWindowPropertyChanged(aura::Window* window,
-                                                const void* key,
-                                                intptr_t old) {
-  // We only care about property changes on the single unknown window.
-  // (We also are observing other windows via overlay_window_observations_)
-  if (!unknown_window_observation_.IsObservingSource(window))
-    return;
-
-  // exo::ShellSurfaceBase sets this key soon after creating the window
-  if (!exo::IsShellMainSurfaceKey(key))
-    return;
-
-  // It may still be of interest as an overlay, but we don't need to observe it
-  // as an unknown window.
-  unknown_window_observation_.Reset();
-
-  // If this isn't actually a variant of a exo::ShellSurfaceBase, it is not an
-  // overlay candidate.
-  auto* shell_surface_base = exo::GetShellSurfaceBaseForWindow(window);
-  if (!shell_surface_base)
-    return;
-
-  auto* shell_root_surface = shell_surface_base->root_surface();
-  DCHECK(shell_root_surface);
-
-  // If the client_surface_id doesn't have a particular prefix, it is not an
-  // overlay candidate.
-  std::string client_surface_id = shell_root_surface->GetClientSurfaceId();
-  if (!base::StartsWith(client_surface_id, kBillingIdPrefix))
-    return;
-
-  // This window seems to be an overlay candidate. Continue observing it as one
-  // until it is ready. exo::ShellSurfaceBase is still setting it up.
-  overlay_window_observations_.AddObservation(window);
+  window_observations_.RemoveObservation(window);
 }
 
 void ArcOverlayManager::OnWindowVisibilityChanged(aura::Window* window,
                                                   bool visible) {
-  // For this event, we only care about windows that are potential overlays.
-  if (!overlay_window_observations_.IsObservingSource(window))
-    return;
-
   // We only care about windows that are now visible.
   if (!visible)
     return;
 
+  // |window| can be descendants or ancestors.
+  if (!window_observations_.IsObservingSource(window))
+    return;
+
   // We do not need to keep observing the window.
-  overlay_window_observations_.RemoveObservation(window);
+  window_observations_.RemoveObservation(window);
 
-  auto* shell_surface_base = exo::GetShellSurfaceBaseForWindow(window);
-  DCHECK(shell_surface_base);
-  auto* shell_root_surface = shell_surface_base->root_surface();
-  DCHECK(shell_root_surface);
-
-  std::string client_surface_id = shell_root_surface->GetClientSurfaceId();
-  std::string overlay_token =
-      client_surface_id.substr(strlen(kBillingIdPrefix));
+  // Get the overlay token.
+  absl::optional<std::string> token = GetOverlayTokenForArcWindow(window);
+  if (!token)
+    return;
 
   // Find and attach the overlay to the host window.
-  RegisterOverlayWindow(std::move(overlay_token), shell_surface_base);
+  auto* shell_surface_base = exo::GetShellSurfaceBaseForWindow(window);
+  RegisterOverlayWindow(std::move(token).value(), shell_surface_base);
 }
 
 void ArcOverlayManager::RegisterOverlayWindow(

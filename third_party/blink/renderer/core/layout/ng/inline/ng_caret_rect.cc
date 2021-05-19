@@ -149,26 +149,30 @@ PhysicalRect ComputeLocalCaretRectAtTextOffset(const NGInlineCursor& cursor,
   return PhysicalRect(caret_location, caret_size);
 }
 
+}  // namespace
+
 LocalCaretRect ComputeLocalCaretRect(const NGCaretPosition& caret_position) {
   if (caret_position.IsNull())
     return LocalCaretRect();
 
-  const LayoutObject* layout_object =
+  const LayoutObject* const layout_object =
       caret_position.cursor.Current().GetLayoutObject();
+  const NGPhysicalBoxFragment& container_fragment =
+      caret_position.cursor.ContainerFragment();
   switch (caret_position.position_type) {
     case NGCaretPositionType::kBeforeBox:
     case NGCaretPositionType::kAfterBox: {
       DCHECK(!caret_position.cursor.Current().IsText());
       const PhysicalRect fragment_local_rect = ComputeLocalCaretRectByBoxSide(
           caret_position.cursor, caret_position.position_type);
-      return {layout_object, fragment_local_rect};
+      return {layout_object, fragment_local_rect, &container_fragment};
     }
     case NGCaretPositionType::kAtTextOffset: {
       DCHECK(caret_position.cursor.Current().IsText());
       DCHECK(caret_position.text_offset.has_value());
       const PhysicalRect caret_rect = ComputeLocalCaretRectAtTextOffset(
           caret_position.cursor, *caret_position.text_offset);
-      return {layout_object, caret_rect};
+      return {layout_object, caret_rect, &container_fragment};
     }
   }
 
@@ -196,18 +200,8 @@ LocalCaretRect ComputeLocalSelectionRect(
     rect.SetX(line_box.Current().OffsetInContainerFragment().left);
     rect.SetHeight(line_box.Current().Size().width);
   }
-  return {caret_rect.layout_object, rect};
-}
-
-}  // namespace
-
-LocalCaretRect ComputeNGLocalCaretRect(const PositionWithAffinity& position) {
-  return ComputeLocalCaretRect(ComputeNGCaretPosition(position));
-}
-
-LocalCaretRect ComputeNGLocalSelectionRect(
-    const PositionWithAffinity& position) {
-  return ComputeLocalSelectionRect(ComputeNGCaretPosition(position));
+  return {caret_rect.layout_object, rect,
+          &caret_position.cursor.ContainerFragment()};
 }
 
 }  // namespace blink

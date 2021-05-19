@@ -39,6 +39,10 @@ class ParameterizedLocalCaretRectTest
   bool LayoutNGEnabled() const {
     return RuntimeEnabledFeatures::LayoutNGEnabled();
   }
+
+  LocalCaretRect LocalCaretRectOf(const Position& position) {
+    return LocalCaretRectOfPosition(PositionWithAffinity(position));
+  }
 };
 
 INSTANTIATE_TEST_SUITE_P(All, ParameterizedLocalCaretRectTest, testing::Bool());
@@ -61,6 +65,46 @@ TEST_P(ParameterizedLocalCaretRectTest, DOMAndFlatTrees) {
 
   EXPECT_FALSE(caret_rect_from_dom_tree.IsEmpty());
   EXPECT_EQ(caret_rect_from_dom_tree, caret_rect_from_flat_tree);
+}
+
+// http://crbug.com/1174101
+TEST_P(ParameterizedLocalCaretRectTest, EmptyInlineFlex) {
+  LoadAhem();
+  InsertStyleElement(R"CSS(
+    div { font: 10px/15px Ahem; width: 100px; }
+    i {
+        display: inline-flex;
+        width: 30px; height: 30px;
+        border: solid 10px red;
+    })CSS");
+  // |ComputeInlinePosition(AfterChildren:<div>)=AfterChildren:<b>
+  // When removing <i>, we have <b>@0
+  SetBodyContent(
+      "<div id=target contenteditable>"
+      "ab<i contenteditable=false><b></b></i></div>");
+  const auto& target = *GetElementById("target");
+  const auto& ab = *To<Text>(target.firstChild());
+  const auto& inline_flex = *ab.nextSibling();
+  const LocalCaretRect before_ab =
+      LocalCaretRect(ab.GetLayoutObject(), {0, 32, 1, 10});
+  const LocalCaretRect before_inline_flex =
+      // LayoutNG is correct. legacy layout places caret inside inline-flex.
+      LayoutNGEnabled()
+          ? LocalCaretRect(ab.GetLayoutObject(), {20, 32, 1, 10})
+          : LocalCaretRect(inline_flex.GetLayoutObject(), {10, 10, 1, 50});
+  const LocalCaretRect after_inline_flex =
+      // LayoutNG is correct. legacy layout places caret inside inline-flex.
+      LayoutNGEnabled()
+          ? LocalCaretRect(inline_flex.GetLayoutObject(), {49, 0, 1, 50})
+          : LocalCaretRect(inline_flex.GetLayoutObject(), {59, 10, 1, 50});
+
+  EXPECT_EQ(before_ab, LocalCaretRectOf(Position(target, 0)));
+  EXPECT_EQ(before_inline_flex, LocalCaretRectOf(Position(target, 1)));
+  EXPECT_EQ(after_inline_flex, LocalCaretRectOf(Position(target, 2)));
+  EXPECT_EQ(before_ab, LocalCaretRectOf(Position::BeforeNode(target)));
+  EXPECT_EQ(after_inline_flex, LocalCaretRectOf(Position::AfterNode(target)));
+  EXPECT_EQ(after_inline_flex,
+            LocalCaretRectOf(Position::LastPositionInNode(target)));
 }
 
 TEST_P(ParameterizedLocalCaretRectTest, SimpleText) {
@@ -903,6 +947,103 @@ TEST_P(ParameterizedLocalCaretRectTest, AfterTrimedLineBreak) {
   EXPECT_EQ(PhysicalRect(30, 0, 1, 10), visible_position_rect);
 }
 
+// See also NGCaretPositionTest.MultiColumnSingleText
+TEST_P(ParameterizedLocalCaretRectTest, MultiColumnSingleText) {
+  RuntimeEnabledFeaturesTestHelpers::ScopedLayoutNGBlockFragmentation
+      block_fragmentation(LayoutNGEnabled());
+  LoadAhem();
+  InsertStyleElement(
+      "div { font: 10px/15px Ahem; column-count: 3; width: 20ch; }");
+  SetBodyInnerHTML("<div id=target>abc def ghi jkl mno pqr</div>");
+  // This HTML is rendered as:
+  //    abc ghi mno
+  //    def jkl
+  const auto& target = *GetElementById("target");
+  const Text& text = *To<Text>(target.firstChild());
+  const bool block_fragmentation_enabled =
+      RuntimeEnabledFeatures::LayoutNGBlockFragmentationEnabled();
+
+  // Note: Legacy layout caret rect is in stitch coordinate space == as if
+  // columns are laid out vertically.
+  // NG caret rect is in relative to containing box fragment.
+
+  // "abc " in column 1
+  EXPECT_EQ(PhysicalRect(0, 2, 1, 10),
+            LocalCaretRectOf(Position(text, 0)).rect);
+  EXPECT_EQ(PhysicalRect(10, 2, 1, 10),
+            LocalCaretRectOf(Position(text, 1)).rect);
+  EXPECT_EQ(PhysicalRect(20, 2, 1, 10),
+            LocalCaretRectOf(Position(text, 2)).rect);
+  EXPECT_EQ(PhysicalRect(30, 2, 1, 10),
+            LocalCaretRectOf(Position(text, 3)).rect);
+
+  // "def " in column 1
+  EXPECT_EQ(PhysicalRect(0, 17, 1, 10),
+            LocalCaretRectOf(Position(text, 4)).rect);
+  EXPECT_EQ(PhysicalRect(10, 17, 1, 10),
+            LocalCaretRectOf(Position(text, 5)).rect);
+  EXPECT_EQ(PhysicalRect(20, 17, 1, 10),
+            LocalCaretRectOf(Position(text, 6)).rect);
+  EXPECT_EQ(PhysicalRect(30, 17, 1, 10),
+            LocalCaretRectOf(Position(text, 7)).rect);
+
+  // "ghi " in column 2
+  EXPECT_EQ(block_fragmentation_enabled ? PhysicalRect(0, 2, 1, 10)
+                                        : PhysicalRect(0, 32, 1, 10),
+            LocalCaretRectOf(Position(text, 8)).rect);
+  EXPECT_EQ(block_fragmentation_enabled ? PhysicalRect(10, 2, 1, 10)
+                                        : PhysicalRect(10, 32, 1, 10),
+            LocalCaretRectOf(Position(text, 9)).rect);
+  EXPECT_EQ(block_fragmentation_enabled ? PhysicalRect(20, 2, 1, 10)
+                                        : PhysicalRect(20, 32, 1, 10),
+            LocalCaretRectOf(Position(text, 10)).rect);
+  EXPECT_EQ(block_fragmentation_enabled ? PhysicalRect(30, 2, 1, 10)
+                                        : PhysicalRect(30, 32, 1, 10),
+            LocalCaretRectOf(Position(text, 11)).rect);
+
+  // "jkl " in column 2
+  EXPECT_EQ(block_fragmentation_enabled ? PhysicalRect(0, 17, 1, 10)
+                                        : PhysicalRect(0, 47, 1, 10),
+            LocalCaretRectOf(Position(text, 12)).rect);
+  EXPECT_EQ(block_fragmentation_enabled ? PhysicalRect(10, 17, 1, 10)
+                                        : PhysicalRect(10, 47, 1, 10),
+            LocalCaretRectOf(Position(text, 13)).rect);
+  EXPECT_EQ(block_fragmentation_enabled ? PhysicalRect(20, 17, 1, 10)
+                                        : PhysicalRect(20, 47, 1, 10),
+            LocalCaretRectOf(Position(text, 14)).rect);
+  EXPECT_EQ(block_fragmentation_enabled ? PhysicalRect(30, 17, 1, 10)
+                                        : PhysicalRect(30, 47, 1, 10),
+            LocalCaretRectOf(Position(text, 15)).rect);
+
+  // "mno " in column 3
+  EXPECT_EQ(block_fragmentation_enabled ? PhysicalRect(0, 2, 1, 10)
+                                        : PhysicalRect(0, 62, 1, 10),
+            LocalCaretRectOf(Position(text, 16)).rect);
+  EXPECT_EQ(block_fragmentation_enabled ? PhysicalRect(10, 2, 1, 10)
+                                        : PhysicalRect(10, 62, 1, 10),
+            LocalCaretRectOf(Position(text, 17)).rect);
+  EXPECT_EQ(block_fragmentation_enabled ? PhysicalRect(20, 2, 1, 10)
+                                        : PhysicalRect(20, 62, 1, 10),
+            LocalCaretRectOf(Position(text, 18)).rect);
+  EXPECT_EQ(block_fragmentation_enabled ? PhysicalRect(30, 2, 1, 10)
+                                        : PhysicalRect(30, 62, 1, 10),
+            LocalCaretRectOf(Position(text, 19)).rect);
+
+  // "pqr" in column 3
+  EXPECT_EQ(block_fragmentation_enabled ? PhysicalRect(0, 17, 1, 10)
+                                        : PhysicalRect(0, 77, 1, 10),
+            LocalCaretRectOf(Position(text, 20)).rect);
+  EXPECT_EQ(block_fragmentation_enabled ? PhysicalRect(10, 17, 1, 10)
+                                        : PhysicalRect(10, 77, 1, 10),
+            LocalCaretRectOf(Position(text, 21)).rect);
+  EXPECT_EQ(block_fragmentation_enabled ? PhysicalRect(20, 17, 1, 10)
+                                        : PhysicalRect(20, 77, 1, 10),
+            LocalCaretRectOf(Position(text, 22)).rect);
+  EXPECT_EQ(block_fragmentation_enabled ? PhysicalRect(30, 17, 1, 10)
+                                        : PhysicalRect(30, 77, 1, 10),
+            LocalCaretRectOf(Position(text, 23)).rect);
+}
+
 TEST_P(ParameterizedLocalCaretRectTest,
        UnicodeBidiPlaintextWithDifferentBlockDirection) {
   LoadAhem();
@@ -993,6 +1134,32 @@ TEST_P(ParameterizedLocalCaretRectTest, AfterIneditableInline) {
   const Position position = Position::LastPositionInNode(*div);
   EXPECT_EQ(LocalCaretRect(text->GetLayoutObject(), PhysicalRect(30, 0, 1, 10)),
             LocalCaretRectOfPosition(PositionWithAffinity(position)));
+}
+
+// https://crbug.com/1155399
+TEST_P(ParameterizedLocalCaretRectTest, OptionWithDisplayContents) {
+  LoadAhem();
+  InsertStyleElement(
+      "body { font: 10px/10px Ahem; width: 300px }"
+      "option { display: contents; }");
+  SetBodyContent("<option>a</option>");
+  const Element* body = GetDocument().body();
+  const Element* option = GetDocument().QuerySelector("option");
+  LocalCaretRect empty;
+  LocalCaretRect start(body->GetLayoutObject(), PhysicalRect(0, 0, 1, 10));
+  LocalCaretRect end(body->GetLayoutObject(), PhysicalRect(299, 0, 1, 10));
+
+  // LocalCaretRectOfPosition shouldn't crash
+  for (const Position& p : {Position::BeforeNode(*body), Position(body, 0)})
+    EXPECT_EQ(start, LocalCaretRectOfPosition(PositionWithAffinity(p)));
+  for (const Position& p :
+       {Position::BeforeNode(*option), Position(option, 0), Position(option, 1),
+        Position::LastPositionInNode(*option), Position::AfterNode(*option)})
+    EXPECT_EQ(empty, LocalCaretRectOfPosition(PositionWithAffinity(p)));
+  for (const Position& p :
+       {Position(body, 1), Position::LastPositionInNode(*body),
+        Position::AfterNode(*body)})
+    EXPECT_EQ(end, LocalCaretRectOfPosition(PositionWithAffinity(p)));
 }
 
 }  // namespace blink

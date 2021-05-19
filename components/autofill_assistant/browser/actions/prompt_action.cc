@@ -27,6 +27,10 @@ PromptAction::PromptAction(ActionDelegate* delegate, const ActionProto& proto)
 
 PromptAction::~PromptAction() {}
 
+bool PromptAction::ShouldInterruptOnPause() const {
+  return true;
+}
+
 void PromptAction::InternalProcessAction(ProcessActionCallback callback) {
   callback_ = std::move(callback);
   if (proto_.prompt().choices_size() == 0) {
@@ -54,6 +58,7 @@ void PromptAction::InternalProcessAction(ProcessActionCallback callback) {
       proto_.prompt().allow_interrupt()) {
     delegate_->WaitForDom(
         base::TimeDelta::Max(), proto_.prompt().allow_interrupt(),
+        /* observer= */ nullptr,
         base::BindRepeating(&PromptAction::RegisterChecks,
                             weak_ptr_factory_.GetWeakPtr()),
         base::BindOnce(&PromptAction::OnWaitForElementTimed,

@@ -206,7 +206,8 @@ class RenderWidgetHostViewAuraBrowserMockIMETest : public ContentBrowserTest {
   }
 
   RenderViewHost* GetRenderViewHost() const {
-    RenderViewHost* const rvh = shell()->web_contents()->GetRenderViewHost();
+    RenderViewHost* const rvh =
+        shell()->web_contents()->GetMainFrame()->GetRenderViewHost();
     CHECK(rvh);
     return rvh;
   }
@@ -721,9 +722,9 @@ IN_PROC_BROWSER_TEST_F(RenderWidgetHostViewAuraBrowserMockIMETest,
       "<script>"
       " let elemRect = txt3.getBoundingClientRect();"
       " const editContext = new EditContext();"
+      " txt3.editContext = editContext;"
       " editContext.inputPanelPolicy = \"manual\";"
       " function FocusIn1() {"
-      "   editContext.focus();"
       "   navigator.virtualKeyboard.show();"
       "  }"
       " function HideVKCalled() {"

@@ -6,12 +6,12 @@
 #define CHROME_BROWSER_DATA_REDUCTION_PROXY_DATA_REDUCTION_PROXY_CHROME_SETTINGS_H_
 
 #include <memory>
-#include <string>
 
 #include "base/macros.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_request_options.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_settings.h"
 #include "components/keyed_service/core/keyed_service.h"
+#include "net/http/http_response_headers.h"
 
 class PrefService;
 class Profile;

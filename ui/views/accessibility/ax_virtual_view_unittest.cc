@@ -10,6 +10,7 @@
 #include "base/callback.h"
 #include "base/memory/ptr_util.h"
 #include "build/build_config.h"
+#include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/accessibility/ax_node_data.h"
@@ -45,14 +46,13 @@ class TestButton : public Button {
 
 class AXVirtualViewTest : public ViewsTestBase {
  public:
-  AXVirtualViewTest() = default;
+  AXVirtualViewTest() : ax_mode_setter_(ui::kAXModeComplete) {}
   AXVirtualViewTest(const AXVirtualViewTest&) = delete;
   AXVirtualViewTest& operator=(const AXVirtualViewTest&) = delete;
   ~AXVirtualViewTest() override = default;
 
   void SetUp() override {
     ViewsTestBase::SetUp();
-    ui::AXPlatformNode::NotifyAddAXModeFlags(ui::kAXModeComplete);
 
     widget_ = new Widget;
     Widget::InitParams params = CreateParams(Widget::InitParams::TYPE_WINDOW);
@@ -98,19 +98,7 @@ class AXVirtualViewTest : public ViewsTestBase {
   void ExpectReceivedAccessibilityEvents(
       const std::vector<std::pair<const ui::AXPlatformNodeDelegate*,
                                   const ax::mojom::Event>>& expected_events) {
-    EXPECT_EQ(accessibility_events_.size(), expected_events.size());
-
-    size_t i = 0;
-    for (const auto& actual_event : accessibility_events_) {
-      if (i >= expected_events.size())
-        break;
-
-      const auto& expected_event = expected_events[i];
-      EXPECT_EQ(actual_event.first, expected_event.first);
-      EXPECT_EQ(actual_event.second, expected_event.second);
-      ++i;
-    }
-
+    EXPECT_THAT(accessibility_events_, testing::ContainerEq(expected_events));
     accessibility_events_.clear();
   }
 
@@ -123,6 +111,7 @@ class AXVirtualViewTest : public ViewsTestBase {
   std::vector<
       std::pair<const ui::AXPlatformNodeDelegate*, const ax::mojom::Event>>
       accessibility_events_;
+  ui::testing::ScopedAxModeSetter ax_mode_setter_;
 };
 
 TEST_F(AXVirtualViewTest, AccessibilityRoleAndName) {
@@ -374,9 +363,7 @@ TEST_F(AXVirtualViewTest, OverrideFocus) {
   button_->SetFocusBehavior(View::FocusBehavior::ALWAYS);
   button_->RequestFocus();
   ExpectReceivedAccessibilityEvents(
-      {std::make_pair(GetButtonAccessibility(), ax::mojom::Event::kFocus),
-       std::make_pair(GetButtonAccessibility(),
-                      ax::mojom::Event::kChildrenChanged)});
+      {std::make_pair(GetButtonAccessibility(), ax::mojom::Event::kFocus)});
 
   EXPECT_EQ(button_accessibility.GetNativeObject(),
             button_accessibility.GetFocusedDescendant());
@@ -439,9 +426,7 @@ TEST_F(AXVirtualViewTest, OverrideFocus) {
   button_->SetFocusBehavior(View::FocusBehavior::ALWAYS);
   button_->RequestFocus();
   ExpectReceivedAccessibilityEvents(
-      {std::make_pair(virtual_child_3, ax::mojom::Event::kFocus),
-       std::make_pair(GetButtonAccessibility(),
-                      ax::mojom::Event::kChildrenChanged)});
+      {std::make_pair(virtual_child_3, ax::mojom::Event::kFocus)});
 
   // Test that calling GetFocus() from any object in the tree will return the
   // same result.
@@ -600,7 +585,7 @@ TEST_F(AXVirtualViewTest, TreeNavigationWithIgnoredVirtualViews) {
             virtual_child_2->ChildAtIndex(1));
 
   // Try ignoring a node by changing its role, instead of its state.
-  virtual_child_2->GetCustomData().role = ax::mojom::Role::kIgnored;
+  virtual_child_2->GetCustomData().role = ax::mojom::Role::kNone;
 
   EXPECT_EQ(button_->GetNativeViewAccessible(), virtual_label_->GetParent());
   EXPECT_EQ(virtual_label_->GetNativeObject(), virtual_child_1->GetParent());

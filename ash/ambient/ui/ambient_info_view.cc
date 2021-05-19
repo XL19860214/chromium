@@ -10,10 +10,11 @@
 #include "ash/ambient/ui/ambient_view_ids.h"
 #include "ash/ambient/ui/glanceable_info_view.h"
 #include "ash/ambient/util/ambient_util.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
+#include "ui/compositor/layer.h"
 #include "ui/gfx/geometry/insets.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/layout/box_layout.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
 #include "ui/views/view_class_properties.h"
 
 namespace ash {
@@ -25,7 +26,6 @@ constexpr int kMarginDip = 16;
 constexpr int kSpacingDip = 8;
 
 // Typography
-constexpr SkColor kTextColor = SK_ColorWHITE;
 constexpr int kDefaultFontSizeDip = 64;
 constexpr int kDetailsFontSizeDip = 13;
 
@@ -40,7 +40,13 @@ AmbientInfoView::AmbientInfoView(AmbientViewDelegate* delegate)
 
 AmbientInfoView::~AmbientInfoView() = default;
 
-void AmbientInfoView::UpdateImageDetails(const base::string16& details) {
+void AmbientInfoView::OnThemeChanged() {
+  views::View::OnThemeChanged();
+  details_label_->SetShadows(
+      ambient::util::GetTextShadowValues(GetNativeTheme()));
+}
+
+void AmbientInfoView::UpdateImageDetails(const std::u16string& details) {
   details_label_->SetText(details);
 }
 
@@ -51,7 +57,7 @@ void AmbientInfoView::SetTextTransform(const gfx::Transform& transform) {
 
 void AmbientInfoView::InitLayout() {
   gfx::Insets shadow_insets =
-      gfx::ShadowValue::GetMargin(ambient::util::GetTextShadowValues());
+      gfx::ShadowValue::GetMargin(ambient::util::GetTextShadowValues(nullptr));
 
   // Full screen view with the glanceable info view and details label in the
   // lower left.
@@ -74,11 +80,11 @@ void AmbientInfoView::InitLayout() {
 
   details_label_ = AddChildView(std::make_unique<views::Label>());
   details_label_->SetAutoColorReadabilityEnabled(false);
-  details_label_->SetEnabledColor(kTextColor);
+  details_label_->SetEnabledColor(ambient::util::GetContentLayerColor(
+      AshColorProvider::ContentLayerType::kTextColorSecondary));
   details_label_->SetFontList(
       ambient::util::GetDefaultFontlist().DeriveWithSizeDelta(
           kDetailsFontSizeDip - kDefaultFontSizeDip));
-  details_label_->SetShadows(ambient::util::GetTextShadowValues());
   details_label_->SetPaintToLayer();
   details_label_->layer()->SetFillsBoundsOpaquely(false);
 }

@@ -31,6 +31,7 @@ void OpenApplicationWithReenablePrompt(Profile* profile,
                                        apps::AppLaunchParams&& params);
 
 // Open the application in a way specified by |params|.
+// Result may be nullptr if Navigate() fails.
 content::WebContents* OpenApplication(Profile* profile,
                                       apps::AppLaunchParams&& params);
 
@@ -48,6 +49,7 @@ content::WebContents* NavigateApplicationWindow(
     WindowOpenDisposition disposition);
 
 // Open the application in a way specified by |params| in a new window.
+// Returns nullptr if a browser window cannot be opened.
 content::WebContents* OpenApplicationWindow(Profile* profile,
                                             const apps::AppLaunchParams& params,
                                             const GURL& url);

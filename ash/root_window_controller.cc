@@ -9,11 +9,13 @@
 #include <queue>
 #include <vector>
 
-#include "ash/accessibility/accessibility_panel_layout_manager.h"
-#include "ash/accessibility/touch_exploration_controller.h"
-#include "ash/accessibility/touch_exploration_manager.h"
+#include "ash/accessibility/chromevox/touch_exploration_controller.h"
+#include "ash/accessibility/chromevox/touch_exploration_manager.h"
+#include "ash/accessibility/ui/accessibility_panel_layout_manager.h"
 #include "ash/ambient/ambient_controller.h"
 #include "ash/app_menu/app_menu_model_adapter.h"
+#include "ash/constants/ash_features.h"
+#include "ash/constants/ash_switches.h"
 #include "ash/focus_cycler.h"
 #include "ash/high_contrast/high_contrast_controller.h"
 #include "ash/host/ash_window_tree_host.h"
@@ -47,7 +49,6 @@
 #include "ash/touch/touch_hud_projection.h"
 #include "ash/touch/touch_observer_hud.h"
 #include "ash/wallpaper/wallpaper_widget_controller.h"
-#include "ash/window_factory.h"
 #include "ash/wm/always_on_top_controller.h"
 #include "ash/wm/container_finder.h"
 #include "ash/wm/desks/desks_controller.h"
@@ -79,8 +80,6 @@
 #include "base/numerics/ranges.h"
 #include "base/stl_util.h"
 #include "base/time/time.h"
-#include "chromeos/constants/chromeos_features.h"
-#include "chromeos/constants/chromeos_switches.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/client/drag_drop_client.h"
 #include "ui/aura/client/screen_position_client.h"
@@ -112,7 +111,7 @@ namespace {
 bool IsInShelfContainer(aura::Window* container) {
   if (!container)
     return false;
-  int id = container->id();
+  int id = container->GetId();
   if (id == ash::kShellWindowId_ShelfContainer ||
       id == ash::kShellWindowId_ShelfBubbleContainer) {
     return true;
@@ -554,7 +553,7 @@ RootWindowController::GetSystemModalLayoutManager(aura::Window* window) {
   if (window) {
     aura::Window* window_container = GetContainerForWindow(window);
     if (window_container &&
-        window_container->id() >= kShellWindowId_LockScreenContainer) {
+        window_container->GetId() >= kShellWindowId_LockScreenContainer) {
       modal_container = GetContainer(kShellWindowId_LockSystemModalContainer);
     } else {
       modal_container = GetContainer(kShellWindowId_SystemModalContainer);
@@ -695,6 +694,7 @@ void RootWindowController::CloseChildWindows() {
   shelf_->ShutdownShelfWidget();
 
   ClearWorkspaceControllers(root);
+  always_on_top_controller_->ClearLayoutManagers();
 
   // Explicitly destroy top level windows. We do this because such windows may
   // query the RootWindow for state.
@@ -875,23 +875,16 @@ RootWindowController::RootWindowController(AshWindowTreeHost* ash_host)
   aura::Window* root_window = GetRootWindow();
   GetRootWindowSettings(root_window)->controller = this;
 
-  stacking_controller_.reset(new StackingController);
+  stacking_controller_ = std::make_unique<StackingController>();
   aura::client::SetWindowParentingClient(root_window,
                                          stacking_controller_.get());
-  capture_client_.reset(new ::wm::ScopedCaptureClient(root_window));
+  capture_client_ = std::make_unique<::wm::ScopedCaptureClient>(root_window);
 }
 
 void RootWindowController::Init(RootWindowType root_window_type) {
   aura::Window* root_window = GetRootWindow();
-  // If the |ash::features::kMultiDisplayOverviewAndSplitView| feature flag is
-  // enabled, create |split_view_controller_| for every display. Otherwise,
-  // create |split_view_controller_| for the primary display only.
-  display::Screen* screen = display::Screen::GetScreen();
-  if (AreMultiDisplayOverviewAndSplitViewEnabled() ||
-      screen->GetDisplayNearestWindow(root_window).id() ==
-          screen->GetPrimaryDisplay().id()) {
-    split_view_controller_ = std::make_unique<SplitViewController>(root_window);
-  }
+  // Create |split_view_controller_| for every display.
+  split_view_controller_ = std::make_unique<SplitViewController>(root_window);
   Shell* shell = Shell::Get();
   shell->InitRootWindow(root_window);
   auto old_targeter =
@@ -1239,10 +1232,9 @@ aura::Window* RootWindowController::CreateContainer(int window_id,
                                                     const char* name,
                                                     aura::Window* parent) {
   aura::Window* window =
-      window_factory::NewWindow(nullptr, aura::client::WINDOW_TYPE_UNKNOWN)
-          .release();
+      new aura::Window(nullptr, aura::client::WINDOW_TYPE_UNKNOWN);
   window->Init(ui::LAYER_NOT_DRAWN);
-  window->set_id(window_id);
+  window->SetId(window_id);
   window->SetName(name);
   parent->AddChild(window);
   if (window_id != kShellWindowId_UnparentedControlContainer)
@@ -1263,8 +1255,8 @@ void RootWindowController::CreateSystemWallpaper(
           chromeos::switches::kFirstExecAfterBoot);
   if (is_boot_splash_screen)
     color = kChromeOsBootColor;
-  system_wallpaper_.reset(
-      new SystemWallpaperController(GetRootWindow(), color));
+  system_wallpaper_ =
+      std::make_unique<SystemWallpaperController>(GetRootWindow(), color);
 }
 
 AccessibilityPanelLayoutManager*

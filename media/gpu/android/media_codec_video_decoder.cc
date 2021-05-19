@@ -26,6 +26,7 @@
 #include "media/base/media_switches.h"
 #include "media/base/scoped_async_trace.h"
 #include "media/base/status.h"
+#include "media/base/supported_video_decoder_config.h"
 #include "media/base/video_codecs.h"
 #include "media/base/video_decoder_config.h"
 #include "media/base/video_frame.h"
@@ -33,7 +34,6 @@
 #include "media/gpu/android/android_video_surface_chooser.h"
 #include "media/gpu/android/codec_allocator.h"
 #include "media/media_buildflags.h"
-#include "media/video/supported_video_decoder_config.h"
 
 #if BUILDFLAG(USE_PROPRIETARY_CODECS)
 #include "media/base/android/extract_sps_and_pps.h"
@@ -172,7 +172,19 @@ std::vector<SupportedVideoDecoderConfig> GetSupportedConfigsInternal(
                                  true,    // allow_encrypted
                                  false);  // require_encrypted
 #endif
+#if BUILDFLAG(ENABLE_PLATFORM_DOLBY_VISION)
+  // Technically we should check which profiles are supported, but we can
+  // allow them all like we do with H264 codec.
+  supported_configs.emplace_back(DOLBYVISION_PROFILE4, DOLBYVISION_PROFILE9,
+                                 gfx::Size(0, 0), gfx::Size(3840, 2160),
+                                 true,    // allow_encrypted
+                                 false);  // require_encrypted
+  supported_configs.emplace_back(DOLBYVISION_PROFILE4, DOLBYVISION_PROFILE9,
+                                 gfx::Size(0, 0), gfx::Size(2160, 3840),
+                                 true,    // allow_encrypted
+                                 false);  // require_encrypted
 #endif
+#endif  // #if BUILDFLAG(USE_PROPRIETARY_CODECS)
 
   return supported_configs;
 }
@@ -552,8 +564,8 @@ void MediaCodecVideoDecoder::OnOverlayInfoChanged(
   surface_chooser_helper_.SetIsPersistentVideo(
       overlay_info_.is_persistent_video);
   surface_chooser_helper_.UpdateChooserState(
-      overlay_changed ? base::make_optional(CreateOverlayFactoryCb())
-                      : base::nullopt);
+      overlay_changed ? absl::make_optional(CreateOverlayFactoryCb())
+                      : absl::nullopt);
 }
 
 void MediaCodecVideoDecoder::OnSurfaceChosen(
@@ -762,20 +774,9 @@ void MediaCodecVideoDecoder::FlushCodec() {
   if (!codec_ || codec_->IsFlushed())
     return;
 
-  if (codec_->SupportsFlush(device_info_)) {
-    DVLOG(2) << "Flushing codec";
-    if (!codec_->Flush())
-      EnterTerminalState(State::kError, "Codec flush failed");
-  } else {
-    DVLOG(2) << "flush() workaround: creating a new codec";
-    // Release the codec and create a new one.
-    // Note: we may end up with two codecs attached to the same surface if the
-    // release hangs on one thread and create proceeds on another. This will
-    // result in an error, letting the user retry the playback. The alternative
-    // of waiting for the release risks hanging the playback forever.
-    ReleaseCodec();
-    CreateCodec();
-  }
+  DVLOG(2) << "Flushing codec";
+  if (!codec_->Flush())
+    EnterTerminalState(State::kError, "Codec flush failed");
 }
 
 void MediaCodecVideoDecoder::PumpCodec(bool force_start_timer) {
@@ -1021,7 +1022,7 @@ void MediaCodecVideoDecoder::ForwardVideoFrame(
   if (reset_generation == reset_generation_) {
     // TODO(liberato): We might actually have a SW decoder.  Consider setting
     // this to false if so, especially for higher bitrates.
-    frame->metadata()->power_efficient = true;
+    frame->metadata().power_efficient = true;
     output_cb_.Run(std::move(frame));
   }
 }
@@ -1155,8 +1156,8 @@ AndroidOverlayFactoryCB MediaCodecVideoDecoder::CreateOverlayFactoryCb() {
   return base::BindRepeating(overlay_factory_cb_, *overlay_info_.routing_token);
 }
 
-std::string MediaCodecVideoDecoder::GetDisplayName() const {
-  return "MediaCodecVideoDecoder";
+VideoDecoderType MediaCodecVideoDecoder::GetDecoderType() const {
+  return VideoDecoderType::kMediaCodec;
 }
 
 bool MediaCodecVideoDecoder::NeedsBitstreamConversion() const {

@@ -18,6 +18,7 @@ enum class KeepAliveOrigin {
   APP_CONTROLLER,
   BROWSER,
   BROWSER_PROCESS_CHROMEOS,
+  BROWSER_PROCESS_LACROS,
   SESSION_RESTORE,
 
   // c/b/background
@@ -52,7 +53,6 @@ enum class KeepAliveOrigin {
   // c/b/ui
   APP_LIST_SERVICE_VIEWS,
   APP_LIST_SHOWER,
-  APP_UNINSTALLATION_FROM_OS_SETTINGS,
   CHROME_APP_DELEGATE,
   CHROME_VIEWS_DELEGATE,
   PANEL,
@@ -61,6 +61,13 @@ enum class KeepAliveOrigin {
   PROFILE_LOADER,
   USER_MANAGER_VIEW,
   CREDENTIAL_PROVIDER_SIGNIN_DIALOG,
+  WEB_APP_INTENT_PICKER,
+
+  // c/b/web_applications
+  APP_START_URL_MIGRATION,
+
+  // c/b/sessions
+  SESSION_DATA_DELETER,
 };
 
 // Restart: Allow Chrome to restart when all the registered KeepAlives allow

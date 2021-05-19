@@ -73,6 +73,11 @@ void WebSecurityPolicy::
       scheme);
 }
 
+void WebSecurityPolicy::RegisterURLSchemeAsAllowingSharedArrayBuffers(
+    const WebString& scheme) {
+  SchemeRegistry::RegisterURLSchemeAsAllowingSharedArrayBuffers(scheme);
+}
+
 void WebSecurityPolicy::AddOriginAccessAllowListEntry(
     const WebURL& source_origin,
     const WebString& destination_protocol,
@@ -110,11 +115,6 @@ void WebSecurityPolicy::ClearOriginAccessListForOrigin(
 
 void WebSecurityPolicy::ClearOriginAccessList() {
   SecurityPolicy::ClearOriginAccessList();
-}
-
-void WebSecurityPolicy::AddOriginToTrustworthySafelist(
-    const WebString& origin) {
-  SecurityPolicy::AddOriginToTrustworthySafelist(origin);
 }
 
 void WebSecurityPolicy::AddSchemeToSecureContextSafelist(

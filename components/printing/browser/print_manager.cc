@@ -6,42 +6,16 @@
 
 #include "base/bind.h"
 #include "build/build_config.h"
-#include "components/printing/common/print_messages.h"
 #include "content/public/browser/render_frame_host.h"
 #include "third_party/blink/public/common/associated_interfaces/associated_interface_provider.h"
 
 namespace printing {
-
-struct PrintManager::FrameDispatchHelper {
-  PrintManager* manager;
-  content::RenderFrameHost* render_frame_host;
-
-  bool Send(IPC::Message* msg) { return render_frame_host->Send(msg); }
-
-  void OnScriptedPrint(const mojom::ScriptedPrintParams& scripted_params,
-                       IPC::Message* reply_msg) {
-    manager->OnScriptedPrint(render_frame_host, scripted_params, reply_msg);
-  }
-};
 
 PrintManager::PrintManager(content::WebContents* contents)
     : content::WebContentsObserver(contents),
       print_manager_host_receivers_(contents, this) {}
 
 PrintManager::~PrintManager() = default;
-
-bool PrintManager::OnMessageReceived(
-    const IPC::Message& message,
-    content::RenderFrameHost* render_frame_host) {
-  FrameDispatchHelper helper = {this, render_frame_host};
-  bool handled = true;
-  IPC_BEGIN_MESSAGE_MAP(PrintManager, message)
-    IPC_MESSAGE_FORWARD_DELAY_REPLY(PrintHostMsg_ScriptedPrint, &helper,
-                                    FrameDispatchHelper::OnScriptedPrint)
-    IPC_MESSAGE_UNHANDLED(handled = false)
-  IPC_END_MESSAGE_MAP()
-  return handled;
-}
 
 void PrintManager::RenderFrameDeleted(
     content::RenderFrameHost* render_frame_host) {
@@ -50,27 +24,14 @@ void PrintManager::RenderFrameDeleted(
 
 void PrintManager::DidGetPrintedPagesCount(int32_t cookie,
                                            uint32_t number_pages) {
-  DCHECK_GT(cookie, 0);
-  DCHECK_GT(number_pages, 0u);
+  if (!IsValidCookie(cookie) || number_pages == 0)
+    return;
+
   number_pages_ = number_pages;
 }
 
 void PrintManager::DidGetDocumentCookie(int32_t cookie) {
   cookie_ = cookie;
-}
-
-#if BUILDFLAG(ENABLE_TAGGED_PDF)
-void PrintManager::SetAccessibilityTree(
-    int32_t cookie,
-    const ui::AXTreeUpdate& accessibility_tree) {}
-#endif
-
-void PrintManager::UpdatePrintSettings(int32_t cookie,
-                                       base::Value job_settings,
-                                       UpdatePrintSettingsCallback callback) {
-  auto params = mojom::PrintPagesParams::New();
-  params->params = mojom::PrintParams::New();
-  std::move(callback).Run(std::move(params), false);
 }
 
 void PrintManager::DidShowPrintDialog() {}
@@ -83,25 +44,21 @@ void PrintManager::DidPrintDocument(mojom::DidPrintDocumentParamsPtr params,
 void PrintManager::ShowInvalidPrinterSettingsError() {}
 
 void PrintManager::PrintingFailed(int32_t cookie) {
-  if (cookie != cookie_) {
-    NOTREACHED();
+  // Note: Not redundant with cookie checks in the same method in other parts of
+  // the class hierarchy.
+  if (!IsValidCookie(cookie))
     return;
-  }
+
 #if defined(OS_ANDROID)
   PdfWritingDone(0);
 #endif
 }
 
-#if BUILDFLAG(ENABLE_PRINT_PREVIEW)
-void PrintManager::ShowScriptedPrintPreview(bool source_is_modifiable) {}
-#endif
-
-bool PrintManager::IsPrintRenderFrameConnected(content::RenderFrameHost* rfh) {
+bool PrintManager::IsPrintRenderFrameConnected(
+    content::RenderFrameHost* rfh) const {
   auto it = print_render_frames_.find(rfh);
-  if (it == print_render_frames_.end())
-    return false;
-
-  return it->second.is_bound() && it->second.is_connected();
+  return it != print_render_frames_.end() && it->second.is_bound() &&
+         it->second.is_connected();
 }
 
 const mojo::AssociatedRemote<printing::mojom::PrintRenderFrame>&
@@ -125,6 +82,10 @@ void PrintManager::PrintingRenderFrameDeleted() {
 #if defined(OS_ANDROID)
   PdfWritingDone(0);
 #endif
+}
+
+bool PrintManager::IsValidCookie(int cookie) const {
+  return cookie > 0 && cookie == cookie_;
 }
 
 }  // namespace printing

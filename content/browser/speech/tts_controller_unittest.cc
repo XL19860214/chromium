@@ -60,17 +60,17 @@ class MockTtsPlatformImpl : public TtsPlatform {
   void Pause() override { ++pause_called_; }
   void Resume() override { ++resume_called_; }
   void GetVoices(std::vector<VoiceData>* out_voices) override {
-    *out_voices = voices_;
+    for (const auto& voice : voices_)
+      out_voices->push_back(voice);
   }
-  bool LoadBuiltInTtsEngine(BrowserContext* browser_context) override {
-    return false;
-  }
+  void LoadBuiltInTtsEngine(BrowserContext* browser_context) override {}
   void WillSpeakUtteranceWithVoice(TtsUtterance* utterance,
                                    const VoiceData& voice_data) override {}
   void SetError(const std::string& error) override { error_ = error; }
   std::string GetError() override { return error_; }
   void ClearError() override { error_.clear(); }
   void Shutdown() override {}
+  bool PreferEngineDelegateVoices() override { return false; }
 
   void SetPlatformImplSupported(bool state) { platform_supported_ = state; }
   void SetPlatformImplInitialized(bool state) { platform_initialized_ = state; }
@@ -123,9 +123,7 @@ class MockTtsEngineDelegate : public TtsEngineDelegate {
     utterance_id_ = utterance->GetId();
   }
 
-  bool LoadBuiltInTtsEngine(BrowserContext* browser_context) override {
-    return true;
-  }
+  void LoadBuiltInTtsEngine(BrowserContext* browser_context) override {}
 
   bool IsBuiltInTtsEngineInitialized(BrowserContext* browser_context) override {
     return is_built_in_tts_engine_initialized_;
@@ -133,7 +131,8 @@ class MockTtsEngineDelegate : public TtsEngineDelegate {
 
   void GetVoices(BrowserContext* browser_context,
                  std::vector<VoiceData>* out_voices) override {
-    *out_voices = voices_;
+    for (const auto& voice : voices_)
+      out_voices->push_back(voice);
   }
 
   // Unused (TtsEngineDelegate:)
@@ -201,6 +200,8 @@ class TestTtsControllerImpl : public TtsControllerImpl {
   using TtsControllerImpl::IsPausedForTesting;
 
   TtsUtterance* current_utterance() { return current_utterance_.get(); }
+
+  void set_allow_remote_voices(bool value) { allow_remote_voices_ = value; }
 };
 
 class TtsControllerTest : public testing::Test {
@@ -508,6 +509,50 @@ TEST_F(TtsControllerTest, TestGetMatchingVoice) {
     // voice0 is matched against the pref over the system language.
     TestContentBrowserClient::GetInstance()->set_application_locale("en-US");
     EXPECT_EQ(0, controller()->GetMatchingVoice(utterance.get(), voices));
+#endif
+  }
+
+  {
+    // This block ensures that voices can be matched, even if their locale's
+    // casing doesn't exactly match that of the utterance e.g. "en-us" will
+    // match with "en-US".
+    std::vector<VoiceData> voices;
+    VoiceData voice0;
+    voice0.engine_id = "id0";
+    voice0.name = "English voice";
+    voice0.lang = "en-US";
+    voices.push_back(voice0);
+    VoiceData voice1;
+    voice1.engine_id = "id0";
+    voice1.name = "French voice";
+    voice1.lang = "fr";
+    voices.push_back(voice1);
+
+    std::unique_ptr<TtsUtterance> utterance(TtsUtterance::Create());
+    utterance->SetLang("en-us");
+    EXPECT_EQ(0, controller()->GetMatchingVoice(utterance.get(), voices));
+    utterance->SetLang("en-US");
+    EXPECT_EQ(0, controller()->GetMatchingVoice(utterance.get(), voices));
+    utterance->SetLang("EN-US");
+    EXPECT_EQ(0, controller()->GetMatchingVoice(utterance.get(), voices));
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+    // Add another English voice.
+    VoiceData voice2;
+    voice2.engine_id = "id1";
+    voice2.name = "Another English voice";
+    voice2.lang = "en-us";
+    voices.push_back(voice2);
+
+    // Set voice2 as the preferred voice for English.
+    TtsControllerDelegate::PreferredVoiceIds preferred_voice_ids;
+    preferred_voice_ids.lang_voice_id.emplace(voice2.name, voice2.engine_id);
+    delegate()->SetPreferredVoiceIds(preferred_voice_ids);
+
+    // Ensure that voice2 is chosen over voice0, even though the locales don't
+    // match exactly. The utterance has a locale of "en-US", while voice2 has
+    // a locale of "en-us"; this shouldn't prevent voice2 from being used.
+    EXPECT_EQ(2, controller()->GetMatchingVoice(utterance.get(), voices));
 #endif
   }
 }
@@ -866,6 +911,30 @@ TEST_F(TtsControllerTest, SpeakWhenLoadingPlatformImpl) {
   EXPECT_TRUE(IsUtteranceListEmpty());
   EXPECT_FALSE(TtsControllerCurrentUtterance());
   EXPECT_FALSE(controller()->IsSpeaking());
+}
+
+TEST_F(TtsControllerTest, GetVoicesOnlineOffline) {
+  std::vector<VoiceData> voices;
+  VoiceData voice_data0;
+  voice_data0.name = "offline";
+  voices.push_back(std::move(voice_data0));
+
+  VoiceData voice_data1;
+  voice_data1.name = "online";
+  voice_data1.remote = true;
+  voices.push_back(std::move(voice_data1));
+  platform_impl()->set_voices(voices);
+
+  controller()->set_allow_remote_voices(true);
+  std::vector<VoiceData> controller_voices;
+  controller()->GetVoices(browser_context(), &controller_voices);
+  EXPECT_EQ(2U, controller_voices.size());
+
+  controller_voices.clear();
+  controller()->set_allow_remote_voices(false);
+  controller()->GetVoices(browser_context(), &controller_voices);
+  EXPECT_EQ(1U, controller_voices.size());
+  EXPECT_EQ("offline", controller_voices[0].name);
 }
 
 #if !defined(OS_ANDROID)

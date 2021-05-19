@@ -285,7 +285,6 @@ void ThreadableLoader::ResponseReceived(Resource* resource,
                                         const ResourceResponse& response) {
   DCHECK(client_);
   DCHECK_EQ(resource, GetResource());
-  DCHECK(!response.WasFallbackRequiredByServiceWorker());
 
   checker_.ResponseReceived();
 
@@ -384,6 +383,7 @@ void ThreadableLoader::Trace(Visitor* visitor) const {
   visitor->Trace(execution_context_);
   visitor->Trace(client_);
   visitor->Trace(resource_fetcher_);
+  visitor->Trace(timeout_timer_);
   RawResourceClient::Trace(visitor);
 }
 

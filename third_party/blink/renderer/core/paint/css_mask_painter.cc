@@ -11,17 +11,17 @@
 
 namespace blink {
 
-base::Optional<IntRect> CSSMaskPainter::MaskBoundingBox(
+absl::optional<IntRect> CSSMaskPainter::MaskBoundingBox(
     const LayoutObject& object,
     const PhysicalOffset& paint_offset) {
   if (!object.IsBoxModelObject() && !object.IsSVGChild())
-    return base::nullopt;
+    return absl::nullopt;
 
   const ComputedStyle& style = object.StyleRef();
   if (object.IsSVG()) {
     if (SVGResourceClient* client = SVGResources::GetClient(object)) {
       auto* masker = GetSVGResourceAsType<LayoutSVGResourceMasker>(
-          *client, style.SvgStyle().MaskerResource());
+          *client, style.MaskerResource());
       if (masker) {
         const FloatRect reference_box =
             SVGResources::ReferenceBoxForEffects(object);
@@ -34,10 +34,10 @@ base::Optional<IntRect> CSSMaskPainter::MaskBoundingBox(
   }
 
   if (object.IsSVGChild() && !object.IsSVGForeignObject())
-    return base::nullopt;
+    return absl::nullopt;
 
   if (!style.HasMask())
-    return base::nullopt;
+    return absl::nullopt;
 
   PhysicalRect maximum_mask_region;
   // For HTML/CSS objects, the extent of the mask is known as "mask
@@ -56,21 +56,6 @@ base::Optional<IntRect> CSSMaskPainter::MaskBoundingBox(
     maximum_mask_region.Expand(style.MaskBoxImageOutsets());
   maximum_mask_region.offset += paint_offset;
   return PixelSnappedIntRect(maximum_mask_region);
-}
-
-ColorFilter CSSMaskPainter::MaskColorFilter(const LayoutObject& object) {
-  if (!object.IsSVGChild())
-    return kColorFilterNone;
-  SVGResourceClient* client = SVGResources::GetClient(object);
-  if (!client)
-    return kColorFilterNone;
-  auto* masker = GetSVGResourceAsType<LayoutSVGResourceMasker>(
-      *client, object.StyleRef().SvgStyle().MaskerResource());
-  if (!masker)
-    return kColorFilterNone;
-  return masker->StyleRef().SvgStyle().MaskType() == MT_LUMINANCE
-             ? kColorFilterLuminanceToAlpha
-             : kColorFilterNone;
 }
 
 }  // namespace blink

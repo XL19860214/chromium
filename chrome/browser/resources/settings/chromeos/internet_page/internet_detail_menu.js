@@ -13,14 +13,46 @@ Polymer({
   // to show the actions for search result.
   behaviors: [
     settings.RouteObserverBehavior,
+    ESimManagerListenerBehavior,
   ],
 
   properties: {
+    /**
+     * Device state for the network type.
+     * @type {!OncMojo.DeviceStateProperties|undefined}
+     */
+    deviceState: Object,
+
+    /**
+     * Null if current network on network detail page is not an eSIM network.
+     * @private {?OncMojo.NetworkStateProperties}
+     */
+    eSimNetworkState_: {
+      type: Object,
+      value: null,
+    },
+
     /** @private */
-    iccid_: {
+    isUpdatedCellularUiEnabled_: {
+      type: Boolean,
+      value() {
+        return loadTimeData.getBoolean('updatedCellularActivationUi');
+      }
+    },
+
+    /** @private */
+    isGuest_: {
+      type: Boolean,
+      value() {
+        return loadTimeData.getBoolean('isGuest');
+      },
+    },
+
+    /** @private*/
+    guid_: {
       type: String,
       value: '',
-    },
+    }
   },
 
   /**
@@ -30,8 +62,10 @@ Polymer({
    * @protected
    */
   currentRouteChanged(route, oldRoute) {
+    this.eSimNetworkState_ = null;
+    this.guid_ = '';
     if (route !== settings.routes.NETWORK_DETAIL ||
-        !loadTimeData.getBoolean('updatedCellularActivationUi')) {
+        !this.isUpdatedCellularUiEnabled_) {
       return;
     }
 
@@ -45,31 +79,35 @@ Polymer({
       console.error('No guid specified for page:' + route);
       return;
     }
-    const networkConfig = network_config.MojoInterfaceProviderImpl.getInstance()
-                              .getMojoServiceRemote();
-    networkConfig.getNetworkState(guid).then(response => {
-      // TODO(crbug.com/1093185): Add check for specifically eSIM when
-      // cellular has an EID property.
-      if (response.result.type !==
-          chromeos.networkConfig.mojom.NetworkType.kCellular) {
-        return;
-      }
-      this.setESimIccid_(networkConfig, guid);
-    });
+    this.guid_ = guid;
+
+    // Needed to set initial eSimNetworkState_.
+    this.setESimNetworkState_();
   },
 
   /**
-   * @param {!chromeos.networkConfig.mojom.CrosNetworkConfigRemote}
-   *     networkConfig
-   * @param {string} guid
+   * ESimManagerListenerBehavior override
+   * @param {!chromeos.cellularSetup.mojom.ESimProfileRemote} profile
+   */
+  onProfileChanged(profile) {
+    this.setESimNetworkState_();
+  },
+
+  /**
+   * Gets and sets current eSIM network state.
    * @private
    */
-  setESimIccid_(networkConfig, guid) {
-    networkConfig.getManagedProperties(guid).then(response => {
-      const managedProperty = response.result;
-      if (managedProperty.typeProperties.cellular.iccid) {
-        this.iccid_ = managedProperty.typeProperties.cellular.iccid;
+  setESimNetworkState_() {
+    const networkConfig = network_config.MojoInterfaceProviderImpl.getInstance()
+                              .getMojoServiceRemote();
+    networkConfig.getNetworkState(this.guid_).then(response => {
+      if (response.result.type !==
+              chromeos.networkConfig.mojom.NetworkType.kCellular ||
+          !response.result.typeState.cellular.eid ||
+          !response.result.typeState.cellular.iccid) {
+        return;
       }
+      this.eSimNetworkState_ = response.result;
     });
   },
 
@@ -87,7 +125,30 @@ Polymer({
    * @private
    */
   shouldShowDotsMenuButton_() {
-    return !!this.iccid_;
+    // Only shown if the flag is enabled.
+    if (!this.isUpdatedCellularUiEnabled_) {
+      return false;
+    }
+
+    // Not shown in guest mode.
+    if (this.isGuest_) {
+      return false;
+    }
+
+    // Show if |this.eSimNetworkState_| has been fetched. Note that this only
+    // occurs if this is a cellular network with an ICCID.
+    return !!this.eSimNetworkState_;
+  },
+
+  /**
+   * @return {boolean}
+   * @private
+   */
+  isDotsMenuButtonDisabled_() {
+    if (!this.deviceState || !this.isUpdatedCellularUiEnabled_) {
+      return false;
+    }
+    return OncMojo.deviceIsInhibited(this.deviceState);
   },
 
   /**
@@ -95,7 +156,10 @@ Polymer({
    * @private
    */
   onRenameESimProfileTap_(e) {
-    this.fire('show-esim-profile-rename-dialog', {iccid: this.iccid_});
+    this.closeMenu_();
+    this.fire(
+        'show-esim-profile-rename-dialog',
+        {networkState: this.eSimNetworkState_});
   },
 
   /**
@@ -103,6 +167,16 @@ Polymer({
    * @private
    */
   onRemoveESimProfileTap_(e) {
-    this.fire('show-esim-remove-profile-dialog', {iccid: this.iccid_});
-  }
+    this.closeMenu_();
+    this.fire(
+        'show-esim-remove-profile-dialog',
+        {networkState: this.eSimNetworkState_});
+  },
+
+  /** @private */
+  closeMenu_() {
+    const actionMenu =
+        /** @type {!CrActionMenuElement} */ (this.$$('cr-action-menu'));
+    actionMenu.close();
+  },
 });

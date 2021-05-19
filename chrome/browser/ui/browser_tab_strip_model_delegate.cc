@@ -13,6 +13,8 @@
 #include "chrome/browser/task_manager/web_contents_tags.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_commands.h"
+#include "chrome/browser/ui/browser_list.h"
+#include "chrome/browser/ui/browser_live_tab_context.h"
 #include "chrome/browser/ui/browser_tabstrip.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/tab_helpers.h"
@@ -48,7 +50,7 @@ void BrowserTabStripModelDelegate::AddTabAt(
     const GURL& url,
     int index,
     bool foreground,
-    base::Optional<tab_groups::TabGroupId> group) {
+    absl::optional<tab_groups::TabGroupId> group) {
   chrome::AddTabAt(browser_, url, index, foreground, group);
 }
 
@@ -106,6 +108,10 @@ bool BrowserTabStripModelDelegate::CanDuplicateContentsAt(int index) {
   return CanDuplicateTabAt(browser_, index);
 }
 
+bool BrowserTabStripModelDelegate::IsTabStripEditable() {
+  return browser_->window()->IsTabStripEditable();
+}
+
 void BrowserTabStripModelDelegate::DuplicateContentsAt(int index) {
   DuplicateTabAt(browser_, index);
 }
@@ -113,12 +119,37 @@ void BrowserTabStripModelDelegate::DuplicateContentsAt(int index) {
 void BrowserTabStripModelDelegate::MoveToExistingWindow(
     const std::vector<int>& indices,
     int browser_index) {
-  browser_->MoveTabsToExistingWindow(indices, browser_index);
+  size_t existing_browser_count = existing_browsers_for_menu_list_.size();
+  if (static_cast<size_t>(browser_index) < existing_browser_count &&
+      existing_browsers_for_menu_list_[browser_index]) {
+    chrome::MoveTabsToExistingWindow(
+        browser_, existing_browsers_for_menu_list_[browser_index].get(),
+        indices);
+  }
 }
 
-std::vector<base::string16>
-BrowserTabStripModelDelegate::GetExistingWindowsForMoveMenu() const {
-  return browser_->GetExistingWindowsForMoveMenu();
+std::vector<std::u16string>
+BrowserTabStripModelDelegate::GetExistingWindowsForMoveMenu() {
+  static constexpr int kWindowTitleForMenuMaxWidth = 400;
+  std::vector<std::u16string> window_titles;
+  existing_browsers_for_menu_list_.clear();
+
+  const BrowserList* browser_list = BrowserList::GetInstance();
+  for (BrowserList::const_reverse_iterator it =
+           browser_list->begin_last_active();
+       it != browser_list->end_last_active(); ++it) {
+    Browser* browser = *it;
+
+    // We can only move into a tabbed view of the same profile, and not the same
+    // window we're currently in.
+    if (browser != browser_ && browser->is_type_normal() &&
+        browser->profile() == browser_->profile()) {
+      existing_browsers_for_menu_list_.push_back(browser->AsWeakPtr());
+      window_titles.push_back(
+          browser->GetWindowTitleForMaxWidth(kWindowTitleForMenuMaxWidth));
+    }
+  }
+  return window_titles;
 }
 
 bool BrowserTabStripModelDelegate::CanMoveTabsToWindow(
@@ -149,12 +180,10 @@ void BrowserTabStripModelDelegate::MoveGroupToNewWindow(
   chrome::MoveTabsToNewWindow(browser_, indices, group);
 }
 
-base::Optional<SessionID> BrowserTabStripModelDelegate::CreateHistoricalTab(
+absl::optional<SessionID> BrowserTabStripModelDelegate::CreateHistoricalTab(
     content::WebContents* contents) {
-  // We don't create historical tabs for incognito windows or windows without
-  // profiles.
-  if (!browser_->profile() || browser_->profile()->IsOffTheRecord())
-    return base::nullopt;
+  if (!BrowserSupportsHistoricalEntries())
+    return absl::nullopt;
 
   sessions::TabRestoreService* service =
       TabRestoreServiceFactory::GetForProfile(browser_->profile());
@@ -165,7 +194,29 @@ base::Optional<SessionID> BrowserTabStripModelDelegate::CreateHistoricalTab(
         sessions::ContentLiveTab::GetForWebContents(contents),
         browser_->tab_strip_model()->GetIndexOfWebContents(contents));
   }
-  return base::nullopt;
+  return absl::nullopt;
+}
+
+void BrowserTabStripModelDelegate::CreateHistoricalGroup(
+    const tab_groups::TabGroupId& group) {
+  if (!BrowserSupportsHistoricalEntries())
+    return;
+
+  sessions::TabRestoreService* service =
+      TabRestoreServiceFactory::GetForProfile(browser_->profile());
+  if (service) {
+    service->CreateHistoricalGroup(
+        BrowserLiveTabContext::FindContextWithGroup(group, browser_->profile()),
+        group);
+  }
+}
+
+void BrowserTabStripModelDelegate::GroupCloseStopped(
+    const tab_groups::TabGroupId& group) {
+  sessions::TabRestoreService* service =
+      TabRestoreServiceFactory::GetForProfile(browser_->profile());
+  if (service)
+    service->GroupCloseStopped(group);
 }
 
 bool BrowserTabStripModelDelegate::RunUnloadListenerBeforeClosing(
@@ -188,6 +239,12 @@ bool BrowserTabStripModelDelegate::ShouldDisplayFavicon(
 
 void BrowserTabStripModelDelegate::CloseFrame() {
   browser_->window()->Close();
+}
+
+bool BrowserTabStripModelDelegate::BrowserSupportsHistoricalEntries() {
+  // We don't create historical tabs for incognito windows or windows without
+  // profiles.
+  return browser_->profile() && !browser_->profile()->IsOffTheRecord();
 }
 
 }  // namespace chrome

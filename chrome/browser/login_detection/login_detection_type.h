@@ -33,7 +33,17 @@ enum class LoginDetectionType {
   // commonly logged-in.
   kFieldTrialLoggedInSite,
 
-  kMaxValue = kFieldTrialLoggedInSite
+  // The site has credentials saved in the password manager.
+  kPasswordManagerSavedSite,
+
+  // Successful popup based OAuth login flow was detected.
+  kOauthPopUpFirstTimeLoginFlow,
+
+  // Treated as logged-in since the site was detected as commonly logged-in from
+  // optimization guide hints.
+  kOptimizationGuideDetected,
+
+  kMaxValue = kOptimizationGuideDetected
 };
 }  // namespace login_detection
 

@@ -10,6 +10,7 @@
 #include "base/memory/scoped_refptr.h"
 #include "base/test/bind.h"
 #include "base/test/scoped_feature_list.h"
+#include "components/services/storage/public/cpp/storage_key.h"
 #include "content/browser/cookie_store/cookie_store_context.h"
 #include "content/browser/cookie_store/cookie_store_manager.h"
 #include "content/browser/service_worker/embedded_worker_test_helper.h"
@@ -19,6 +20,7 @@
 #include "content/browser/storage_partition_impl.h"
 #include "content/public/test/browser_task_environment.h"
 #include "content/public/test/test_browser_context.h"
+#include "content/test/fake_mojo_message_dispatch_context.h"
 #include "mojo/public/cpp/test_support/test_utils.h"
 #include "net/base/features.h"
 #include "net/cookies/cookie_access_result.h"
@@ -74,9 +76,9 @@ class CookieStoreSync {
     return success;
   }
 
-  base::Optional<Subscriptions> GetSubscriptions(
+  absl::optional<Subscriptions> GetSubscriptions(
       int64_t service_worker_registration_id) {
-    base::Optional<Subscriptions> result;
+    absl::optional<Subscriptions> result;
     base::RunLoop run_loop;
     cookie_store_service_->GetSubscriptions(
         service_worker_registration_id,
@@ -96,11 +98,11 @@ class CookieStoreSync {
   DISALLOW_COPY_AND_ASSIGN(CookieStoreSync);
 };
 
-const char kExampleScope[] = "https://example.com/a";
+const char kExampleScope[] = "https://example.com/a/";
 const char kExampleWorkerScript[] = "https://example.com/a/script.js";
-const char kGoogleScope[] = "https://google.com/a";
+const char kGoogleScope[] = "https://google.com/a/";
 const char kGoogleWorkerScript[] = "https://google.com/a/script.js";
-const char kLegacyScope[] = "https://legacy.com/a";
+const char kLegacyScope[] = "https://legacy.com/a/";
 const char kLegacyWorkerScript[] = "https://legacy.com/a/script.js";
 
 // Mocks a service worker that uses the cookieStore API.
@@ -206,9 +208,10 @@ class CookieStoreManagerTest
     int64_t registration_id;
     blink::mojom::ServiceWorkerRegistrationOptions options;
     options.scope = GURL(scope);
+    storage::StorageKey key(url::Origin::Create(GURL(scope)));
     base::RunLoop run_loop;
     worker_test_helper_->context()->RegisterServiceWorker(
-        GURL(script_url), options,
+        GURL(script_url), key, options,
         blink::mojom::FetchClientSettingsObject::New(),
         base::BindLambdaForTesting([&](blink::ServiceWorkerStatusCode status,
                                        const std::string& status_message,
@@ -449,7 +452,7 @@ TEST_P(CookieStoreManagerTest, NoSubscriptions) {
   if (reset_context_during_test())
     ResetServiceWorkerContext();
 
-  base::Optional<CookieStoreSync::Subscriptions> all_subscriptions_opt =
+  absl::optional<CookieStoreSync::Subscriptions> all_subscriptions_opt =
       example_service_->GetSubscriptions(registration_id);
   ASSERT_TRUE(all_subscriptions_opt.has_value());
   EXPECT_EQ(0u, all_subscriptions_opt.value().size());
@@ -467,7 +470,7 @@ TEST_P(CookieStoreManagerTest, AddSubscriptions_EmptyInput) {
   if (reset_context_during_test())
     ResetServiceWorkerContext();
 
-  base::Optional<CookieStoreSync::Subscriptions> all_subscriptions_opt =
+  absl::optional<CookieStoreSync::Subscriptions> all_subscriptions_opt =
       example_service_->GetSubscriptions(registration_id);
   ASSERT_TRUE(all_subscriptions_opt.has_value());
   EXPECT_EQ(0u, all_subscriptions_opt.value().size());
@@ -491,7 +494,7 @@ TEST_P(CookieStoreManagerTest, AddSubscriptions_OneSubscription) {
   if (reset_context_during_test())
     ResetServiceWorkerContext();
 
-  base::Optional<CookieStoreSync::Subscriptions> all_subscriptions_opt =
+  absl::optional<CookieStoreSync::Subscriptions> all_subscriptions_opt =
       example_service_->GetSubscriptions(registration_id);
   ASSERT_TRUE(all_subscriptions_opt.has_value());
   CookieStoreSync::Subscriptions all_subscriptions =
@@ -523,7 +526,7 @@ TEST_P(CookieStoreManagerTest, AddSubscriptions_WrongScopeOrigin) {
   if (reset_context_during_test())
     ResetServiceWorkerContext();
 
-  base::Optional<CookieStoreSync::Subscriptions> all_subscriptions_opt =
+  absl::optional<CookieStoreSync::Subscriptions> all_subscriptions_opt =
       example_service_->GetSubscriptions(registration_id);
   ASSERT_TRUE(all_subscriptions_opt.has_value());
   EXPECT_EQ(0u, all_subscriptions_opt.value().size());
@@ -553,7 +556,7 @@ TEST_P(CookieStoreManagerTest, AddSubscriptions_NonexistentRegistrationId) {
   if (reset_context_during_test())
     ResetServiceWorkerContext();
 
-  base::Optional<CookieStoreSync::Subscriptions> all_subscriptions_opt =
+  absl::optional<CookieStoreSync::Subscriptions> all_subscriptions_opt =
       example_service_->GetSubscriptions(registration_id);
   ASSERT_TRUE(all_subscriptions_opt.has_value());
   EXPECT_EQ(0u, all_subscriptions_opt.value().size());
@@ -583,7 +586,7 @@ TEST_P(CookieStoreManagerTest, AddSubscriptions_WrongRegistrationOrigin) {
   if (reset_context_during_test())
     ResetServiceWorkerContext();
 
-  base::Optional<CookieStoreSync::Subscriptions> all_subscriptions_opt =
+  absl::optional<CookieStoreSync::Subscriptions> all_subscriptions_opt =
       google_service_->GetSubscriptions(google_registration_id);
   ASSERT_TRUE(all_subscriptions_opt.has_value());
   EXPECT_EQ(0u, all_subscriptions_opt.value().size());
@@ -630,7 +633,7 @@ TEST_P(CookieStoreManagerTest, AddSubscriptionsMultipleWorkers) {
   if (reset_context_during_test())
     ResetServiceWorkerContext();
 
-  base::Optional<CookieStoreSync::Subscriptions> example_subscriptions_opt =
+  absl::optional<CookieStoreSync::Subscriptions> example_subscriptions_opt =
       example_service_->GetSubscriptions(example_registration_id);
   ASSERT_TRUE(example_subscriptions_opt.has_value());
   CookieStoreSync::Subscriptions example_subscriptions =
@@ -641,7 +644,7 @@ TEST_P(CookieStoreManagerTest, AddSubscriptionsMultipleWorkers) {
             example_subscriptions[0]->match_type);
   EXPECT_EQ(GURL(kExampleScope), example_subscriptions[0]->url);
 
-  base::Optional<CookieStoreSync::Subscriptions> google_subscriptions_opt =
+  absl::optional<CookieStoreSync::Subscriptions> google_subscriptions_opt =
       google_service_->GetSubscriptions(google_registration_id);
   ASSERT_TRUE(google_subscriptions_opt.has_value());
   CookieStoreSync::Subscriptions google_subscriptions =
@@ -690,7 +693,7 @@ TEST_P(CookieStoreManagerTest, AddSubscriptions_MultipleSubscriptions) {
   if (reset_context_during_test())
     ResetServiceWorkerContext();
 
-  base::Optional<CookieStoreSync::Subscriptions> all_subscriptions_opt =
+  absl::optional<CookieStoreSync::Subscriptions> all_subscriptions_opt =
       example_service_->GetSubscriptions(registration_id);
   ASSERT_TRUE(all_subscriptions_opt.has_value());
   CookieStoreSync::Subscriptions all_subscriptions =
@@ -755,7 +758,7 @@ TEST_P(CookieStoreManagerTest, AddSubscriptions_MultipleAddsAcrossRestart) {
                                                    std::move(subscriptions)));
   }
 
-  base::Optional<CookieStoreSync::Subscriptions> all_subscriptions_opt =
+  absl::optional<CookieStoreSync::Subscriptions> all_subscriptions_opt =
       example_service_->GetSubscriptions(registration_id);
   ASSERT_TRUE(all_subscriptions_opt.has_value());
   CookieStoreSync::Subscriptions all_subscriptions =
@@ -801,7 +804,7 @@ TEST_P(CookieStoreManagerTest, RemoveSubscriptions_EmptyVector) {
   if (reset_context_during_test())
     ResetServiceWorkerContext();
 
-  base::Optional<CookieStoreSync::Subscriptions> all_subscriptions_opt =
+  absl::optional<CookieStoreSync::Subscriptions> all_subscriptions_opt =
       example_service_->GetSubscriptions(registration_id);
   ASSERT_TRUE(all_subscriptions_opt.has_value());
   CookieStoreSync::Subscriptions all_subscriptions =
@@ -840,7 +843,7 @@ TEST_P(CookieStoreManagerTest, RemoveSubscriptions_OneExistingSubscription) {
   if (reset_context_during_test())
     ResetServiceWorkerContext();
 
-  base::Optional<CookieStoreSync::Subscriptions> all_subscriptions_opt =
+  absl::optional<CookieStoreSync::Subscriptions> all_subscriptions_opt =
       example_service_->GetSubscriptions(registration_id);
   ASSERT_TRUE(all_subscriptions_opt.has_value());
   CookieStoreSync::Subscriptions all_subscriptions =
@@ -875,7 +878,7 @@ TEST_P(CookieStoreManagerTest, RemoveSubscriptions_OneNonexistingSubscription) {
   if (reset_context_during_test())
     ResetServiceWorkerContext();
 
-  base::Optional<CookieStoreSync::Subscriptions> all_subscriptions_opt =
+  absl::optional<CookieStoreSync::Subscriptions> all_subscriptions_opt =
       example_service_->GetSubscriptions(registration_id);
   ASSERT_TRUE(all_subscriptions_opt.has_value());
   CookieStoreSync::Subscriptions all_subscriptions =
@@ -914,7 +917,7 @@ TEST_P(CookieStoreManagerTest, RemoveSubscriptions_NonexistentRegistrationId) {
   if (reset_context_during_test())
     ResetServiceWorkerContext();
 
-  base::Optional<CookieStoreSync::Subscriptions> all_subscriptions_opt =
+  absl::optional<CookieStoreSync::Subscriptions> all_subscriptions_opt =
       example_service_->GetSubscriptions(registration_id);
   ASSERT_TRUE(all_subscriptions_opt.has_value());
   CookieStoreSync::Subscriptions all_subscriptions =
@@ -976,7 +979,7 @@ TEST_P(CookieStoreManagerTest, RemoveSubscriptions_WrongRegistrationOrigin) {
   if (reset_context_during_test())
     ResetServiceWorkerContext();
 
-  base::Optional<CookieStoreSync::Subscriptions> example_subscriptions_opt =
+  absl::optional<CookieStoreSync::Subscriptions> example_subscriptions_opt =
       example_service_->GetSubscriptions(example_registration_id);
   ASSERT_TRUE(example_subscriptions_opt.has_value());
   CookieStoreSync::Subscriptions example_subscriptions =
@@ -987,7 +990,7 @@ TEST_P(CookieStoreManagerTest, RemoveSubscriptions_WrongRegistrationOrigin) {
             example_subscriptions[0]->match_type);
   EXPECT_EQ(GURL(kExampleScope), example_subscriptions[0]->url);
 
-  base::Optional<CookieStoreSync::Subscriptions> google_subscriptions_opt =
+  absl::optional<CookieStoreSync::Subscriptions> google_subscriptions_opt =
       google_service_->GetSubscriptions(google_registration_id);
   ASSERT_TRUE(google_subscriptions_opt.has_value());
   CookieStoreSync::Subscriptions google_subscriptions =
@@ -1046,14 +1049,14 @@ TEST_P(CookieStoreManagerTest, RemoveSubscriptions_MultipleWorkers) {
   if (reset_context_during_test())
     ResetServiceWorkerContext();
 
-  base::Optional<CookieStoreSync::Subscriptions> example_subscriptions_opt =
+  absl::optional<CookieStoreSync::Subscriptions> example_subscriptions_opt =
       example_service_->GetSubscriptions(example_registration_id);
   ASSERT_TRUE(example_subscriptions_opt.has_value());
   CookieStoreSync::Subscriptions example_subscriptions =
       std::move(example_subscriptions_opt).value();
   EXPECT_EQ(0u, example_subscriptions.size());
 
-  base::Optional<CookieStoreSync::Subscriptions> google_subscriptions_opt =
+  absl::optional<CookieStoreSync::Subscriptions> google_subscriptions_opt =
       google_service_->GetSubscriptions(google_registration_id);
   ASSERT_TRUE(google_subscriptions_opt.has_value());
   CookieStoreSync::Subscriptions google_subscriptions =
@@ -1114,7 +1117,7 @@ TEST_P(CookieStoreManagerTest, RemoveSubscriptions_MultipleSubscriptionsLeft) {
   if (reset_context_during_test())
     ResetServiceWorkerContext();
 
-  base::Optional<CookieStoreSync::Subscriptions> all_subscriptions_opt =
+  absl::optional<CookieStoreSync::Subscriptions> all_subscriptions_opt =
       example_service_->GetSubscriptions(registration_id);
   ASSERT_TRUE(all_subscriptions_opt.has_value());
   CookieStoreSync::Subscriptions all_subscriptions =
@@ -1183,7 +1186,7 @@ TEST_P(CookieStoreManagerTest, RemoveSubscriptions_OneSubscriptionLeft) {
   if (reset_context_during_test())
     ResetServiceWorkerContext();
 
-  base::Optional<CookieStoreSync::Subscriptions> all_subscriptions_opt =
+  absl::optional<CookieStoreSync::Subscriptions> all_subscriptions_opt =
       example_service_->GetSubscriptions(registration_id);
   ASSERT_TRUE(all_subscriptions_opt.has_value());
   CookieStoreSync::Subscriptions all_subscriptions =
@@ -1214,7 +1217,7 @@ TEST_P(CookieStoreManagerTest, OneCookieChange) {
   if (reset_context_during_test())
     ResetServiceWorkerContext();
 
-  base::Optional<CookieStoreSync::Subscriptions> all_subscriptions_opt =
+  absl::optional<CookieStoreSync::Subscriptions> all_subscriptions_opt =
       example_service_->GetSubscriptions(registration_id);
   ASSERT_TRUE(all_subscriptions_opt.has_value());
   ASSERT_EQ(1u, all_subscriptions_opt.value().size());
@@ -1252,7 +1255,7 @@ TEST_P(CookieStoreManagerTest, OneCookieChangeLegacy) {
 
   EXPECT_TRUE(legacy_service_->AddSubscriptions(registration_id,
                                                 std::move(subscriptions)));
-  base::Optional<CookieStoreSync::Subscriptions> all_subscriptions_opt =
+  absl::optional<CookieStoreSync::Subscriptions> all_subscriptions_opt =
       legacy_service_->GetSubscriptions(registration_id);
   ASSERT_TRUE(all_subscriptions_opt.has_value());
   ASSERT_EQ(1u, all_subscriptions_opt.value().size());
@@ -1290,7 +1293,7 @@ TEST_P(CookieStoreManagerTest, CookieChangeNameStartsWith) {
 
   EXPECT_TRUE(example_service_->AddSubscriptions(registration_id,
                                                  std::move(subscriptions)));
-  base::Optional<CookieStoreSync::Subscriptions> all_subscriptions_opt =
+  absl::optional<CookieStoreSync::Subscriptions> all_subscriptions_opt =
       example_service_->GetSubscriptions(registration_id);
   ASSERT_TRUE(all_subscriptions_opt.has_value());
   ASSERT_EQ(1u, all_subscriptions_opt.value().size());
@@ -1355,7 +1358,7 @@ TEST_P(CookieStoreManagerTest, CookieChangeNameStartsWithLegacy) {
   EXPECT_TRUE(legacy_service_->AddSubscriptions(registration_id,
                                                 std::move(subscriptions)));
 
-  base::Optional<CookieStoreSync::Subscriptions> all_subscriptions_opt =
+  absl::optional<CookieStoreSync::Subscriptions> all_subscriptions_opt =
       legacy_service_->GetSubscriptions(registration_id);
   ASSERT_TRUE(all_subscriptions_opt.has_value());
   ASSERT_EQ(1u, all_subscriptions_opt.value().size());
@@ -1416,7 +1419,7 @@ TEST_P(CookieStoreManagerTest, CookieChangeUrl) {
 
   EXPECT_TRUE(example_service_->AddSubscriptions(registration_id,
                                                  std::move(subscriptions)));
-  base::Optional<CookieStoreSync::Subscriptions> all_subscriptions_opt =
+  absl::optional<CookieStoreSync::Subscriptions> all_subscriptions_opt =
       example_service_->GetSubscriptions(registration_id);
   ASSERT_TRUE(all_subscriptions_opt.has_value());
   ASSERT_EQ(1u, all_subscriptions_opt.value().size());
@@ -1486,7 +1489,7 @@ TEST_P(CookieStoreManagerTest, CookieChangeUrlLegacy) {
   EXPECT_TRUE(legacy_service_->AddSubscriptions(registration_id,
                                                 std::move(subscriptions)));
 
-  base::Optional<CookieStoreSync::Subscriptions> all_subscriptions_opt =
+  absl::optional<CookieStoreSync::Subscriptions> all_subscriptions_opt =
       legacy_service_->GetSubscriptions(registration_id);
   ASSERT_TRUE(all_subscriptions_opt.has_value());
   ASSERT_EQ(1u, all_subscriptions_opt.value().size());
@@ -1552,7 +1555,7 @@ TEST_P(CookieStoreManagerTest, HttpOnlyCookieChange) {
 
   EXPECT_TRUE(example_service_->AddSubscriptions(registration_id,
                                                  std::move(subscriptions)));
-  base::Optional<CookieStoreSync::Subscriptions> all_subscriptions_opt =
+  absl::optional<CookieStoreSync::Subscriptions> all_subscriptions_opt =
       example_service_->GetSubscriptions(registration_id);
   ASSERT_TRUE(all_subscriptions_opt.has_value());
   ASSERT_EQ(1u, all_subscriptions_opt.value().size());
@@ -1609,7 +1612,7 @@ TEST_P(CookieStoreManagerTest, HttpOnlyCookieChangeLegacy) {
   EXPECT_TRUE(legacy_service_->AddSubscriptions(registration_id,
                                                 std::move(subscriptions)));
 
-  base::Optional<CookieStoreSync::Subscriptions> all_subscriptions_opt =
+  absl::optional<CookieStoreSync::Subscriptions> all_subscriptions_opt =
       legacy_service_->GetSubscriptions(registration_id);
   ASSERT_TRUE(all_subscriptions_opt.has_value());
   ASSERT_EQ(1u, all_subscriptions_opt.value().size());
@@ -1668,7 +1671,7 @@ TEST_P(CookieStoreManagerTest, CookieChangeForDeletion) {
   EXPECT_TRUE(example_service_->AddSubscriptions(registration_id,
                                                  std::move(subscriptions)));
 
-  base::Optional<CookieStoreSync::Subscriptions> all_subscriptions_opt =
+  absl::optional<CookieStoreSync::Subscriptions> all_subscriptions_opt =
       example_service_->GetSubscriptions(registration_id);
   ASSERT_TRUE(all_subscriptions_opt.has_value());
   ASSERT_EQ(1u, all_subscriptions_opt.value().size());
@@ -1707,7 +1710,7 @@ TEST_P(CookieStoreManagerTest, CookieChangeForOverwrite) {
   EXPECT_TRUE(example_service_->AddSubscriptions(registration_id,
                                                  std::move(subscriptions)));
 
-  base::Optional<CookieStoreSync::Subscriptions> all_subscriptions_opt =
+  absl::optional<CookieStoreSync::Subscriptions> all_subscriptions_opt =
       example_service_->GetSubscriptions(registration_id);
   ASSERT_TRUE(all_subscriptions_opt.has_value());
   ASSERT_EQ(1u, all_subscriptions_opt.value().size());
@@ -1742,7 +1745,7 @@ TEST_P(CookieStoreManagerTest, GetSubscriptionsFromWrongOrigin) {
   EXPECT_TRUE(example_service_->AddSubscriptions(example_registration_id,
                                                  std::move(subscriptions)));
 
-  base::Optional<CookieStoreSync::Subscriptions> all_subscriptions_opt =
+  absl::optional<CookieStoreSync::Subscriptions> all_subscriptions_opt =
       example_service_->GetSubscriptions(example_registration_id);
   ASSERT_TRUE(all_subscriptions_opt.has_value());
   EXPECT_EQ(1u, all_subscriptions_opt.value().size());
@@ -1751,10 +1754,27 @@ TEST_P(CookieStoreManagerTest, GetSubscriptionsFromWrongOrigin) {
     ResetServiceWorkerContext();
 
   mojo::test::BadMessageObserver bad_mesage_observer;
-  base::Optional<CookieStoreSync::Subscriptions> wrong_subscriptions_opt =
+  absl::optional<CookieStoreSync::Subscriptions> wrong_subscriptions_opt =
       google_service_->GetSubscriptions(example_registration_id);
   EXPECT_FALSE(wrong_subscriptions_opt.has_value());
   EXPECT_EQ("Invalid service worker", bad_mesage_observer.WaitForBadMessage());
+}
+
+TEST_F(CookieStoreManagerTest, UnTrustworthyOrigin) {
+  mojo::Remote<blink::mojom::CookieStore> untrustworthy_service_remote;
+
+  // Create a fake dispatch context to trigger a bad message in.
+  FakeMojoMessageDispatchContext fake_dispatch_context;
+  mojo::test::BadMessageObserver bad_mesage_observer;
+
+  cookie_store_context_->CreateServiceForTesting(
+      url::Origin::Create(GURL("http://insecure.com")),
+      untrustworthy_service_remote.BindNewPipeAndPassReceiver());
+
+  untrustworthy_service_remote.FlushForTesting();
+  EXPECT_FALSE(untrustworthy_service_remote.is_connected());
+  EXPECT_EQ("Cookie Store access from an insecure origin",
+            bad_mesage_observer.WaitForBadMessage());
 }
 
 INSTANTIATE_TEST_SUITE_P(All,

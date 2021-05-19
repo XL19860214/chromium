@@ -10,6 +10,7 @@
 
 #include "base/single_thread_task_runner.h"
 #include "build/build_config.h"
+#include "components/power_scheduler/power_mode_voter.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/bindings/shared_remote.h"
@@ -121,6 +122,7 @@ class PLATFORM_EXPORT WidgetInputHandlerManager final
 
   mojom::blink::WidgetInputHandlerHost* GetWidgetInputHandlerHost();
 
+#if defined(OS_ANDROID)
   void AttachSynchronousCompositor(
       mojo::PendingRemote<mojom::blink::SynchronousCompositorControlHost>
           control_host,
@@ -129,7 +131,6 @@ class PLATFORM_EXPORT WidgetInputHandlerManager final
       mojo::PendingAssociatedReceiver<mojom::blink::SynchronousCompositor>
           compositor_request);
 
-#if defined(OS_ANDROID)
   SynchronousCompositorRegistry* GetSynchronousCompositorRegistry();
 #endif
 
@@ -160,6 +161,7 @@ class PLATFORM_EXPORT WidgetInputHandlerManager final
   using ElementAtPointCallback = base::OnceCallback<void(uint64_t)>;
   void FindScrollTargetOnMainThread(const gfx::PointF& point,
                                     ElementAtPointCallback callback);
+  void SendDroppedPointerDownCounts();
 
   void ClearClient();
 
@@ -227,7 +229,7 @@ class PLATFORM_EXPORT WidgetInputHandlerManager final
       mojom::blink::InputEventResultState ack_state,
       const ui::LatencyInfo& latency_info,
       mojom::blink::DidOverscrollParamsPtr overscroll_params,
-      base::Optional<cc::TouchAction> touch_action);
+      absl::optional<cc::TouchAction> touch_action);
 
   // This method calls into DidHandleInputEventSentToMain but has a
   // slightly different signature. TODO(dtapuska): Remove this
@@ -239,7 +241,7 @@ class PLATFORM_EXPORT WidgetInputHandlerManager final
       const ui::LatencyInfo& latency_info,
       std::unique_ptr<blink::InputHandlerProxy::DidOverscrollParams>
           overscroll_params,
-      base::Optional<cc::TouchAction> touch_action);
+      absl::optional<cc::TouchAction> touch_action);
 
   void ObserveGestureEventOnInputHandlingThread(
       const WebGestureEvent& gesture_event,
@@ -275,7 +277,7 @@ class PLATFORM_EXPORT WidgetInputHandlerManager final
   scoped_refptr<base::SingleThreadTaskRunner> main_thread_task_runner_;
   scoped_refptr<base::SingleThreadTaskRunner> compositor_task_runner_;
 
-  base::Optional<cc::TouchAction> allowed_touch_action_;
+  absl::optional<cc::TouchAction> allowed_touch_action_;
 
   // Callback used to respond to the WaitForInputProcessed Mojo message. This
   // callback is set from and must be invoked from the Mojo-bound thread (i.e.
@@ -320,6 +322,13 @@ class PLATFORM_EXPORT WidgetInputHandlerManager final
   // is the first one in a scroll sequence or not. This variable is only used on
   // the input handling thread (i.e. on the compositor thread if it exists).
   bool has_seen_first_gesture_scroll_update_after_begin_ = false;
+
+  std::unique_ptr<power_scheduler::PowerModeVoter> response_power_mode_voter_;
+
+  // Timer for count dropped events.
+  std::unique_ptr<base::OneShotTimer> dropped_event_counts_timer_;
+
+  unsigned dropped_pointer_down_ = 0;
 
 #if defined(OS_ANDROID)
   std::unique_ptr<SynchronousCompositorProxyRegistry>

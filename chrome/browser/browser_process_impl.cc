@@ -83,7 +83,6 @@
 #include "chrome/common/chrome_features.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/common/extensions/chrome_extensions_client.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/chromium_strings.h"
@@ -100,15 +99,11 @@
 #include "components/metrics_services_manager/metrics_services_manager.h"
 #include "components/metrics_services_manager/metrics_services_manager_client.h"
 #include "components/network_time/network_time_tracker.h"
-#include "components/optimization_guide/optimization_guide_features.h"
-#include "components/optimization_guide/optimization_guide_service.h"
 #include "components/permissions/permissions_client.h"
 #include "components/policy/core/common/policy_service.h"
 #include "components/prefs/json_pref_store.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
-#include "components/rappor/public/rappor_utils.h"
-#include "components/rappor/rappor_service_impl.h"
 #include "components/safe_browsing/core/safe_browsing_service_interface.h"
 #include "components/sessions/core/session_id_generator.h"
 #include "components/subresource_filter/content/browser/ruleset_service.h"
@@ -123,6 +118,7 @@
 #include "content/public/browser/network_quality_observer_factory.h"
 #include "content/public/browser/network_service_instance.h"
 #include "content/public/browser/notification_details.h"
+#include "content/public/browser/process_visibility_util.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/service_worker_context.h"
 #include "content/public/browser/storage_partition.h"
@@ -154,7 +150,6 @@
 #endif
 
 #if defined(OS_ANDROID)
-#include "chrome/browser/android/component_updater/background_task_update_scheduler.h"
 #include "chrome/browser/flags/android/chrome_feature_list.h"
 #include "chrome/browser/ssl/chrome_security_state_client.h"
 #else
@@ -179,6 +174,7 @@
 #include "chrome/browser/extensions/event_router_forwarder.h"
 #include "chrome/browser/media_galleries/media_file_system_registry.h"
 #include "chrome/browser/ui/apps/chrome_app_window_client.h"
+#include "chrome/common/extensions/chrome_extensions_client.h"
 #include "chrome/common/initialize_extensions_client.h"
 #include "components/storage_monitor/storage_monitor.h"
 #include "extensions/common/extension_l10n_util.h"
@@ -194,7 +190,7 @@
 #if !defined(OS_ANDROID) && !BUILDFLAG(IS_CHROMEOS_ASH)
 #include "chrome/browser/first_run/upgrade_util.h"
 #include "chrome/browser/notifications/notification_ui_manager.h"
-#include "chrome/browser/ui/user_manager.h"
+#include "chrome/browser/ui/profile_picker.h"
 #include "components/enterprise/browser/controller/chrome_browser_cloud_management_controller.h"
 #endif
 
@@ -219,12 +215,6 @@ static constexpr base::TimeDelta kEndSessionTimeout =
 
 using content::BrowserThread;
 using content::ChildProcessSecurityPolicy;
-
-rappor::RapporService* GetBrowserRapporService() {
-  if (g_browser_process != nullptr)
-    return g_browser_process->rappor_service();
-  return nullptr;
-}
 
 BrowserProcessImpl::BrowserProcessImpl(StartupData* startup_data)
     : startup_data_(startup_data),
@@ -257,8 +247,6 @@ void BrowserProcessImpl::Init() {
 #endif
 
   download_status_updater_ = std::make_unique<DownloadStatusUpdater>();
-
-  rappor::SetDefaultServiceAccessor(&GetBrowserRapporService);
 
 #if BUILDFLAG(ENABLE_PRINTING)
   // Must be created after the NotificationService.
@@ -416,9 +404,9 @@ void BrowserProcessImpl::StartTearDown() {
     TRACE_EVENT0("shutdown",
                  "BrowserProcessImpl::StartTearDown:ProfileManager");
 #if !BUILDFLAG(IS_CHROMEOS_ASH)
-    // The desktop User Manager needs to be closed before the guest profile
+    // The desktop profile picker needs to be closed before the guest profile
     // can be destroyed.
-    UserManager::Hide();
+    ProfilePicker::Hide();
 #endif  // !BUILDFLAG(IS_CHROMEOS_ASH)
     // `profile_manager_` must be destroyed before `background_mode_manager_`,
     // because the background mode manager does not stop observing profile
@@ -462,6 +450,10 @@ void BrowserProcessImpl::StartTearDown() {
     webrtc_log_uploader_->Shutdown();
 
   sessions::SessionIdGenerator::GetInstance()->Shutdown();
+
+  // Resetting the status tray will result in calls to
+  // |g_browser_process->local_state()|. See crbug.com/1187418
+  status_tray_.reset();
 
   if (local_state_)
     local_state_->CommitPendingWrite();
@@ -658,11 +650,6 @@ metrics::MetricsService* BrowserProcessImpl::metrics_service() {
   return GetMetricsServicesManager()->GetMetricsService();
 }
 
-rappor::RapporServiceImpl* BrowserProcessImpl::rappor_service() {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  return GetMetricsServicesManager()->GetRapporServiceImpl();
-}
-
 SystemNetworkContextManager*
 BrowserProcessImpl::system_network_context_manager() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
@@ -724,7 +711,7 @@ BrowserProcessImpl::extension_event_router_forwarder() {
 
 NotificationUIManager* BrowserProcessImpl::notification_ui_manager() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-// TODO(miguelg) return NULL for MAC as well once native notifications
+// TODO(miguelg) return nullptr for MAC as well once system notifications
 // are enabled by default.
 #if defined(OS_ANDROID) || BUILDFLAG(IS_CHROMEOS_ASH)
   return nullptr;
@@ -736,7 +723,7 @@ NotificationUIManager* BrowserProcessImpl::notification_ui_manager() {
 }
 
 NotificationPlatformBridge* BrowserProcessImpl::notification_platform_bridge() {
-#if BUILDFLAG(ENABLE_NATIVE_NOTIFICATIONS)
+#if BUILDFLAG(ENABLE_SYSTEM_NOTIFICATIONS)
   if (!created_notification_bridge_)
     CreateNotificationPlatformBridge();
   return notification_bridge_.get();
@@ -960,23 +947,22 @@ DownloadRequestLimiter* BrowserProcessImpl::download_request_limiter() {
 }
 
 BackgroundModeManager* BrowserProcessImpl::background_mode_manager() {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 #if BUILDFLAG(ENABLE_BACKGROUND_MODE)
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   if (!background_mode_manager_)
     CreateBackgroundModeManager();
   return background_mode_manager_.get();
 #else
-  NOTIMPLEMENTED();
-  return NULL;
+  return nullptr;
 #endif
 }
 
+#if BUILDFLAG(ENABLE_BACKGROUND_MODE)
 void BrowserProcessImpl::set_background_mode_manager_for_test(
     std::unique_ptr<BackgroundModeManager> manager) {
-#if BUILDFLAG(ENABLE_BACKGROUND_MODE)
   background_mode_manager_ = std::move(manager);
-#endif
 }
+#endif
 
 StatusTray* BrowserProcessImpl::status_tray() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
@@ -1009,14 +995,6 @@ BrowserProcessImpl::floc_sorting_lsh_clusters_service() {
   return floc_sorting_lsh_clusters_service_.get();
 }
 
-optimization_guide::OptimizationGuideService*
-BrowserProcessImpl::optimization_guide_service() {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  if (!created_optimization_guide_service_)
-    CreateOptimizationGuideService();
-  return optimization_guide_service_.get();
-}
-
 StartupData* BrowserProcessImpl::startup_data() {
   return startup_data_;
 }
@@ -1040,17 +1018,8 @@ BrowserProcessImpl::component_updater() {
   if (!BrowserThread::CurrentlyOn(BrowserThread::UI))
     return nullptr;
 
-  std::unique_ptr<component_updater::UpdateScheduler> scheduler;
-#if defined(OS_ANDROID)
-  if (base::FeatureList::IsEnabled(
-          chrome::android::kBackgroundTaskComponentUpdate) &&
-      component_updater::BackgroundTaskUpdateScheduler::IsAvailable()) {
-    scheduler =
-        std::make_unique<component_updater::BackgroundTaskUpdateScheduler>();
-  }
-#endif
-  if (!scheduler)
-    scheduler = std::make_unique<component_updater::TimerUpdateScheduler>();
+  std::unique_ptr<component_updater::UpdateScheduler> scheduler =
+      std::make_unique<component_updater::TimerUpdateScheduler>();
 
   component_updater_ = component_updater::ComponentUpdateServiceFactory(
       component_updater::MakeChromeComponentUpdaterConfigurator(
@@ -1084,7 +1053,7 @@ void BrowserProcessImpl::CreateWatchdogThread() {
   auto thread = std::make_unique<WatchDogThread>();
   base::Thread::Options options;
   options.timer_slack = base::TIMER_SLACK_MAXIMUM;
-  if (!thread->StartWithOptions(options))
+  if (!thread->StartWithOptions(std::move(options)))
     return;
   watchdog_thread_.swap(thread);
 }
@@ -1108,6 +1077,17 @@ void BrowserProcessImpl::PreCreateThreads(
 #endif
 
   battery_metrics_ = std::make_unique<BatteryMetrics>();
+
+#if defined(OS_ANDROID)
+  app_state_listener_ = base::android::ApplicationStatusListener::New(
+      base::BindRepeating([](base::android::ApplicationState state) {
+        content::OnBrowserVisibilityChanged(
+            state == base::android::APPLICATION_STATE_HAS_RUNNING_ACTIVITIES ||
+            state == base::android::APPLICATION_STATE_HAS_PAUSED_ACTIVITIES);
+      }));
+  content::OnBrowserVisibilityChanged(
+      base::android::ApplicationStatusListener::HasVisibleActivities());
+#endif  // defined(OS_ANDROID)
 
   secure_origin_prefs_observer_ =
       std::make_unique<SecureOriginPrefsObserver>(local_state());
@@ -1188,7 +1168,7 @@ void BrowserProcessImpl::CreateIconManager() {
 }
 
 void BrowserProcessImpl::CreateNotificationPlatformBridge() {
-#if BUILDFLAG(ENABLE_NATIVE_NOTIFICATIONS)
+#if BUILDFLAG(ENABLE_SYSTEM_NOTIFICATIONS)
   DCHECK(!notification_bridge_);
   notification_bridge_ = NotificationPlatformBridge::Create();
   created_notification_bridge_ = true;
@@ -1273,19 +1253,6 @@ void BrowserProcessImpl::CreateFlocSortingLshClustersService() {
   DCHECK(!floc_sorting_lsh_clusters_service_);
   floc_sorting_lsh_clusters_service_ =
       std::make_unique<federated_learning::FlocSortingLshClustersService>();
-}
-
-void BrowserProcessImpl::CreateOptimizationGuideService() {
-  DCHECK(!created_optimization_guide_service_);
-  DCHECK(!optimization_guide_service_);
-  created_optimization_guide_service_ = true;
-
-  if (!optimization_guide::features::IsOptimizationHintsEnabled())
-    return;
-
-  optimization_guide_service_ =
-      std::make_unique<optimization_guide::OptimizationGuideService>(
-          content::GetUIThreadTaskRunner({}));
 }
 
 #if !defined(OS_ANDROID)

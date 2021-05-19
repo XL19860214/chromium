@@ -78,14 +78,14 @@ CryptAuthDeviceNotifierImpl::CryptAuthDeviceNotifierImpl(
 CryptAuthDeviceNotifierImpl::~CryptAuthDeviceNotifierImpl() = default;
 
 // static
-base::Optional<base::TimeDelta> CryptAuthDeviceNotifierImpl::GetTimeoutForState(
+absl::optional<base::TimeDelta> CryptAuthDeviceNotifierImpl::GetTimeoutForState(
     State state) {
   switch (state) {
     case State::kWaitingForBatchNotifyGroupDevicesResponse:
       return kWaitingForBatchNotifyGroupDevicesResponseTimeout;
     default:
       // Signifies that there should not be a timeout.
-      return base::nullopt;
+      return absl::nullopt;
   }
 }
 
@@ -135,7 +135,7 @@ void CryptAuthDeviceNotifierImpl::SetState(State state) {
   state_ = state;
   last_state_change_timestamp_ = base::TimeTicks::Now();
 
-  base::Optional<base::TimeDelta> timeout_for_state = GetTimeoutForState(state);
+  absl::optional<base::TimeDelta> timeout_for_state = GetTimeoutForState(state);
   if (!timeout_for_state)
     return;
 
@@ -195,7 +195,7 @@ void CryptAuthDeviceNotifierImpl::OnBatchNotifyGroupDevicesSuccess(
       base::TimeTicks::Now() - last_state_change_timestamp_,
       CryptAuthApiCallResult::kSuccess);
 
-  FinishAttempt(base::nullopt /* error */);
+  FinishAttempt(absl::nullopt /* error */);
 }
 
 void CryptAuthDeviceNotifierImpl::OnBatchNotifyGroupDevicesFailure(
@@ -212,9 +212,11 @@ void CryptAuthDeviceNotifierImpl::OnBatchNotifyGroupDevicesFailure(
 }
 
 void CryptAuthDeviceNotifierImpl::FinishAttempt(
-    base::Optional<NetworkRequestError> error) {
-  DCHECK(!pending_requests_.empty());
+    absl::optional<NetworkRequestError> error) {
+  cryptauth_client_.reset();
+  SetState(State::kIdle);
 
+  DCHECK(!pending_requests_.empty());
   Request current_request = std::move(pending_requests_.front());
   pending_requests_.pop();
 
@@ -225,7 +227,6 @@ void CryptAuthDeviceNotifierImpl::FinishAttempt(
     std::move(current_request.success_callback).Run();
   }
 
-  SetState(State::kIdle);
   ProcessRequestQueue();
 }
 

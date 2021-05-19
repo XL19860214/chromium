@@ -2,12 +2,30 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+// clang-format off
+// #import {TrashEntry, TrashRootEntry} from '../../common/js/trash.m.js';
+// #import {FakeEntry} from '../../externs/files_app_entry_interfaces.m.js';
+// #import {VolumeManager} from '../../externs/volume_manager.m.js';
+// #import {EntryLocation} from '../../externs/entry_location.m.js';
+// #import {FileOperationManager} from '../../externs/background/file_operation_manager.m.js';
+// #import {assert} from 'chrome://resources/js/assert.m.js';
+// #import {metadataProxy} from './metadata_proxy.m.js';
+// #import {AsyncUtil} from '../../common/js/async_util.m.js';
+// #import {volumeManagerFactory} from './volume_manager_factory.m.js';
+// #import {FileOperationProgressEvent, FileOperationError} from '../../common/js/file_operation_common.m.js';
+// #import {xfm} from '../../common/js/xfm.m.js';
+// #import {Trash} from './trash.m.js';
+
+// #import {util} from '../../common/js/util.m.js';
+// #import {fileOperationUtil} from './file_operation_util.m.js';
+// clang-format on
+
 /**
  * FileOperationManagerImpl: implementation of {FileOperationManager}.
  *
  * @implements {FileOperationManager}
  */
-class FileOperationManagerImpl {
+/* #export */ class FileOperationManagerImpl {
   constructor() {
     /**
      * @private {VolumeManager}
@@ -293,7 +311,7 @@ class FileOperationManagerImpl {
     if (this.pendingCopyTasks_.length === 0 &&
         Object.keys(this.runningCopyTasks_).length === 0) {
       // All tasks have been serviced, clean up and exit.
-      chrome.power.releaseKeepAwake();
+      xfm.power.releaseKeepAwake();
       return;
     }
 
@@ -306,7 +324,7 @@ class FileOperationManagerImpl {
     }
 
     // Prevent the system from sleeping while copy is in progress.
-    chrome.power.requestKeepAwake('system');
+    xfm.power.requestKeepAwake('system');
 
     // Find next task which can run at now.
     let nextTask = null;
@@ -404,9 +422,12 @@ class FileOperationManagerImpl {
    * Schedules the files deletion.
    *
    * @param {!Array<!Entry>} entries The entries.
+   * @param {boolean=} permanentlyDelete if true, entries will be deleted rather
+   *     than moved to trash.
    */
-  deleteEntries(entries) {
-    this.deleteOrRestore_(util.FileOperationType.DELETE, entries);
+  deleteEntries(entries, permanentlyDelete = false) {
+    this.deleteOrRestore_(
+        util.FileOperationType.DELETE, entries, permanentlyDelete);
   }
 
   /**
@@ -414,9 +435,11 @@ class FileOperationManagerImpl {
    *
    * @param {!util.FileOperationType} operationType DELETE or RESTORE.
    * @param {!Array<!Entry|!TrashEntry>} entries The entries.
+   * @param {boolean=} permanentlyDelete if true, entries will be deleted rather
+   *     than moved to trash. Only applies to operationType DELETE.
    * @private
    */
-  deleteOrRestore_(operationType, entries) {
+  deleteOrRestore_(operationType, entries, permanentlyDelete = false) {
     const task =
         /** @type {!fileOperationUtil.DeleteTask} */ (Object.preventExtensions({
           operationType: operationType,
@@ -427,6 +450,7 @@ class FileOperationManagerImpl {
           processedBytes: 0,
           cancelRequested: false,
           trashedEntries: [],
+          permanentlyDelete
         }));
 
     // Obtains entry size and sum them up.
@@ -457,6 +481,29 @@ class FileOperationManagerImpl {
         this.serviceAllDeleteTasks_();
       }
     });
+  }
+
+  /**
+   * Schedules the Trash to be emptied.
+   */
+  emptyTrash() {
+    if (!this.volumeManager_) {
+      volumeManagerFactory.getInstance().then(volumeManager => {
+        this.volumeManager_ = volumeManager;
+        this.emptyTrash();
+      });
+      return;
+    }
+
+    const root = new TrashRootEntry(this.volumeManager_);
+    const reader = root.createReader();
+    const onRead = (entries) => {
+      if (entries.length > 0) {
+        this.deleteEntries(entries, /*permanentlyDelete=*/ true);
+        reader.readEntries(onRead);
+      }
+    };
+    reader.readEntries(onRead);
   }
 
   /**
@@ -511,7 +558,7 @@ class FileOperationManagerImpl {
           operation = this.trash_
                           .removeFileOrDirectory(
                               assert(this.volumeManager_), task.entries[0],
-                              /*permanentlyDelete=*/ false)
+                              task.permanentlyDelete)
                           .then(trashEntry => {
                             if (trashEntry) {
                               task.trashedEntries.push(trashEntry);
@@ -574,7 +621,6 @@ class FileOperationManagerImpl {
   }
 
   /**
-   * TODO(crbug.com/912236) Remove dead code.
    * Creates a zip file for the selection of files.
    *
    * @param {!Array<!Entry>} selectionEntries The selected entries.

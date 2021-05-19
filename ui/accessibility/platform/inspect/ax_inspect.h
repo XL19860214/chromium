@@ -21,8 +21,9 @@ struct AX_EXPORT AXTreeSelector {
     ActiveTab = 1 << 0,
     Chrome = 1 << 1,
     Chromium = 1 << 2,
-    Firefox = 1 << 3,
-    Safari = 1 << 4,
+    Edge = 1 << 3,
+    Firefox = 1 << 4,
+    Safari = 1 << 5,
   };
   int types{None};
   std::string pattern;
@@ -32,6 +33,10 @@ struct AX_EXPORT AXTreeSelector {
       : types(types), pattern(pattern) {}
 
   bool empty() const { return types == None && pattern.empty(); }
+
+  // Returns an application name for a type if the type specifies an
+  // application.
+  std::string AppName() const;
 };
 
 // A single property filter specification. Represents a parsed string of the
@@ -47,9 +52,7 @@ struct AX_EXPORT AXTreeSelector {
 // For example, :1,:3;AXDOMClassList=*
 // will query a AXDOMClassList attribute on accessible objects placed at 1st
 // and 3rd lines in the output accessible tree.
-// Also see
-// DumpAccessibilityTestBase::ParseHtmlForExtraDirectives() for more
-// information.
+// Also see AXInspectScenario::From() for more information.
 struct AX_EXPORT AXPropertyFilter {
   enum Type { ALLOW, ALLOW_EMPTY, DENY, SCRIPT };
 

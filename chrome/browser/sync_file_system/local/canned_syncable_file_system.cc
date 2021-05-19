@@ -54,11 +54,12 @@ namespace {
 
 template <typename R>
 void AssignAndQuit(base::TaskRunner* original_task_runner,
-                   const base::Closure& quit_closure,
-                   R* result_out, R result) {
+                   base::OnceClosure quit_closure,
+                   R* result_out,
+                   R result) {
   DCHECK(result_out);
   *result_out = std::forward<R>(result);
-  original_task_runner->PostTask(FROM_HERE, quit_closure);
+  original_task_runner->PostTask(FROM_HERE, std::move(quit_closure));
 }
 
 template <typename R, typename CallbackType>
@@ -69,11 +70,11 @@ R RunOnThread(base::SingleThreadTaskRunner* task_runner,
   base::RunLoop run_loop;
   task_runner->PostTask(
       location,
-      base::BindOnce(
-          std::move(task),
-          base::Bind(&AssignAndQuit<R>,
-                     base::RetainedRef(base::ThreadTaskRunnerHandle::Get()),
-                     run_loop.QuitClosure(), base::Unretained(&result))));
+      base::BindOnce(std::move(task),
+                     base::BindRepeating(
+                         &AssignAndQuit<R>,
+                         base::RetainedRef(base::ThreadTaskRunnerHandle::Get()),
+                         run_loop.QuitClosure(), base::Unretained(&result))));
   run_loop.Run();
   return result;
 }
@@ -296,10 +297,10 @@ File::Error CannedSyncableFileSystem::OpenFileSystem() {
       FROM_HERE,
       base::BindOnce(
           &CannedSyncableFileSystem::DoOpenFileSystem, base::Unretained(this),
-          base::Bind(&CannedSyncableFileSystem::DidOpenFileSystem,
-                     base::Unretained(this),
-                     base::RetainedRef(base::ThreadTaskRunnerHandle::Get()),
-                     run_loop.QuitClosure())));
+          base::BindOnce(&CannedSyncableFileSystem::DidOpenFileSystem,
+                         base::Unretained(this),
+                         base::RetainedRef(base::ThreadTaskRunnerHandle::Get()),
+                         run_loop.QuitClosure())));
   run_loop.Run();
 
   if (backend()->sync_context()) {
@@ -330,11 +331,9 @@ SyncStatusCode CannedSyncableFileSystem::MaybeInitializeFileSystemContext(
   VerifySameTaskRunner(io_task_runner_.get(),
                        sync_context->io_task_runner_.get());
   sync_context->MaybeInitializeFileSystemContext(
-      origin_,
-      file_system_context_.get(),
-      base::Bind(&CannedSyncableFileSystem::DidInitializeFileSystemContext,
-                 base::Unretained(this),
-                 run_loop.QuitClosure()));
+      origin_, file_system_context_.get(),
+      base::BindOnce(&CannedSyncableFileSystem::DidInitializeFileSystemContext,
+                     base::Unretained(this), run_loop.QuitClosure()));
   run_loop.Run();
   return sync_status_;
 }
@@ -551,7 +550,7 @@ void CannedSyncableFileSystem::DoCopy(const FileSystemURL& src_url,
   operation_runner()->Copy(
       src_url, dest_url, storage::FileSystemOperation::OPTION_NONE,
       storage::FileSystemOperation::ERROR_BEHAVIOR_ABORT,
-      storage::FileSystemOperationRunner::CopyProgressCallback(),
+      storage::FileSystemOperation::CopyOrMoveProgressCallback(),
       std::move(callback));
 }
 
@@ -560,9 +559,11 @@ void CannedSyncableFileSystem::DoMove(const FileSystemURL& src_url,
                                       StatusCallback callback) {
   EXPECT_TRUE(io_task_runner_->RunsTasksInCurrentSequence());
   EXPECT_TRUE(is_filesystem_opened_);
-  operation_runner()->Move(src_url, dest_url,
-                           storage::FileSystemOperation::OPTION_NONE,
-                           std::move(callback));
+  operation_runner()->Move(
+      src_url, dest_url, storage::FileSystemOperation::OPTION_NONE,
+      storage::FileSystemOperation::ERROR_BEHAVIOR_ABORT,
+      storage::FileSystemOperation::CopyOrMoveProgressCallback(),
+      std::move(callback));
 }
 
 void CannedSyncableFileSystem::DoTruncateFile(const FileSystemURL& url,

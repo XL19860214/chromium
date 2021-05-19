@@ -7,8 +7,8 @@
 #include <limits>
 
 #include "base/numerics/checked_math.h"
-#include "base/optional.h"
 #include "base/time/time.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/platform/web_blob_info.h"
 #include "third_party/blink/renderer/bindings/core/v8/serialization/unpacked_serialized_script_value.h"
 #include "third_party/blink/renderer/bindings/core/v8/to_v8_for_core.h"
@@ -18,6 +18,7 @@
 #include "third_party/blink/renderer/core/fileapi/blob.h"
 #include "third_party/blink/renderer/core/fileapi/file.h"
 #include "third_party/blink/renderer/core/fileapi/file_list.h"
+#include "third_party/blink/renderer/core/frame/web_feature.h"
 #include "third_party/blink/renderer/core/geometry/dom_matrix.h"
 #include "third_party/blink/renderer/core/geometry/dom_matrix_read_only.h"
 #include "third_party/blink/renderer/core/geometry/dom_point.h"
@@ -430,16 +431,16 @@ ScriptWrappable* V8ScriptValueDeserializer::ReadDOMObject(
 
       SerializedImageDataSettings settings(canvas_color_space,
                                            image_data_storage_format);
-      ImageDataStorageFormat storage_format = settings.GetStorageFormat();
       base::CheckedNumeric<size_t> computed_byte_length = width;
       computed_byte_length *= height;
       computed_byte_length *=
-          ImageData::StorageFormatBytesPerPixel(storage_format);
+          ImageData::StorageFormatBytesPerPixel(settings.GetStorageFormat());
       if (!computed_byte_length.IsValid() ||
           computed_byte_length.ValueOrDie() != byte_length)
         return nullptr;
-      ImageData* image_data = ImageData::Create(
-          IntSize(width, height), settings.GetColorSpace(), storage_format);
+      ImageData* image_data = ImageData::ValidateAndCreate(
+          width, height, absl::nullopt, settings.GetImageDataSettings(),
+          ImageData::ValidateAndCreateParams(), exception_state);
       if (!image_data)
         return nullptr;
       SkPixmap image_data_pixmap = image_data->GetSkPixmap();
@@ -577,7 +578,7 @@ ScriptWrappable* V8ScriptValueDeserializer::ReadDOMObject(
       return WritableStream::Deserialize(
           script_state_,
           CreateEntangledPort(GetScriptState(), streams_[index].channel),
-          exception_state);
+          std::move(streams_[index].writable_optimizer), exception_state);
     }
     case kTransformStreamTransferTag: {
       if (!TransferableStreamsEnabled())
@@ -606,8 +607,9 @@ ScriptWrappable* V8ScriptValueDeserializer::ReadDOMObject(
       // 2. Let writableRecord be !
       //    StructuredDeserializeWithTransfer(dataHolder.[[writable]], the
       //    current Realm).
-      WritableStream* writable = WritableStream::Deserialize(
-          script_state_, port_for_writable, exception_state);
+      WritableStream* writable =
+          WritableStream::Deserialize(script_state_, port_for_writable,
+                                      /*optimizer=*/nullptr, exception_state);
       if (!writable)
         return nullptr;
 
@@ -660,7 +662,7 @@ File* V8ScriptValueDeserializer::ReadFile() {
   auto blob_handle = GetOrCreateBlobDataHandle(uuid, type, kSizeForDataHandle);
   if (!blob_handle)
     return nullptr;
-  base::Optional<base::Time> last_modified;
+  absl::optional<base::Time> last_modified;
   if (has_snapshot && std::isfinite(last_modified_ms))
     last_modified = base::Time::FromJsTime(last_modified_ms);
   return File::CreateFromSerialization(path, name, relative_path,
@@ -750,6 +752,14 @@ v8::MaybeLocal<v8::WasmModuleObject>
 V8ScriptValueDeserializer::GetWasmModuleFromId(v8::Isolate* isolate,
                                                uint32_t id) {
   if (id < serialized_script_value_->WasmModules().size()) {
+    ExecutionContext* execution_context = ExecutionContext::From(script_state_);
+    DCHECK(serialized_script_value_->origin());
+    UseCounter::Count(execution_context, WebFeature::kWasmModuleSharing);
+    if (!serialized_script_value_->origin()->IsSameOriginWith(
+            execution_context->GetSecurityOrigin())) {
+      UseCounter::Count(execution_context,
+                        WebFeature::kCrossOriginWasmModuleSharing);
+    }
     return v8::WasmModuleObject::FromCompiledModule(
         isolate, serialized_script_value_->WasmModules()[id]);
   }

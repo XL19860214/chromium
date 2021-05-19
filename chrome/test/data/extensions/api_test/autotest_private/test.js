@@ -39,6 +39,18 @@ function onRaf(rafWin) {
   rafWin.close();
 }
 
+function promisify(f, ...args) {
+  return new Promise((resolve, reject) => {
+    f(...args, (result) => {
+      if (chrome.runtime.lastError) {
+        reject(chrome.runtime.lastError);
+      } else {
+        resolve(result);
+      }
+    });
+  });
+}
+
 var defaultTests = [
   // logout/restart/shutdown don't do anything as we don't want to kill the
   // browser with these tests.
@@ -463,6 +475,17 @@ var defaultTests = [
           chrome.test.assertNoLastError();
           chrome.test.succeed();
         });
+  },
+  function waitForLauncherStateInTabletMode() {
+    promisify(chrome.autotestPrivate.setTabletModeEnabled, true)
+      .then(promisify(chrome.autotestPrivate.waitForLauncherState,
+                      'FullscreenAllApps'))
+      .then(promisify(chrome.autotestPrivate.setTabletModeEnabled, false))
+      .then(function() {
+        chrome.test.succeed();
+      }).catch(function(err) {
+        chrome.test.fail(err);
+      });
   },
   // Check if tablet mode is enabled.
   function isTabletModeEnabled() {
@@ -993,6 +1016,31 @@ var defaultTests = [
     });
   },
 
+  function setAndGetClipboardTextData() {
+    const textData = 'foo bar';
+    chrome.autotestPrivate.getClipboardTextData(function(beforeData) {
+      chrome.test.assertTrue(textData != beforeData);
+      chrome.autotestPrivate.setClipboardTextData(textData, function() {
+        chrome.autotestPrivate.getClipboardTextData(function(afterData) {
+          chrome.test.assertEq(afterData, textData);
+          chrome.test.succeed();
+        });
+      });
+    });
+  },
+
+  function setClipboardTextDataTwice() {
+    const textData = 'twice clipboard data';
+    chrome.autotestPrivate.setClipboardTextData(textData, function() {
+      chrome.autotestPrivate.setClipboardTextData(textData, function() {
+        chrome.autotestPrivate.getClipboardTextData(function(data) {
+          chrome.test.assertEq(data, textData);
+          chrome.test.succeed();
+        });
+      });
+    });
+  },
+
   // KEEP |lockScreen()| TESTS AT THE BOTTOM OF THE defaultTests AS IT WILL
   // CHANGE THE SESSION STATE TO LOCKED STATE.
   function lockScreen() {
@@ -1307,6 +1355,34 @@ var systemWebAppsTests = [
         chrome.test.assertEq('chrome://test-system-app/', apps[0].url);
       })
     );
+  },
+  function isSystemWebAppOpen() {
+    chrome.autotestPrivate.waitForSystemWebAppsInstall(
+        chrome.test.callbackPass(() => {
+          // Test system app should not be open by default.
+          chrome.autotestPrivate.isSystemWebAppOpen(
+              'maphiehpiinjgiaepbljmopkodkadcbh',
+              chrome.test.callbackPass(isOpen => {
+                chrome.test.assertFalse(isOpen);
+              }));
+
+          // Open test app and verify the state should be open.
+          chrome.autotestPrivate.launchSystemWebApp(
+              'OSSettings', 'chrome://test-system-app/',
+              chrome.test.callbackPass(() => {
+                chrome.autotestPrivate.isSystemWebAppOpen(
+                    'maphiehpiinjgiaepbljmopkodkadcbh',
+                    chrome.test.callbackPass(isOpen => {
+                      chrome.test.assertTrue(isOpen);
+                    }));
+              }));
+
+          // Check for invalid app.
+          chrome.autotestPrivate.isSystemWebAppOpen(
+              '',
+              chrome.test.callbackFail(
+                  'No system web app is found by given app id.'));
+        }));
   },
 ]
 

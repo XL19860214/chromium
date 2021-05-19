@@ -34,8 +34,8 @@
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "base/files/file_path.h"
+#include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/chromeos/policy/browser_policy_connector_chromeos.h"
-#include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/device_identity/device_identity_provider.h"
 #include "chrome/browser/device_identity/device_oauth2_token_service_factory.h"
 #include "components/user_manager/user_manager.h"
@@ -51,16 +51,15 @@ std::unique_ptr<InvalidationService> CreateInvalidationServiceForSenderId(
   auto service = std::make_unique<FCMInvalidationService>(
       identity_provider,
       base::BindRepeating(
-          &syncer::FCMNetworkHandler::Create,
+          &FCMNetworkHandler::Create,
           gcm::GCMProfileServiceFactory::GetForProfile(profile)->driver(),
           instance_id::InstanceIDProfileServiceFactory::GetForProfile(profile)
               ->driver()),
       base::BindRepeating(
-          &syncer::PerUserTopicSubscriptionManager::Create, identity_provider,
+          &PerUserTopicSubscriptionManager::Create, identity_provider,
           profile->GetPrefs(),
-          base::RetainedRef(
-              content::BrowserContext::GetDefaultStoragePartition(profile)
-                  ->GetURLLoaderFactoryForBrowserProcess())),
+          base::RetainedRef(profile->GetDefaultStoragePartition()
+                                ->GetURLLoaderFactoryForBrowserProcess())),
       instance_id::InstanceIDProfileServiceFactory::GetForProfile(profile)
           ->driver(),
       profile->GetPrefs(), sender_id);
@@ -133,8 +132,8 @@ KeyedService* ProfileInvalidationProviderFactory::BuildServiceInstanceFor(
   Profile* profile = Profile::FromBrowserContext(context);
 
   if (!identity_provider) {
-    identity_provider.reset(new ProfileIdentityProvider(
-        IdentityManagerFactory::GetForProfile(profile)));
+    identity_provider = std::make_unique<ProfileIdentityProvider>(
+        IdentityManagerFactory::GetForProfile(profile));
   }
   auto service =
       CreateInvalidationServiceForSenderId(profile, identity_provider.get(),

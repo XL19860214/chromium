@@ -17,6 +17,7 @@
 #include "base/metrics/histogram_functions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "ui/aura/window.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/compositor/animation_throughput_reporter.h"
 #include "ui/compositor/layer.h"
 #include "ui/compositor/scoped_layer_animation_settings.h"
@@ -45,10 +46,6 @@ PhotoView::PhotoView(AmbientViewDelegate* delegate) : delegate_(delegate) {
 }
 
 PhotoView::~PhotoView() = default;
-
-const char* PhotoView::GetClassName() const {
-  return "PhotoView";
-}
 
 void PhotoView::OnImageAdded() {
   // If NeedToAnimate() is true, will start transition animation and
@@ -148,8 +145,11 @@ bool PhotoView::NeedToAnimateTransition() const {
   return !image_views_.back()->GetCurrentImage().isNull();
 }
 
-const gfx::ImageSkia& PhotoView::GetVisibleImageForTesting() {
+gfx::ImageSkia PhotoView::GetVisibleImageForTesting() {
   return image_views_.at(image_index_)->GetCurrentImage();
 }
+
+BEGIN_METADATA(PhotoView, views::View)
+END_METADATA
 
 }  // namespace ash

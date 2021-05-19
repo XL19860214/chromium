@@ -13,6 +13,7 @@
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/notification_types.h"
+#include "content/public/browser/site_isolation_policy.h"
 #include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/origin_util.h"
@@ -31,6 +32,7 @@
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "services/network/public/cpp/web_sandbox_flags.h"
 #include "services/network/public/mojom/web_sandbox_flags.mojom-shared.h"
+#include "third_party/blink/public/common/chrome_debug_urls.h"
 #include "third_party/blink/public/mojom/frame/user_activation_update_types.mojom.h"
 #include "url/url_constants.h"
 
@@ -46,7 +48,7 @@ EvalJsResult GetOriginFromRenderer(FrameTreeNode* node) {
 
 class FrameTreeBrowserTest : public ContentBrowserTest {
  public:
-  FrameTreeBrowserTest() {}
+  FrameTreeBrowserTest() = default;
 
   void SetUpOnMainThread() override {
     host_resolver()->AddRule("*", "127.0.0.1");
@@ -173,7 +175,7 @@ IN_PROC_BROWSER_TEST_F(FrameTreeBrowserTest, NavigateWithLeftoverFrames) {
 
   // Hang the renderer so that it doesn't send any FrameDetached messages.
   // (This navigation will never complete, so don't wait for it.)
-  shell()->LoadURL(GURL(kChromeUIHangURL));
+  shell()->LoadURL(GURL(blink::kChromeUIHangURL));
 
   // Check that the frame tree still has children.
   WebContentsImpl* wc = static_cast<WebContentsImpl*>(shell()->web_contents());
@@ -801,7 +803,7 @@ IN_PROC_BROWSER_TEST_F(FrameTreeBrowserTest,
 
 class CrossProcessFrameTreeBrowserTest : public ContentBrowserTest {
  public:
-  CrossProcessFrameTreeBrowserTest() {}
+  CrossProcessFrameTreeBrowserTest() = default;
 
   void SetUpCommandLine(base::CommandLine* command_line) override {
     IsolateAllSitesForTesting(command_line);
@@ -1240,7 +1242,7 @@ IN_PROC_BROWSER_TEST_F(CrossProcessFrameTreeBrowserTest,
 // it from outsiders.
 class IsolateIcelandFrameTreeBrowserTest : public ContentBrowserTest {
  public:
-  IsolateIcelandFrameTreeBrowserTest() {}
+  IsolateIcelandFrameTreeBrowserTest() = default;
 
   void SetUpCommandLine(base::CommandLine* command_line) override {
     // Blink suppresses navigations to blob URLs of origins different from the
@@ -1276,7 +1278,7 @@ IN_PROC_BROWSER_TEST_F(IsolateIcelandFrameTreeBrowserTest,
 
   // The navigation targets an invalid blob url; that's intentional to trigger
   // an error response. The response should commit in a process dedicated to
-  // http://b.is.
+  // http://b.is or error pages, depending on policy.
   EXPECT_EQ(
       "done",
       EvalJs(
@@ -1293,11 +1295,16 @@ IN_PROC_BROWSER_TEST_F(IsolateIcelandFrameTreeBrowserTest,
       AreDefaultSiteInstancesEnabled()
           ? SiteInstanceImpl::GetDefaultSiteURL().spec()
           : "http://a.com/";
+  const std::string kExpectedSubframeSiteURL =
+      SiteIsolationPolicy::IsErrorPageIsolationEnabled(/*in_main_frame*/ false)
+          ? "chrome-error://chromewebdata/"
+          : "http://b.is/";
   EXPECT_EQ(base::StringPrintf(" Site A ------------ proxies for B\n"
                                "   +--Site B ------- proxies for A\n"
                                "Where A = %s\n"
-                               "      B = http://b.is/",
-                               kExpectedSiteURL.c_str()),
+                               "      B = %s",
+                               kExpectedSiteURL.c_str(),
+                               kExpectedSubframeSiteURL.c_str()),
             DepictFrameTree(*root));
 }
 

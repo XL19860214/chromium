@@ -88,7 +88,8 @@ class VIEWS_EXPORT SubmenuView : public View,
   void OnDragEntered(const ui::DropTargetEvent& event) override;
   int OnDragUpdated(const ui::DropTargetEvent& event) override;
   void OnDragExited() override;
-  int OnPerformDrop(const ui::DropTargetEvent& event) override;
+  ui::mojom::DragOperation OnPerformDrop(
+      const ui::DropTargetEvent& event) override;
 
   // Scrolls on menu item boundaries.
   bool OnMouseWheel(const ui::MouseWheelEvent& e) override;
@@ -97,20 +98,21 @@ class VIEWS_EXPORT SubmenuView : public View,
   // Scrolls on menu item boundaries.
   void OnGestureEvent(ui::GestureEvent* event) override;
 
-  bool OnKeyPressed(const ui::KeyEvent& event) override;
-
   // Overridden from PrefixDelegate.
   int GetRowCount() override;
   int GetSelectedRow() override;
   void SetSelectedRow(int row) override;
-  base::string16 GetTextForRow(int row) override;
+  std::u16string GetTextForRow(int row) override;
 
   // Returns true if the menu is showing.
   virtual bool IsShowing() const;
 
   // Shows the menu at the specified location. Coordinates are in screen
   // coordinates. max_width gives the max width the view should be.
-  void ShowAt(Widget* parent, const gfx::Rect& bounds, bool do_capture);
+  void ShowAt(Widget* parent,
+              const gfx::Rect& bounds,
+              bool do_capture,
+              gfx::NativeView native_view_for_gestures = nullptr);
 
   // Resets the bounds of the submenu to |bounds|.
   void Reposition(const gfx::Rect& bounds);

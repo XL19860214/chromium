@@ -58,6 +58,9 @@ extern const char kEnterprisePasswordAlertHistogram[];
 extern const char kGsuiteSyncPasswordAlertHistogram[];
 extern const char kGsuiteNonSyncPasswordAlertHistogram[];
 
+extern const char kPasswordOnFocusRequestWithTokenHistogram[];
+extern const char kAnyPasswordEntryRequestWithTokenHistogram[];
+
 using ReusedPasswordAccountType =
     LoginReputationClientRequest::PasswordReuseEvent::ReusedPasswordAccountType;
 using SyncAccountType =
@@ -75,8 +78,8 @@ enum class RequestOutcome {
   CANCELED = 2,
   // Request timeout.
   TIMEDOUT = 3,
-  // No request sent because URL matches whitelist.
-  MATCHED_WHITELIST = 4,
+  // No request sent because URL matches allowlist.
+  MATCHED_ALLOWLIST = 4,
   // No request sent because response already cached.
   RESPONSE_ALREADY_CACHED = 5,
   DEPRECATED_NO_EXTENDED_REPORTING = 6,
@@ -97,8 +100,8 @@ enum class RequestOutcome {
   DISABLED_DUE_TO_USER_POPULATION = 13,
   // No request sent because the reputation of the URL is not computable.
   URL_NOT_VALID_FOR_REPUTATION_COMPUTING = 14,
-  // No request sent because URL matches enterprise whitelist.
-  MATCHED_ENTERPRISE_WHITELIST = 15,
+  // No request sent because URL matches enterprise allowlist.
+  MATCHED_ENTERPRISE_ALLOWLIST = 15,
   // No request sent because URL matches enterprise change password URL.
   MATCHED_ENTERPRISE_CHANGE_PASSWORD_URL = 16,
   // No request sent because URL matches enterprise login URL.
@@ -149,6 +152,12 @@ enum class WarningUIType {
   // chrome://reset-password interstitial.
   INTERSTITIAL = 3,
 };
+
+// Logs whether an access_token was sent or not, for the appropriate
+// |trigger_type| metric.
+void LogPasswordProtectionRequestTokenHistogram(
+    LoginReputationClientRequest::TriggerType trigger_type,
+    bool has_access_token);
 
 // Logs the |outcome| to several UMA metrics, depending on the value
 // of |password_type| and |sync_account_type|.

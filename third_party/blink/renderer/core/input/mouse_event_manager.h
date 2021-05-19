@@ -5,16 +5,17 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_INPUT_MOUSE_EVENT_MANAGER_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_INPUT_MOUSE_EVENT_MANAGER_H_
 
+#include "third_party/blink/public/common/input/pointer_id.h"
 #include "third_party/blink/public/common/input/web_mouse_event.h"
-#include "third_party/blink/public/common/page/drag_operation.h"
 #include "third_party/blink/public/platform/web_input_event_result.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/dom/synchronous_mutation_observer.h"
+#include "third_party/blink/renderer/core/events/pointer_event_factory.h"
 #include "third_party/blink/renderer/core/input/boundary_event_dispatcher.h"
-// #include "third_party/blink/renderer/core/page/drag_actions.h"
 #include "third_party/blink/renderer/core/page/event_with_hit_test_results.h"
 #include "third_party/blink/renderer/platform/timer.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
+#include "ui/base/dragdrop/mojom/drag_drop_types.mojom-blink-forward.h"
 
 namespace blink {
 
@@ -41,15 +42,16 @@ class CORE_EXPORT MouseEventManager final
   virtual ~MouseEventManager();
   void Trace(Visitor*) const override;
 
-  WebInputEventResult DispatchMouseEvent(EventTarget*,
-                                         const AtomicString&,
-                                         const WebMouseEvent&,
-                                         const String& canvas_region_id,
-                                         const FloatPoint* last_position,
-                                         EventTarget* related_target,
-                                         bool check_for_listener = false,
-                                         const PointerId& pointer_id = 0,
-                                         const String& pointer_type = "");
+  WebInputEventResult DispatchMouseEvent(
+      EventTarget*,
+      const AtomicString&,
+      const WebMouseEvent&,
+      const String& canvas_region_id,
+      const FloatPoint* last_position,
+      EventTarget* related_target,
+      bool check_for_listener = false,
+      const PointerId& pointer_id = PointerEventFactory::kInvalidId,
+      const String& pointer_type = "");
 
   WebInputEventResult SetMousePositionAndDispatchMouseEvent(
       Element* target_element,
@@ -109,7 +111,7 @@ class CORE_EXPORT MouseEventManager final
   // drag heuristics.
   void ClearDragHeuristicState();
 
-  void DragSourceEndedAt(const WebMouseEvent&, DragOperation);
+  void DragSourceEndedAt(const WebMouseEvent&, ui::mojom::blink::DragOperation);
 
   void UpdateSelectionForMouseDrag();
 

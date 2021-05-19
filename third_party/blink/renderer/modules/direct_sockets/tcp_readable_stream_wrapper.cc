@@ -17,7 +17,6 @@
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/bindings/script_state.h"
 #include "third_party/blink/renderer/platform/heap/persistent.h"
-#include "third_party/blink/renderer/platform/heap/visitor.h"
 
 namespace blink {
 
@@ -86,6 +85,7 @@ TCPReadableStreamWrapper::TCPReadableStreamWrapper(
       WTF::BindRepeating(&TCPReadableStreamWrapper::OnPeerClosed,
                          WrapWeakPersistent(this)));
 
+  ScriptState::Scope scope(script_state_);
   // Set queuing strategy of default behavior with a high water mark of 1.
   readable_ = ReadableStream::CreateWithCountQueueingStrategy(
       script_state_,
@@ -141,6 +141,9 @@ void TCPReadableStreamWrapper::OnPeerClosed(MojoResult result,
 }
 
 void TCPReadableStreamWrapper::ReadFromPipeAndEnqueue() {
+  if (!script_state_->ContextIsValid())
+    return;
+
   DVLOG(1) << "TCPReadableStreamWrapper::ReadFromPipeAndEnqueue() this=" << this
            << " in_two_phase_read_=" << in_two_phase_read_
            << " read_pending_=" << read_pending_;

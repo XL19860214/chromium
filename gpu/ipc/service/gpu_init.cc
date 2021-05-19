@@ -8,6 +8,7 @@
 
 #include "base/command_line.h"
 #include "base/logging.h"
+#include "base/metrics/field_trial_params.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/pattern.h"
 #include "base/strings/string_number_conversions.h"
@@ -99,6 +100,16 @@ void InitializePlatformOverlaySettings(GPUInfo* gpu_info,
   if (gpu_feature_info.IsWorkaroundEnabled(gpu::FORCE_NV12_OVERLAY_SUPPORT)) {
     gl::DirectCompositionSurfaceWin::ForceNV12OverlaySupport();
   }
+  if (gpu_feature_info.IsWorkaroundEnabled(
+          gpu::FORCE_RGB10A2_OVERLAY_SUPPORT_FLAGS)) {
+    gl::DirectCompositionSurfaceWin::ForceRgb10a2OverlaySupport();
+  }
+  if (gpu_feature_info.IsWorkaroundEnabled(
+          gpu::CHECK_YCBCR_STUDIO_G22_LEFT_P709_FOR_NV12_SUPPORT)) {
+    gl::DirectCompositionSurfaceWin::
+        SetCheckYCbCrStudioG22LeftP709ForNv12Support();
+  }
+
   DCHECK(gpu_info);
   CollectHardwareOverlayInfo(&gpu_info->overlay_info);
 #elif defined(OS_ANDROID)
@@ -320,6 +331,10 @@ bool GpuInit::InitializeAndStartSandbox(base::CommandLine* command_line,
     params.single_process = false;
     params.enable_native_gpu_memory_buffers =
         gpu_preferences.enable_native_gpu_memory_buffers;
+
+    // Page flip testing will only happen in ash-chrome, not in lacros-chrome.
+    // Therefore, we only allow or disallow sync and real buffer page flip
+    // testing for ash-chrome.
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 #if BUILDFLAG(USE_CHROMEOS_MEDIA_ACCELERATION)
     params.allow_sync_and_real_buffer_page_flip_testing =
@@ -416,9 +431,20 @@ bool GpuInit::InitializeAndStartSandbox(base::CommandLine* command_line,
 
   // Compute passthrough decoder status before ComputeGpuFeatureInfo below.
   // Do this after GL is initialized so extensions can be queried.
-  gpu_info_.passthrough_cmd_decoder =
-      gles2::UsePassthroughCommandDecoder(command_line) &&
-      gles2::PassthroughCommandDecoderSupported();
+  if (gles2::UsePassthroughCommandDecoder(command_line)) {
+    gpu_info_.passthrough_cmd_decoder =
+        gles2::PassthroughCommandDecoderSupported();
+#if defined(OS_ANDROID)
+    // We never use swiftshader on Android
+    LOG_IF(DFATAL, !gpu_info_.passthrough_cmd_decoder)
+#else
+    LOG_IF(ERROR, !gpu_info_.passthrough_cmd_decoder)
+#endif
+        << "Passthrough is not supported, GL is "
+        << gl::GetGLImplementationGLName(gl::GetGLImplementationParts());
+  } else {
+    gpu_info_.passthrough_cmd_decoder = false;
+  }
 
   // We need to collect GL strings (VENDOR, RENDERER) for blocklisting purposes.
   if (!gl_disabled) {
@@ -565,13 +591,18 @@ bool GpuInit::InitializeAndStartSandbox(base::CommandLine* command_line,
   // In SwiftShader case, the implementation is actually EGLGLES2.
   if (!gl_use_swiftshader_ && command_line->HasSwitch(switches::kUseGL)) {
     std::string use_gl = command_line->GetSwitchValueASCII(switches::kUseGL);
+    std::string use_angle =
+        command_line->GetSwitchValueASCII(switches::kUseANGLE);
     if (use_gl == gl::kGLImplementationSwiftShaderName ||
-        use_gl == gl::kGLImplementationSwiftShaderForWebGLName) {
+        use_gl == gl::kGLImplementationSwiftShaderForWebGLName ||
+        (use_gl == gl::kGLImplementationANGLEName &&
+         (use_angle == gl::kANGLEImplementationSwiftShaderName ||
+          use_angle == gl::kANGLEImplementationSwiftShaderForWebGLName))) {
       gl_use_swiftshader_ = true;
     }
   }
   if (gl_use_swiftshader_ ||
-      gl::GetGLImplementation() == gl::GetSoftwareGLImplementation()) {
+      gl::IsSoftwareGLImplementation(gl::GetGLImplementationParts())) {
     gpu_info_.software_rendering = true;
     watchdog_thread_ = nullptr;
     watchdog_init.SetGpuWatchdogPtr(nullptr);
@@ -608,6 +639,10 @@ bool GpuInit::InitializeAndStartSandbox(base::CommandLine* command_line,
 #if defined(OS_WIN)
   if (gpu_feature_info_.IsWorkaroundEnabled(DISABLE_DECODE_SWAP_CHAIN))
     gl::DirectCompositionSurfaceWin::DisableDecodeSwapChain();
+  if (gpu_feature_info_.IsWorkaroundEnabled(
+          DISABLE_DIRECT_COMPOSITION_SW_VIDEO_OVERLAYS)) {
+    gl::DirectCompositionSurfaceWin::DisableSoftwareOverlays();
+  }
 #endif
 
   return true;
@@ -646,6 +681,10 @@ void GpuInit::InitializeInProcess(base::CommandLine* command_line,
   if (features::IsUsingOzonePlatform()) {
     ui::OzonePlatform::InitParams params;
     params.single_process = true;
+
+    // Page flip testing will only happen in ash-chrome, not in lacros-chrome.
+    // Therefore, we only allow or disallow sync and real buffer page flip
+    // testing for ash-chrome.
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 #if BUILDFLAG(USE_CHROMEOS_MEDIA_ACCELERATION)
     params.allow_sync_and_real_buffer_page_flip_testing =
@@ -800,13 +839,8 @@ bool GpuInit::InitializeVulkan() {
       gpu_preferences_.use_vulkan == VulkanImplementationName::kForcedNative;
   bool use_swiftshader = gl_use_swiftshader_ || vulkan_use_swiftshader;
 
-  // If |enforce_vulkan_protected_memory| is true, then we expect
-  // |enable_vulkan_protected_memory| to be true.
-  DCHECK(!gpu_preferences_.enforce_vulkan_protected_memory ||
-         gpu_preferences_.enable_vulkan_protected_memory);
   vulkan_implementation_ = CreateVulkanImplementation(
-      vulkan_use_swiftshader, gpu_preferences_.enable_vulkan_protected_memory,
-      gpu_preferences_.enforce_vulkan_protected_memory);
+      vulkan_use_swiftshader, gpu_preferences_.enable_vulkan_protected_memory);
   if (!vulkan_implementation_ ||
       !vulkan_implementation_->InitializeVulkanInstance(
           !gpu_preferences_.disable_vulkan_surface)) {
@@ -843,8 +877,9 @@ bool GpuInit::InitializeVulkan() {
 
   if (!use_swiftshader && !forced_native &&
       !CheckVulkanCompabilities(
-          vulkan_implementation_->GetVulkanInstance()->vulkan_info(),
-          gpu_info_)) {
+          vulkan_implementation_->GetVulkanInstance()->vulkan_info(), gpu_info_,
+          base::GetFieldTrialParamValueByFeature(features::kVulkan,
+                                                 "enable_by_device_name"))) {
     vulkan_implementation_.reset();
     return false;
   }

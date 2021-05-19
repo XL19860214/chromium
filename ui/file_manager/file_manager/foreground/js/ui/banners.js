@@ -2,6 +2,22 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+// clang-format off
+// #import {VolumeInfo} from '../../../externs/volume_info.m.js';
+// #import {VolumeManager} from '../../../externs/volume_manager.m.js';
+// #import {DirectoryModel} from '../directory_model.m.js';
+// #import {VolumeManagerCommon} from '../../../common/js/volume_manager_types.m.js';
+// #import {constants} from '../constants.m.js';
+// #import {HoldingSpaceUtil} from '../holding_space_util.m.js';
+// #import {queryRequiredElement} from 'chrome://resources/js/util.m.js';
+// #import {util, str, strf} from '../../../common/js/util.m.js';
+// #import {NativeEventTarget as EventTarget} from 'chrome://resources/js/cr/event_target.m.js';
+// #import {dispatchSimpleEvent} from 'chrome://resources/js/cr.m.js';
+// #import {assert} from 'chrome://resources/js/assert.m.js';
+// #import {xfm} from '../../../common/js/xfm.m.js';
+// clang-format on
+
+
 /**
  * Key in localStorage to keep number of times the Drive Welcome
  * banner has shown.
@@ -34,6 +50,13 @@ const HOLDING_SPACE_WELCOME_BANNER_COUNTER_KEY =
  * message has shown in.
  */
 const OFFLINE_INFO_BANNER_COUNTER_KEY = 'driveOfflineInfoBannerCounter';
+
+/**
+ * Key in localStorage to keep number of times the Photos Welcome banner was
+ * shown.
+ * @const {string}
+ */
+const PHOTOS_WELCOME_COUNTER_KEY = 'photosWelcomeCounter';
 
 /**
  * Maximum times the holding space welcome banner could have shown.
@@ -72,11 +95,17 @@ const DOWNLOADS_SPACE_WARNING_DISMISS_DURATION = 36 * 60 * 60 * 1000;
 const OFFLINE_INFO_BANNER_COUNTER_LIMIT = 3;
 
 /**
+ * Maximum times Google Photos welcome banner could have shown.
+ * @const {number}
+ */
+const PHOTOS_WELCOME_COUNTER_LIMIT = 3;
+
+/**
  * Responsible for showing following banners in the file list.
  *  - WelcomeBanner
  *  - AuthFailBanner
  */
-class Banners extends cr.EventTarget {
+/* #export */ class Banners extends cr.EventTarget {
   /**
    * @param {DirectoryModel} directoryModel The model.
    * @param {!VolumeManager} volumeManager The manager.
@@ -100,6 +129,7 @@ class Banners extends cr.EventTarget {
     const handler = () => {
       this.maybeShowDriveBanners_();
       this.maybeShowHoldingSpaceWelcomeBanner_();
+      this.maybeShowPhotosWelcomeBanner_();
     };
 
     this.directoryModel_.addEventListener('scan-completed', handler);
@@ -113,7 +143,7 @@ class Banners extends cr.EventTarget {
     this.volumeManager_.addEventListener(
         'drive-connection-changed', this.onDriveConnectionChanged_.bind(this));
 
-    chrome.storage.onChanged.addListener(this.onStorageChange_.bind(this));
+    xfm.storage.onChanged.addListener(this.onStorageChange_.bind(this));
 
     /** @private {number} */
     this.holdingSpaceWelcomeBannerCounter_ =
@@ -135,19 +165,26 @@ class Banners extends cr.EventTarget {
      */
     this.hasShownOfflineInfoBanner_ = false;
 
+    /**
+     * How many times Google Photos welcome banner has been shown.
+     * @private {number}
+     */
+    this.photosWelcomeCounter_ = PHOTOS_WELCOME_COUNTER_LIMIT;
+
     this.ready_ = new Promise((resolve, reject) => {
-      chrome.storage.local.get(
+      xfm.storage.local.get(
           [
             HOLDING_SPACE_WELCOME_BANNER_COUNTER_KEY,
             WELCOME_HEADER_COUNTER_KEY,
             DRIVE_WARNING_DISMISSED_KEY,
             DOWNLOADS_WARNING_DISMISSED_KEY,
             OFFLINE_INFO_BANNER_COUNTER_KEY,
+            PHOTOS_WELCOME_COUNTER_KEY,
           ],
           values => {
             if (chrome.runtime.lastError) {
               reject(
-                  'Failed to load banner data from chrome.storage: ' +
+                  'Failed to load banner data from storage: ' +
                   chrome.runtime.lastError.message);
               return;
             }
@@ -163,6 +200,8 @@ class Banners extends cr.EventTarget {
                 parseInt(values[DOWNLOADS_WARNING_DISMISSED_KEY], 10) || 0;
             this.offlineInfoBannerCounter_ =
                 parseInt(values[OFFLINE_INFO_BANNER_COUNTER_KEY], 10) || 0;
+            this.photosWelcomeCounter_ =
+                parseInt(values[PHOTOS_WELCOME_COUNTER_KEY], 10) || 0;
 
             // If it's in test, override the counter to show the header by
             // force.
@@ -199,6 +238,7 @@ class Banners extends cr.EventTarget {
       util.visitURL(str('GOOGLE_DRIVE_OFFLINE_HELP_URL'));
       this.setOfflineInfoBannerCounter_(OFFLINE_INFO_BANNER_COUNTER_LIMIT);
       this.offlineInfoBanner_.hidden = true;
+      this.hasShownOfflineInfoBanner_ = false;
       e.preventDefault();
     });
 
@@ -215,7 +255,7 @@ class Banners extends cr.EventTarget {
   setHoldingSpaceWelcomeBannerCounter_(value) {
     const values = {};
     values[HOLDING_SPACE_WELCOME_BANNER_COUNTER_KEY] = value;
-    chrome.storage.local.set(values);
+    xfm.storage.local.set(values);
   }
 
   /**
@@ -226,7 +266,7 @@ class Banners extends cr.EventTarget {
   setWelcomeHeaderCounter_(value) {
     const values = {};
     values[WELCOME_HEADER_COUNTER_KEY] = value;
-    chrome.storage.local.set(values);
+    xfm.storage.local.set(values);
   }
 
   /**
@@ -236,7 +276,7 @@ class Banners extends cr.EventTarget {
   setWarningDismissedCounter_(value) {
     const values = {};
     values[DRIVE_WARNING_DISMISSED_KEY] = value;
-    chrome.storage.local.set(values);
+    xfm.storage.local.set(values);
   }
 
   /**
@@ -247,11 +287,24 @@ class Banners extends cr.EventTarget {
   setOfflineInfoBannerCounter_(value) {
     const values = {};
     values[OFFLINE_INFO_BANNER_COUNTER_KEY] = value;
+    xfm.storage.local.set(values);
+  }
+
+  /**
+   * @param {number} value How many times the Photos Welcome header banner was
+   * shown.
+   * @private
+   */
+  setPhotosWelcomeCounter_(value) {
+    this.photosWelcomeCounter_ = value;
+    const values = {};
+    values[PHOTOS_WELCOME_COUNTER_KEY] = value;
     chrome.storage.local.set(values);
   }
 
   /**
    * chrome.storage.onChanged event handler.
+   * xfm.storage.onChanged event handler.
    * @param {Object<Object>} changes Changes values.
    * @param {string} areaName "local" or "sync".
    * @private
@@ -288,11 +341,31 @@ class Banners extends cr.EventTarget {
   }
 
   /**
+   * Adds a stylesheet to the page if it does not exist already.
+   * @param {string} attrKey Attribute used to uniquely identify the stylesheet
+   *     to check if it has been added.
+   * @param {string} cssUrl Path to the CSS file.
+   * @return {Object} The link element identified by |attrKey|.
+   * @private
+   */
+  maybeAddStylesheet(attrKey, cssUrl) {
+    let style = this.document_.querySelector(`link[${attrKey}]`);
+    if (style) {
+      return style;
+    }
+    style = this.document_.createElement('link');
+    style.rel = 'stylesheet';
+    style.href = cssUrl;
+    style.setAttribute(attrKey, '');
+    this.document_.head.appendChild(style);
+    return style;
+  }
+
+  /**
    * Shows the holding space welcome banner, creating the banner if necessary.
    * @private
    */
   prepareAndShowHoldingSpaceWelcomeBanner_() {
-    assert(util.isHoldingSpaceEnabled());
     this.showHoldingSpaceWelcomeBanner_(true);
 
     // Do not recreate the banner.
@@ -301,13 +374,16 @@ class Banners extends cr.EventTarget {
     }
 
     // Add banner styles to document head.
-    if (!this.document_.head.querySelector(
-            'link[holding-space-welcome-style]')) {
-      const style = this.document_.createElement('link');
-      style.rel = 'stylesheet';
-      style.href = constants.HOLDING_SPACE_WELCOME_CSS;
-      style.setAttribute('holding-space-welcome-style', '');
-      this.document_.head.appendChild(style);
+    const style = this.maybeAddStylesheet(
+        'holding-space-welcome-style', constants.HOLDING_SPACE_WELCOME_CSS);
+    if (!style.onload) {
+      // The holding space welcome banner has inline styles to prevent it from
+      // being made visible to the user before its dynamically added styles have
+      // fully loaded. Once dynamically added styles have loaded, inline styles
+      // must be removed so that the banner can be made visible.
+      style.onload = () => {
+        this.holdingSpaceWelcomeBanner_.removeAttribute('style');
+      };
     }
 
     const wrapper = util.createChild(
@@ -334,6 +410,7 @@ class Banners extends cr.EventTarget {
 
     const buttonGroup = util.createChild(wrapper, 'button-group', 'div');
     const dismiss = util.createChild(buttonGroup, 'text-button', 'cr-button');
+    dismiss.id = 'holding-space-welcome-dismiss';
     dismiss.setAttribute('aria-label', str('HOLDING_SPACE_WELCOME_DISMISS'));
     dismiss.textContent = str('HOLDING_SPACE_WELCOME_DISMISS');
     dismiss.tabIndex = 0;
@@ -360,54 +437,33 @@ class Banners extends cr.EventTarget {
       return;
     }  // Do not re-create.
 
-    if (!this.document_.querySelector('link[drive-welcome-style]')) {
-      const style = this.document_.createElement('link');
-      style.rel = 'stylesheet';
-      style.href = constants.DRIVE_WELCOME_CSS;
-      style.setAttribute('drive-welcome-style', '');
-      this.document_.head.appendChild(style);
-    }
+    this.maybeAddStylesheet('drive-welcome-style', constants.DRIVE_WELCOME_CSS);
 
     const wrapper = util.createChild(container, 'drive-welcome-wrapper');
     util.createChild(wrapper, 'drive-welcome-icon');
 
-    let close, links;
-    if (util.isFilesNg()) {
-      const message = util.createChild(wrapper, 'drive-welcome-message');
-      util.setClampLine(message, '2');
+    const message = util.createChild(wrapper, 'drive-welcome-message');
+    util.setClampLine(message, '2');
 
-      const title = util.createChild(message, 'drive-welcome-title headline2');
-      title.textContent = str('DRIVE_WELCOME_TITLE');
+    const title = util.createChild(message, 'drive-welcome-title headline2');
+    title.textContent = str('DRIVE_WELCOME_TITLE');
 
-      const body = util.createChild(message, 'body2-primary');
+    const body = util.createChild(message, 'body2-primary');
 
-      const text = util.createChild(body, 'drive-welcome-text');
-      text.innerHTML = str(messageId);
+    const text = util.createChild(body, 'drive-welcome-text');
+    text.innerHTML = str(messageId);
 
-      links = util.createChild(body, 'drive-welcome-links');
+    const links = util.createChild(body, 'drive-welcome-links');
 
-      // Hide link if it's trimmed by line-clamp so it does not get focus
-      // and break ellipsis render.
-      this.hideOverflowedElement(links, body);
+    // Hide link if it's trimmed by line-clamp so it does not get focus
+    // and break ellipsis render.
+    this.hideOverflowedElement(links, body);
 
-      const buttonGroup = util.createChild(wrapper, 'button-group', 'div');
+    const buttonGroup = util.createChild(wrapper, 'button-group', 'div');
 
-      close = util.createChild(
-          buttonGroup, 'banner-close text-button', 'cr-button');
-      close.innerHTML = str('DRIVE_WELCOME_DISMISS');
-    } else {
-      close = util.createChild(wrapper, 'banner-close', 'button');
-
-      const message = util.createChild(wrapper, 'drive-welcome-message');
-
-      const title = util.createChild(message, 'drive-welcome-title');
-      title.textContent = str('DRIVE_WELCOME_TITLE');
-
-      const text = util.createChild(message, 'drive-welcome-text');
-      text.innerHTML = str(messageId);
-
-      links = util.createChild(message, 'drive-welcome-links');
-    }
+    const close =
+        util.createChild(buttonGroup, 'banner-close text-button', 'cr-button');
+    close.innerHTML = str('DRIVE_WELCOME_DISMISS');
 
     close.setAttribute('aria-label', str('DRIVE_WELCOME_DISMISS'));
     close.id = 'welcome-dismiss';
@@ -461,84 +517,47 @@ class Banners extends cr.EventTarget {
 
     box.textContent = '';
     if (show && opt_sizeStats) {
-      if (util.isFilesNg()) {
-        const icon = this.document_.createElement('div');
-        icon.className = 'drive-icon';
-        box.appendChild(icon);
+      const icon = this.document_.createElement('div');
+      icon.className = 'drive-icon';
+      box.appendChild(icon);
 
-        const text = this.document_.createElement('div');
-        text.className = 'body2-primary';
-        text.textContent = strf(
-            'DRIVE_SPACE_AVAILABLE_LONG',
-            util.bytesToString(opt_sizeStats.remainingSize));
-        util.setClampLine(text, '2');
-        box.appendChild(text);
+      const text = this.document_.createElement('div');
+      text.className = 'body2-primary';
+      text.textContent = strf(
+          'DRIVE_SPACE_AVAILABLE_LONG',
+          util.bytesToString(opt_sizeStats.remainingSize));
+      util.setClampLine(text, '2');
+      box.appendChild(text);
 
-        const buttonGroup = this.document_.createElement('div');
-        buttonGroup.className = 'button-group';
-        box.appendChild(buttonGroup);
+      const buttonGroup = this.document_.createElement('div');
+      buttonGroup.className = 'button-group';
+      box.appendChild(buttonGroup);
 
-        const close = this.document_.createElement('cr-button');
-        close.setAttribute('aria-label', str('DRIVE_WELCOME_DISMISS'));
-        close.id = 'drive-space-warning-dismiss';
-        close.innerHTML = str('DRIVE_WELCOME_DISMISS');
-        close.className = 'banner-close text-button';
-        buttonGroup.appendChild(close);
+      const close = this.document_.createElement('cr-button');
+      close.setAttribute('aria-label', str('DRIVE_WELCOME_DISMISS'));
+      close.id = 'drive-space-warning-dismiss';
+      close.innerHTML = str('DRIVE_WELCOME_DISMISS');
+      close.className = 'banner-close text-button';
+      buttonGroup.appendChild(close);
 
-        const link = this.document_.createElement('a');
-        link.href = str('GOOGLE_DRIVE_BUY_STORAGE_URL');
-        link.rel = 'opener';
-        link.target = '_blank';
-        const buyMore = this.document_.createElement('cr-button');
-        buyMore.className = 'banner-button text-button';
-        buyMore.textContent = str('DRIVE_BUY_MORE_SPACE_LINK');
-        link.appendChild(buyMore);
-        buttonGroup.appendChild(link);
+      const link = this.document_.createElement('a');
+      link.href = str('GOOGLE_DRIVE_BUY_STORAGE_URL');
+      link.rel = 'opener';
+      link.target = '_blank';
+      const buyMore = this.document_.createElement('cr-button');
+      buyMore.className = 'banner-button text-button';
+      buyMore.textContent = str('DRIVE_BUY_MORE_SPACE_LINK');
+      link.appendChild(buyMore);
+      buttonGroup.appendChild(link);
 
-        const totalSize = opt_sizeStats.totalSize;
-        close.addEventListener('click', () => {
-          const values = {};
-          values[DRIVE_WARNING_DISMISSED_KEY] = totalSize;
-          chrome.storage.local.set(values);
-          box.hidden = true;
-          this.requestRelayout_(100);
-        });
-      } else {
-        const icon = this.document_.createElement('div');
-        icon.className = 'drive-icon';
-        box.appendChild(icon);
-
-        const text = this.document_.createElement('div');
-        text.className = 'drive-text';
-        text.textContent = strf(
-            'DRIVE_SPACE_AVAILABLE_LONG',
-            util.bytesToString(opt_sizeStats.remainingSize));
-        box.appendChild(text);
-
-        const link = this.document_.createElement('a');
-        link.href = str('GOOGLE_DRIVE_BUY_STORAGE_URL');
-        link.rel = 'opener';
-        link.target = '_blank';
-        const button = this.document_.createElement('button');
-        button.className = 'imitate-paper-button';
-        button.textContent = str('DRIVE_BUY_MORE_SPACE_LINK');
-        link.appendChild(button);
-        box.appendChild(link);
-
-        const close = this.document_.createElement('button');
-        close.setAttribute('aria-label', str('DRIVE_WELCOME_DISMISS'));
-        close.id = 'drive-space-warning-dismiss';
-        close.className = 'banner-close';
-        box.appendChild(close);
-        const totalSize = opt_sizeStats.totalSize;
-        close.addEventListener('click', () => {
-          const values = {};
-          values[DRIVE_WARNING_DISMISSED_KEY] = totalSize;
-          chrome.storage.local.set(values);
-          box.hidden = true;
-          this.requestRelayout_(100);
-        });
-      }
+      const totalSize = opt_sizeStats.totalSize;
+      close.addEventListener('click', () => {
+        const values = {};
+        values[DRIVE_WARNING_DISMISSED_KEY] = totalSize;
+        xfm.storage.local.set(values);
+        box.hidden = true;
+        this.requestRelayout_(100);
+      });
     }
 
     if (box.hidden != !show) {
@@ -552,7 +571,6 @@ class Banners extends cr.EventTarget {
    * @private
    */
   closeHoldingSpaceWelcomeBanner_() {
-    assert(util.isHoldingSpaceEnabled());
     this.cleanupHoldingSpaceWelcomeBanner_();
 
     // Stop showing the welcome banner.
@@ -596,7 +614,7 @@ class Banners extends cr.EventTarget {
         this.maybeShowWelcomeBanner_();
       }
 
-      if (util.isFilesNg() && util.isDriveDssPinEnabled() &&
+      if (util.isDriveDssPinEnabled() &&
           (this.offlineInfoBannerCounter_ < OFFLINE_INFO_BANNER_COUNTER_LIMIT ||
            this.hasShownOfflineInfoBanner_)) {
         this.offlineInfoBanner_.hidden = false;
@@ -614,22 +632,26 @@ class Banners extends cr.EventTarget {
    * @private
    */
   async maybeShowHoldingSpaceWelcomeBanner_() {
-    if (!util.isHoldingSpaceEnabled()) {
+    await this.ready_;
+
+    if (!this.showWelcome_) {
+      this.showHoldingSpaceWelcomeBanner_(false);
       return;
     }
-
-    await this.ready_;
 
     // The holding space feature is only allowed for specific volume types so
     // its banner should only be shown for those volumes. Note that the holding
     // space banner is explicitly disallowed from showing in `DRIVE` to prevent
     // the possibility of it being shown alongside the Drive banner.
-    const allowedVolumeTypes = util.getHoldingSpaceAllowedVolumeTypes();
-    const currentVolumeInfo = this.directoryModel_.getCurrentVolumeInfo();
-    if (!currentVolumeInfo ||
-        !allowedVolumeTypes.includes(currentVolumeInfo.volumeType) ||
-        currentVolumeInfo.volumeType === VolumeManagerCommon.VolumeType.DRIVE) {
-      return;
+    const allowedVolumeTypes = HoldingSpaceUtil.getAllowedVolumeTypes();
+    const currentRootType = this.directoryModel_.getCurrentRootType();
+    if (!util.isRecentRootType(currentRootType)) {
+      const volumeInfo = this.directoryModel_.getCurrentVolumeInfo();
+      if (!volumeInfo || !allowedVolumeTypes.includes(volumeInfo.volumeType) ||
+          volumeInfo.volumeType === VolumeManagerCommon.VolumeType.DRIVE) {
+        this.showHoldingSpaceWelcomeBanner_(false);
+        return;
+      }
     }
 
     // The holding space banner should not be shown after having been shown
@@ -661,41 +683,117 @@ class Banners extends cr.EventTarget {
    */
   maybeShowWelcomeBanner_() {
     this.ready_.then(() => {
-      if (util.isFilesNg()) {
-        // We do not want to increment the counter when the user navigates
-        // between different directories on Drive, but we increment the counter
-        // once anyway to prevent the full page banner from showing.
-        if (!this.previousDirWasOnDrive_ || this.welcomeHeaderCounter_ == 0) {
-          this.setWelcomeHeaderCounter_(this.welcomeHeaderCounter_ + 1);
-          this.prepareAndShowWelcomeBanner_(
-              'header', 'DRIVE_WELCOME_TEXT_SHORT_FILESNG');
-        }
-      } else if (
-          this.directoryModel_.getFileList().length == 0 &&
-          this.welcomeHeaderCounter_ == 0) {
-        // Only show the full page banner if the header banner was never shown.
-        // Do not increment the counter.
-        // The timeout below is required because sometimes another
-        // 'rescan-completed' event arrives shortly with non-empty file list.
-        setTimeout(() => {
-          if (this.isOnCurrentProfileDrive() &&
-              this.welcomeHeaderCounter_ == 0) {
-            this.prepareAndShowWelcomeBanner_(
-                'page', 'DRIVE_WELCOME_TEXT_LONG');
-          }
-        }, 2000);
-      } else {
-        // We do not want to increment the counter when the user navigates
-        // between different directories on Drive, but we increment the counter
-        // once anyway to prevent the full page banner from showing.
-        if (!this.previousDirWasOnDrive_ || this.welcomeHeaderCounter_ == 0) {
-          this.setWelcomeHeaderCounter_(this.welcomeHeaderCounter_ + 1);
-          this.prepareAndShowWelcomeBanner_(
-              'header', 'DRIVE_WELCOME_TEXT_SHORT');
-        }
+      // We do not want to increment the counter when the user navigates
+      // between different directories on Drive, but we increment the counter
+      // once anyway to prevent the full page banner from showing.
+      if (!this.previousDirWasOnDrive_ || this.welcomeHeaderCounter_ == 0) {
+        this.setWelcomeHeaderCounter_(this.welcomeHeaderCounter_ + 1);
+        this.prepareAndShowWelcomeBanner_(
+            'header', 'DRIVE_WELCOME_TEXT_SHORT_FILESNG');
       }
       this.previousDirWasOnDrive_ = true;
     });
+  }
+
+  /**
+   * Loads and displays Google Photos welcome banner if it should be shown.
+   * @private
+   */
+  async maybeShowPhotosWelcomeBanner_() {
+    await this.ready_;
+
+    if (!this.photosWelcomeBannerShouldBeVisible_()) {
+      return;
+    }
+
+    const container = queryRequiredElement('#photos-welcome', this.document_);
+    const isVisible = container.className == '';
+    if (!isVisible) {
+      this.setPhotosWelcomeCounter_(this.photosWelcomeCounter_ + 1);
+    }
+
+    if (container.firstElementChild) {
+      // Banner already loaded in DOM.
+      container.className = '';
+      return;
+    }
+
+    const style = this.maybeAddStylesheet(
+        'photos-welcome-style', constants.PHOTOS_WELCOME_CSS);
+    style.onload = () => {
+      // Unhide the element when the style is loaded so that unstyled elements
+      // don't appear before that.
+      container.hidden = false;
+      // Switch styles asynchronously so that the initial CSS transition
+      // animation works after unhiding the element.
+      setTimeout(() => container.className = '', 1);
+    };
+
+    const wrapper = util.createChild(container, 'photos-welcome-wrapper');
+    util.createChild(wrapper, 'photos-welcome-icon');
+
+    const message = util.createChild(wrapper, 'photos-welcome-message');
+    util.setClampLine(message, '2');
+
+    const title = util.createChild(message, 'photos-welcome-title headline2');
+    title.textContent = str('PHOTOS_WELCOME_TITLE');
+
+    const body = util.createChild(message, 'body2-primary');
+
+    const text = util.createChild(body, 'photos-welcome-text');
+    text.innerHTML = str('PHOTOS_WELCOME_TEXT');
+
+    const buttonGroup = util.createChild(wrapper, 'button-group', 'div');
+
+    const close =
+        util.createChild(buttonGroup, 'banner-close text-button', 'cr-button');
+    close.innerHTML = str('PHOTOS_WELCOME_DISMISS');
+
+    close.setAttribute('aria-label', str('PHOTOS_WELCOME_DISMISS'));
+    close.id = 'photos-welcome-dismiss';
+    close.tabIndex = 0;
+    close.addEventListener('click', () => this.closePhotosWelcomeBanner_());
+  }
+
+  /**
+   * Hides Google Photos welcome banner if it should not be shown.
+   * @private
+   */
+  maybeHidePhotosWelcomeBanner_() {
+    if (this.photosWelcomeBannerShouldBeVisible_()) {
+      return;
+    }
+    const container = queryRequiredElement('#photos-welcome', this.document_);
+    container.className = 'photos-welcome-hidden';
+  }
+
+  /**
+   * Closes Google Photos welcome banner and make sure it does not reopen.
+   * @private
+   */
+  closePhotosWelcomeBanner_() {
+    this.setPhotosWelcomeCounter_(PHOTOS_WELCOME_COUNTER_LIMIT);
+    this.maybeHidePhotosWelcomeBanner_();
+  }
+
+  /**
+   * @return {boolean} True if Google Photos welcome banner should be displayed
+   *     for the current directory.
+   * @private
+   */
+  photosWelcomeBannerShouldBeVisible_() {
+    return this.isOnDocumentsProviderGooglePhotos() &&
+        this.photosWelcomeCounter_ < PHOTOS_WELCOME_COUNTER_LIMIT;
+  }
+
+  /**
+   * Shows trash delete forever after 30d banner if Trash is selected.
+   * @param {Event} event The directory-changed event.
+   * @private
+   */
+  maybeShowTrashBanner_(event) {
+    this.document_.querySelector('#trash-deleted-forever').hidden =
+        event.newDirEntry.rootType !== VolumeManagerCommon.RootType.TRASH;
   }
 
   /**
@@ -716,13 +814,31 @@ class Banners extends cr.EventTarget {
   }
 
   /**
+   * @return {boolean} True if current directory is on Google Photos
+   *     DocumentsProvider.
+   * @private
+   */
+  isOnDocumentsProviderGooglePhotos() {
+    const entry = this.directoryModel_.getCurrentDirEntry();
+    if (!entry || util.isFakeEntry(entry)) {
+      return false;
+    }
+    const locationInfo = this.volumeManager_.getLocationInfo(entry);
+    if (!locationInfo) {
+      return false;
+    }
+    return locationInfo.rootType ===
+        VolumeManagerCommon.RootType.DOCUMENTS_PROVIDER &&
+        locationInfo.volumeInfo.volumeId ===
+        VolumeManagerCommon.PHOTOS_DOCUMENTS_PROVIDER_VOLUME_ID;
+  }
+
+  /**
    * Shows (or hides) the holding space welcome banner.
    * @param {boolean} show
    * @private
    */
   showHoldingSpaceWelcomeBanner_(show) {
-    assert(util.isHoldingSpaceEnabled());
-
     const /** boolean */ hidden = !show;
     if (this.holdingSpaceWelcomeBanner_.hasAttribute('hidden') == hidden) {
       return;
@@ -732,6 +848,7 @@ class Banners extends cr.EventTarget {
       this.holdingSpaceWelcomeBanner_.setAttribute('hidden', '');
     } else {
       this.holdingSpaceWelcomeBanner_.removeAttribute('hidden');
+      HoldingSpaceUtil.maybeStoreTimeOfFirstWelcomeBannerShow();
     }
 
     this.requestRelayout_(200);  // Resize only after the animation is done.
@@ -757,6 +874,9 @@ class Banners extends cr.EventTarget {
    * @private
    */
   onDirectoryChanged_(event) {
+    this.maybeHidePhotosWelcomeBanner_();
+    this.maybeShowTrashBanner_(event);
+
     const rootVolume = this.volumeManager_.getVolumeInfo(event.newDirEntry);
     if (!rootVolume) {
       return;
@@ -894,7 +1014,6 @@ class Banners extends cr.EventTarget {
    * @private
    */
   cleanupHoldingSpaceWelcomeBanner_() {
-    assert(util.isHoldingSpaceEnabled());
     this.showHoldingSpaceWelcomeBanner_(false);
   }
 
@@ -943,26 +1062,22 @@ class Banners extends cr.EventTarget {
       icon.className = 'warning-icon';
       const message = this.document_.createElement('div');
       message.className = 'warning-message';
-      if (util.isFilesNg()) {
-        message.className += ' body2-primary';
-        message.innerHTML =
-            util.htmlUnescape(str('DOWNLOADS_DIRECTORY_WARNING_FILESNG'));
-        util.setClampLine(message, '2');
+      message.className += ' body2-primary';
+      message.innerHTML =
+          util.htmlUnescape(str('DOWNLOADS_DIRECTORY_WARNING_FILESNG'));
+      util.setClampLine(message, '2');
 
-        // Wrap a div around link.
-        const link = message.querySelector('a');
-        const linkWrapper = this.document_.createElement('div');
-        linkWrapper.className = 'link-wrapper';
-        message.appendChild(linkWrapper);
-        linkWrapper.appendChild(link);
+      // Wrap a div around link.
+      const link = message.querySelector('a');
+      const linkWrapper = this.document_.createElement('div');
+      linkWrapper.className = 'link-wrapper';
+      message.appendChild(linkWrapper);
+      linkWrapper.appendChild(link);
 
-        // Hide the link if it's trimmed by line-clamp so it does not get focus
-        // and break ellipsis render.
-        this.hideOverflowedElement(linkWrapper, message);
-      } else {
-        message.innerHTML =
-            util.htmlUnescape(str('DOWNLOADS_DIRECTORY_WARNING'));
-      }
+      // Hide the link if it's trimmed by line-clamp so it does not get focus
+      // and break ellipsis render.
+      this.hideOverflowedElement(linkWrapper, message);
+
       box.appendChild(icon);
       box.appendChild(message);
       box.querySelector('a').addEventListener('click', e => {
@@ -974,20 +1089,18 @@ class Banners extends cr.EventTarget {
       buttonGroup.className = 'button-group';
       box.appendChild(buttonGroup);
 
-      const closeType = util.isFilesNg() ? 'cr-button' : 'button';
+      const closeType = 'cr-button';
       const close = this.document_.createElement(closeType);
       close.className = 'banner-close';
       close.setAttribute('aria-label', str('DRIVE_WELCOME_DISMISS'));
       close.id = 'downloads-space-warning-dismiss';
-      if (util.isFilesNg()) {
-        close.innerHTML = str('DRIVE_WELCOME_DISMISS');
-        close.className = 'banner-close text-button';
-      }
+      close.innerHTML = str('DRIVE_WELCOME_DISMISS');
+      close.className = 'banner-close text-button';
       buttonGroup.appendChild(close);
       close.addEventListener('click', () => {
         const values = {};
         values[DOWNLOADS_WARNING_DISMISSED_KEY] = Date.now();
-        chrome.storage.local.set(values);
+        xfm.storage.local.set(values);
         box.hidden = true;
         // We explicitly mark the banner-close element as hidden as due to the
         // use of position absolute in it's layout it does not get hidden by

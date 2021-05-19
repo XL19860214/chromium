@@ -22,6 +22,7 @@
 #include "chrome/browser/web_applications/components/web_app_utils.h"
 #include "chrome/browser/web_applications/web_app_provider.h"
 #include "chrome/common/extensions/extension_constants.h"
+#include "components/services/app_service/public/mojom/types.mojom.h"
 #include "extensions/browser/extension_prefs.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/extension_system.h"
@@ -58,9 +59,9 @@ AppListControllerDelegate::~AppListControllerDelegate() {}
 
 void AppListControllerDelegate::DoShowAppInfoFlow(Profile* profile,
                                                   const std::string& app_id) {
-  apps::AppServiceProxy* proxy =
-      apps::AppServiceProxyFactory::GetForProfile(profile);
-  DCHECK_NE(proxy->AppRegistryCache().GetAppType(app_id),
+  DCHECK_NE(apps::AppServiceProxyFactory::GetForProfile(profile)
+                ->AppRegistryCache()
+                .GetAppType(app_id),
             apps::mojom::AppType::kUnknown);
 
   web_app::AppRegistrar& registrar =
@@ -78,9 +79,8 @@ void AppListControllerDelegate::DoShowAppInfoFlow(Profile* profile,
 
 void AppListControllerDelegate::UninstallApp(Profile* profile,
                                              const std::string& app_id) {
-  apps::AppServiceProxy* proxy =
-      apps::AppServiceProxyFactory::GetForProfile(profile);
-  proxy->Uninstall(app_id, GetAppListWindow());
+  apps::AppServiceProxyFactory::GetForProfile(profile)->Uninstall(
+      app_id, apps::mojom::UninstallSource::kAppList, GetAppListWindow());
 }
 
 void AppListControllerDelegate::ShowOptionsPage(Profile* profile,

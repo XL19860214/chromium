@@ -11,7 +11,6 @@
 #include "base/callback_helpers.h"
 #include "base/location.h"
 #include "base/run_loop.h"
-#include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
 #include "base/threading/thread_restrictions.h"
 #include "build/build_config.h"
@@ -85,7 +84,7 @@ PrintJob::~PrintJob() {
 }
 
 void PrintJob::Initialize(std::unique_ptr<PrinterQuery> query,
-                          const base::string16& name,
+                          const std::u16string& name,
                           uint32_t page_count) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   DCHECK(!worker_);
@@ -271,7 +270,7 @@ const PrintSettings& PrintJob::settings() const {
   return document()->settings();
 }
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if defined(OS_CHROMEOS)
 void PrintJob::SetSource(PrintJob::Source source,
                          const std::string& source_id) {
   source_ = source;
@@ -285,7 +284,7 @@ PrintJob::Source PrintJob::source() const {
 const std::string& PrintJob::source_id() const {
   return source_id_;
 }
-#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+#endif  // defined(OS_CHROMEOS)
 
 #if defined(OS_WIN)
 class PrintJob::PdfConversionState {
@@ -600,8 +599,8 @@ void PrintJob::ControlledWorkerShutdown() {
 
 bool PrintJob::PostTask(const base::Location& from_here,
                         base::OnceClosure task) {
-  return base::PostTask(from_here, {content::BrowserThread::UI},
-                        std::move(task));
+  return content::GetUIThreadTaskRunner({})->PostTask(from_here,
+                                                      std::move(task));
 }
 
 void PrintJob::HoldUntilStopIsCalled() {

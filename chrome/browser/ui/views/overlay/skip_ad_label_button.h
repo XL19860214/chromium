@@ -6,6 +6,7 @@
 #define CHROME_BROWSER_UI_VIEWS_OVERLAY_SKIP_AD_LABEL_BUTTON_H_
 
 #include "chrome/browser/ui/views/overlay/overlay_window_views.h"
+#include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/views/controls/button/label_button.h"
 
 namespace views {
@@ -13,16 +14,18 @@ namespace views {
 // A label button representing a skip-ad button.
 class SkipAdLabelButton : public views::LabelButton {
  public:
+  METADATA_HEADER(SkipAdLabelButton);
+
   explicit SkipAdLabelButton(PressedCallback callback);
+  SkipAdLabelButton(const SkipAdLabelButton&) = delete;
+  SkipAdLabelButton& operator=(const SkipAdLabelButton&) = delete;
+  ~SkipAdLabelButton() override = default;
 
   // Sets the position of itself with an offset from the given window size.
   void SetPosition(const gfx::Size& size);
 
   // Overridden from views::View.
   void SetVisible(bool is_visible) override;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(SkipAdLabelButton);
 };
 
 }  // namespace views

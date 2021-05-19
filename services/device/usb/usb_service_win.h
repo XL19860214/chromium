@@ -8,14 +8,14 @@
 #include "services/device/usb/usb_service.h"
 
 #include <list>
+#include <string>
 #include <unordered_map>
 
 #include "base/containers/flat_map.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
-#include "base/scoped_observer.h"
+#include "base/scoped_observation.h"
 #include "base/sequenced_task_runner.h"
-#include "base/strings/string16.h"
 #include "device/base/device_monitor_win.h"
 #include "services/device/usb/usb_device_win.h"
 
@@ -31,8 +31,7 @@ class UsbServiceWin final : public DeviceMonitorWin::Observer,
   class BlockingTaskRunnerHelper;
 
   // device::UsbService implementation
-  void GetDevices(bool allow_restricted_devices,
-                  GetDevicesCallback callback) override;
+  void GetDevices(GetDevicesCallback callback) override;
 
   // device::DeviceMonitorWin::Observer implementation
   void OnDeviceAdded(const GUID& class_guid,
@@ -72,7 +71,8 @@ class UsbServiceWin final : public DeviceMonitorWin::Observer,
   std::unordered_map<std::wstring, scoped_refptr<UsbDeviceWin>>
       devices_by_path_;
 
-  ScopedObserver<DeviceMonitorWin, DeviceMonitorWin::Observer> device_observer_;
+  base::ScopedObservation<DeviceMonitorWin, DeviceMonitorWin::Observer>
+      device_observation_{this};
 
   base::WeakPtrFactory<UsbServiceWin> weak_factory_{this};
 

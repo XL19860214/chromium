@@ -39,10 +39,7 @@ void SetArcVmBootNotificationServerAddressForTesting(
     base::TimeDelta connect_sleep_duration_initial);
 
 // Sets the an FD ConnectToArcVmBootNotificationServer() returns for testing.
-void SetArcVmBootNotificationServerFdForTesting(base::Optional<int> fd);
-
-// Enable adb-over-usb and let the adapter start the support daemon for testing.
-void EnableAdbOverUsbForTesting();
+void SetArcVmBootNotificationServerFdForTesting(absl::optional<int> fd);
 
 // Generates a list of props from |upgrade_params|, each of which takes the form
 // "prefix.prop_name=value"

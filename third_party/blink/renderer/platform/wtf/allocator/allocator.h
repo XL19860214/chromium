@@ -11,7 +11,6 @@
 #include "base/check_op.h"
 #include "build/build_config.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/partitions.h"
-#include "third_party/blink/renderer/platform/wtf/assertions.h"
 #include "third_party/blink/renderer/platform/wtf/type_traits.h"
 
 namespace WTF {
@@ -28,10 +27,7 @@ class __thisIsHereToForceASemicolonAfterThisMacro;
 // non-garbage-collected objects to avoid unintended allocations.
 //
 // STACK_ALLOCATED(): Use if the object is only stack allocated.
-// Garbage-collected objects should be in Members but you do not need the
-// trace method as they are on the stack.  (Down the line these might turn
-// in to raw pointers, but for now Members indicate that we have thought
-// about them and explicitly taken care of them.)
+// Garbage-collected objects should be in raw pointers.
 //
 // DISALLOW_NEW(): Cannot be allocated with new operators but can be a
 // part of object, a value object in collections or stack allocated. If it has
@@ -63,15 +59,6 @@ class __thisIsHereToForceASemicolonAfterThisMacro;
   using IsGarbageCollectedTypeMarker = int; \
                                             \
  private:                                   \
-  friend class ::WTF::internal::__thisIsHereToForceASemicolonAfterThisMacro
-
-#define IS_GARBAGE_COLLECTED_CONTAINER_TYPE()         \
-  IS_GARBAGE_COLLECTED_TYPE();                        \
-                                                      \
- public:                                              \
-  using IsGarbageCollectedCollectionTypeMarker = int; \
-                                                      \
- private:                                             \
   friend class ::WTF::internal::__thisIsHereToForceASemicolonAfterThisMacro
 
 #if defined(__clang__)
@@ -389,7 +376,7 @@ ALWAYS_INLINE void AtomicWriteSwap(T& lhs, T& rhs) {
 }  // namespace WTF
 
 // This version of placement new omits a 0 check.
-enum NotNullTag { NotNull };
+enum class NotNullTag { kNotNull };
 inline void* operator new(size_t, NotNullTag, void* location) {
   DCHECK(location);
   return location;

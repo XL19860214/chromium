@@ -19,15 +19,10 @@ namespace base {
 class FilePath;
 }  // namespace base
 
-namespace gfx {
-class ImageSkia;
-class Size;
-}  // namespace gfx
-
 namespace ash {
 
 class HoldingSpaceImage;
-class HoldingSpaceThumbnailLoader;
+class ThumbnailLoader;
 
 // A utility for holding space.
 namespace holding_space_util {
@@ -37,7 +32,7 @@ struct ValidityRequirement {
   ValidityRequirement(const ValidityRequirement& other);
   ValidityRequirement(ValidityRequirement&& other);
   bool must_exist = true;
-  base::Optional<base::TimeDelta> must_be_newer_than = base::nullopt;
+  absl::optional<base::TimeDelta> must_be_newer_than = absl::nullopt;
 };
 
 using FilePathList = std::vector<base::FilePath>;
@@ -75,16 +70,11 @@ GURL ResolveFileSystemUrl(Profile* profile, const base::FilePath& file_path);
 
 // Resolves the image associated with the specified `file_path`.
 std::unique_ptr<HoldingSpaceImage> ResolveImage(
-    HoldingSpaceThumbnailLoader* thumbnail_loader,
+    ThumbnailLoader* thumbnail_loader,
     HoldingSpaceItem::Type type,
     const base::FilePath& file_path);
 
-// Given a base image for a file type, returns a placeholder image to be used in
-// the holding space UI.
-gfx::ImageSkia CreatePlaceholderImage(const gfx::ImageSkia& file_type_image,
-                                      const gfx::Size& size);
-
-void SetNowForTesting(base::Optional<base::Time> now);
+void SetNowForTesting(absl::optional<base::Time> now);
 
 }  // namespace holding_space_util
 }  // namespace ash

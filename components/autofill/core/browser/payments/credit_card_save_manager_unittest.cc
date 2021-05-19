@@ -16,7 +16,6 @@
 
 #include "base/guid.h"
 #include "base/metrics/metrics_hashes.h"
-#include "base/strings/string16.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/metrics/histogram_tester.h"
@@ -39,7 +38,7 @@
 #include "components/autofill/core/browser/test_autofill_client.h"
 #include "components/autofill/core/browser/test_autofill_clock.h"
 #include "components/autofill/core/browser/test_autofill_driver.h"
-#include "components/autofill/core/browser/test_autofill_manager.h"
+#include "components/autofill/core/browser/test_browser_autofill_manager.h"
 #include "components/autofill/core/browser/test_form_data_importer.h"
 #include "components/autofill/core/browser/test_personal_data_manager.h"
 #include "components/autofill/core/browser/validation.h"
@@ -50,7 +49,6 @@
 #include "components/autofill/core/common/autofill_prefs.h"
 #include "components/autofill/core/common/form_data.h"
 #include "components/autofill/core/common/form_field_data.h"
-#include "components/infobars/core/infobar_feature.h"
 #include "components/prefs/pref_service.h"
 #include "components/sync/driver/test_sync_service.h"
 #include "components/ukm/test_ukm_recorder.h"
@@ -115,8 +113,8 @@ struct CreditCardFormOptions {
 
 class MockPersonalDataManager : public TestPersonalDataManager {
  public:
-  MockPersonalDataManager() {}
-  ~MockPersonalDataManager() override {}
+  MockPersonalDataManager() = default;
+  ~MockPersonalDataManager() override = default;
   MOCK_METHOD0(OnUserAcceptedUpstreamOffer, void());
 };
 
@@ -131,15 +129,17 @@ class CreditCardSaveManagerTest : public testing::Test {
     personal_data_.Init(/*profile_database=*/database_,
                         /*account_database=*/nullptr,
                         /*pref_service=*/autofill_client_.GetPrefs(),
+                        /*local_state=*/autofill_client_.GetPrefs(),
                         /*identity_manager=*/nullptr,
                         /*client_profile_validator=*/nullptr,
                         /*history_service=*/nullptr,
+                        /*strike_database=*/nullptr,
                         /*is_off_the_record=*/false);
     personal_data_.SetSyncServiceForTest(&sync_service_);
     autocomplete_history_manager_.Init(
         /*profile_database=*/database_,
         /*is_off_the_record=*/false);
-    autofill_driver_.reset(new TestAutofillDriver());
+    autofill_driver_ = std::make_unique<TestAutofillDriver>();
     payments_client_ = new payments::TestPaymentsClient(
         autofill_driver_->GetURLLoaderFactory(),
         autofill_client_.GetIdentityManager(), &personal_data_);
@@ -157,16 +157,16 @@ class CreditCardSaveManagerTest : public testing::Test {
     autofill_client_.set_test_form_data_importer(
         std::unique_ptr<TestFormDataImporter>(test_form_data_importer));
     autofill_client_.GetStrikeDatabase();
-    autofill_manager_.reset(new TestAutofillManager(
+    browser_autofill_manager_ = std::make_unique<TestBrowserAutofillManager>(
         autofill_driver_.get(), &autofill_client_, &personal_data_,
-        &autocomplete_history_manager_));
-    autofill_manager_->SetExpectedObservedSubmission(true);
+        &autocomplete_history_manager_);
+    browser_autofill_manager_->SetExpectedObservedSubmission(true);
   }
 
   void TearDown() override {
-    // Order of destruction is important as AutofillManager relies on
+    // Order of destruction is important as BrowserAutofillManager relies on
     // PersonalDataManager to be around when it gets destroyed.
-    autofill_manager_.reset();
+    browser_autofill_manager_.reset();
     autofill_driver_.reset();
 
     personal_data_.SetPrefService(nullptr);
@@ -174,11 +174,11 @@ class CreditCardSaveManagerTest : public testing::Test {
   }
 
   void FormsSeen(const std::vector<FormData>& forms) {
-    autofill_manager_->OnFormsSeen(forms);
+    browser_autofill_manager_->OnFormsSeen(forms);
   }
 
   void FormSubmitted(const FormData& form) {
-    autofill_manager_->OnFormSubmitted(
+    browser_autofill_manager_->OnFormSubmitted(
         form, false, mojom::SubmissionSource::FORM_SUBMISSION);
   }
 
@@ -194,17 +194,14 @@ class CreditCardSaveManagerTest : public testing::Test {
   // configured using the provided |options|.
   void CreateTestCreditCardFormData(FormData* form,
                                     CreditCardFormOptions options) {
-    form->name = ASCIIToUTF16("MyForm");
-    base::string16 scheme =
-        options.is_https ? ASCIIToUTF16("https://") : ASCIIToUTF16("http://");
-    base::string16 host = options.is_google_host
-                              ? ASCIIToUTF16("pay.google.com")
-                              : ASCIIToUTF16("myform.com");
-    base::string16 root_host = options.is_google_host
-                                   ? ASCIIToUTF16("pay.google.com")
-                                   : ASCIIToUTF16("myform.root.com");
-    base::string16 form_path = ASCIIToUTF16("/form.html");
-    base::string16 submit_path = ASCIIToUTF16("/submit.html");
+    form->name = u"MyForm";
+    std::u16string scheme = options.is_https ? u"https://" : u"http://";
+    std::u16string host =
+        options.is_google_host ? u"pay.google.com" : u"myform.com";
+    std::u16string root_host =
+        options.is_google_host ? u"pay.google.com" : u"myform.root.com";
+    std::u16string form_path = u"/form.html";
+    std::u16string submit_path = u"/submit.html";
     form->url = GURL(scheme + host + form_path);
     form->action = GURL(scheme + host + submit_path);
     form->main_frame_origin =
@@ -249,11 +246,11 @@ class CreditCardSaveManagerTest : public testing::Test {
       else if (base::EqualsASCII(field.name, "lastname"))
         field.value = ASCIIToUTF16(last_name);
       else if (base::EqualsASCII(field.name, "addr1"))
-        field.value = ASCIIToUTF16("123 Maple");
+        field.value = u"123 Maple";
       else if (base::EqualsASCII(field.name, "city"))
-        field.value = ASCIIToUTF16("Dallas");
+        field.value = u"Dallas";
       else if (base::EqualsASCII(field.name, "state"))
-        field.value = ASCIIToUTF16("Texas");
+        field.value = u"Texas";
       else if (base::EqualsASCII(field.name, "zipcode"))
         field.value = ASCIIToUTF16(zip_code);
       else if (base::EqualsASCII(field.name, "country"))
@@ -271,7 +268,7 @@ class CreditCardSaveManagerTest : public testing::Test {
     FormsSeen(forms);
 
     // Edit the data, and submit.
-    form.fields[1].value = ASCIIToUTF16("4111111111111111");
+    form.fields[1].value = u"4111111111111111";
     form.fields[2].value = ASCIIToUTF16(test::NextMonth());
     form.fields[3].value = ASCIIToUTF16(test::NextYear());
     FormSubmitted(form);
@@ -343,12 +340,11 @@ class CreditCardSaveManagerTest : public testing::Test {
   base::test::TaskEnvironment task_environment_;
   TestAutofillClient autofill_client_;
   std::unique_ptr<TestAutofillDriver> autofill_driver_;
-  std::unique_ptr<TestAutofillManager> autofill_manager_;
+  std::unique_ptr<TestBrowserAutofillManager> browser_autofill_manager_;
   scoped_refptr<AutofillWebDataService> database_;
   MockPersonalDataManager personal_data_;
   MockAutocompleteHistoryManager autocomplete_history_manager_;
   syncer::TestSyncService sync_service_;
-  base::test::ScopedFeatureList scoped_feature_list_;
   // Ends up getting owned (and destroyed) by TestFormDataImporter:
   TestCreditCardSaveManager* credit_card_save_manager_;
   // Ends up getting owned (and destroyed) by TestAutofillClient:
@@ -416,7 +412,7 @@ TEST_F(CreditCardSaveManagerTest, MAYBE_CreditCardSavedWhenAutocompleteOff) {
   FormsSeen(forms);
 
   // Edit the data, and submit.
-  form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  form.fields[1].value = u"4111111111111111";
   form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   form.fields[3].value = ASCIIToUTF16(test::NextYear());
   FormSubmitted(form);
@@ -443,7 +439,7 @@ TEST_F(CreditCardSaveManagerTest, InvalidCreditCardNumberIsNotSaved) {
 }
 
 TEST_F(CreditCardSaveManagerTest, CreditCardDisabledDoesNotSave) {
-  autofill_manager_->SetAutofillCreditCardEnabled(false);
+  browser_autofill_manager_->SetAutofillCreditCardEnabled(false);
 
   // Create, fill and submit an address form in order to establish a recent
   // profile which can be selected for the upload request.
@@ -459,11 +455,11 @@ TEST_F(CreditCardSaveManagerTest, CreditCardDisabledDoesNotSave) {
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("Flo Master");
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"Flo Master";
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("123");
+  credit_card_form.fields[4].value = u"123";
 
   base::HistogramTester histogram_tester;
 
@@ -497,11 +493,11 @@ TEST_F(CreditCardSaveManagerTest, UploadCreditCard_OnlyCountryInAddresses) {
   ExpectFillableFormParsedUkm(2 /* num_fillable_forms_parsed */);
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("Flo Master");
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"Flo Master";
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("123");
+  credit_card_form.fields[4].value = u"123";
 
   base::HistogramTester histogram_tester;
 
@@ -514,8 +510,7 @@ TEST_F(CreditCardSaveManagerTest, UploadCreditCard_OnlyCountryInAddresses) {
   // country was included in the upload details request to payments.
   EXPECT_EQ(1U, personal_data_.GetProfiles().size());
   AutofillProfile only_country;
-  only_country.SetInfo(ADDRESS_HOME_COUNTRY, ASCIIToUTF16("US"), "en-US");
-  only_country.FinalizeAfterImport();
+  only_country.SetInfo(ADDRESS_HOME_COUNTRY, u"US", "en-US");
   EXPECT_EQ(1U, payments_client_->addresses_in_upload_details().size());
   // AutofillProfile::Compare will ignore the difference in guid between our
   // actual profile being sent and the expected one constructed here.
@@ -563,12 +558,12 @@ TEST_F(CreditCardSaveManagerTest, LocalCreditCard_FirstAndLastName) {
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("Flo");
-  credit_card_form.fields[1].value = ASCIIToUTF16("Master");
-  credit_card_form.fields[2].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"Flo";
+  credit_card_form.fields[1].value = u"Master";
+  credit_card_form.fields[2].value = u"4111111111111111";
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[4].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[5].value = ASCIIToUTF16("123");
+  credit_card_form.fields[5].value = u"123";
 
   base::HistogramTester histogram_tester;
 
@@ -602,7 +597,7 @@ TEST_F(CreditCardSaveManagerTest, LocalCreditCard_LastAndFirstName) {
   // Set up our credit card form data with credit card first and last name
   // fields.
   FormData credit_card_form;
-  credit_card_form.name = ASCIIToUTF16("MyForm");
+  credit_card_form.name = u"MyForm";
   credit_card_form.url = GURL("https://myform.com/form.html");
   credit_card_form.action = GURL("https://myform.com/submit.html");
   credit_card_form.main_frame_origin =
@@ -629,12 +624,12 @@ TEST_F(CreditCardSaveManagerTest, LocalCreditCard_LastAndFirstName) {
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("Master");
-  credit_card_form.fields[1].value = ASCIIToUTF16("Flo");
-  credit_card_form.fields[2].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"Master";
+  credit_card_form.fields[1].value = u"Flo";
+  credit_card_form.fields[2].value = u"4111111111111111";
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[4].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[5].value = ASCIIToUTF16("123");
+  credit_card_form.fields[5].value = u"123";
 
   base::HistogramTester histogram_tester;
 
@@ -669,11 +664,11 @@ TEST_F(CreditCardSaveManagerTest, LocalCreditCard_ExpirationDateMissing) {
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, but don't include a expiration date, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("Flo Master");
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
-  credit_card_form.fields[2].value = ASCIIToUTF16("");
-  credit_card_form.fields[3].value = ASCIIToUTF16("");
-  credit_card_form.fields[4].value = ASCIIToUTF16("123");
+  credit_card_form.fields[0].value = u"Flo Master";
+  credit_card_form.fields[1].value = u"4111111111111111";
+  credit_card_form.fields[2].value = u"";
+  credit_card_form.fields[3].value = u"";
+  credit_card_form.fields[4].value = u"123";
   FormSubmitted(credit_card_form);
 
   EXPECT_FALSE(autofill_client_.ConfirmSaveCardLocallyWasCalled());
@@ -705,12 +700,12 @@ TEST_F(CreditCardSaveManagerTest, UploadCreditCard_WithNonFocusableField) {
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("Flo");
-  credit_card_form.fields[1].value = ASCIIToUTF16("Master");
-  credit_card_form.fields[2].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"Flo";
+  credit_card_form.fields[1].value = u"Master";
+  credit_card_form.fields[2].value = u"4111111111111111";
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[4].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[5].value = ASCIIToUTF16("123");
+  credit_card_form.fields[5].value = u"123";
 
   base::HistogramTester histogram_tester;
 
@@ -752,12 +747,12 @@ TEST_F(CreditCardSaveManagerTest, LocalCreditCard_WithNonFocusableField) {
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("Flo");
-  credit_card_form.fields[1].value = ASCIIToUTF16("Master");
-  credit_card_form.fields[2].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"Flo";
+  credit_card_form.fields[1].value = u"Master";
+  credit_card_form.fields[2].value = u"4111111111111111";
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[4].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[5].value = ASCIIToUTF16("123");
+  credit_card_form.fields[5].value = u"123";
 
   FormSubmitted(credit_card_form);
   EXPECT_TRUE(autofill_client_.ConfirmSaveCardLocallyWasCalled());
@@ -779,12 +774,12 @@ TEST_F(CreditCardSaveManagerTest,
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("Flo");
-  credit_card_form.fields[1].value = ASCIIToUTF16("Master");
-  credit_card_form.fields[2].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"Flo";
+  credit_card_form.fields[1].value = u"Master";
+  credit_card_form.fields[2].value = u"4111111111111111";
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[4].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[5].value = ASCIIToUTF16("123");
+  credit_card_form.fields[5].value = u"123";
 
   FormSubmitted(credit_card_form);
   EXPECT_TRUE(autofill_client_.ConfirmSaveCardLocallyWasCalled());
@@ -812,12 +807,12 @@ TEST_F(CreditCardSaveManagerTest,
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("Flo");
-  credit_card_form.fields[1].value = ASCIIToUTF16("Master");
-  credit_card_form.fields[2].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"Flo";
+  credit_card_form.fields[1].value = u"Master";
+  credit_card_form.fields[2].value = u"4111111111111111";
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[4].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[5].value = ASCIIToUTF16("123");
+  credit_card_form.fields[5].value = u"123";
 
   FormSubmitted(credit_card_form);
   EXPECT_TRUE(autofill_client_.ConfirmSaveCardLocallyWasCalled());
@@ -855,12 +850,12 @@ TEST_F(
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("Flo");
-  credit_card_form.fields[1].value = ASCIIToUTF16("Master");
-  credit_card_form.fields[2].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"Flo";
+  credit_card_form.fields[1].value = u"Master";
+  credit_card_form.fields[2].value = u"4111111111111111";
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[4].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[5].value = ASCIIToUTF16("123");
+  credit_card_form.fields[5].value = u"123";
 
   FormSubmitted(credit_card_form);
   EXPECT_TRUE(autofill_client_.ConfirmSaveCardLocallyWasCalled());
@@ -894,12 +889,12 @@ TEST_F(CreditCardSaveManagerTest,
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("Flo");
-  credit_card_form.fields[1].value = ASCIIToUTF16("Master");
-  credit_card_form.fields[2].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"Flo";
+  credit_card_form.fields[1].value = u"Master";
+  credit_card_form.fields[2].value = u"4111111111111111";
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[4].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[5].value = ASCIIToUTF16("123");
+  credit_card_form.fields[5].value = u"123";
 
   FormSubmitted(credit_card_form);
   EXPECT_TRUE(credit_card_save_manager_->CreditCardWasUploaded());
@@ -920,12 +915,12 @@ TEST_F(CreditCardSaveManagerTest,
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("Flo");
-  credit_card_form.fields[1].value = ASCIIToUTF16("Master");
-  credit_card_form.fields[2].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"Flo";
+  credit_card_form.fields[1].value = u"Master";
+  credit_card_form.fields[2].value = u"4111111111111111";
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[4].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[5].value = ASCIIToUTF16("123");
+  credit_card_form.fields[5].value = u"123";
 
   FormSubmitted(credit_card_form);
   EXPECT_TRUE(autofill_client_.ConfirmSaveCardLocallyWasCalled());
@@ -948,12 +943,12 @@ TEST_F(CreditCardSaveManagerTest,
   FormsSeen(std::vector<FormData>(2, credit_card_form));
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("Flo");
-  credit_card_form.fields[1].value = ASCIIToUTF16("Master");
-  credit_card_form.fields[2].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"Flo";
+  credit_card_form.fields[1].value = u"Master";
+  credit_card_form.fields[2].value = u"4111111111111111";
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[4].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[5].value = ASCIIToUTF16("123");
+  credit_card_form.fields[5].value = u"123";
 
   FormSubmitted(credit_card_form);
   EXPECT_TRUE(autofill_client_.ConfirmSaveCardLocallyWasCalled());
@@ -980,12 +975,12 @@ TEST_F(CreditCardSaveManagerTest,
   FormsSeen(std::vector<FormData>(2, credit_card_form));
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("Flo");
-  credit_card_form.fields[1].value = ASCIIToUTF16("Master");
-  credit_card_form.fields[2].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"Flo";
+  credit_card_form.fields[1].value = u"Master";
+  credit_card_form.fields[2].value = u"4111111111111111";
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[4].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[5].value = ASCIIToUTF16("123");
+  credit_card_form.fields[5].value = u"123";
 
   FormSubmitted(credit_card_form);
   EXPECT_TRUE(autofill_client_.ConfirmSaveCardLocallyWasCalled());
@@ -1022,12 +1017,12 @@ TEST_F(
   FormsSeen(std::vector<FormData>(2, credit_card_form));
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("Flo");
-  credit_card_form.fields[1].value = ASCIIToUTF16("Master");
-  credit_card_form.fields[2].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"Flo";
+  credit_card_form.fields[1].value = u"Master";
+  credit_card_form.fields[2].value = u"4111111111111111";
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[4].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[5].value = ASCIIToUTF16("123");
+  credit_card_form.fields[5].value = u"123";
 
   FormSubmitted(credit_card_form);
   EXPECT_TRUE(autofill_client_.ConfirmSaveCardLocallyWasCalled());
@@ -1060,12 +1055,12 @@ TEST_F(CreditCardSaveManagerTest,
   FormsSeen(std::vector<FormData>(2, credit_card_form));
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("Flo");
-  credit_card_form.fields[1].value = ASCIIToUTF16("Master");
-  credit_card_form.fields[2].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"Flo";
+  credit_card_form.fields[1].value = u"Master";
+  credit_card_form.fields[2].value = u"4111111111111111";
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[4].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[5].value = ASCIIToUTF16("123");
+  credit_card_form.fields[5].value = u"123";
 
   FormSubmitted(credit_card_form);
   EXPECT_TRUE(credit_card_save_manager_->CreditCardWasUploaded());
@@ -1087,12 +1082,12 @@ TEST_F(CreditCardSaveManagerTest, SaveCreditCardOptions_WithoutDynamicForms) {
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("Flo");
-  credit_card_form.fields[1].value = ASCIIToUTF16("Master");
-  credit_card_form.fields[2].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"Flo";
+  credit_card_form.fields[1].value = u"Master";
+  credit_card_form.fields[2].value = u"4111111111111111";
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[4].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[5].value = ASCIIToUTF16("123");
+  credit_card_form.fields[5].value = u"123";
 
   FormSubmitted(credit_card_form);
   EXPECT_TRUE(autofill_client_.ConfirmSaveCardLocallyWasCalled());
@@ -1125,12 +1120,12 @@ TEST_F(CreditCardSaveManagerTest, UploadCreditCard_FirstAndLastName) {
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("Flo");
-  credit_card_form.fields[1].value = ASCIIToUTF16("Master");
-  credit_card_form.fields[2].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"Flo";
+  credit_card_form.fields[1].value = u"Master";
+  credit_card_form.fields[2].value = u"4111111111111111";
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[4].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[5].value = ASCIIToUTF16("123");
+  credit_card_form.fields[5].value = u"123";
 
   base::HistogramTester histogram_tester;
 
@@ -1176,7 +1171,7 @@ TEST_F(CreditCardSaveManagerTest, UploadCreditCard_LastAndFirstName) {
   // Set up our credit card form data with credit card first and last name
   // fields.
   FormData credit_card_form;
-  credit_card_form.name = ASCIIToUTF16("MyForm");
+  credit_card_form.name = u"MyForm";
   credit_card_form.url = GURL("https://myform.com/form.html");
   credit_card_form.action = GURL("https://myform.com/submit.html");
   credit_card_form.main_frame_origin =
@@ -1203,12 +1198,12 @@ TEST_F(CreditCardSaveManagerTest, UploadCreditCard_LastAndFirstName) {
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("Master");
-  credit_card_form.fields[1].value = ASCIIToUTF16("Flo");
-  credit_card_form.fields[2].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"Master";
+  credit_card_form.fields[1].value = u"Flo";
+  credit_card_form.fields[2].value = u"4111111111111111";
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[4].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[5].value = ASCIIToUTF16("123");
+  credit_card_form.fields[5].value = u"123";
 
   base::HistogramTester histogram_tester;
 
@@ -1259,11 +1254,11 @@ TEST_F(CreditCardSaveManagerTest, UploadCreditCard_NotSavedLocally) {
 
   // Edit the data, and submit.
   const char* const card_number = "4111111111111111";
-  credit_card_form.fields[0].value = ASCIIToUTF16("Flo Master");
+  credit_card_form.fields[0].value = u"Flo Master";
   credit_card_form.fields[1].value = ASCIIToUTF16(card_number);
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("123");
+  credit_card_form.fields[4].value = u"123";
 
   FormSubmitted(credit_card_form);
   EXPECT_TRUE(credit_card_save_manager_->CreditCardWasUploaded());
@@ -1289,11 +1284,11 @@ TEST_F(CreditCardSaveManagerTest, UploadCreditCard_FeatureNotEnabled) {
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("Flo Master");
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"Flo Master";
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("123");
+  credit_card_form.fields[4].value = u"123";
 
   base::HistogramTester histogram_tester;
 
@@ -1327,11 +1322,11 @@ TEST_F(CreditCardSaveManagerTest, UploadCreditCard_CvcUnavailable) {
   ExpectFillableFormParsedUkm(2 /* num_fillable_forms_parsed */);
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("Flo Master");
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"Flo Master";
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("");  // CVC MISSING
+  credit_card_form.fields[4].value = u"";  // CVC MISSING
 
   base::HistogramTester histogram_tester;
 
@@ -1369,11 +1364,11 @@ TEST_F(CreditCardSaveManagerTest, UploadCreditCard_CvcInvalidLength) {
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("Flo Master");
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"Flo Master";
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("1234");
+  credit_card_form.fields[4].value = u"1234";
 
   base::HistogramTester histogram_tester;
 
@@ -1407,7 +1402,7 @@ TEST_F(CreditCardSaveManagerTest, UploadCreditCard_MultipleCvcFields) {
 
   // Set up our credit card form data.
   FormData credit_card_form;
-  credit_card_form.name = ASCIIToUTF16("MyForm");
+  credit_card_form.name = u"MyForm";
   credit_card_form.url = GURL("https://myform.com/form.html");
   credit_card_form.action = GURL("https://myform.com/submit.html");
   credit_card_form.main_frame_origin =
@@ -1430,12 +1425,12 @@ TEST_F(CreditCardSaveManagerTest, UploadCreditCard_MultipleCvcFields) {
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("Flo Master");
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"Flo Master";
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("");  // CVC MISSING
-  credit_card_form.fields[5].value = ASCIIToUTF16("123");
+  credit_card_form.fields[4].value = u"";  // CVC MISSING
+  credit_card_form.fields[5].value = u"123";
 
   base::HistogramTester histogram_tester;
 
@@ -1466,7 +1461,7 @@ TEST_F(CreditCardSaveManagerTest, UploadCreditCard_NoCvcFieldOnForm) {
 
   // Set up our credit card form data.  Note that CVC field is missing.
   FormData credit_card_form;
-  credit_card_form.name = ASCIIToUTF16("MyForm");
+  credit_card_form.name = u"MyForm";
   credit_card_form.url = GURL("https://myform.com/form.html");
   credit_card_form.action = GURL("https://myform.com/submit.html");
   credit_card_form.main_frame_origin =
@@ -1485,8 +1480,8 @@ TEST_F(CreditCardSaveManagerTest, UploadCreditCard_NoCvcFieldOnForm) {
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("Flo Master");
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"Flo Master";
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
 
@@ -1523,7 +1518,7 @@ TEST_F(CreditCardSaveManagerTest,
 
   // Set up our credit card form data. Note that CVC field is missing.
   FormData credit_card_form;
-  credit_card_form.name = ASCIIToUTF16("MyForm");
+  credit_card_form.name = u"MyForm";
   credit_card_form.url = GURL("https://myform.com/form.html");
   credit_card_form.action = GURL("https://myform.com/submit.html");
   credit_card_form.main_frame_origin =
@@ -1544,11 +1539,11 @@ TEST_F(CreditCardSaveManagerTest,
   FormsSeen({credit_card_form});
 
   // Enter an invalid cvc in "Random Field" and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("Flo Master");
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"Flo Master";
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("1234");
+  credit_card_form.fields[4].value = u"1234";
 
   base::HistogramTester histogram_tester;
 
@@ -1583,7 +1578,7 @@ TEST_F(CreditCardSaveManagerTest,
 
   // Set up our credit card form data. Note that CVC field is missing.
   FormData credit_card_form;
-  credit_card_form.name = ASCIIToUTF16("MyForm");
+  credit_card_form.name = u"MyForm";
   credit_card_form.url = GURL("https://myform.com/form.html");
   credit_card_form.action = GURL("https://myform.com/submit.html");
   credit_card_form.main_frame_origin =
@@ -1604,11 +1599,11 @@ TEST_F(CreditCardSaveManagerTest,
   FormsSeen({credit_card_form});
 
   // Enter a valid cvc in "Random Field" and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("Flo Master");
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"Flo Master";
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("123");
+  credit_card_form.fields[4].value = u"123";
 
   base::HistogramTester histogram_tester;
 
@@ -1645,7 +1640,7 @@ TEST_F(CreditCardSaveManagerTest,
 
   // Set up our credit card form data. Note that CVC field is missing.
   FormData credit_card_form;
-  credit_card_form.name = ASCIIToUTF16("MyForm");
+  credit_card_form.name = u"MyForm";
   credit_card_form.url = GURL("https://myform.com/form.html");
   credit_card_form.action = GURL("https://myform.com/submit.html");
   credit_card_form.main_frame_origin =
@@ -1666,11 +1661,11 @@ TEST_F(CreditCardSaveManagerTest,
   FormsSeen({credit_card_form});
 
   // Enter a valid cvc in "Random Field" and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("Flo Master");
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"Flo Master";
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("123");
+  credit_card_form.fields[4].value = u"123";
 
   base::HistogramTester histogram_tester;
 
@@ -1702,11 +1697,11 @@ TEST_F(CreditCardSaveManagerTest, UploadCreditCard_NoProfileAvailable) {
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("Bob Master");
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"Bob Master";
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("123");
+  credit_card_form.fields[4].value = u"123";
 
   base::HistogramTester histogram_tester;
 
@@ -1752,11 +1747,11 @@ TEST_F(CreditCardSaveManagerTest, UploadCreditCard_NoRecentlyUsedProfile) {
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("Flo Master");
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"Flo Master";
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("123");
+  credit_card_form.fields[4].value = u"123";
 
   base::HistogramTester histogram_tester;
 
@@ -1791,11 +1786,11 @@ TEST_F(CreditCardSaveManagerTest,
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("Flo Master");
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"Flo Master";
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("");  // CVC MISSING
+  credit_card_form.fields[4].value = u"";  // CVC MISSING
 
   base::HistogramTester histogram_tester;
 
@@ -1837,10 +1832,10 @@ TEST_F(CreditCardSaveManagerTest, UploadCreditCard_NoNameAvailable) {
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, but don't include a name, and submit.
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("123");
+  credit_card_form.fields[4].value = u"123";
 
   base::HistogramTester histogram_tester;
 
@@ -1878,10 +1873,10 @@ TEST_F(CreditCardSaveManagerTest,
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, but don't include a name, and submit.
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("123");
+  credit_card_form.fields[4].value = u"123";
 
   base::HistogramTester histogram_tester;
 
@@ -1937,11 +1932,11 @@ TEST_F(CreditCardSaveManagerTest, UploadCreditCard_ZipCodesConflict) {
   ExpectFillableFormParsedUkm(3 /* num_fillable_forms_parsed */);
 
   // Edit the data and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("Flo Master");
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"Flo Master";
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("123");
+  credit_card_form.fields[4].value = u"123";
 
   base::HistogramTester histogram_tester;
 
@@ -1971,16 +1966,16 @@ TEST_F(CreditCardSaveManagerTest,
   // instead of submitting a form, because they're deduped on form submit.
   AutofillProfile profile1;
   profile1.set_guid("00000000-0000-0000-0000-000000000001");
-  profile1.SetInfo(NAME_FULL, ASCIIToUTF16("Flo Master"), "en-US");
-  profile1.SetInfo(ADDRESS_HOME_ZIP, ASCIIToUTF16("H3B2Y5"), "en-US");
-  profile1.SetInfo(ADDRESS_HOME_COUNTRY, ASCIIToUTF16("CA"), "en-US");
+  profile1.SetInfo(NAME_FULL, u"Flo Master", "en-US");
+  profile1.SetInfo(ADDRESS_HOME_ZIP, u"H3B2Y5", "en-US");
+  profile1.SetInfo(ADDRESS_HOME_COUNTRY, u"CA", "en-US");
   personal_data_.AddProfile(profile1);
 
   AutofillProfile profile2;
   profile2.set_guid("00000000-0000-0000-0000-000000000002");
-  profile2.SetInfo(NAME_FULL, ASCIIToUTF16("Flo Master"), "en-US");
-  profile2.SetInfo(ADDRESS_HOME_ZIP, ASCIIToUTF16("h3b 2y5"), "en-US");
-  profile2.SetInfo(ADDRESS_HOME_COUNTRY, ASCIIToUTF16("CA"), "en-US");
+  profile2.SetInfo(NAME_FULL, u"Flo Master", "en-US");
+  profile2.SetInfo(ADDRESS_HOME_ZIP, u"h3b 2y5", "en-US");
+  profile2.SetInfo(ADDRESS_HOME_COUNTRY, u"CA", "en-US");
   personal_data_.AddProfile(profile2);
 
   // Set up our credit card form data.
@@ -1989,11 +1984,11 @@ TEST_F(CreditCardSaveManagerTest,
   FormsSeen({credit_card_form});
 
   // Edit the data and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("Flo Master");
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"Flo Master";
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("123");
+  credit_card_form.fields[4].value = u"123";
 
   base::HistogramTester histogram_tester;
 
@@ -2040,11 +2035,11 @@ TEST_F(CreditCardSaveManagerTest, UploadCreditCard_ZipCodesHavePrefixMatch) {
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("Flo Master");
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"Flo Master";
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("123");
+  credit_card_form.fields[4].value = u"123";
 
   base::HistogramTester histogram_tester;
 
@@ -2086,11 +2081,11 @@ TEST_F(CreditCardSaveManagerTest, UploadCreditCard_NoZipCodeAvailable) {
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("Flo Master");
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"Flo Master";
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("123");
+  credit_card_form.fields[4].value = u"123";
 
   base::HistogramTester histogram_tester;
 
@@ -2135,11 +2130,11 @@ TEST_F(CreditCardSaveManagerTest, UploadCreditCard_CCFormHasMiddleInitial) {
 
   // Edit the data, but use the name with a middle initial *and* period, and
   // submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("Flo W. Master");
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"Flo W. Master";
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("123");
+  credit_card_form.fields[4].value = u"123";
 
   base::HistogramTester histogram_tester;
 
@@ -2178,11 +2173,11 @@ TEST_F(CreditCardSaveManagerTest, UploadCreditCard_NoMiddleInitialInCCForm) {
   FormsSeen({credit_card_form});
 
   // Edit the data, but do not use middle initial.
-  credit_card_form.fields[0].value = ASCIIToUTF16("Flo Master");
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"Flo Master";
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("123");
+  credit_card_form.fields[4].value = u"123";
 
   base::HistogramTester histogram_tester;
 
@@ -2217,11 +2212,11 @@ TEST_F(CreditCardSaveManagerTest,
   FormsSeen({credit_card_form});
 
   // Edit the name by adding a middle name.
-  credit_card_form.fields[0].value = ASCIIToUTF16("John Quincy Adams");
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"John Quincy Adams";
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("123");
+  credit_card_form.fields[4].value = u"123";
 
   base::HistogramTester histogram_tester;
 
@@ -2263,11 +2258,11 @@ TEST_F(CreditCardSaveManagerTest, UploadCreditCard_CCFormHasAddressMiddleName) {
   FormsSeen({credit_card_form});
 
   // Edit the name by removing middle name.
-  credit_card_form.fields[0].value = ASCIIToUTF16("John Adams");
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"John Adams";
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("123");
+  credit_card_form.fields[4].value = u"123";
 
   base::HistogramTester histogram_tester;
 
@@ -2318,11 +2313,11 @@ TEST_F(CreditCardSaveManagerTest, UploadCreditCard_NamesCanMismatch) {
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, but use yet another name, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("Bob Master");
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"Bob Master";
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("123");
+  credit_card_form.fields[4].value = u"123";
 
   base::HistogramTester histogram_tester;
 
@@ -2377,11 +2372,11 @@ TEST_F(CreditCardSaveManagerTest, UploadCreditCard_IgnoreOldProfiles) {
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, but use yet another name, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("Master Blaster");
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"Master Blaster";
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("123");
+  credit_card_form.fields[4].value = u"123";
 
   base::HistogramTester histogram_tester;
 
@@ -2414,10 +2409,10 @@ TEST_F(
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, but don't include a name, and submit.
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("123");
+  credit_card_form.fields[4].value = u"123";
 
   base::HistogramTester histogram_tester;
 
@@ -2453,11 +2448,11 @@ TEST_F(
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, but include a conflicting name, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("Jane Doe");
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"Jane Doe";
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("123");
+  credit_card_form.fields[4].value = u"123";
 
   base::HistogramTester histogram_tester;
 
@@ -2492,11 +2487,11 @@ TEST_F(CreditCardSaveManagerTest,
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("Flo Master");
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"Flo Master";
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("123");
+  credit_card_form.fields[4].value = u"123";
 
   base::HistogramTester histogram_tester;
 
@@ -2528,11 +2523,11 @@ TEST_F(CreditCardSaveManagerTest,
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("Flo Master");
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"Flo Master";
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("123");
+  credit_card_form.fields[4].value = u"123";
 
   base::HistogramTester histogram_tester;
 
@@ -2562,11 +2557,11 @@ TEST_F(
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("Flo Master");
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"Flo Master";
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("123");
+  credit_card_form.fields[4].value = u"123";
 
   base::HistogramTester histogram_tester;
 
@@ -2611,10 +2606,10 @@ TEST_F(
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, but don't include a name, and submit.
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("123");
+  credit_card_form.fields[4].value = u"123";
 
   base::HistogramTester histogram_tester;
 
@@ -2660,11 +2655,11 @@ TEST_F(
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, but include a conflicting name, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("Jane Doe");
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"Jane Doe";
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("123");
+  credit_card_form.fields[4].value = u"123";
 
   base::HistogramTester histogram_tester;
 
@@ -2708,10 +2703,10 @@ TEST_F(
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, but don't include a name, and submit.
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("123");
+  credit_card_form.fields[4].value = u"123";
 
   // With the offer-to-save decision deferred to Google Payments, Payments can
   // still decide to allow saving despite the missing name.
@@ -2761,11 +2756,11 @@ TEST_F(
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, but don't include a expiration date, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("Jane Doe");
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
-  credit_card_form.fields[2].value = ASCIIToUTF16("");
-  credit_card_form.fields[3].value = ASCIIToUTF16("");
-  credit_card_form.fields[4].value = ASCIIToUTF16("123");
+  credit_card_form.fields[0].value = u"Jane Doe";
+  credit_card_form.fields[1].value = u"4111111111111111";
+  credit_card_form.fields[2].value = u"";
+  credit_card_form.fields[3].value = u"";
+  credit_card_form.fields[4].value = u"123";
 
   // With the offer-to-save decision deferred to Google Payments, Payments can
   // still decide to allow saving despite the missing expiration date.
@@ -2778,11 +2773,11 @@ TEST_F(
       credit_card_save_manager_->should_request_expiration_date_from_user_);
 
   // Edit the data, include a expiration date, and submit this time.
-  credit_card_form.fields[0].value = ASCIIToUTF16("Jane Doe");
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"Jane Doe";
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("123");
+  credit_card_form.fields[4].value = u"123";
   FormSubmitted(credit_card_form);
 
   // Verify the |credit_card_save_manager_| is NOT requesting expiration date.
@@ -2818,11 +2813,11 @@ TEST_F(
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, but don't include a expiration date, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("Flo Master");
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
-  credit_card_form.fields[2].value = ASCIIToUTF16("");
-  credit_card_form.fields[3].value = ASCIIToUTF16("");
-  credit_card_form.fields[4].value = ASCIIToUTF16("123");
+  credit_card_form.fields[0].value = u"Flo Master";
+  credit_card_form.fields[1].value = u"4111111111111111";
+  credit_card_form.fields[2].value = u"";
+  credit_card_form.fields[3].value = u"";
+  credit_card_form.fields[4].value = u"123";
 
   FormSubmitted(credit_card_form);
 
@@ -2860,11 +2855,11 @@ TEST_F(
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, but don't include a expiration date, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("Flo Master");
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
-  credit_card_form.fields[2].value = ASCIIToUTF16("");
-  credit_card_form.fields[3].value = ASCIIToUTF16("");
-  credit_card_form.fields[4].value = ASCIIToUTF16("123");
+  credit_card_form.fields[0].value = u"Flo Master";
+  credit_card_form.fields[1].value = u"4111111111111111";
+  credit_card_form.fields[2].value = u"";
+  credit_card_form.fields[3].value = u"";
+  credit_card_form.fields[4].value = u"123";
 
   // With the offer-to-save decision deferred to Google Payments, Payments can
   // still decide to allow saving despite the missing expiration date.
@@ -2900,11 +2895,11 @@ TEST_F(
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("");
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
-  credit_card_form.fields[2].value = ASCIIToUTF16("");
-  credit_card_form.fields[3].value = ASCIIToUTF16("");
-  credit_card_form.fields[4].value = ASCIIToUTF16("123");
+  credit_card_form.fields[0].value = u"";
+  credit_card_form.fields[1].value = u"4111111111111111";
+  credit_card_form.fields[2].value = u"";
+  credit_card_form.fields[3].value = u"";
+  credit_card_form.fields[4].value = u"123";
 
   base::HistogramTester histogram_tester;
 
@@ -2933,11 +2928,11 @@ TEST_F(CreditCardSaveManagerTest,
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("");
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"";
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("123");
+  credit_card_form.fields[4].value = u"123";
 
   base::HistogramTester histogram_tester;
 
@@ -2959,9 +2954,8 @@ TEST_F(CreditCardSaveManagerTest,
   // iOS should always provide a valid expiration date when attempting to
   // upload a Saved Card due to the Messages SaveCard modal. The manager
   // shouldn't handle expired dates.
-  if ((base::FeatureList::IsEnabled(
-           features::kAutofillSaveCardInfobarEditSupport) &&
-       base::FeatureList::IsEnabled(kIOSInfobarUIReboot))) {
+  if (base::FeatureList::IsEnabled(
+          features::kAutofillSaveCardInfobarEditSupport)) {
     return;
   }
 #endif
@@ -2980,11 +2974,11 @@ TEST_F(CreditCardSaveManagerTest,
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("John Smith");
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
-  credit_card_form.fields[2].value = ASCIIToUTF16("");
-  credit_card_form.fields[3].value = ASCIIToUTF16("");
-  credit_card_form.fields[4].value = ASCIIToUTF16("123");
+  credit_card_form.fields[0].value = u"John Smith";
+  credit_card_form.fields[1].value = u"4111111111111111";
+  credit_card_form.fields[2].value = u"";
+  credit_card_form.fields[3].value = u"";
+  credit_card_form.fields[4].value = u"123";
 
   base::HistogramTester histogram_tester;
   FormSubmitted(credit_card_form);
@@ -3011,9 +3005,8 @@ TEST_F(CreditCardSaveManagerTest,
   // iOS should always provide a valid expiration date when attempting to
   // upload a Saved Card due to the Messages SaveCard modal. The manager
   // shouldn't handle expired dates.
-  if ((base::FeatureList::IsEnabled(
-           features::kAutofillSaveCardInfobarEditSupport) &&
-       base::FeatureList::IsEnabled(kIOSInfobarUIReboot))) {
+  if (base::FeatureList::IsEnabled(
+          features::kAutofillSaveCardInfobarEditSupport)) {
     return;
   }
 #endif
@@ -3032,11 +3025,11 @@ TEST_F(CreditCardSaveManagerTest,
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("John Smith");
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
-  credit_card_form.fields[2].value = ASCIIToUTF16("");
+  credit_card_form.fields[0].value = u"John Smith";
+  credit_card_form.fields[1].value = u"4111111111111111";
+  credit_card_form.fields[2].value = u"";
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("123");
+  credit_card_form.fields[4].value = u"123";
 
   base::HistogramTester histogram_tester;
   FormSubmitted(credit_card_form);
@@ -3063,9 +3056,8 @@ TEST_F(CreditCardSaveManagerTest,
   // iOS should always provide a valid expiration date when attempting to
   // upload a Saved Card due to the Messages SaveCard modal. The manager
   // shouldn't handle expired dates.
-  if ((base::FeatureList::IsEnabled(
-           features::kAutofillSaveCardInfobarEditSupport) &&
-       base::FeatureList::IsEnabled(kIOSInfobarUIReboot))) {
+  if (base::FeatureList::IsEnabled(
+          features::kAutofillSaveCardInfobarEditSupport)) {
     return;
   }
 #endif
@@ -3084,11 +3076,11 @@ TEST_F(CreditCardSaveManagerTest,
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("John Smith");
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"John Smith";
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
-  credit_card_form.fields[3].value = ASCIIToUTF16("");
-  credit_card_form.fields[4].value = ASCIIToUTF16("123");
+  credit_card_form.fields[3].value = u"";
+  credit_card_form.fields[4].value = u"123";
 
   base::HistogramTester histogram_tester;
   FormSubmitted(credit_card_form);
@@ -3115,9 +3107,8 @@ TEST_F(CreditCardSaveManagerTest,
   // iOS should always provide a valid expiration date when attempting to
   // upload a Saved Card due to the Messages SaveCard modal. The manager
   // shouldn't handle expired dates.
-  if ((base::FeatureList::IsEnabled(
-           features::kAutofillSaveCardInfobarEditSupport) &&
-       base::FeatureList::IsEnabled(kIOSInfobarUIReboot))) {
+  if (base::FeatureList::IsEnabled(
+          features::kAutofillSaveCardInfobarEditSupport)) {
     return;
   }
 #endif
@@ -3136,11 +3127,11 @@ TEST_F(CreditCardSaveManagerTest,
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("John Smith");
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
-  credit_card_form.fields[2].value = ASCIIToUTF16("09");
-  credit_card_form.fields[3].value = ASCIIToUTF16("2000");
-  credit_card_form.fields[4].value = ASCIIToUTF16("123");
+  credit_card_form.fields[0].value = u"John Smith";
+  credit_card_form.fields[1].value = u"4111111111111111";
+  credit_card_form.fields[2].value = u"09";
+  credit_card_form.fields[3].value = u"2000";
+  credit_card_form.fields[4].value = u"123";
 
   base::HistogramTester histogram_tester;
   FormSubmitted(credit_card_form);
@@ -3168,9 +3159,8 @@ TEST_F(
   // iOS should always provide a valid expiration date when attempting to
   // upload a Saved Card due to the Messages SaveCard modal. The manager
   // shouldn't handle expired dates.
-  if ((base::FeatureList::IsEnabled(
-           features::kAutofillSaveCardInfobarEditSupport) &&
-       base::FeatureList::IsEnabled(kIOSInfobarUIReboot))) {
+  if (base::FeatureList::IsEnabled(
+          features::kAutofillSaveCardInfobarEditSupport)) {
     return;
   }
 #endif
@@ -3189,11 +3179,11 @@ TEST_F(
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data with 2 digit year and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("John Smith");
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
-  credit_card_form.fields[2].value = ASCIIToUTF16("01");
-  credit_card_form.fields[3].value = ASCIIToUTF16("10");
-  credit_card_form.fields[4].value = ASCIIToUTF16("123");
+  credit_card_form.fields[0].value = u"John Smith";
+  credit_card_form.fields[1].value = u"4111111111111111";
+  credit_card_form.fields[2].value = u"01";
+  credit_card_form.fields[3].value = u"10";
+  credit_card_form.fields[4].value = u"123";
 
   base::HistogramTester histogram_tester;
   FormSubmitted(credit_card_form);
@@ -3236,11 +3226,11 @@ TEST_F(CreditCardSaveManagerTest, UploadCreditCard_UploadDetailsFails) {
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("Flo Master");
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"Flo Master";
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("123");
+  credit_card_form.fields[4].value = u"123";
 
   base::HistogramTester histogram_tester;
 
@@ -3283,11 +3273,11 @@ TEST_F(CreditCardSaveManagerTest, DuplicateMaskedCreditCard_NoUpload) {
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("Flo Master");
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"Flo Master";
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("123");
+  credit_card_form.fields[4].value = u"123";
 
   // Local save prompt should not be shown as there is alredy masked
   // card with same |TypeAndLastFourDigits|.
@@ -3303,11 +3293,11 @@ TEST_F(CreditCardSaveManagerTest, NothingIfNothingFound) {
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("");  // No name set
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"";  // No name set
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("");  // No CVC set
+  credit_card_form.fields[4].value = u"";  // No CVC set
 
   // Submit the form and check what detected_values for an upload save would be.
   FormSubmitted(credit_card_form);
@@ -3333,11 +3323,11 @@ TEST_F(CreditCardSaveManagerTest, DetectCvc) {
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("");  // No name set
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"";  // No name set
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("123");
+  credit_card_form.fields[4].value = u"123";
 
   // Submit the form and ensure the detected_values for an upload save contained
   // the expected bit.
@@ -3355,11 +3345,11 @@ TEST_F(CreditCardSaveManagerTest, DetectCardholderName) {
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("John Smith");
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"John Smith";
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("");  // No CVC set
+  credit_card_form.fields[4].value = u"";  // No CVC set
 
   // Submit the form and ensure the detected_values for an upload save contained
   // the expected bit.
@@ -3375,7 +3365,7 @@ TEST_F(CreditCardSaveManagerTest, DetectAddressName) {
   // Set up a new address profile.
   AutofillProfile profile;
   profile.set_guid("00000000-0000-0000-0000-000000000200");
-  profile.SetInfo(NAME_FULL, ASCIIToUTF16("John Smith"), "en-US");
+  profile.SetInfo(NAME_FULL, u"John Smith", "en-US");
   personal_data_.AddProfile(profile);
 
   // Set up our credit card form data.
@@ -3384,11 +3374,11 @@ TEST_F(CreditCardSaveManagerTest, DetectAddressName) {
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("");  // No name set
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"";  // No name set
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("");  // No CVC set
+  credit_card_form.fields[4].value = u"";  // No CVC set
 
   // Submit the form and ensure the detected_values for an upload save contained
   // the expected bit.
@@ -3404,7 +3394,7 @@ TEST_F(CreditCardSaveManagerTest, DetectCardholderAndAddressNameIfMatching) {
   // Set up a new address profile.
   AutofillProfile profile;
   profile.set_guid("00000000-0000-0000-0000-000000000200");
-  profile.SetInfo(NAME_FULL, ASCIIToUTF16("John Smith"), "en-US");
+  profile.SetInfo(NAME_FULL, u"John Smith", "en-US");
   personal_data_.AddProfile(profile);
 
   // Set up our credit card form data.
@@ -3413,11 +3403,11 @@ TEST_F(CreditCardSaveManagerTest, DetectCardholderAndAddressNameIfMatching) {
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("John Smith");
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"John Smith";
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("");  // No CVC set
+  credit_card_form.fields[4].value = u"";  // No CVC set
 
   // Submit the form and ensure the detected_values for an upload save contained
   // the expected bits.
@@ -3434,7 +3424,7 @@ TEST_F(CreditCardSaveManagerTest, DetectNoUniqueNameIfNamesConflict) {
   // Set up a new address profile.
   AutofillProfile profile;
   profile.set_guid("00000000-0000-0000-0000-000000000200");
-  profile.SetInfo(NAME_FULL, ASCIIToUTF16("John Smith"), "en-US");
+  profile.SetInfo(NAME_FULL, u"John Smith", "en-US");
   personal_data_.AddProfile(profile);
 
   // Set up our credit card form data.
@@ -3443,11 +3433,11 @@ TEST_F(CreditCardSaveManagerTest, DetectNoUniqueNameIfNamesConflict) {
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("Miles Prower");  // Conflict!
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"Miles Prower";  // Conflict!
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("");  // No CVC set
+  credit_card_form.fields[4].value = u"";  // No CVC set
 
   // Submit the form and check what detected_values for an upload save would be.
   FormSubmitted(credit_card_form);
@@ -3462,7 +3452,7 @@ TEST_F(CreditCardSaveManagerTest, DetectPostalCode) {
   // Set up a new address profile.
   AutofillProfile profile;
   profile.set_guid("00000000-0000-0000-0000-000000000200");
-  profile.SetInfo(ADDRESS_HOME_ZIP, ASCIIToUTF16("94043"), "en-US");
+  profile.SetInfo(ADDRESS_HOME_ZIP, u"94043", "en-US");
   personal_data_.AddProfile(profile);
 
   // Set up our credit card form data.
@@ -3471,11 +3461,11 @@ TEST_F(CreditCardSaveManagerTest, DetectPostalCode) {
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("");  // No name set
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"";  // No name set
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("");  // No CVC set
+  credit_card_form.fields[4].value = u"";  // No CVC set
 
   // Submit the form and ensure the detected_values for an upload save contained
   // the expected bit.
@@ -3491,11 +3481,11 @@ TEST_F(CreditCardSaveManagerTest, DetectNoUniquePostalCodeIfZipsConflict) {
   // Set up two new address profiles with conflicting postal codes.
   AutofillProfile profile1;
   profile1.set_guid("00000000-0000-0000-0000-000000000200");
-  profile1.SetInfo(ADDRESS_HOME_ZIP, ASCIIToUTF16("94043"), "en-US");
+  profile1.SetInfo(ADDRESS_HOME_ZIP, u"94043", "en-US");
   personal_data_.AddProfile(profile1);
   AutofillProfile profile2;
   profile2.set_guid("00000000-0000-0000-0000-000000000201");
-  profile2.SetInfo(ADDRESS_HOME_ZIP, ASCIIToUTF16("95051"), "en-US");
+  profile2.SetInfo(ADDRESS_HOME_ZIP, u"95051", "en-US");
   personal_data_.AddProfile(profile2);
 
   // Set up our credit card form data.
@@ -3504,11 +3494,11 @@ TEST_F(CreditCardSaveManagerTest, DetectNoUniquePostalCodeIfZipsConflict) {
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("");  // No name set
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"";  // No name set
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("");  // No CVC set
+  credit_card_form.fields[4].value = u"";  // No CVC set
 
   // Submit the form and check what detected_values for an upload save would be.
   FormSubmitted(credit_card_form);
@@ -3520,7 +3510,7 @@ TEST_F(CreditCardSaveManagerTest, DetectAddressLine) {
   // Set up a new address profile.
   AutofillProfile profile;
   profile.set_guid("00000000-0000-0000-0000-000000000200");
-  profile.SetInfo(ADDRESS_HOME_LINE1, ASCIIToUTF16("123 Testing St."), "en-US");
+  profile.SetInfo(ADDRESS_HOME_LINE1, u"123 Testing St.", "en-US");
   personal_data_.AddProfile(profile);
 
   // Set up our credit card form data.
@@ -3529,11 +3519,11 @@ TEST_F(CreditCardSaveManagerTest, DetectAddressLine) {
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("");  // No name set
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"";  // No name set
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("");  // No CVC set
+  credit_card_form.fields[4].value = u"";  // No CVC set
 
   // Submit the form and ensure the detected_values for an upload save contained
   // the expected bit.
@@ -3549,7 +3539,7 @@ TEST_F(CreditCardSaveManagerTest, DetectLocality) {
   // Set up a new address profile.
   AutofillProfile profile;
   profile.set_guid("00000000-0000-0000-0000-000000000200");
-  profile.SetInfo(ADDRESS_HOME_CITY, ASCIIToUTF16("Mountain View"), "en-US");
+  profile.SetInfo(ADDRESS_HOME_CITY, u"Mountain View", "en-US");
   personal_data_.AddProfile(profile);
 
   // Set up our credit card form data.
@@ -3558,11 +3548,11 @@ TEST_F(CreditCardSaveManagerTest, DetectLocality) {
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("");  // No name set
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"";  // No name set
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("");  // No CVC set
+  credit_card_form.fields[4].value = u"";  // No CVC set
 
   // Submit the form and ensure the detected_values for an upload save contained
   // the expected bit.
@@ -3577,7 +3567,7 @@ TEST_F(CreditCardSaveManagerTest, DetectAdministrativeArea) {
   // Set up a new address profile.
   AutofillProfile profile;
   profile.set_guid("00000000-0000-0000-0000-000000000200");
-  profile.SetInfo(ADDRESS_HOME_STATE, ASCIIToUTF16("California"), "en-US");
+  profile.SetInfo(ADDRESS_HOME_STATE, u"California", "en-US");
   personal_data_.AddProfile(profile);
 
   // Set up our credit card form data.
@@ -3586,11 +3576,11 @@ TEST_F(CreditCardSaveManagerTest, DetectAdministrativeArea) {
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("");  // No name set
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"";  // No name set
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("");  // No CVC set
+  credit_card_form.fields[4].value = u"";  // No CVC set
 
   // Submit the form and ensure the detected_values for an upload save contained
   // the expected bit.
@@ -3606,7 +3596,7 @@ TEST_F(CreditCardSaveManagerTest, DetectCountryCode) {
   // Set up a new address profile.
   AutofillProfile profile;
   profile.set_guid("00000000-0000-0000-0000-000000000200");
-  profile.SetInfo(ADDRESS_HOME_COUNTRY, ASCIIToUTF16("US"), "en-US");
+  profile.SetInfo(ADDRESS_HOME_COUNTRY, u"US", "en-US");
   personal_data_.AddProfile(profile);
 
   // Set up our credit card form data.
@@ -3615,11 +3605,11 @@ TEST_F(CreditCardSaveManagerTest, DetectCountryCode) {
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("");  // No name set
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"";  // No name set
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("");  // No CVC set
+  credit_card_form.fields[4].value = u"";  // No CVC set
 
   // Submit the form and ensure the detected_values for an upload save contained
   // the expected bit.
@@ -3643,11 +3633,11 @@ TEST_F(CreditCardSaveManagerTest, DetectHasGooglePaymentAccount) {
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("");  // No name set
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"";  // No name set
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("");  // No CVC set
+  credit_card_form.fields[4].value = u"";  // No CVC set
 
   // Submit the form and ensure the detected_values for an upload save contained
   // the expected bit.
@@ -3663,12 +3653,12 @@ TEST_F(CreditCardSaveManagerTest, DetectEverythingAtOnce) {
   // Set up a new address profile.
   AutofillProfile profile;
   profile.set_guid("00000000-0000-0000-0000-000000000200");
-  profile.SetInfo(NAME_FULL, ASCIIToUTF16("John Smith"), "en-US");
-  profile.SetInfo(ADDRESS_HOME_LINE1, ASCIIToUTF16("123 Testing St."), "en-US");
-  profile.SetInfo(ADDRESS_HOME_CITY, ASCIIToUTF16("Mountain View"), "en-US");
-  profile.SetInfo(ADDRESS_HOME_STATE, ASCIIToUTF16("California"), "en-US");
-  profile.SetInfo(ADDRESS_HOME_ZIP, ASCIIToUTF16("94043"), "en-US");
-  profile.SetInfo(ADDRESS_HOME_COUNTRY, ASCIIToUTF16("US"), "en-US");
+  profile.SetInfo(NAME_FULL, u"John Smith", "en-US");
+  profile.SetInfo(ADDRESS_HOME_LINE1, u"123 Testing St.", "en-US");
+  profile.SetInfo(ADDRESS_HOME_CITY, u"Mountain View", "en-US");
+  profile.SetInfo(ADDRESS_HOME_STATE, u"California", "en-US");
+  profile.SetInfo(ADDRESS_HOME_ZIP, u"94043", "en-US");
+  profile.SetInfo(ADDRESS_HOME_COUNTRY, u"US", "en-US");
   personal_data_.AddProfile(profile);
 
   // Set up our credit card form data.
@@ -3677,11 +3667,11 @@ TEST_F(CreditCardSaveManagerTest, DetectEverythingAtOnce) {
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("John Smith");
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"John Smith";
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("123");
+  credit_card_form.fields[4].value = u"123";
 
   // Submit the form and ensure the detected_values for an upload save contained
   // the expected bits.
@@ -3704,10 +3694,10 @@ TEST_F(CreditCardSaveManagerTest, DetectSubsetOfPossibleFields) {
   // Set up a new address profile, taking out address line and state.
   AutofillProfile profile;
   profile.set_guid("00000000-0000-0000-0000-000000000200");
-  profile.SetInfo(NAME_FULL, ASCIIToUTF16("John Smith"), "en-US");
-  profile.SetInfo(ADDRESS_HOME_CITY, ASCIIToUTF16("Mountain View"), "en-US");
-  profile.SetInfo(ADDRESS_HOME_ZIP, ASCIIToUTF16("94043"), "en-US");
-  profile.SetInfo(ADDRESS_HOME_COUNTRY, ASCIIToUTF16("US"), "en-US");
+  profile.SetInfo(NAME_FULL, u"John Smith", "en-US");
+  profile.SetInfo(ADDRESS_HOME_CITY, u"Mountain View", "en-US");
+  profile.SetInfo(ADDRESS_HOME_ZIP, u"94043", "en-US");
+  profile.SetInfo(ADDRESS_HOME_COUNTRY, u"US", "en-US");
   personal_data_.AddProfile(profile);
 
   // Set up our credit card form data.
@@ -3716,11 +3706,11 @@ TEST_F(CreditCardSaveManagerTest, DetectSubsetOfPossibleFields) {
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("Miles Prower");  // Conflict!
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"Miles Prower";  // Conflict!
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("123");
+  credit_card_form.fields[4].value = u"123";
 
   // Submit the form and ensure the detected_values for an upload save contained
   // the expected bits.
@@ -3742,20 +3732,19 @@ TEST_F(CreditCardSaveManagerTest, DetectAddressComponentsAcrossProfiles) {
   // Set up four new address profiles, each with a different address component.
   AutofillProfile profile1;
   profile1.set_guid("00000000-0000-0000-0000-000000000200");
-  profile1.SetInfo(ADDRESS_HOME_LINE1, ASCIIToUTF16("123 Testing St."),
-                   "en-US");
+  profile1.SetInfo(ADDRESS_HOME_LINE1, u"123 Testing St.", "en-US");
   personal_data_.AddProfile(profile1);
   AutofillProfile profile2;
   profile2.set_guid("00000000-0000-0000-0000-000000000201");
-  profile2.SetInfo(ADDRESS_HOME_CITY, ASCIIToUTF16("Mountain View"), "en-US");
+  profile2.SetInfo(ADDRESS_HOME_CITY, u"Mountain View", "en-US");
   personal_data_.AddProfile(profile2);
   AutofillProfile profile3;
   profile3.set_guid("00000000-0000-0000-0000-000000000202");
-  profile3.SetInfo(ADDRESS_HOME_STATE, ASCIIToUTF16("California"), "en-US");
+  profile3.SetInfo(ADDRESS_HOME_STATE, u"California", "en-US");
   personal_data_.AddProfile(profile3);
   AutofillProfile profile4;
   profile4.set_guid("00000000-0000-0000-0000-000000000203");
-  profile4.SetInfo(ADDRESS_HOME_COUNTRY, ASCIIToUTF16("US"), "en-US");
+  profile4.SetInfo(ADDRESS_HOME_COUNTRY, u"US", "en-US");
   personal_data_.AddProfile(profile4);
 
   // Set up our credit card form data.
@@ -3764,11 +3753,11 @@ TEST_F(CreditCardSaveManagerTest, DetectAddressComponentsAcrossProfiles) {
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("");  // No name set
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"";  // No name set
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("");  // No CVC set
+  credit_card_form.fields[4].value = u"";  // No CVC set
 
   // Submit the form and ensure the detected_values for an upload save contained
   // the expected bits.
@@ -3795,10 +3784,10 @@ TEST_F(CreditCardSaveManagerTest,
   // Set up a new address profile without a name or postal code.
   AutofillProfile profile;
   profile.set_guid("00000000-0000-0000-0000-000000000200");
-  profile.SetInfo(ADDRESS_HOME_LINE1, ASCIIToUTF16("123 Testing St."), "en-US");
-  profile.SetInfo(ADDRESS_HOME_CITY, ASCIIToUTF16("Mountain View"), "en-US");
-  profile.SetInfo(ADDRESS_HOME_STATE, ASCIIToUTF16("California"), "en-US");
-  profile.SetInfo(ADDRESS_HOME_COUNTRY, ASCIIToUTF16("US"), "en-US");
+  profile.SetInfo(ADDRESS_HOME_LINE1, u"123 Testing St.", "en-US");
+  profile.SetInfo(ADDRESS_HOME_CITY, u"Mountain View", "en-US");
+  profile.SetInfo(ADDRESS_HOME_STATE, u"California", "en-US");
+  profile.SetInfo(ADDRESS_HOME_COUNTRY, u"US", "en-US");
   personal_data_.AddProfile(profile);
 
   // Set up our credit card form data.
@@ -3807,11 +3796,11 @@ TEST_F(CreditCardSaveManagerTest,
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("");  // No name!
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"";  // No name!
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("");  // No CVC!
+  credit_card_form.fields[4].value = u"";  // No CVC!
 
   base::HistogramTester histogram_tester;
   FormSubmitted(credit_card_form);
@@ -3852,12 +3841,12 @@ TEST_F(
   // Set up a new address profile.
   AutofillProfile profile;
   profile.set_guid("00000000-0000-0000-0000-000000000200");
-  profile.SetInfo(NAME_FULL, ASCIIToUTF16("John Smith"), "en-US");
-  profile.SetInfo(ADDRESS_HOME_LINE1, ASCIIToUTF16("123 Testing St."), "en-US");
-  profile.SetInfo(ADDRESS_HOME_CITY, ASCIIToUTF16("Mountain View"), "en-US");
-  profile.SetInfo(ADDRESS_HOME_STATE, ASCIIToUTF16("California"), "en-US");
-  profile.SetInfo(ADDRESS_HOME_ZIP, ASCIIToUTF16("94043"), "en-US");
-  profile.SetInfo(ADDRESS_HOME_COUNTRY, ASCIIToUTF16("US"), "en-US");
+  profile.SetInfo(NAME_FULL, u"John Smith", "en-US");
+  profile.SetInfo(ADDRESS_HOME_LINE1, u"123 Testing St.", "en-US");
+  profile.SetInfo(ADDRESS_HOME_CITY, u"Mountain View", "en-US");
+  profile.SetInfo(ADDRESS_HOME_STATE, u"California", "en-US");
+  profile.SetInfo(ADDRESS_HOME_ZIP, u"94043", "en-US");
+  profile.SetInfo(ADDRESS_HOME_COUNTRY, u"US", "en-US");
   personal_data_.AddProfile(profile);
 
   // Set up our credit card form data.
@@ -3866,11 +3855,11 @@ TEST_F(
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("John Smith");
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"John Smith";
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("123");
+  credit_card_form.fields[4].value = u"123";
 
   base::HistogramTester histogram_tester;
 
@@ -3892,12 +3881,12 @@ TEST_F(
   // Set up a new address profile.
   AutofillProfile profile;
   profile.set_guid("00000000-0000-0000-0000-000000000200");
-  profile.SetInfo(NAME_FULL, ASCIIToUTF16("John Smith"), "en-US");
-  profile.SetInfo(ADDRESS_HOME_LINE1, ASCIIToUTF16("123 Testing St."), "en-US");
-  profile.SetInfo(ADDRESS_HOME_CITY, ASCIIToUTF16("Mountain View"), "en-US");
-  profile.SetInfo(ADDRESS_HOME_STATE, ASCIIToUTF16("California"), "en-US");
-  profile.SetInfo(ADDRESS_HOME_ZIP, ASCIIToUTF16("94043"), "en-US");
-  profile.SetInfo(ADDRESS_HOME_COUNTRY, ASCIIToUTF16("US"), "en-US");
+  profile.SetInfo(NAME_FULL, u"John Smith", "en-US");
+  profile.SetInfo(ADDRESS_HOME_LINE1, u"123 Testing St.", "en-US");
+  profile.SetInfo(ADDRESS_HOME_CITY, u"Mountain View", "en-US");
+  profile.SetInfo(ADDRESS_HOME_STATE, u"California", "en-US");
+  profile.SetInfo(ADDRESS_HOME_ZIP, u"94043", "en-US");
+  profile.SetInfo(ADDRESS_HOME_COUNTRY, u"US", "en-US");
   personal_data_.AddProfile(profile);
 
   // Set up our credit card form data with credit card first and last name
@@ -3908,12 +3897,12 @@ TEST_F(
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("John");
-  credit_card_form.fields[1].value = ASCIIToUTF16("Smith");
-  credit_card_form.fields[2].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"John";
+  credit_card_form.fields[1].value = u"Smith";
+  credit_card_form.fields[2].value = u"4111111111111111";
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[4].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[5].value = ASCIIToUTF16("123");
+  credit_card_form.fields[5].value = u"123";
 
   base::HistogramTester histogram_tester;
 
@@ -3942,10 +3931,10 @@ TEST_F(
   // Set up a new address profile without a name or postal code.
   AutofillProfile profile;
   profile.set_guid("00000000-0000-0000-0000-000000000200");
-  profile.SetInfo(ADDRESS_HOME_LINE1, ASCIIToUTF16("123 Testing St."), "en-US");
-  profile.SetInfo(ADDRESS_HOME_CITY, ASCIIToUTF16("Mountain View"), "en-US");
-  profile.SetInfo(ADDRESS_HOME_STATE, ASCIIToUTF16("California"), "en-US");
-  profile.SetInfo(ADDRESS_HOME_COUNTRY, ASCIIToUTF16("US"), "en-US");
+  profile.SetInfo(ADDRESS_HOME_LINE1, u"123 Testing St.", "en-US");
+  profile.SetInfo(ADDRESS_HOME_CITY, u"Mountain View", "en-US");
+  profile.SetInfo(ADDRESS_HOME_STATE, u"California", "en-US");
+  profile.SetInfo(ADDRESS_HOME_COUNTRY, u"US", "en-US");
   personal_data_.AddProfile(profile);
 
   // Set up our credit card form data.
@@ -3954,11 +3943,11 @@ TEST_F(
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("");  // No name!
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"";  // No name!
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("");  // No CVC!
+  credit_card_form.fields[4].value = u"";  // No CVC!
 
   base::HistogramTester histogram_tester;
 
@@ -3988,11 +3977,11 @@ TEST_F(CreditCardSaveManagerTest,
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("Flo Master");
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"Flo Master";
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("");  // No CVC!
+  credit_card_form.fields[4].value = u"";  // No CVC!
 
   base::HistogramTester histogram_tester;
 
@@ -4035,11 +4024,11 @@ TEST_F(CreditCardSaveManagerTest,
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("");  // No name!
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"";  // No name!
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("123");
+  credit_card_form.fields[4].value = u"123";
 
   base::HistogramTester histogram_tester;
 
@@ -4086,11 +4075,11 @@ TEST_F(CreditCardSaveManagerTest,
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("Miles Prower");  // Conflict!
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"Miles Prower";  // Conflict!
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("123");
+  credit_card_form.fields[4].value = u"123";
 
   base::HistogramTester histogram_tester;
 
@@ -4126,11 +4115,11 @@ TEST_F(CreditCardSaveManagerTest,
   // Set up a new address profile without a postal code.
   AutofillProfile profile;
   profile.set_guid("00000000-0000-0000-0000-000000000200");
-  profile.SetInfo(NAME_FULL, ASCIIToUTF16("Flo Master"), "en-US");
-  profile.SetInfo(ADDRESS_HOME_LINE1, ASCIIToUTF16("123 Testing St."), "en-US");
-  profile.SetInfo(ADDRESS_HOME_CITY, ASCIIToUTF16("Mountain View"), "en-US");
-  profile.SetInfo(ADDRESS_HOME_STATE, ASCIIToUTF16("California"), "en-US");
-  profile.SetInfo(ADDRESS_HOME_COUNTRY, ASCIIToUTF16("US"), "en-US");
+  profile.SetInfo(NAME_FULL, u"Flo Master", "en-US");
+  profile.SetInfo(ADDRESS_HOME_LINE1, u"123 Testing St.", "en-US");
+  profile.SetInfo(ADDRESS_HOME_CITY, u"Mountain View", "en-US");
+  profile.SetInfo(ADDRESS_HOME_STATE, u"California", "en-US");
+  profile.SetInfo(ADDRESS_HOME_COUNTRY, u"US", "en-US");
   personal_data_.AddProfile(profile);
 
   // Set up our credit card form data.
@@ -4139,11 +4128,11 @@ TEST_F(CreditCardSaveManagerTest,
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("Flo Master");
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"Flo Master";
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("123");
+  credit_card_form.fields[4].value = u"123";
 
   base::HistogramTester histogram_tester;
 
@@ -4174,23 +4163,21 @@ TEST_F(CreditCardSaveManagerTest,
   // Set up two new address profiles with conflicting postal codes.
   AutofillProfile profile1;
   profile1.set_guid("00000000-0000-0000-0000-000000000200");
-  profile1.SetInfo(NAME_FULL, ASCIIToUTF16("Flo Master"), "en-US");
-  profile1.SetInfo(ADDRESS_HOME_LINE1, ASCIIToUTF16("123 Testing St."),
-                   "en-US");
-  profile1.SetInfo(ADDRESS_HOME_CITY, ASCIIToUTF16("Mountain View"), "en-US");
-  profile1.SetInfo(ADDRESS_HOME_STATE, ASCIIToUTF16("California"), "en-US");
-  profile1.SetInfo(ADDRESS_HOME_ZIP, ASCIIToUTF16("94043"), "en-US");
-  profile1.SetInfo(ADDRESS_HOME_COUNTRY, ASCIIToUTF16("US"), "en-US");
+  profile1.SetInfo(NAME_FULL, u"Flo Master", "en-US");
+  profile1.SetInfo(ADDRESS_HOME_LINE1, u"123 Testing St.", "en-US");
+  profile1.SetInfo(ADDRESS_HOME_CITY, u"Mountain View", "en-US");
+  profile1.SetInfo(ADDRESS_HOME_STATE, u"California", "en-US");
+  profile1.SetInfo(ADDRESS_HOME_ZIP, u"94043", "en-US");
+  profile1.SetInfo(ADDRESS_HOME_COUNTRY, u"US", "en-US");
   personal_data_.AddProfile(profile1);
   AutofillProfile profile2;
   profile2.set_guid("00000000-0000-0000-0000-000000000201");
-  profile2.SetInfo(NAME_FULL, ASCIIToUTF16("Flo Master"), "en-US");
-  profile2.SetInfo(ADDRESS_HOME_LINE1, ASCIIToUTF16("234 Other Place"),
-                   "en-US");
-  profile2.SetInfo(ADDRESS_HOME_CITY, ASCIIToUTF16("Fake City"), "en-US");
-  profile2.SetInfo(ADDRESS_HOME_STATE, ASCIIToUTF16("Stateland"), "en-US");
-  profile2.SetInfo(ADDRESS_HOME_ZIP, ASCIIToUTF16("12345"), "en-US");
-  profile2.SetInfo(ADDRESS_HOME_COUNTRY, ASCIIToUTF16("US"), "en-US");
+  profile2.SetInfo(NAME_FULL, u"Flo Master", "en-US");
+  profile2.SetInfo(ADDRESS_HOME_LINE1, u"234 Other Place", "en-US");
+  profile2.SetInfo(ADDRESS_HOME_CITY, u"Fake City", "en-US");
+  profile2.SetInfo(ADDRESS_HOME_STATE, u"Stateland", "en-US");
+  profile2.SetInfo(ADDRESS_HOME_ZIP, u"12345", "en-US");
+  profile2.SetInfo(ADDRESS_HOME_COUNTRY, u"US", "en-US");
   personal_data_.AddProfile(profile2);
 
   // Set up our credit card form data.
@@ -4199,11 +4186,11 @@ TEST_F(CreditCardSaveManagerTest,
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("Flo Master");
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"Flo Master";
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("123");
+  credit_card_form.fields[4].value = u"123";
 
   base::HistogramTester histogram_tester;
 
@@ -4234,10 +4221,10 @@ TEST_F(CreditCardSaveManagerTest,
   // Set up a new address profile without a name or postal code.
   AutofillProfile profile;
   profile.set_guid("00000000-0000-0000-0000-000000000200");
-  profile.SetInfo(ADDRESS_HOME_LINE1, ASCIIToUTF16("123 Testing St."), "en-US");
-  profile.SetInfo(ADDRESS_HOME_CITY, ASCIIToUTF16("Mountain View"), "en-US");
-  profile.SetInfo(ADDRESS_HOME_STATE, ASCIIToUTF16("California"), "en-US");
-  profile.SetInfo(ADDRESS_HOME_COUNTRY, ASCIIToUTF16("US"), "en-US");
+  profile.SetInfo(ADDRESS_HOME_LINE1, u"123 Testing St.", "en-US");
+  profile.SetInfo(ADDRESS_HOME_CITY, u"Mountain View", "en-US");
+  profile.SetInfo(ADDRESS_HOME_STATE, u"California", "en-US");
+  profile.SetInfo(ADDRESS_HOME_COUNTRY, u"US", "en-US");
   personal_data_.AddProfile(profile);
 
   // Set up our credit card form data.
@@ -4246,11 +4233,11 @@ TEST_F(CreditCardSaveManagerTest,
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("");  // No name!
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"";  // No name!
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("");  // No CVC!
+  credit_card_form.fields[4].value = u"";  // No CVC!
 
   base::HistogramTester histogram_tester;
 
@@ -4310,11 +4297,11 @@ TEST_F(CreditCardSaveManagerTest, UploadCreditCard_UploadOfLocalCard) {
   ExpectFillableFormParsedUkm(2 /* num_fillable_forms_parsed */);
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("Flo Master");
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"Flo Master";
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("123");
+  credit_card_form.fields[4].value = u"123";
 
   base::HistogramTester histogram_tester;
 
@@ -4350,11 +4337,11 @@ TEST_F(CreditCardSaveManagerTest, UploadCreditCard_UploadOfNewCard) {
   ExpectFillableFormParsedUkm(2 /* num_fillable_forms_parsed */);
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("Flo Master");
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"Flo Master";
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("123");
+  credit_card_form.fields[4].value = u"123";
 
   base::HistogramTester histogram_tester;
 
@@ -4406,11 +4393,11 @@ TEST_F(CreditCardSaveManagerTest,
   ExpectFillableFormParsedUkm(2 /* num_fillable_forms_parsed */);
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("Flo Master");
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"Flo Master";
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("123");
+  credit_card_form.fields[4].value = u"123";
 
   base::HistogramTester histogram_tester;
 
@@ -4441,11 +4428,11 @@ TEST_F(CreditCardSaveManagerTest,
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("Flo Master");
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"Flo Master";
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("123");
+  credit_card_form.fields[4].value = u"123";
 
   // Confirm that upload happened and that no experiment flag state was sent in
   // the request.
@@ -4471,11 +4458,11 @@ TEST_F(CreditCardSaveManagerTest,
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("Flo Master");
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"Flo Master";
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("123");
+  credit_card_form.fields[4].value = u"123";
 
   // Confirm that the preflight request contained
   // kUploadCardBillableServiceNumber in the request.
@@ -4500,11 +4487,11 @@ TEST_F(CreditCardSaveManagerTest,
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("Flo Master");
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"Flo Master";
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("123");
+  credit_card_form.fields[4].value = u"123";
 
   // Confirm that the preflight request contained the correct UploadCardSource.
   FormSubmitted(credit_card_form);
@@ -4531,11 +4518,11 @@ TEST_F(CreditCardSaveManagerTest,
   ExpectFillableFormParsedUkm(1 /* num_fillable_forms_parsed */);
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("Flo Master");
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"Flo Master";
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("123");
+  credit_card_form.fields[4].value = u"123";
 
   base::HistogramTester histogram_tester;
 
@@ -4580,11 +4567,11 @@ TEST_F(CreditCardSaveManagerTest,
   ExpectFillableFormParsedUkm(2 /* num_fillable_forms_parsed */);
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("Flo Master");
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"Flo Master";
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("123");
+  credit_card_form.fields[4].value = u"123";
 
   base::HistogramTester histogram_tester;
 
@@ -4622,11 +4609,11 @@ TEST_F(CreditCardSaveManagerTest,
   ExpectFillableFormParsedUkm(1 /* num_fillable_forms_parsed */);
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("Flo Master");
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"Flo Master";
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("123");
+  credit_card_form.fields[4].value = u"123";
 
   base::HistogramTester histogram_tester;
 
@@ -4672,11 +4659,11 @@ TEST_F(CreditCardSaveManagerTest, UploadCreditCard_MaxStrikesDisallowsSave) {
   ExpectFillableFormParsedUkm(2 /* num_fillable_forms_parsed */);
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("Flo Master");
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"Flo Master";
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("123");
+  credit_card_form.fields[4].value = u"123";
 
   base::HistogramTester histogram_tester;
 
@@ -4720,11 +4707,11 @@ TEST_F(CreditCardSaveManagerTest,
   ExpectFillableFormParsedUkm(1 /* num_fillable_forms_parsed */);
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("Flo Master");
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"Flo Master";
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("123");
+  credit_card_form.fields[4].value = u"123";
 
   base::HistogramTester histogram_tester;
 
@@ -4771,11 +4758,11 @@ TEST_F(CreditCardSaveManagerTest, UploadCreditCard_MaxStrikesStillAllowsSave) {
   ExpectFillableFormParsedUkm(2 /* num_fillable_forms_parsed */);
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("Flo Master");
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"Flo Master";
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("123");
+  credit_card_form.fields[4].value = u"123";
 
   base::HistogramTester histogram_tester;
 
@@ -4824,12 +4811,12 @@ TEST_F(CreditCardSaveManagerTest,
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("Flo");
-  credit_card_form.fields[1].value = ASCIIToUTF16("Master");
-  credit_card_form.fields[2].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"Flo";
+  credit_card_form.fields[1].value = u"Master";
+  credit_card_form.fields[2].value = u"4111111111111111";
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[4].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[5].value = ASCIIToUTF16("123");
+  credit_card_form.fields[5].value = u"123";
 
   base::HistogramTester histogram_tester;
 
@@ -4872,12 +4859,12 @@ TEST_F(CreditCardSaveManagerTest,
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("Flo");
-  credit_card_form.fields[1].value = ASCIIToUTF16("Master");
-  credit_card_form.fields[2].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"Flo";
+  credit_card_form.fields[1].value = u"Master";
+  credit_card_form.fields[2].value = u"4111111111111111";
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[4].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[5].value = ASCIIToUTF16("123");
+  credit_card_form.fields[5].value = u"123";
 
   base::HistogramTester histogram_tester;
 
@@ -4908,11 +4895,11 @@ TEST_F(CreditCardSaveManagerTest, LocallySaveCreditCard_ClearStrikesOnAdd) {
   ExpectFillableFormParsedUkm(1 /* num_fillable_forms_parsed */);
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("Flo Master");
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"Flo Master";
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("123");
+  credit_card_form.fields[4].value = u"123";
 
   FormSubmitted(credit_card_form);
   EXPECT_TRUE(autofill_client_.ConfirmSaveCardLocallyWasCalled());
@@ -4949,11 +4936,11 @@ TEST_F(CreditCardSaveManagerTest, UploadCreditCard_ClearStrikesOnAdd) {
   ExpectFillableFormParsedUkm(2 /* num_fillable_forms_parsed */);
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("Flo Master");
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"Flo Master";
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("123");
+  credit_card_form.fields[4].value = u"123";
 
   FormSubmitted(credit_card_form);
   EXPECT_FALSE(autofill_client_.ConfirmSaveCardLocallyWasCalled());
@@ -4982,11 +4969,11 @@ TEST_F(CreditCardSaveManagerTest, LocallySaveCreditCard_NumStrikesLoggedOnAdd) {
   ExpectFillableFormParsedUkm(1 /* num_fillable_forms_parsed */);
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("Flo Master");
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"Flo Master";
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("123");
+  credit_card_form.fields[4].value = u"123";
 
   base::HistogramTester histogram_tester;
 
@@ -5027,11 +5014,11 @@ TEST_F(CreditCardSaveManagerTest, UploadCreditCard_NumStrikesLoggedOnAdd) {
   ExpectFillableFormParsedUkm(2 /* num_fillable_forms_parsed */);
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("Flo Master");
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"Flo Master";
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("123");
+  credit_card_form.fields[4].value = u"123";
 
   base::HistogramTester histogram_tester;
 
@@ -5059,7 +5046,7 @@ TEST_F(CreditCardSaveManagerTest,
   // by 1.
   credit_card_save_manager_->set_show_save_prompt(true);
   credit_card_save_manager_->set_upload_request_card_number(
-      ASCIIToUTF16("4111111111111111"));
+      u"4111111111111111");
   credit_card_save_manager_->OnDidUploadCard(AutofillClient::TRY_AGAIN_FAILURE,
                                              server_id);
   EXPECT_EQ(1, credit_card_save_strike_database.GetStrikes("1111"));
@@ -5087,11 +5074,11 @@ TEST_F(CreditCardSaveManagerTest, UploadSaveNotOfferedForUnsupportedCard) {
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("Flo Master");
-  credit_card_form.fields[1].value = ASCIIToUTF16("5454545454545454");
+  credit_card_form.fields[0].value = u"Flo Master";
+  credit_card_form.fields[1].value = u"5454545454545454";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("123");
+  credit_card_form.fields[4].value = u"123";
 
   // Since card isn't in any of the supported ranges, local save should be
   // offered and upload save should not.
@@ -5122,11 +5109,11 @@ TEST_F(CreditCardSaveManagerTest, LocalSaveNotOfferedForSavedUnsupportedCard) {
   personal_data_.AddCreditCard(local_card);
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("Flo Master");
-  credit_card_form.fields[1].value = ASCIIToUTF16("5454545454545454");
+  credit_card_form.fields[0].value = u"Flo Master";
+  credit_card_form.fields[1].value = u"5454545454545454";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("123");
+  credit_card_form.fields[4].value = u"123";
 
   // Since card is already saved, local save should not be offered.
   FormSubmitted(credit_card_form);
@@ -5147,11 +5134,11 @@ TEST_F(CreditCardSaveManagerTest, UploadSaveOfferedForSupportedCard) {
   FormsSeen(std::vector<FormData>(1, credit_card_form));
 
   // Edit the data, and submit.
-  credit_card_form.fields[0].value = ASCIIToUTF16("Flo Master");
-  credit_card_form.fields[1].value = ASCIIToUTF16("4111111111111111");
+  credit_card_form.fields[0].value = u"Flo Master";
+  credit_card_form.fields[1].value = u"4111111111111111";
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("123");
+  credit_card_form.fields[4].value = u"123";
 
   // Since card is in one of the supported ranges(4111-4113), upload save should
   // be offered.
@@ -5181,11 +5168,11 @@ TEST_F(CreditCardSaveManagerTest, InvalidLegalMessageInOnDidGetUploadDetails) {
 
   // Edit the data, and submit.
   const char* const card_number = "4111111111111111";
-  credit_card_form.fields[0].value = ASCIIToUTF16("Flo Master");
+  credit_card_form.fields[0].value = u"Flo Master";
   credit_card_form.fields[1].value = ASCIIToUTF16(card_number);
   credit_card_form.fields[2].value = ASCIIToUTF16(test::NextMonth());
   credit_card_form.fields[3].value = ASCIIToUTF16(test::NextYear());
-  credit_card_form.fields[4].value = ASCIIToUTF16("123");
+  credit_card_form.fields[4].value = u"123";
 
   base::HistogramTester histogram_tester;
   FormSubmitted(credit_card_form);

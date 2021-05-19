@@ -33,7 +33,7 @@ IndexedDBFakeBackingStore::IndexedDBFakeBackingStore()
                             base::FilePath(),
                             std::unique_ptr<TransactionalLevelDBDatabase>(),
                             /*blob_storage_context=*/nullptr,
-                            /*native_file_system_context=*/nullptr,
+                            /*file_system_access_context=*/nullptr,
                             std::make_unique<storage::FilesystemProxy>(
                                 storage::FilesystemProxy::UNRESTRICTED,
                                 base::FilePath()),
@@ -50,7 +50,7 @@ IndexedDBFakeBackingStore::IndexedDBFakeBackingStore(
                             base::FilePath(),
                             std::unique_ptr<TransactionalLevelDBDatabase>(),
                             /*blob_storage_context=*/nullptr,
-                            /*native_file_system_context=*/nullptr,
+                            /*file_system_access_context=*/nullptr,
                             std::make_unique<storage::FilesystemProxy>(
                                 storage::FilesystemProxy::UNRESTRICTED,
                                 base::FilePath()),
@@ -60,7 +60,7 @@ IndexedDBFakeBackingStore::IndexedDBFakeBackingStore(
 IndexedDBFakeBackingStore::~IndexedDBFakeBackingStore() = default;
 
 leveldb::Status IndexedDBFakeBackingStore::DeleteDatabase(
-    const base::string16& name,
+    const std::u16string& name,
     TransactionalLevelDBTransaction* transaction) {
   return leveldb::Status::OK();
 }
@@ -141,7 +141,7 @@ IndexedDBFakeBackingStore::OpenObjectStoreKeyCursor(
     const IndexedDBKeyRange& key_range,
     blink::mojom::IDBCursorDirection,
     leveldb::Status* s) {
-  return std::unique_ptr<IndexedDBBackingStore::Cursor>();
+  return nullptr;
 }
 std::unique_ptr<IndexedDBBackingStore::Cursor>
 IndexedDBFakeBackingStore::OpenObjectStoreCursor(
@@ -151,7 +151,7 @@ IndexedDBFakeBackingStore::OpenObjectStoreCursor(
     const IndexedDBKeyRange& key_range,
     blink::mojom::IDBCursorDirection,
     leveldb::Status* s) {
-  return std::unique_ptr<IndexedDBBackingStore::Cursor>();
+  return nullptr;
 }
 std::unique_ptr<IndexedDBBackingStore::Cursor>
 IndexedDBFakeBackingStore::OpenIndexKeyCursor(
@@ -162,7 +162,7 @@ IndexedDBFakeBackingStore::OpenIndexKeyCursor(
     const IndexedDBKeyRange& key_range,
     blink::mojom::IDBCursorDirection,
     leveldb::Status* s) {
-  return std::unique_ptr<IndexedDBBackingStore::Cursor>();
+  return nullptr;
 }
 std::unique_ptr<IndexedDBBackingStore::Cursor>
 IndexedDBFakeBackingStore::OpenIndexCursor(
@@ -173,7 +173,7 @@ IndexedDBFakeBackingStore::OpenIndexCursor(
     const IndexedDBKeyRange& key_range,
     blink::mojom::IDBCursorDirection,
     leveldb::Status* s) {
-  return std::unique_ptr<IndexedDBBackingStore::Cursor>();
+  return nullptr;
 }
 
 IndexedDBFakeBackingStore::FakeTransaction::FakeTransaction(

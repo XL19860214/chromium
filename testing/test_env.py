@@ -94,6 +94,10 @@ def get_sanitizer_env(cmd, asan, lsan, msan, tsan, cfi_diag):
     asan_options = symbolization_options[:]
     if lsan:
       asan_options.append('detect_leaks=1')
+      # LSan appears to have trouble with later versions of glibc.
+      # See https://github.com/google/sanitizers/issues/1322
+      if 'linux' in sys.platform:
+        asan_options.append('intercept_tls_get_addr=0')
 
     if asan_options:
       extra_env['ASAN_OPTIONS'] = ' '.join(asan_options)
@@ -389,4 +393,9 @@ def main():
 
 
 if __name__ == '__main__':
+  if sys.platform == 'win32':
+    sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+        'scripts'))
+    import common
+    common.set_lpac_acls(ROOT_DIR)
   sys.exit(main())

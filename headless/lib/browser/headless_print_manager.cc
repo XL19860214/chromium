@@ -16,13 +16,37 @@
 #include "base/strings/utf_string_conversions.h"
 #include "components/printing/browser/print_manager_utils.h"
 #include "components/printing/common/print.mojom.h"
-#include "components/printing/common/print_messages.h"
 #include "content/public/browser/render_view_host.h"
 #include "printing/mojom/print.mojom.h"
 #include "printing/print_job_constants.h"
 #include "printing/units.h"
 
+#if BUILDFLAG(ENABLE_PRINT_PREVIEW)
+#include "mojo/public/cpp/bindings/message.h"
+#endif
+
 namespace headless {
+
+namespace {
+
+#if BUILDFLAG(ENABLE_PRINT_PREVIEW)
+constexpr char kInvalidUpdatePrintSettingsCall[] =
+    "Invalid UpdatePrintSettings Call";
+constexpr char kInvalidSetupScriptedPrintPreviewCall[] =
+    "Invalid SetupScriptedPrintPreview Call";
+constexpr char kInvalidShowScriptedPrintPreviewCall[] =
+    "Invalid ShowScriptedPrintPreview Call";
+constexpr char kInvalidRequestPrintPreviewCall[] =
+    "Invalid RequestPrintPreview Call";
+constexpr char kInvalidCheckForCancelCall[] = "Invalid CheckForCancel Call";
+#endif
+
+#if BUILDFLAG(ENABLE_TAGGED_PDF)
+constexpr char kInvalidSetAccessibilityTreeCall[] =
+    "Invalid SetAccessibilityTree Call";
+#endif
+
+}  // namespace
 
 HeadlessPrintSettings::HeadlessPrintSettings()
     : prefer_css_page_size(false),
@@ -186,32 +210,6 @@ HeadlessPrintManager::GetPrintParamsFromSettings(
   return print_params;
 }
 
-bool HeadlessPrintManager::OnMessageReceived(
-    const IPC::Message& message,
-    content::RenderFrameHost* render_frame_host) {
-  if (!printing_rfh_ && message.type() == PrintHostMsg_ScriptedPrint::ID) {
-    std::string type;
-    switch (message.type()) {
-      case PrintHostMsg_ScriptedPrint::ID:
-        type = "ScriptedPrint";
-        break;
-      default:
-        type = "Unknown";
-        break;
-    }
-    DLOG(ERROR)
-        << "Unexpected message received before GetPDFContents is called: "
-        << type;
-
-    // TODO: consider propagating the error back to the caller, rather than
-    // effectively dropping the request.
-    render_frame_host->Send(IPC::SyncMessage::GenerateReply(&message));
-    return true;
-  }
-
-  return PrintManager::OnMessageReceived(message, render_frame_host);
-}
-
 void HeadlessPrintManager::GetDefaultPrintSettings(
     GetDefaultPrintSettingsCallback callback) {
   if (!printing_rfh_) {
@@ -223,27 +221,32 @@ void HeadlessPrintManager::GetDefaultPrintSettings(
   std::move(callback).Run(print_params_->params->Clone());
 }
 
-void HeadlessPrintManager::OnScriptedPrint(
-    content::RenderFrameHost* render_frame_host,
-    const printing::mojom::ScriptedPrintParams& params,
-    IPC::Message* reply_msg) {
+void HeadlessPrintManager::ScriptedPrint(
+    printing::mojom::ScriptedPrintParamsPtr params,
+    ScriptedPrintCallback callback) {
   PageRangeStatus status =
       PageRangeTextToPages(page_ranges_text_, ignore_invalid_page_ranges_,
-                           params.expected_pages_count, &print_params_->pages);
-  // Intentionally using |printing_rfh_| instead of |render_frame_host|
-  // parameter.
+                           params->expected_pages_count, &print_params_->pages);
+
+  auto default_param = printing::mojom::PrintPagesParams::New();
+  default_param->params = printing::mojom::PrintParams::New();
+  if (!printing_rfh_) {
+    DLOG(ERROR) << "Unexpected message received before GetPDFContents is "
+                   "called: ScriptedPrint";
+    std::move(callback).Run(std::move(default_param));
+    return;
+  }
   switch (status) {
     case SYNTAX_ERROR:
-      printing_rfh_->Send(reply_msg);
       ReleaseJob(PAGE_RANGE_SYNTAX_ERROR);
+      std::move(callback).Run(std::move(default_param));
       return;
     case LIMIT_ERROR:
-      printing_rfh_->Send(reply_msg);
       ReleaseJob(PAGE_COUNT_EXCEEDED);
+      std::move(callback).Run(std::move(default_param));
       return;
     case PRINT_NO_ERROR:
-      PrintHostMsg_ScriptedPrint::WriteReplyParams(reply_msg, *print_params_);
-      printing_rfh_->Send(reply_msg);
+      std::move(callback).Run(print_params_->Clone());
       return;
     default:
       NOTREACHED();
@@ -258,6 +261,55 @@ void HeadlessPrintManager::ShowInvalidPrinterSettingsError() {
 void HeadlessPrintManager::PrintingFailed(int32_t cookie) {
   ReleaseJob(PRINTING_FAILED);
 }
+
+#if BUILDFLAG(ENABLE_PRINT_PREVIEW)
+void HeadlessPrintManager::UpdatePrintSettings(
+    int32_t cookie,
+    base::Value job_settings,
+    UpdatePrintSettingsCallback callback) {
+  // UpdatePrintSettingsCallback() should never be called on
+  // HeadlessPrintManager, since it is only triggered by Print Preview.
+  mojo::ReportBadMessage(kInvalidUpdatePrintSettingsCall);
+}
+
+void HeadlessPrintManager::SetupScriptedPrintPreview(
+    SetupScriptedPrintPreviewCallback callback) {
+  // SetupScriptedPrintPreview() should never be called on HeadlessPrintManager,
+  // since it is only triggered by Print Preview.
+  mojo::ReportBadMessage(kInvalidSetupScriptedPrintPreviewCall);
+}
+
+void HeadlessPrintManager::ShowScriptedPrintPreview(bool source_is_modifiable) {
+  // ShowScriptedPrintPreview() should never be called on HeadlessPrintManager,
+  // since it is only triggered by Print Preview.
+  mojo::ReportBadMessage(kInvalidShowScriptedPrintPreviewCall);
+}
+
+void HeadlessPrintManager::RequestPrintPreview(
+    printing::mojom::RequestPrintPreviewParamsPtr params) {
+  // RequestPrintPreview() should never be called on HeadlessPrintManager, since
+  // it is only triggered by Print Preview.
+  mojo::ReportBadMessage(kInvalidRequestPrintPreviewCall);
+}
+
+void HeadlessPrintManager::CheckForCancel(int32_t preview_ui_id,
+                                          int32_t request_id,
+                                          CheckForCancelCallback callback) {
+  // CheckForCancel() should never be called on HeadlessPrintManager, since it
+  // is only triggered by Print Preview.
+  mojo::ReportBadMessage(kInvalidCheckForCancelCall);
+}
+#endif  // BUILDFLAG(ENABLE_PRINT_PREVIEW)
+
+#if BUILDFLAG(ENABLE_TAGGED_PDF)
+void HeadlessPrintManager::SetAccessibilityTree(
+    int32_t cookie,
+    const ui::AXTreeUpdate& accessibility_tree) {
+  // SetAccessibilityTree() should never be called on HeadlessPrintManager,
+  // since it is only triggered by Print Preview.
+  mojo::ReportBadMessage(kInvalidSetAccessibilityTreeCall);
+}
+#endif
 
 void HeadlessPrintManager::DidPrintDocument(
     printing::mojom::DidPrintDocumentParamsPtr params,

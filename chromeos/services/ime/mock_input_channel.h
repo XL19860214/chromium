@@ -60,7 +60,11 @@ class MockInputChannel : public mojom::InputChannel {
               GetRulebasedKeypressCountForTesting,
               (GetRulebasedKeypressCountForTestingCallback),
               (override));
-  MOCK_METHOD(void, CommitText, (const std::string& text), (override));
+  MOCK_METHOD(void,
+              CommitText,
+              (const std::string& text,
+               mojom::CommitTextCursorBehavior cursor_behavior),
+              (override));
   MOCK_METHOD(void, SetComposition, (const std::string& text), (override));
   MOCK_METHOD(void,
               SetCompositionRange,
@@ -76,6 +80,16 @@ class MockInputChannel : public mojom::InputChannel {
               HandleAutocorrect,
               (mojom::AutocorrectSpanPtr autocorrect_span),
               (override));
+  MOCK_METHOD(void,
+              RequestSuggestions,
+              (mojom::SuggestionsRequestPtr request,
+               RequestSuggestionsCallback callback),
+              (override));
+  MOCK_METHOD(void,
+              DisplaySuggestions,
+              (const std::vector<ime::TextSuggestion>& suggestions),
+              (override));
+  MOCK_METHOD(void, RecordUkm, (mojom::UkmEntryPtr entry), (override));
 
  private:
   mojo::Receiver<mojom::InputChannel> receiver_;

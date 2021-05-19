@@ -142,7 +142,7 @@ std::string TokenServiceLoadCredentialsStateToLabel(
   return std::string();
 }
 
-#if !defined (OS_CHROMEOS)
+#if !BUILDFLAG(IS_CHROMEOS_ASH)
 std::string SigninStatusFieldToLabel(
     signin_internals_util::TimedSigninStatusField field) {
   switch (field) {
@@ -157,7 +157,7 @@ std::string SigninStatusFieldToLabel(
   NOTREACHED();
   return "Error";
 }
-#endif  // !defined (OS_CHROMEOS)
+#endif  // !BUILDFLAG(IS_CHROMEOS_ASH)
 
 // It's quite unfortunate that |time| is saved in prefs as a string instead of
 // base::Time because any change of the format would create inconsistency.
@@ -201,6 +201,17 @@ std::string GetAccountConsistencyDescription(
   }
   NOTREACHED();
   return "";
+}
+
+std::string GetSigninStatusDescription(
+    signin::IdentityManager* identity_manager) {
+  if (!identity_manager->HasPrimaryAccount(signin::ConsentLevel::kSignin)) {
+    return "Not Signed In";
+  } else if (identity_manager->HasPrimaryAccount(signin::ConsentLevel::kSync)) {
+    return "Signed In, Consented for Sync";
+  } else {
+    return "Signed In, Not Consented for Sync";
+  }
 }
 
 }  // anonymous namespace
@@ -340,7 +351,7 @@ void AboutSigninInternals::OnContentSettingChanged(
 }
 
 void AboutSigninInternals::NotifyObservers() {
-  if (!signin_observers_.might_have_observers())
+  if (signin_observers_.empty())
     return;
 
   std::unique_ptr<base::DictionaryValue> signin_status_value =
@@ -462,13 +473,8 @@ void AboutSigninInternals::OnUnblockReconcile() {
   NotifyObservers();
 }
 
-void AboutSigninInternals::OnPrimaryAccountSet(
-    const CoreAccountInfo& primary_account_info) {
-  NotifyObservers();
-}
-
-void AboutSigninInternals::OnPrimaryAccountCleared(
-    const CoreAccountInfo& primary_account_info) {
+void AboutSigninInternals::OnPrimaryAccountChanged(
+    const signin::PrimaryAccountChangeEvent& event) {
   NotifyObservers();
 }
 
@@ -620,9 +626,8 @@ AboutSigninInternals::SigninStatus::ToValue(
       AddSection(signin_info.get(), "Basic Information");
   AddSectionEntry(basic_info, "Account Consistency",
                   GetAccountConsistencyDescription(account_consistency));
-  AddSectionEntry(
-      basic_info, "Signin Status",
-      identity_manager->HasPrimaryAccount() ? "Signed In" : "Not Signed In");
+  AddSectionEntry(basic_info, "Signin Status",
+                  GetSigninStatusDescription(identity_manager));
   signin::LoadCredentialsState load_tokens_state =
       identity_manager->GetDiagnosticsProvider()
           ->GetDetailedStateOfLoadingOfRefreshTokens();
@@ -632,8 +637,9 @@ AboutSigninInternals::SigninStatus::ToValue(
       basic_info, "Gaia cookies state",
       GetGaiaCookiesStateAsString(GetGaiaCookiesState(signin_client)));
 
-  if (identity_manager->HasPrimaryAccount()) {
-    CoreAccountInfo account_info = identity_manager->GetPrimaryAccountInfo();
+  if (identity_manager->HasPrimaryAccount(signin::ConsentLevel::kSignin)) {
+    CoreAccountInfo account_info =
+        identity_manager->GetPrimaryAccountInfo(signin::ConsentLevel::kSignin);
     AddSectionEntry(basic_info,
                     SigninStatusFieldToLabel(signin_internals_util::ACCOUNT_ID),
                     account_info.account_id.ToString());
@@ -646,7 +652,7 @@ AboutSigninInternals::SigninStatus::ToValue(
     if (signin_error_controller->HasError()) {
       const CoreAccountId error_account_id =
           signin_error_controller->error_account_id();
-      const base::Optional<AccountInfo> error_account_info =
+      const absl::optional<AccountInfo> error_account_info =
           identity_manager
               ->FindExtendedAccountInfoForAccountWithRefreshTokenByAccountId(
                   error_account_id);

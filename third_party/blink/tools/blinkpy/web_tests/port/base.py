@@ -33,13 +33,15 @@ in the web test infrastructure.
 
 import time
 import collections
-import itertools
 import json
 import logging
 import optparse
 import re
 import sys
 import tempfile
+
+import six
+from six.moves import zip_longest
 
 from blinkpy.common import exit_codes
 from blinkpy.common import find_files
@@ -184,7 +186,7 @@ class Port(object):
     WEBDRIVER_SUBTEST_PYTEST_SEPARATOR = '::'
 
     # The following two constants must match. When adding a new WPT root, also
-    # remember to add an alias rule to third_party/wpt/wpt.config.json.
+    # remember to add an alias rule to //third_party/wpt_tools/wpt.config.json.
     # WPT_DIRS maps WPT roots on the file system to URL prefixes on wptserve.
     # The order matters: '/' MUST be the last URL prefix.
     WPT_DIRS = collections.OrderedDict([
@@ -417,7 +419,7 @@ class Port(object):
 
     def default_max_locked_shards(self):
         """Returns the number of "locked" shards to run in parallel (like the http tests)."""
-        max_locked_shards = int(self.default_child_processes()) / 4
+        max_locked_shards = int(self.default_child_processes()) // 4
         if not max_locked_shards:
             return 1
         return max_locked_shards
@@ -436,7 +438,8 @@ class Port(object):
     def baseline_search_path(self):
         return (self.get_option('additional_platform_directory', []) +
                 self._flag_specific_baseline_search_path() +
-                self._compare_baseline() + self.default_baseline_search_path())
+                self._compare_baseline() +
+                list(self.default_baseline_search_path()))
 
     def default_baseline_search_path(self):
         """Returns a list of absolute paths to directories to search under for baselines.
@@ -842,7 +845,23 @@ class Port(object):
         if not self._filesystem.exists(baseline_path):
             return None
         text = self._filesystem.read_binary_file(baseline_path)
-        return text.replace('\r\n', '\n')
+        return text.replace(b'\r\n', b'\n')
+
+    def expected_subtest_failure(self, test_name):
+        baseline = self.expected_text(test_name)
+        if baseline:
+            baseline = baseline.decode('utf8', 'replace')
+            if re.search(r"^(FAIL|NOTRUN|TIMEOUT)", baseline, re.MULTILINE):
+                return True
+        return False
+
+    def expected_harness_error(self, test_name):
+        baseline = self.expected_text(test_name)
+        if baseline:
+            baseline = baseline.decode('utf8', 'replace')
+            if re.search(r"^Harness Error\.", baseline, re.MULTILINE):
+                return True
+        return False
 
     def reference_files(self, test_name):
         """Returns a list of expectation (== or !=) and filename pairs"""
@@ -1331,7 +1350,8 @@ class Port(object):
         return self.results_directory()
 
     def inspector_build_directory(self):
-        return self._build_path('resources', 'inspector')
+        return self._build_path('gen', 'third_party', 'devtools-frontend',
+                                'src', 'front_end')
 
     def generated_sources_directory(self):
         return self._build_path('gen')
@@ -1823,11 +1843,9 @@ class Port(object):
     def output_contains_sanitizer_messages(self, output):
         if not output:
             return None
-        if 'AddressSanitizer' in output:
-            return 'AddressSanitizer'
-        if 'MemorySanitizer' in output:
-            return 'MemorySanitizer'
-        return None
+        if (b'AddressSanitizer' in output) or (b'MemorySanitizer' in output):
+            return True
+        return False
 
     def _get_crash_log(self, name, pid, stdout, stderr, newer_than):
         if self.output_contains_sanitizer_messages(stderr):
@@ -1859,20 +1877,21 @@ class Port(object):
 
         # We require stdout and stderr to be bytestrings, not character strings.
         if stdout:
-            assert isinstance(stdout, basestring)
             stdout_lines = stdout.decode('utf8', 'replace').splitlines()
         else:
             stdout_lines = [u'<empty>']
+
         if stderr:
-            assert isinstance(stderr, basestring)
             stderr_lines = stderr.decode('utf8', 'replace').splitlines()
         else:
             stderr_lines = [u'<empty>']
 
-        return (stderr, 'crash log for %s (pid %s):\n%s\n%s\n' %
-                (name_str, pid_str, '\n'.join(
-                    ('STDOUT: ' + l) for l in stdout_lines), '\n'.join(
-                        ('STDERR: ' + l) for l in stderr_lines)),
+        return (stderr,
+                ('crash log for %s (pid %s):\n%s\n%s\n' %
+                 (name_str, pid_str, '\n'.join(
+                     ('STDOUT: ' + l) for l in stdout_lines), '\n'.join(
+                         ('STDERR: ' + l)
+                         for l in stderr_lines))).encode('utf8', 'replace'),
                 self._get_crash_site(stderr_lines))
 
     def _get_crash_site(self, stderr_lines):
@@ -2045,8 +2064,8 @@ class Port(object):
         # This walks through the set of paths where we should look for tests.
         # For each path, a map can be provided that we replace 'path' with in
         # the result.
-        for filter_path, virtual_prefix in itertools.izip_longest(
-                filter_paths, virtual_prefixes):
+        for filter_path, virtual_prefix in zip_longest(filter_paths,
+                                                       virtual_prefixes):
             # This is to make sure "external[\\/]?" can also match to
             # external/wpt.
             # TODO(robertma): Remove this special case when external/wpt is

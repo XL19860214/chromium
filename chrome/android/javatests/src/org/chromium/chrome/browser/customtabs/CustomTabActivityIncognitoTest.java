@@ -13,8 +13,10 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import static org.chromium.chrome.browser.customtabs.CustomTabActivityTestRule.LONG_TIMEOUT_MS;
 import static org.chromium.chrome.browser.customtabs.CustomTabsTestUtils.addActionButtonToIntent;
 import static org.chromium.chrome.browser.customtabs.CustomTabsTestUtils.createTestBitmap;
+import static org.chromium.chrome.browser.customtabs.IncognitoCustomTabIntentDataProvider.EXTRA_FORCE_ENABLE_FOR_EXPERIMENT;
 
 import android.annotation.TargetApi;
 import android.app.NotificationManager;
@@ -25,6 +27,7 @@ import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.drawable.Drawable;
+import android.net.Uri;
 import android.os.Build;
 import android.support.test.InstrumentationRegistry;
 import android.view.Menu;
@@ -36,9 +39,11 @@ import android.widget.RemoteViews;
 import androidx.annotation.DrawableRes;
 import androidx.appcompat.content.res.AppCompatResources;
 import androidx.browser.customtabs.CustomTabsIntent;
+import androidx.browser.customtabs.CustomTabsSessionToken;
 import androidx.test.espresso.Espresso;
 import androidx.test.filters.MediumTest;
 
+import org.hamcrest.Matchers;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Rule;
@@ -48,14 +53,19 @@ import org.junit.runner.RunWith;
 
 import org.chromium.base.ContextUtils;
 import org.chromium.base.test.util.CommandLineFlags;
+import org.chromium.base.test.util.Criteria;
+import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.base.test.util.MinAndroidSdkLevel;
 import org.chromium.chrome.R;
+import org.chromium.chrome.browser.IntentHandler;
 import org.chromium.chrome.browser.customtabs.CustomTabsTestUtils.OnFinishedForTest;
 import org.chromium.chrome.browser.customtabs.features.toolbar.CustomTabToolbar;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.incognito.IncognitoDataTestUtils;
+import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
+import org.chromium.chrome.test.util.ChromeTabUtils;
 import org.chromium.chrome.test.util.browser.Features;
 import org.chromium.components.browser_ui.styles.ChromeColors;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
@@ -163,6 +173,15 @@ public class CustomTabActivityIncognitoTest {
         return mCustomTabActivityTestRule.getActivity();
     }
 
+    private void assertProfileUsedIsNonPrimary() throws TimeoutException {
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
+            Profile profile = Profile.fromWebContents(
+                    mCustomTabActivityTestRule.getActivity().getCurrentWebContents());
+            assertTrue(profile.isOffTheRecord());
+            assertFalse(profile.isPrimaryOTRProfile());
+        });
+    }
+
     @Test
     @MediumTest
     @Features.EnableFeatures({ChromeFeatureList.CCT_INCOGNITO})
@@ -170,6 +189,7 @@ public class CustomTabActivityIncognitoTest {
         Intent intent = createMinimalIncognitoCustomTabIntent();
         CustomTabActivity activity = launchIncognitoCustomTab(intent);
         assertTrue(activity.getActivityTab().isIncognito());
+        assertProfileUsedIsNonPrimary();
     }
 
     @Test
@@ -211,13 +231,43 @@ public class CustomTabActivityIncognitoTest {
 
     @Test
     @MediumTest
+    @Features.EnableFeatures({ChromeFeatureList.CCT_INCOGNITO})
+    public void toolbarHasNonPrimaryIncognitoProfile_ForIncognitoCCT() throws Exception {
+        Intent intent = createMinimalIncognitoCustomTabIntent();
+        launchIncognitoCustomTab(intent);
+
+        CustomTabToolbar customTabToolbar =
+                mCustomTabActivityTestRule.getActivity().findViewById(R.id.toolbar);
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
+            Profile profile = customTabToolbar.getToolbarDataProvider().getProfile();
+            assertTrue(profile.isOffTheRecord());
+            assertFalse(profile.isPrimaryOTRProfile());
+        });
+    }
+
+    @Test
+    @MediumTest
+    public void toolbarHasRegularProfile_ForRegularCCT() {
+        Intent intent = CustomTabsTestUtils.createMinimalCustomTabIntent(
+                InstrumentationRegistry.getContext(), "about:blank");
+        mCustomTabActivityTestRule.startCustomTabActivityWithIntent(intent);
+        CustomTabToolbar customTabToolbar =
+                mCustomTabActivityTestRule.getActivity().findViewById(R.id.toolbar);
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
+            Profile profile = customTabToolbar.getToolbarDataProvider().getProfile();
+            assertFalse(profile.isOffTheRecord());
+        });
+    }
+
+    @Test
+    @MediumTest
     @Features.DisableFeatures({ChromeFeatureList.CCT_INCOGNITO})
     public void canLaunchFirstPartyIncognitoWithExtraWhenDisabled() throws Exception {
         Intent intent = createMinimalIncognitoCustomTabIntent();
-        intent.putExtra(
-                IncognitoCustomTabIntentDataProvider.EXTRA_FORCE_ENABLE_FOR_EXPERIMENT, true);
+        intent.putExtra(EXTRA_FORCE_ENABLE_FOR_EXPERIMENT, true);
         CustomTabActivity activity = launchIncognitoCustomTab(intent);
         assertTrue(activity.getActivityTab().isIncognito());
+        assertProfileUsedIsNonPrimary();
     }
 
     @Test
@@ -359,6 +409,8 @@ public class CustomTabActivityIncognitoTest {
     public void ensureAddCustomMenuItemIsEnabledForReaderMode() throws Exception {
         Intent intent = createMinimalIncognitoCustomTabIntent();
         CustomTabIntentDataProvider.addReaderModeUIExtras(intent);
+        IncognitoCustomTabIntentDataProvider.addIncongitoExtrasForChromeFeatures(
+                intent, IntentHandler.IncognitoCCTCallerId.READER_MODE);
         CustomTabActivity activity = launchIncognitoCustomTab(intent);
         CustomTabsTestUtils.openAppMenuAndAssertMenuShown(activity);
 
@@ -410,9 +462,9 @@ public class CustomTabActivityIncognitoTest {
         // views with the @RemoteView annotation.
         RemoteViews remoteViews =
                 new RemoteViews(InstrumentationRegistry.getTargetContext().getPackageName(),
-                        R.layout.web_notification);
-        remoteViews.setTextViewText(R.id.title, "Kittens!");
-        remoteViews.setTextViewText(R.id.body, "So fluffy");
+                        R.layout.share_sheet_item);
+        remoteViews.setTextViewText(R.id.text, "Kittens!");
+        remoteViews.setTextViewText(R.id.display_new, "So fluffy");
         remoteViews.setImageViewResource(R.id.icon, R.drawable.ic_email_googblue_36dp);
         intent.putExtra(CustomTabsIntent.EXTRA_REMOTEVIEWS, remoteViews);
         intent.putExtra(CustomTabsIntent.EXTRA_REMOTEVIEWS_VIEW_IDS, new int[] {R.id.icon});
@@ -426,4 +478,53 @@ public class CustomTabActivityIncognitoTest {
         View bottomBarView = mCustomTabActivityTestRule.getActivity().findViewById(R.id.bottom_bar);
         assertTrue(bottomBarView == null);
     }
+
+    @Test
+    @MediumTest
+    @Features.EnableFeatures({ChromeFeatureList.CCT_INCOGNITO})
+    public void ensureMayLaunchUrlIsBlockedForIncognitoWithExtraInConnection() throws Exception {
+        // mayLaunchUrl should be blocked for incognito mode since it runs with always regular
+        // profile. Need to update the test if the mayLaunchUrl is ever
+        // allowed in incognito. (crbug.com/1106757)
+        Intent intent = createMinimalIncognitoCustomTabIntent();
+        final CustomTabsConnection connection = CustomTabsTestUtils.warmUpAndWait();
+        final CustomTabsSessionToken token =
+                CustomTabsSessionToken.getSessionTokenFromIntent(intent);
+        // Passes the launch intent to the connection.
+        mCustomTabActivityTestRule.buildSessionWithHiddenTab(connection, token);
+        Assert.assertFalse(
+                connection.mayLaunchUrl(token, Uri.parse(mTestPage), intent.getExtras(), null));
+        CriteriaHelper.pollUiThread(() -> {
+            Criteria.checkThat("Tab was created", connection.getSpeculationParamsForTesting(),
+                    Matchers.nullValue());
+        }, LONG_TIMEOUT_MS, CriteriaHelper.DEFAULT_POLLING_INTERVAL);
+        mCustomTabActivityTestRule.setCustomSessionInitiatedForIntent();
+        mCustomTabActivityTestRule.startCustomTabActivityWithIntent(intent);
     }
+
+    @Test
+    @MediumTest
+    @Features.EnableFeatures({ChromeFeatureList.CCT_INCOGNITO})
+    public void ensureHiddenTabIsBlockedForIncognitoWithoutExtraInConnection() throws Exception {
+        // Creation of hidden tab should be blocked for incognito mode for the same setup as regular
+        // mode above. Currently hidden tabs are created always with regular profile, so we
+        // should block the hidden tab creation. Need to update the test if the hidden tabs are
+        // allowed in incognito. (crbug.com/1190971)
+        Intent intent = createMinimalIncognitoCustomTabIntent();
+        final CustomTabsConnection connection = CustomTabsTestUtils.warmUpAndWait();
+        final CustomTabsSessionToken token =
+                CustomTabsSessionToken.getSessionTokenFromIntent(intent);
+        // Passes null intent here to mimic not having incognito extra in intent at the connection.
+        mCustomTabActivityTestRule.buildSessionWithHiddenTab(connection, token);
+        Assert.assertTrue(connection.mayLaunchUrl(token, Uri.parse(mTestPage), null, null));
+        CriteriaHelper.pollUiThread(() -> {
+            Criteria.checkThat("Tab was not created", connection.getSpeculationParamsForTesting(),
+                    Matchers.notNullValue());
+        }, LONG_TIMEOUT_MS, CriteriaHelper.DEFAULT_POLLING_INTERVAL);
+        ChromeTabUtils.waitForTabPageLoaded(
+                connection.getSpeculationParamsForTesting().tab, mTestPage);
+        mCustomTabActivityTestRule.setCustomSessionInitiatedForIntent();
+        mCustomTabActivityTestRule.startCustomTabActivityWithIntent(intent);
+        connection.cleanUpSession(token);
+    }
+}

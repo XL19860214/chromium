@@ -5,28 +5,25 @@
 #ifndef CONTENT_BROWSER_ACCESSIBILITY_ACCESSIBILITY_TREE_FORMATTER_MAC_H_
 #define CONTENT_BROWSER_ACCESSIBILITY_ACCESSIBILITY_TREE_FORMATTER_MAC_H_
 
-#include "content/browser/accessibility/browser_accessibility_cocoa.h"
+#include "content/browser/accessibility/accessibility_tree_formatter_utils_mac.h"
 #include "ui/accessibility/platform/inspect/ax_tree_formatter_base.h"
 
 @class BrowserAccessibilityCocoa;
 
 namespace content {
 
-namespace a11y {
-class LineIndexer;
-class OptionalNSObject;
-}
-
 class CONTENT_EXPORT AccessibilityTreeFormatterMac
     : public ui::AXTreeFormatterBase {
  public:
-  explicit AccessibilityTreeFormatterMac();
+  AccessibilityTreeFormatterMac();
   ~AccessibilityTreeFormatterMac() override;
 
   base::Value BuildTree(ui::AXPlatformNodeDelegate* root) const override;
   base::Value BuildTreeForWindow(gfx::AcceleratedWidget widget) const override;
   base::Value BuildTreeForSelector(
       const AXTreeSelector& selector) const override;
+
+  base::Value BuildNode(ui::AXPlatformNodeDelegate* node) const override;
 
  protected:
   void AddDefaultFilters(
@@ -36,15 +33,19 @@ class CONTENT_EXPORT AccessibilityTreeFormatterMac
   base::Value BuildTree(const id root) const;
   base::Value BuildTreeForAXUIElement(AXUIElementRef node) const;
 
+  base::Value BuildNode(const id node) const;
+
   // Runs all scripts defined by given property filters.
   void EvaluateScripts(const a11y::LineIndexer* line_indexer,
                        base::Value* dict) const;
 
   void RecursiveBuildTree(const id node,
+                          const NSRect& root_rect,
                           const a11y::LineIndexer* line_indexer,
                           base::Value* dict) const;
 
   void AddProperties(const id node,
+                     const NSRect& root_rect,
                      const a11y::LineIndexer* line_indexer,
                      base::Value* dict) const;
 
@@ -54,15 +55,18 @@ class CONTENT_EXPORT AccessibilityTreeFormatterMac
       const ui::AXPropertyNode& property_node,
       const a11y::LineIndexer* line_indexer) const;
 
-  base::Value PopulatePosition(const BrowserAccessibilityCocoa*) const;
+  base::Value PopulateLocalPosition(const id node,
+                                    const NSRect& root_rect) const;
   base::Value PopulatePoint(NSPoint) const;
   base::Value PopulateSize(NSSize) const;
   base::Value PopulateRect(NSRect) const;
   base::Value PopulateRange(NSRange) const;
   base::Value PopulateTextPosition(
-      BrowserAccessibilityPosition::AXPositionInstance::pointer,
-      const a11y::LineIndexer*) const;
-  base::Value PopulateTextMarkerRange(id, const a11y::LineIndexer*) const;
+      const BrowserAccessibility::AXPosition& position,
+      const a11y::LineIndexer* line_indexer) const;
+  base::Value PopulateTextMarkerRange(
+      id marker_range,
+      const a11y::LineIndexer* line_indexer) const;
   base::Value PopulateObject(id, const a11y::LineIndexer* line_indexer) const;
   base::Value PopulateArray(NSArray*,
                             const a11y::LineIndexer* line_indexer) const;
@@ -71,8 +75,6 @@ class CONTENT_EXPORT AccessibilityTreeFormatterMac
 
   std::string ProcessTreeForOutput(
       const base::DictionaryValue& node) const override;
-
-  std::string FormatAttributeValue(const base::Value& value) const;
 };
 
 }  // namespace content

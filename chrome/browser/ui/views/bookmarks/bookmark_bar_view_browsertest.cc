@@ -103,7 +103,7 @@ class BookmarkBarNavigationTest : public InProcessBrowserTest {
     bookmarks::test::WaitForBookmarkModelToLoad(model);
     model->ClearStore();
     std::string url = "/echoheader?";
-    model->AddURL(model->bookmark_bar_node(), 0, base::ASCIIToUTF16("Example"),
+    model->AddURL(model->bookmark_bar_node(), 0, u"Example",
                   https_test_server_.GetURL(url + header));
   }
 
@@ -119,7 +119,7 @@ class BookmarkBarNavigationTest : public InProcessBrowserTest {
 
     // All bookmark navigations should have a null initiator, as there's no
     // web origin from which the navigation is triggered.
-    ASSERT_EQ(base::nullopt, observer.last_initiator_origin());
+    ASSERT_EQ(absl::nullopt, observer.last_initiator_origin());
   }
 
  private:
@@ -258,7 +258,7 @@ class FakeProtocolHandlerDelegate : public ExternalProtocolHandler::Delegate {
       content::WebContents* web_contents,
       ui::PageTransition page_transition,
       bool has_user_gesture,
-      const base::Optional<url::Origin>& initiating_origin) override {
+      const absl::optional<url::Origin>& initiating_origin) override {
     DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
     EXPECT_TRUE(url_invoked_.is_empty());
@@ -290,8 +290,7 @@ IN_PROC_BROWSER_TEST_F(BookmarkBarNavigationTest, ExternalHandlerAllowed) {
       BookmarkModelFactory::GetForBrowserContext(browser()->profile());
   bookmarks::test::WaitForBookmarkModelToLoad(model);
   model->ClearStore();
-  model->AddURL(model->bookmark_bar_node(), 0, base::ASCIIToUTF16("Example"),
-                external_url);
+  model->AddURL(model->bookmark_bar_node(), 0, u"Example", external_url);
 
   // First, get into a known (unblocked) state.
   ExternalProtocolHandler::PermitLaunchUrl();

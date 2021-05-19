@@ -62,6 +62,7 @@ builder(
 builder(
     name = "WebRTC Chromium Linux Tester",
     triggered_by = ["WebRTC Chromium Linux Builder"],
+    os = os.LINUX_BIONIC,
 )
 
 builder(
@@ -80,6 +81,7 @@ builder(
 builder(
     name = "WebRTC Chromium Win Builder",
     goma_backend = goma.backend.RBE_PROD,
+    goma_enable_ats = True,
     os = os.WINDOWS_ANY,
 )
 

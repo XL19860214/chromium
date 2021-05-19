@@ -9,8 +9,6 @@
 #include <string>
 #include <vector>
 
-#include "base/strings/string16.h"
-#include "base/time/time.h"
 #include "build/build_config.h"
 #include "net/nqe/effective_connection_type.h"
 #include "third_party/blink/public/common/common_export.h"
@@ -30,7 +28,7 @@ using blink::mojom::EffectiveConnectionType;
 
 // Map of ISO 15924 four-letter script code to font family.  For example,
 // "Arab" to "My Arabic Font".
-typedef std::map<std::string, base::string16> ScriptFontFamilyMap;
+typedef std::map<std::string, std::u16string> ScriptFontFamilyMap;
 
 // The ISO 15924 script code for undetermined script aka Common. It's the
 // default used on WebKit's side to get/set a font setting when no script is
@@ -135,6 +133,10 @@ struct BLINK_COMMON_EXPORT WebPreferences {
   bool dont_send_key_events_to_javascript;
   bool barrel_button_for_drag_enabled = false;
   bool sync_xhr_in_documents_enabled;
+  // TODO(https://crbug.com/1163644): Remove once Chrome Apps are deprecated.
+  bool target_blank_implies_no_opener_enabled_will_be_removed = true;
+  // TODO(https://crbug.com/1172495): Remove once Chrome Apps are deprecated.
+  bool allow_non_empty_navigator_plugins = false;
   int number_of_cpu_cores;
   blink::mojom::EditingBehavior editing_behavior;
   bool supports_multiple_windows;
@@ -154,6 +156,7 @@ struct BLINK_COMMON_EXPORT WebPreferences {
   bool smart_insert_delete_enabled;
   bool spatial_navigation_enabled;
   bool navigate_on_drag_drop;
+  bool fake_no_alloc_direct_call_for_testing_enabled;
   blink::mojom::V8CacheOptions v8_cache_options;
   bool record_whole_document;
 
@@ -250,10 +253,7 @@ struct BLINK_COMMON_EXPORT WebPreferences {
   // WebView sets this to false to retain old documentElement behaviour
   // (http://crbug.com/761016).
   bool scroll_top_left_interop_enabled;
-  // Disable features such as offscreen canvas that depend on the viz
-  // architecture of surface embedding. Android WebView does not support this
-  // architecture yet.
-  bool disable_features_depending_on_viz;
+
   // Don't accelerate small canvases to avoid crashes TODO(crbug.com/1004304)
   bool disable_accelerated_small_canvases;
 #endif  // defined(OS_ANDROID)
@@ -347,6 +347,10 @@ struct BLINK_COMMON_EXPORT WebPreferences {
   // context-menu (depends on how the event is handled).  Currently touch-drags
   // cannot show context menus, see crbug.com/1096189.
   bool touch_dragend_context_menu = false;
+
+  // By default, WebXR's immersive-ar session creation is allowed, but this can
+  // change depending on the enterprise policy if the platform supports it.
+  bool webxr_immersive_ar_allowed = true;
 
   // We try to keep the default values the same as the default values in
   // chrome, except for the cases where it would require lots of extra work for

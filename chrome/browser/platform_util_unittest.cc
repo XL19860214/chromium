@@ -75,13 +75,14 @@ class PlatformUtilTestContentBrowserClient : public ChromeContentBrowserClient {
 class PlatformUtilTestBase : public BrowserWithTestWindowTest {
  protected:
   void SetUpPlatformFixture(const base::FilePath& test_directory) {
-    content_browser_client_.reset(new PlatformUtilTestContentBrowserClient());
+    content_browser_client_ =
+        std::make_unique<PlatformUtilTestContentBrowserClient>();
     old_content_browser_client_ =
         content::SetBrowserClientForTesting(content_browser_client_.get());
 
     // The test_directory needs to be mounted for it to be accessible.
     content::BrowserContext::GetMountPoints(GetProfile())
-        ->RegisterFileSystem("test", storage::kFileSystemTypeNativeLocal,
+        ->RegisterFileSystem("test", storage::kFileSystemTypeLocal,
                              storage::FileSystemMountOption(), test_directory);
 
     // To test opening a file, we are going to register a mock extension that
@@ -115,8 +116,8 @@ class PlatformUtilTestBase : public BrowserWithTestWindowTest {
     scoped_refptr<extensions::Extension> extension =
         extensions::Extension::Create(
             test_directory.AppendASCII("invalid-extension"),
-            extensions::Manifest::INVALID_LOCATION, *manifest_dictionary,
-            extensions::Extension::NO_FLAGS, &error);
+            extensions::mojom::ManifestLocation::kInvalidLocation,
+            *manifest_dictionary, extensions::Extension::NO_FLAGS, &error);
     ASSERT_TRUE(error.empty()) << error;
     extensions::ExtensionRegistry::Get(GetProfile())->AddEnabled(extension);
   }

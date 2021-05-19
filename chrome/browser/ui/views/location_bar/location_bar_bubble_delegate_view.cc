@@ -17,6 +17,7 @@
 #include "content/public/browser/render_view_host.h"
 #include "ui/accessibility/ax_role_properties.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/views/accessibility/view_accessibility.h"
 #include "ui/views/bubble/bubble_frame_view.h"
@@ -79,7 +80,7 @@ void LocationBarBubbleDelegateView::ShowForReason(DisplayReason reason,
   // standards, however in this case there is no good reason not to ensure the
   // bubbles are displayed on-screen.
   set_adjust_if_offscreen(true);
-  GetBubbleFrameView()->set_preferred_arrow_adjustment(
+  GetBubbleFrameView()->SetPreferredArrowAdjustment(
       views::BubbleFrameView::PreferredArrowAdjustment::kOffset);
 
   if (reason == USER_GESTURE) {
@@ -175,3 +176,17 @@ void LocationBarBubbleDelegateView::AdjustForFullscreen(
 void LocationBarBubbleDelegateView::CloseBubble() {
   GetWidget()->Close();
 }
+
+void LocationBarBubbleDelegateView::SetCloseOnMainFrameOriginNavigation(
+    bool close) {
+  close_on_main_frame_origin_navigation_ = close;
+}
+
+bool LocationBarBubbleDelegateView::GetCloseOnMainFrameOriginNavigation()
+    const {
+  return close_on_main_frame_origin_navigation_;
+}
+
+BEGIN_METADATA(LocationBarBubbleDelegateView, views::BubbleDialogDelegateView)
+ADD_READONLY_PROPERTY_METADATA(bool, CloseOnMainFrameOriginNavigation)
+END_METADATA

@@ -14,7 +14,7 @@
 #include "base/callback.h"
 #include "base/containers/unique_ptr_adapters.h"
 #include "base/macros.h"
-#include "base/optional.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 class WebComponent;
 
@@ -60,6 +60,10 @@ class WebContentRunner : public fuchsia::sys::Runner,
 
   // Sets a callback to invoke when |components_| next becomes empty.
   void SetOnEmptyCallback(base::OnceClosure on_empty);
+
+  // Tears down the Context, if any. This will trigger any active WebComponents
+  // to be asynchronously torn-down.
+  void DestroyWebContext();
 
   // TODO(https://crbug.com/1065707): Remove this once capability routing for
   // the fuchsia.legacymetrics.Provider service is properly set up.

@@ -23,8 +23,8 @@
 #include "extensions/renderer/source_map.h"
 #include "extensions/renderer/v8_helpers.h"
 #include "gin/converter.h"
-#include "third_party/blink/public/web/web_context_features.h"
 #include "third_party/blink/public/web/web_frame.h"
+#include "third_party/blink/public/web/web_v8_features.h"
 
 namespace extensions {
 
@@ -186,7 +186,7 @@ ModuleSystem::ModuleSystem(ScriptContext* context, const SourceMap* source_map)
   if (context_->GetRenderFrame() &&
       context_->context_type() == Feature::BLESSED_EXTENSION_CONTEXT &&
       !context_->IsForServiceWorker() && ContextNeedsMojoBindings(context_)) {
-    blink::WebContextFeatures::EnableMojoJS(context->v8_context(), true);
+    blink::WebV8Features::EnableMojoJS(context->v8_context(), true);
   }
 }
 
@@ -730,9 +730,8 @@ v8::Local<v8::Value> ModuleSystem::LoadModuleWithNativeAPIBridge(
   v8::Local<v8::Object> exports = v8::Object::New(GetIsolate());
 
   v8::Local<v8::FunctionTemplate> tmpl = v8::FunctionTemplate::New(
-      GetIsolate(),
-      &SetExportsProperty);
-  tmpl->RemovePrototype();
+      GetIsolate(), &SetExportsProperty, v8::Local<v8::Value>(),
+      v8::Local<v8::Signature>(), 0, v8::ConstructorBehavior::kThrow);
   v8::Local<v8::String> v8_key;
   if (!ToV8String(GetIsolate(), "$set", &v8_key)) {
     NOTREACHED();

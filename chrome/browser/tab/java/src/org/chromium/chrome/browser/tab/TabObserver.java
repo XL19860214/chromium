@@ -68,10 +68,8 @@ public interface TabObserver {
      * @param params   The params describe the page being loaded.
      * @param loadType The type of load that was performed.
      *
-     * @see TabLoadStatus#PAGE_LOAD_FAILED
-     * @see TabLoadStatus#DEFAULT_PAGE_LOAD
-     * @see TabLoadStatus#PARTIAL_PRERENDERED_PAGE_LOAD
-     * @see TabLoadStatus#FULL_PRERENDERED_PAGE_LOAD
+     * @see Tab$TabLoadStatus#PAGE_LOAD_FAILED
+     * @see Tab$TabLoadStatus#DEFAULT_PAGE_LOAD
      */
     void onLoadUrl(Tab tab, LoadUrlParams params, int loadType);
 
@@ -264,9 +262,14 @@ public interface TabObserver {
 
     /**
      * Called when the Tab is attached or detached from an {@code Activity}. By default, this will
-     * automatically unregister the tab observer if the Tab is detached from the window. To
-     * customize this behavior, override this method. When overriding this, keep in mind that tabs
-     * can outlive the activity in some cases (change of theme, changing from phone/tablet, etc).
+     * automatically unregister the tab observer if the Tab is detached from the window.
+     *
+     * TabObservers that are scoped to the Tab itself (either by direct ownership or through
+     * UserData) will need to override this behavior. To do so, ensure there's a functional hook to
+     * unregister the TabObserver to prevent leaking. When overriding this, keep in mind that tabs
+     * can outlive the activity in some cases (change of theme, changing from phone/tablet,
+     * multi-window, etc).
+     *
      * @param tab The notifying {@link Tab}.
      * @param window {@link WindowAndroid} which the Tab is being associated with. {@code null} if
      *         the tab is being detached.
@@ -326,4 +329,11 @@ public interface TabObserver {
      * @param scrolling {@code true} if scrolling started; {@code false} if stopped.
      */
     void onContentViewScrollingStateChanged(boolean scrolling);
+
+    /**
+     * Called when the Tab is scrolling.
+     * @param verticalScrollDelta The delta between the vertical offsets when the scroll started and
+     *         currently. It is negative when scrolling down and positive when scrolling up.
+     */
+    void onContentViewScrollOffsetChanged(int verticalScrollDelta);
 }

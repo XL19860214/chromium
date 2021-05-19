@@ -18,8 +18,12 @@ const char kPrivacySandboxManuallyControlled[] =
 const char kPrivacySandboxPreferencesReconciled[] =
     "privacy_sandbox.preferences_reconciled";
 
+const char kPrivacySandboxPageViewed[] = "privacy_sandbox.page_viewed";
+
 const char kPrivacySandboxFlocDataAccessibleSince[] =
     "privacy_sandbox.floc_data_accessible_since";
+
+extern const char kPrivacySandboxFlocEnabled[] = "privacy_sandbox.floc_enabled";
 
 }  // namespace prefs
 
@@ -34,8 +38,12 @@ void RegisterProfilePrefs(PrefRegistrySimple* registry) {
       user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);
   registry->RegisterBooleanPref(prefs::kPrivacySandboxPreferencesReconciled,
                                 false);
+  registry->RegisterBooleanPref(prefs::kPrivacySandboxPageViewed, false);
   registry->RegisterTimePref(prefs::kPrivacySandboxFlocDataAccessibleSince,
                              base::Time());
+  registry->RegisterBooleanPref(
+      prefs::kPrivacySandboxFlocEnabled, true,
+      user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);
 }
 
 }  // namespace privacy_sandbox

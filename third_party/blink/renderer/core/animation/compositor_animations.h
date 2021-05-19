@@ -47,6 +47,7 @@ class Animation;
 class CompositorAnimation;
 class Element;
 class KeyframeEffectModelBase;
+class Node;
 class PaintArtifactCompositor;
 class SVGElement;
 
@@ -97,11 +98,15 @@ class CORE_EXPORT CompositorAnimations {
     // Cases where the scroll timeline source is not composited.
     kTimelineSourceHasInvalidCompositingState = 1 << 16,
 
+    // Cases where there is an animation of compositor properties but they have
+    // been optimized out so the animation of those properties has no effect.
+    kCompositorPropertyAnimationsHaveNoEffect = 1 << 17,
+
     // The maximum number of flags in this enum (excluding itself). New flags
     // should increment this number but it should never be decremented because
     // the values are used in UMA histograms. It should also be noted that it
     // excludes the kNoFailure value.
-    kFailureReasonCount = 17,
+    kFailureReasonCount = 18,
   };
 
   static FailureReasons CheckCanStartAnimationOnCompositor(
@@ -112,13 +117,17 @@ class CORE_EXPORT CompositorAnimations {
       const PaintArtifactCompositor*,
       double animation_playback_rate,
       PropertyHandleSet* unsupported_properties = nullptr);
+  static bool CompositorPropertyAnimationsHaveNoEffect(
+      const Element& target_element,
+      const EffectModel& effect,
+      const PaintArtifactCompositor*);
   static void CancelIncompatibleAnimationsOnCompositor(const Element&,
                                                        const Animation&,
                                                        const EffectModel&);
   static void StartAnimationOnCompositor(
       const Element&,
       int group,
-      base::Optional<double> start_time,
+      absl::optional<double> start_time,
       base::TimeDelta time_offset,
       const Timing&,
       const Animation*,
@@ -157,7 +166,7 @@ class CORE_EXPORT CompositorAnimations {
       const Element&,
       const Timing&,
       int group,
-      base::Optional<double> start_time,
+      absl::optional<double> start_time,
       base::TimeDelta time_offset,
       const KeyframeEffectModelBase&,
       Vector<std::unique_ptr<CompositorKeyframeModel>>& animations,
@@ -192,4 +201,4 @@ class CORE_EXPORT CompositorAnimations {
 
 }  // namespace blink
 
-#endif
+#endif  // THIRD_PARTY_BLINK_RENDERER_CORE_ANIMATION_COMPOSITOR_ANIMATIONS_H_

@@ -5,9 +5,6 @@
 #ifndef COMPONENTS_SYNC_SESSIONS_SESSION_SYNC_SERVICE_H_
 #define COMPONENTS_SYNC_SESSIONS_SESSION_SYNC_SERVICE_H_
 
-#include <memory>
-#include <string>
-
 #include "base/callback_list.h"
 #include "base/compiler_specific.h"
 #include "base/memory/weak_ptr.h"
@@ -50,11 +47,6 @@ class SessionSyncService : public KeyedService {
   // GetOpenTabsUIDelegate() returns null or not.
   virtual void ProxyTabsStateChanged(
       syncer::DataTypeController::State state) = 0;
-
-  // Used on Android only, to override the session tag. This call may be ignored
-  // depending on feature toggles.
-  // TODO(crbug.com/1159455): Delete code when the feature toggle gets deleted.
-  virtual void SetSyncSessionsGUID(const std::string& guid) = 0;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(SessionSyncService);

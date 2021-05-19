@@ -6,6 +6,7 @@
 
 #include <memory>
 
+#include "ash/constants/ash_switches.h"
 #include "ash/public/cpp/app_list/app_list_features.h"
 #include "ash/public/cpp/app_list/app_list_switches.h"
 #include "base/command_line.h"
@@ -23,8 +24,8 @@
 #include "chrome/browser/apps/app_service/app_service_proxy_factory.h"
 #include "chrome/browser/apps/app_service/launch_utils.h"
 #include "chrome/browser/apps/platform_apps/app_browsertest_util.h"
+#include "chrome/browser/ash/login/demo_mode/demo_session.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/chromeos/login/demo_mode/demo_session.h"
 #include "chrome/browser/extensions/extension_browsertest.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
@@ -40,8 +41,9 @@
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/chrome_pages.h"
 #include "chrome/browser/ui/settings_window_manager_chromeos.h"
+#include "chrome/browser/ui/web_applications/system_web_app_ui_utils.h"
 #include "chrome/browser/ui/webui/settings/chromeos/constants/routes.mojom.h"
-#include "chrome/browser/web_applications/system_web_app_manager.h"
+#include "chrome/browser/web_applications/system_web_apps/system_web_app_manager.h"
 #include "chrome/browser/web_applications/web_app_provider.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
@@ -49,7 +51,6 @@
 #include "chrome/common/webui_url_constants.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/testing_profile.h"
-#include "chromeos/constants/chromeos_switches.h"
 #include "components/browser_sync/browser_sync_switches.h"
 #include "components/prefs/pref_service.h"
 #include "components/user_manager/user_names.h"
@@ -81,15 +82,15 @@ IN_PROC_BROWSER_TEST_F(AppListClientImplBrowserTest, IsExtensionAppOpen) {
     content::WindowedNotificationObserver app_loaded_observer(
         content::NOTIFICATION_LOAD_COMPLETED_MAIN_FRAME,
         content::NotificationService::AllSources());
-    apps::AppServiceProxy* proxy =
-        apps::AppServiceProxyFactory::GetForProfile(profile());
-    proxy->Launch(extension_app->id(),
-                  apps::GetEventFlags(
-                      apps::mojom::LaunchContainer::kLaunchContainerWindow,
-                      WindowOpenDisposition::NEW_WINDOW,
-                      false /* preferred_containner */),
-                  apps::mojom::LaunchSource::kFromTest,
-                  display::Screen::GetScreen()->GetPrimaryDisplay().id());
+    apps::AppServiceProxyFactory::GetForProfile(profile())->Launch(
+        extension_app->id(),
+        apps::GetEventFlags(
+            apps::mojom::LaunchContainer::kLaunchContainerWindow,
+            WindowOpenDisposition::NEW_WINDOW,
+            false /* preferred_containner */),
+        apps::mojom::LaunchSource::kFromTest,
+        apps::MakeWindowInfo(
+            display::Screen::GetScreen()->GetPrimaryDisplay().id()));
     app_loaded_observer.Wait();
   }
   EXPECT_TRUE(delegate->IsAppOpen(extension_app->id()));
@@ -128,9 +129,8 @@ IN_PROC_BROWSER_TEST_F(AppListClientImplBrowserTest, UninstallApp) {
   base::RunLoop run_loop;
   client->UninstallApp(profile(), app->id());
 
-  apps::AppServiceProxy* app_service_proxy_ =
-      apps::AppServiceProxyFactory::GetForProfile(profile());
-  app_service_proxy_->FlushMojoCallsForTesting();
+  apps::AppServiceProxyFactory::GetForProfile(profile())
+      ->FlushMojoCallsForTesting();
 
   run_loop.RunUntilIdle();
   EXPECT_FALSE(wm::GetTransientChildren(client->GetAppListWindow()).empty());
@@ -156,6 +156,11 @@ IN_PROC_BROWSER_TEST_F(AppListClientImplBrowserTest, ShowAppInfo) {
 
   // Open the app info dialog.
   client->DoShowAppInfoFlow(profile(), app->id());
+
+  // The above DoShowAppInfoFlow() should trigger an asynchronous call to launch
+  // OS Settings SWA. Flush Mojo calls so the browser window is created.
+  web_app::FlushSystemWebAppLaunchesForTesting(profile());
+
   Browser* settings_app =
       chrome::SettingsWindowManager::GetInstance()->FindBrowserForProfile(
           profile());
@@ -179,15 +184,17 @@ IN_PROC_BROWSER_TEST_F(AppListClientImplBrowserTest, CreateNewWindow) {
   ASSERT_TRUE(controller);
 
   EXPECT_EQ(1U, chrome::GetBrowserCount(browser()->profile()));
-  EXPECT_EQ(0U, chrome::GetBrowserCount(
-                    browser()->profile()->GetPrimaryOTRProfile()));
+  EXPECT_EQ(0U,
+            chrome::GetBrowserCount(browser()->profile()->GetPrimaryOTRProfile(
+                /*create_if_needed=*/true)));
 
   controller->CreateNewWindow(/*incognito=*/false);
   EXPECT_EQ(2U, chrome::GetBrowserCount(browser()->profile()));
 
   controller->CreateNewWindow(/*incognito=*/true);
-  EXPECT_EQ(1U, chrome::GetBrowserCount(
-                    browser()->profile()->GetPrimaryOTRProfile()));
+  EXPECT_EQ(1U,
+            chrome::GetBrowserCount(browser()->profile()->GetPrimaryOTRProfile(
+                /*create_if_needed=*/true)));
 }
 
 // When getting activated, SelfDestroyAppItem has itself removed from the
@@ -259,7 +266,7 @@ IN_PROC_BROWSER_TEST_F(AppListClientImplBrowserTest, ShowContextMenu) {
     if (menu_model->GetTypeAt(i) == ui::MenuModel::TYPE_SEPARATOR)
       continue;
 
-    base::string16 label = menu_model->GetLabelAt(i);
+    std::u16string label = menu_model->GetLabelAt(i);
     EXPECT_FALSE(label.empty());
   }
 }
@@ -298,10 +305,11 @@ IN_PROC_BROWSER_TEST_F(AppListClientImplBrowserTest, OpenSearchResult) {
   ASSERT_TRUE(search_controller->FindSearchResult(app_result_id));
 
   // Open the app result.
-  client->OpenSearchResult(app_result_id, ui::EF_NONE,
-                           ash::AppListLaunchedFrom::kLaunchedFromSearchBox,
-                           ash::AppListLaunchType::kAppSearchResult, 0,
-                           false /* launch_as_default */);
+  client->OpenSearchResult(
+      app_result_id, ash::AppListSearchResultType::kInstalledApp, ui::EF_NONE,
+      ash::AppListLaunchedFrom::kLaunchedFromSearchBox,
+      ash::AppListLaunchType::kAppSearchResult, 0,
+      false /* launch_as_default */);
 
   // App list should be dismissed.
   EXPECT_FALSE(client->app_list_target_visibility());
@@ -322,7 +330,8 @@ IN_PROC_BROWSER_TEST_F(AppListClientImplBrowserTest,
   ASSERT_TRUE(controller);
 
   Profile* profile = browser()->profile();
-  Profile* profile_otr = profile->GetPrimaryOTRProfile();
+  Profile* profile_otr =
+      profile->GetPrimaryOTRProfile(/*create_if_needed=*/true);
 
   extensions::ExtensionPrefs* prefs = extensions::ExtensionPrefs::Get(profile);
 
@@ -488,7 +497,7 @@ class AppListAppLaunchTest : public extensions::ExtensionBrowserTest {
 
 IN_PROC_BROWSER_TEST_F(AppListAppLaunchTest,
                        NoDemoModeAppLaunchSourceReported) {
-  EXPECT_FALSE(chromeos::DemoSession::IsDeviceInDemoMode());
+  EXPECT_FALSE(ash::DemoSession::IsDeviceInDemoMode());
   LaunchChromeAppListItem(extension_misc::kChromeAppId);
 
   // Should see 0 apps launched from the Launcher in the histogram when not in
@@ -497,9 +506,9 @@ IN_PROC_BROWSER_TEST_F(AppListAppLaunchTest,
 }
 
 IN_PROC_BROWSER_TEST_F(AppListAppLaunchTest, DemoModeAppLaunchSourceReported) {
-  chromeos::DemoSession::SetDemoConfigForTesting(
-      chromeos::DemoSession::DemoModeConfig::kOnline);
-  EXPECT_TRUE(chromeos::DemoSession::IsDeviceInDemoMode());
+  ash::DemoSession::SetDemoConfigForTesting(
+      ash::DemoSession::DemoModeConfig::kOnline);
+  EXPECT_TRUE(ash::DemoSession::IsDeviceInDemoMode());
 
   // Should see 0 apps launched from the Launcher in the histogram at first.
   histogram_tester_->ExpectTotalCount("DemoMode.AppLaunchSource", 0);
@@ -512,6 +521,6 @@ IN_PROC_BROWSER_TEST_F(AppListAppLaunchTest, DemoModeAppLaunchSourceReported) {
 
   // Should see 1 app launched from the Launcher in the histogram.
   histogram_tester_->ExpectUniqueSample(
-      "DemoMode.AppLaunchSource",
-      chromeos::DemoSession::AppLaunchSource::kAppList, 1);
+      "DemoMode.AppLaunchSource", ash::DemoSession::AppLaunchSource::kAppList,
+      1);
 }

@@ -62,9 +62,9 @@ public class MessageWrapperTest {
         Assert.assertEquals("Button text doesn't match provided value", "Primary button",
                 messageProperties.get(MessageBannerProperties.PRIMARY_BUTTON_TEXT));
 
-        message.setSecondaryActionText("Primary button");
-        Assert.assertEquals("Button text doesn't match provided value", "Primary button",
-                messageProperties.get(MessageBannerProperties.SECONDARY_ACTION_TEXT));
+        message.setSecondaryButtonMenuText("Secondary button");
+        Assert.assertEquals("Button text doesn't match provided value", "Secondary button",
+                messageProperties.get(MessageBannerProperties.SECONDARY_BUTTON_MENU_TEXT));
 
         message.setIconResourceId(1);
         Assert.assertEquals("Icon resource id doesn't match provided value", 1,
@@ -88,8 +88,9 @@ public class MessageWrapperTest {
         Mockito.verify(mNativeMock).handleActionClick(nativePtr);
         messageProperties.get(MessageBannerProperties.ON_SECONDARY_ACTION).run();
         Mockito.verify(mNativeMock).handleSecondaryActionClick(nativePtr);
-        messageProperties.get(MessageBannerProperties.ON_DISMISSED).run();
-        Mockito.verify(mNativeMock).handleDismissCallback(nativePtr);
+        messageProperties.get(MessageBannerProperties.ON_DISMISSED)
+                .onResult(DismissReason.PRIMARY_ACTION);
+        Mockito.verify(mNativeMock).handleDismissCallback(nativePtr, DismissReason.PRIMARY_ACTION);
     }
 
     /**
@@ -107,7 +108,9 @@ public class MessageWrapperTest {
         Mockito.verify(mNativeMock, never()).handleActionClick(nativePtr);
         messageProperties.get(MessageBannerProperties.ON_SECONDARY_ACTION).run();
         Mockito.verify(mNativeMock, never()).handleSecondaryActionClick(nativePtr);
-        messageProperties.get(MessageBannerProperties.ON_DISMISSED).run();
-        Mockito.verify(mNativeMock, never()).handleDismissCallback(nativePtr);
+        messageProperties.get(MessageBannerProperties.ON_DISMISSED)
+                .onResult(DismissReason.PRIMARY_ACTION);
+        Mockito.verify(mNativeMock, never())
+                .handleDismissCallback(Mockito.anyLong(), Mockito.anyInt());
     }
 }

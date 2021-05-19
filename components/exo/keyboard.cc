@@ -6,11 +6,14 @@
 
 #include "ash/keyboard/ui/keyboard_ui_controller.h"
 #include "ash/keyboard/ui/keyboard_util.h"
+#include "ash/public/cpp/accelerators.h"
 #include "ash/public/cpp/app_types.h"
 #include "ash/public/cpp/keyboard/keyboard_controller.h"
 #include "ash/shell.h"
 #include "base/bind.h"
+#include "base/containers/contains.h"
 #include "base/threading/thread_task_runner_handle.h"
+#include "base/trace_event/trace_event.h"
 #include "components/exo/input_trace.h"
 #include "components/exo/keyboard_delegate.h"
 #include "components/exo/keyboard_device_configuration_delegate.h"
@@ -97,6 +100,52 @@ bool IsImeSupportedSurface(Surface* surface) {
   return false;
 }
 
+// Returns true if the surface can consume ash accelerators.
+bool CanConsumeAshAccelerators(Surface* surface) {
+  aura::Window* window = surface->window();
+  for (; window; window = window->parent()) {
+    const auto app_type =
+        static_cast<ash::AppType>(window->GetProperty(aura::client::kAppType));
+    // TODO(fukino): Always returning false for Lacros window is a short-term
+    // solution. In reality, Lacros can consume ash accelerator's key
+    // combination when it is a deprecated ash accelerator or the window is
+    // running PWA. We need to let the wayland client dynamically decrlare
+    // whether it want to consume ash accelerators' key combinations.
+    // crbug.com/1174025.
+    if (app_type == ash::AppType::LACROS)
+      return false;
+  }
+  return true;
+}
+
+// Returns true if an accelerator is an ash accelerator which can be handled
+// before sending it to client and it is actually processed by ash-chrome.
+bool ProcessAshAcceleratorIfPossible(Surface* surface, ui::KeyEvent* event) {
+  // Process ash accelerators before sending it to client only when the client
+  // should not consume ash accelerators. (e.g. Lacros-chrome)
+  if (CanConsumeAshAccelerators(surface))
+    return false;
+
+  // Ctrl-N (new window), Shift-Ctrl-N (new incognite window), Ctrl-T (new tab),
+  // and Shit-Ctrl-T (restore tab) need to be sent to the active client even
+  // when the active window is lacros-chrome, since the ash-chrome does not
+  // handle these new-window requests properly at this moment.
+  // TODO(fukino): Remove this workaround once ash-chrome has an implementation
+  // to handle new-window requests when lacros-chrome browser window is active.
+  // crbug.com/1172189.
+  const ui::Accelerator kAppHandlingAccelerators[] = {
+      {ui::VKEY_N, ui::EF_CONTROL_DOWN},
+      {ui::VKEY_N, ui::EF_SHIFT_DOWN | ui::EF_CONTROL_DOWN},
+      {ui::VKEY_T, ui::EF_CONTROL_DOWN},
+      {ui::VKEY_T, ui::EF_SHIFT_DOWN | ui::EF_CONTROL_DOWN},
+  };
+  ui::Accelerator accelerator(*event);
+  if (base::Contains(kAppHandlingAccelerators, accelerator))
+    return false;
+
+  return ash::AcceleratorController::Get()->Process(accelerator);
+}
+
 }  // namespace
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -120,6 +169,7 @@ Keyboard::Keyboard(std::unique_ptr<KeyboardDelegate> delegate, Seat* seat)
 }
 
 Keyboard::~Keyboard() {
+  RemoveEventHandler();
   for (KeyboardObserver& observer : observer_list_)
     observer.OnKeyboardDestroying(this);
   if (focus_)
@@ -128,7 +178,6 @@ Keyboard::~Keyboard() {
   ash::Shell::Get()->ime_controller()->RemoveObserver(this);
   ash::KeyboardController::Get()->RemoveObserver(this);
   seat_->RemoveObserver(this);
-  RemoveEventHandler();
 }
 
 bool Keyboard::HasDeviceConfigurationDelegate() const {
@@ -181,16 +230,11 @@ void Keyboard::AckKeyboardKey(uint32_t serial, bool handled) {
 // ui::EventHandler overrides:
 
 void Keyboard::OnKeyEvent(ui::KeyEvent* event) {
-  if (!focus_)
+  if (!focus_ || seat_->was_shutdown())
     return;
 
-  // If the event target is not an exo::Surface, let another handler process the
-  // event. This check may not be necessary once https://crbug.com/624168 is
-  // resolved.
-  if (!GetShellMainSurface(static_cast<aura::Window*>(event->target())) &&
-      !Surface::AsSurface(static_cast<aura::Window*>(event->target()))) {
-    return;
-  }
+  DCHECK(GetShellRootSurface(static_cast<aura::Window*>(event->target())) ||
+         Surface::AsSurface(static_cast<aura::Window*>(event->target())));
 
   // Ignore synthetic key repeat events.
   if (event->is_repeat()) {
@@ -204,11 +248,15 @@ void Keyboard::OnKeyEvent(ui::KeyEvent* event) {
 
   TRACE_EXO_INPUT_EVENT(event);
 
-  // Process reserved accelerators before sending it to client.
-  if (ProcessAcceleratorIfReserved(focus_, event)) {
-    // Discard a key press event if it's a reserved accelerator and it's
-    // enabled.
+  // Process reserved accelerators or ash accelerators which need to be handled
+  // before sending it to client.
+  if (ProcessAcceleratorIfReserved(focus_, event) ||
+      ProcessAshAcceleratorIfPossible(focus_, event)) {
+    // Discard a key press event if the corresponding accelerator is handled.
     event->SetHandled();
+    // The current focus might have been reset while processing accelerators.
+    if (!focus_)
+      return;
   }
 
   // When IME ate a key event, we use the event only for tracking key states and
@@ -247,22 +295,28 @@ void Keyboard::OnKeyEvent(ui::KeyEvent* event) {
   switch (event->type()) {
     case ui::ET_KEY_PRESSED: {
       auto it = pressed_keys_.find(physical_code);
-      if (it == pressed_keys_.end() && !consumed_by_ime && !event->handled() &&
+      if (it == pressed_keys_.end() && !event->handled() &&
           physical_code != ui::DomCode::NONE) {
-        // Process key press event if not already handled and not already
-        // pressed.
-        uint32_t serial =
-            delegate_->OnKeyboardKey(event->time_stamp(), event->code(), true);
-        if (AreKeyboardKeyAcksNeeded()) {
-          pending_key_acks_.insert(
-              {serial,
-               {*event, base::TimeTicks::Now() +
-                            expiration_delay_for_pending_key_acks_}});
-          event->SetHandled();
+        for (auto& observer : observer_list_)
+          observer.OnKeyboardKey(event->time_stamp(), event->code(), true);
+
+        if (!consumed_by_ime) {
+          // Process key press event if not already handled and not already
+          // pressed.
+          uint32_t serial = delegate_->OnKeyboardKey(event->time_stamp(),
+                                                     event->code(), true);
+          if (AreKeyboardKeyAcksNeeded()) {
+            pending_key_acks_.insert(
+                {serial,
+                 {*event, base::TimeTicks::Now() +
+                              expiration_delay_for_pending_key_acks_}});
+            event->SetHandled();
+          }
         }
         // Keep track of both the physical code and potentially re-written
         // code that this event generated.
-        pressed_keys_.insert({physical_code, event->code()});
+        pressed_keys_.emplace(physical_code,
+                              KeyState{event->code(), consumed_by_ime});
       } else if (it != pressed_keys_.end() && !event->handled()) {
         // Non-repeate key events for already pressed key can be sent in some
         // cases (e.g. Holding 'A' key then holding 'B' key then releasing 'A'
@@ -277,18 +331,23 @@ void Keyboard::OnKeyEvent(ui::KeyEvent* event) {
       // Process key release event if currently pressed.
       auto it = pressed_keys_.find(physical_code);
       if (it != pressed_keys_.end()) {
-        // We use the code that was generate when the physical key was
-        // pressed rather than the current event code. This allows events
-        // to be re-written before dispatch, while still allowing the
-        // client to track the state of the physical keyboard.
-        uint32_t serial =
-            delegate_->OnKeyboardKey(event->time_stamp(), it->second, false);
-        if (AreKeyboardKeyAcksNeeded()) {
-          pending_key_acks_.insert(
-              {serial,
-               {*event, base::TimeTicks::Now() +
-                            expiration_delay_for_pending_key_acks_}});
-          event->SetHandled();
+        for (auto& observer : observer_list_)
+          observer.OnKeyboardKey(event->time_stamp(), it->second.code, false);
+
+        if (!it->second.consumed_by_ime) {
+          // We use the code that was generated when the physical key was
+          // pressed rather than the current event code. This allows events
+          // to be re-written before dispatch, while still allowing the
+          // client to track the state of the physical keyboard.
+          uint32_t serial = delegate_->OnKeyboardKey(event->time_stamp(),
+                                                     it->second.code, false);
+          if (AreKeyboardKeyAcksNeeded()) {
+            pending_key_acks_.insert(
+                {serial,
+                 {*event, base::TimeTicks::Now() +
+                              expiration_delay_for_pending_key_acks_}});
+            event->SetHandled();
+          }
         }
         pressed_keys_.erase(it);
       }

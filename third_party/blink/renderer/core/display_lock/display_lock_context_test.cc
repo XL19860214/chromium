@@ -738,9 +738,11 @@ TEST_F(DisplayLockContextTest, CallUpdateStyleAndLayoutAfterChange) {
   EXPECT_FALSE(element->ChildNeedsReattachLayoutTree());
 
   // Simulating style recalc happening, will mark for reattachment.
+  GetDocument().Lifecycle().AdvanceTo(DocumentLifecycle::kInStyleRecalc);
   element->ClearChildNeedsStyleRecalc();
   element->firstChild()->ClearNeedsStyleRecalc();
   element->GetDisplayLockContext()->DidStyleChildren();
+  GetDocument().Lifecycle().AdvanceTo(DocumentLifecycle::kStyleClean);
 
   EXPECT_FALSE(element->ChildNeedsStyleRecalc());
   EXPECT_FALSE(element->NeedsReattachLayoutTree());
@@ -3282,6 +3284,61 @@ TEST_F(DisplayLockContextRenderingTest, FirstAutoFramePaintsInViewport) {
   EXPECT_FLOAT_EQ(hidden_rect->height(), 200);
 }
 
+TEST_F(DisplayLockContextRenderingTest,
+       HadIntersectionNotificationsResetsWhenConnected) {
+  SetHtmlInnerHTML(R"HTML(
+    <style>
+      .auto { content-visibility: auto; }
+    </style>
+    <div id=target class=auto></div>
+  )HTML");
+
+  auto* element = GetDocument().getElementById("target");
+  auto* context = element->GetDisplayLockContext();
+  ASSERT_TRUE(context);
+  test::RunPendingTasks();
+
+  EXPECT_TRUE(context->HadAnyViewportIntersectionNotifications());
+
+  element->remove();
+  GetDocument().body()->AppendChild(element);
+
+  EXPECT_FALSE(context->HadAnyViewportIntersectionNotifications());
+
+  UpdateAllLifecyclePhasesForTest();
+  test::RunPendingTasks();
+
+  EXPECT_TRUE(context->HadAnyViewportIntersectionNotifications());
+}
+
+TEST_F(DisplayLockContextRenderingTest, LocalFrameGraphicsUpdateForced) {
+  SetHtmlInnerHTML(R"HTML(
+    <iframe id="frame"></iframe>
+  )HTML");
+  SetChildFrameHTML(R"HTML(
+    <style>
+      .cv { content-visibility: hidden; }
+      div {
+        width: 100px;
+        height: 100px;
+      }
+    </style>
+    <div id=target class=cv></target>
+  )HTML");
+
+  UpdateAllLifecyclePhasesForTest();
+
+  auto* target = ChildDocument().getElementById("target");
+  ASSERT_TRUE(target);
+  ASSERT_TRUE(target->GetDisplayLockContext());
+
+  target->GetDisplayLockContext()->NotifyForcedGraphicsLayerUpdateBlocked();
+  target->classList().Remove("cv");
+
+  // This should not crash.
+  UpdateAllLifecyclePhasesForTest();
+}
+
 class DisplayLockContextLegacyRenderingTest
     : public RenderingTest,
       private ScopedCSSContentVisibilityHiddenMatchableForTest,
@@ -3403,7 +3460,8 @@ TEST_F(DisplayLockContextTest, PrintingUnlocksAutoLocks) {
 
   {
     // Create a paint preview scope.
-    Document::PaintPreviewScope scope(GetDocument());
+    Document::PaintPreviewScope scope(GetDocument(),
+                                      Document::kPaintingPreview);
     UpdateAllLifecyclePhasesForTest();
 
     EXPECT_FALSE(target->GetDisplayLockContext()->IsLocked());
@@ -3415,6 +3473,56 @@ TEST_F(DisplayLockContextTest, PrintingUnlocksAutoLocks) {
 
   EXPECT_TRUE(target->GetDisplayLockContext()->IsLocked());
   EXPECT_TRUE(nested->GetDisplayLockContext()->IsLocked());
+}
+
+TEST_F(DisplayLockContextTest, CullRectUpdate) {
+  ScopedCullRectUpdateForTest cull_rect_update(true);
+  ResizeAndFocus();
+  SetHtmlInnerHTML(R"HTML(
+    <style>
+    #clip {
+      width: 100px;
+      height: 100px;
+      overflow: hidden;
+    }
+    #container {
+      width: 300px;
+      height: 300px;
+      contain: paint layout;
+    }
+    .locked {
+      content-visibility: hidden;
+    }
+    </style>
+    <div id="clip">
+      <div id="container"
+           style="width: 300px; height: 300px; contain: paint layout">
+        <div id="target" style="position: relative"></div>
+      </div>
+    </div>
+  )HTML");
+
+  // Check if the result is correct if we update the contents.
+  auto* container = GetDocument().getElementById("container");
+  auto* target = GetDocument().getElementById("target")->GetLayoutBox();
+  EXPECT_EQ(IntRect(0, 0, 100, 100),
+            target->FirstFragment().GetCullRect().Rect());
+
+  container->classList().Add("locked");
+  UpdateAllLifecyclePhasesForTest();
+  EXPECT_EQ(IntRect(0, 0, 100, 100),
+            target->FirstFragment().GetCullRect().Rect());
+
+  GetDocument().getElementById("clip")->setAttribute(html_names::kStyleAttr,
+                                                     "width: 200px");
+  UpdateAllLifecyclePhasesForTest();
+  EXPECT_EQ(IntRect(0, 0, 100, 100),
+            target->FirstFragment().GetCullRect().Rect());
+
+  container->classList().Remove("locked");
+  UpdateAllLifecyclePhasesForTest();
+  EXPECT_EQ(IntRect(0, 0, 200, 100),
+            target->FirstFragment().GetCullRect().Rect());
 }
 
 }  // namespace blink

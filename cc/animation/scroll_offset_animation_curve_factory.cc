@@ -5,9 +5,11 @@
 #include "cc/animation/scroll_offset_animation_curve_factory.h"
 
 #include <memory>
+
 #include "base/memory/ptr_util.h"
-#include "cc/animation/timing_function.h"
+#include "base/notreached.h"
 #include "cc/base/features.h"
+#include "ui/gfx/animation/keyframe/timing_function.h"
 
 namespace cc {
 namespace {

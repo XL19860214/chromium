@@ -2,10 +2,38 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+// clang-format off
+// #import {A11yAnnounce} from './a11y_announce.m.js';
+// #import {FileListSelectionModel, FileListSingleSelectionModel} from './file_list_selection_model.m.js';
+// #import {EntryLocation} from '../../../externs/entry_location.m.js';
+// #import {ListItem} from 'chrome://resources/js/cr/ui/list_item.m.js';
+// #import {ListSelectionModel} from 'chrome://resources/js/cr/ui/list_selection_model.m.js';
+// #import {FilesAppEntry} from '../../../externs/files_app_entry_interfaces.m.js';
+// #import {List} from 'chrome://resources/js/cr/ui/list.m.js';
+// #import {VolumeManager} from '../../../externs/volume_manager.m.js';
+// #import {importerHistoryInterfaces} from '../../../externs/background/import_history.m.js';
+// #import {MetadataModel} from '../metadata/metadata_model.m.js';
+// #import {ListThumbnailLoader} from '../list_thumbnail_loader.m.js';
+// #import {TableColumn} from './table/table_column.m.js';
+// #import {TableColumnModel} from './table/table_column_model.m.js';
+// #import {TableList} from './table/table_list.m.js';
+// #import {Table} from './table/table.m.js';
+// #import {FileMetadataFormatter} from './file_metadata_formatter.m.js';
+// #import {FileTableList, filelist} from './file_table_list.m.js';
+// #import {FileListModel} from '../file_list_model.m.js';
+// #import {importer} from '../../../common/js/importer_common.m.js';
+// #import {FileType} from '../../../common/js/file_type.m.js';
+// #import {DragSelector} from './drag_selector.m.js';
+// #import {assert, assertInstanceof} from 'chrome://resources/js/assert.m.js';
+// #import {AsyncUtil} from '../../../common/js/async_util.m.js';
+// #import {util, str, strf} from '../../../common/js/util.m.js';
+// #import {dispatchSimpleEvent} from 'chrome://resources/js/cr.m.js';
+// clang-format on
+
 /**
  * Custom column model for advanced auto-resizing.
  */
-class FileTableColumnModel extends cr.ui.table.TableColumnModel {
+/* #export */ class FileTableColumnModel extends cr.ui.table.TableColumnModel {
   /**
    * @param {!Array<cr.ui.table.TableColumn>} tableColumns Table columns.
    */
@@ -244,7 +272,7 @@ class FileTableColumnModel extends cr.ui.table.TableColumnModel {
  * @param {Element} table Table being rendered.
  * @return {Element}
  */
-function renderHeader_(table) {
+/* #export */ function renderHeader_(table) {
   const column = /** @type {cr.ui.table.TableColumn} */ (this);
   const container = table.ownerDocument.createElement('div');
   container.classList.add('table-label-container');
@@ -259,32 +287,23 @@ function renderHeader_(table) {
     isSorted = true;
     // Here we have to flip, because clicking will perform the opposite sorting.
     sortOrder = dm.sortStatus.direction === 'desc' ? 'asc' : 'desc';
-
-    if (!util.isFilesNg()) {
-      textElement.classList.toggle(
-          'table-header-sort-image-desc', dm.sortStatus.direction === 'desc');
-      textElement.classList.toggle(
-          'table-header-sort-image-asc', dm.sortStatus.direction !== 'desc');
-    }
   }
 
   textElement.setAttribute('aria-describedby', 'sort-column-' + sortOrder);
   textElement.setAttribute('role', 'button');
   container.appendChild(textElement);
 
-  if (util.isFilesNg()) {
-    const icon = document.createElement('cr-icon-button');
-    const iconName = sortOrder === 'desc' ? 'up' : 'down';
-    icon.setAttribute('iron-icon', `files16:arrow_${iconName}_small`);
-    icon.setAttribute('tabindex', '-1');
-    icon.setAttribute('aria-hidden', 'true');
-    icon.classList.add('sort-icon', 'no-overlap');
+  const icon = document.createElement('cr-icon-button');
+  const iconName = sortOrder === 'desc' ? 'up' : 'down';
+  icon.setAttribute('iron-icon', `files16:arrow_${iconName}_small`);
+  icon.setAttribute('tabindex', '-1');
+  icon.setAttribute('aria-hidden', 'true');
+  icon.classList.add('sort-icon', 'no-overlap');
 
-    container.classList.toggle('not-sorted', !isSorted);
-    container.classList.toggle('sorted', isSorted);
+  container.classList.toggle('not-sorted', !isSorted);
+  container.classList.toggle('sorted', isSorted);
 
-    container.appendChild(icon);
-  }
+  container.appendChild(icon);
 
   return container;
 }
@@ -355,7 +374,7 @@ FileTableColumnModel.ColumnSnapshot = class {
 /**
  * File list Table View.
  */
-class FileTable extends cr.ui.Table {
+/* #export */ class FileTable extends cr.ui.Table {
   constructor() {
     super();
 
@@ -411,6 +430,8 @@ class FileTable extends cr.ui.Table {
    *     messages.
    * @param {boolean} fullPage True if it's full page File Manager, False if a
    *    file open/save dialog.
+   * @suppress {checkPrototypalTypes} Closure was failing because the signature
+   * of this decorate() doesn't match the base class.
    */
   static decorate(
       self, metadataModel, volumeManager, historyLoader, a11y, fullPage) {

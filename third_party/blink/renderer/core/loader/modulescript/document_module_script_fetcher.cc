@@ -4,7 +4,9 @@
 
 #include "third_party/blink/renderer/core/loader/modulescript/document_module_script_fetcher.h"
 
+#include "base/trace_event/trace_event.h"
 #include "third_party/blink/public/mojom/script/script_type.mojom-blink-forward.h"
+#include "third_party/blink/public/mojom/script/script_type.mojom-shared.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_streamer.h"
 #include "third_party/blink/renderer/core/inspector/console_message.h"
 #include "third_party/blink/renderer/core/loader/resource/script_resource.h"
@@ -21,6 +23,7 @@ DocumentModuleScriptFetcher::DocumentModuleScriptFetcher(
 
 void DocumentModuleScriptFetcher::Fetch(
     FetchParameters& fetch_params,
+    ModuleType expected_module_type,
     ResourceFetcher* fetch_client_settings_object_fetcher,
     ModuleGraphLevel level,
     ModuleScriptFetcher::Client* client) {
@@ -28,9 +31,14 @@ void DocumentModuleScriptFetcher::Fetch(
   DCHECK(fetch_client_settings_object_fetcher);
   DCHECK(!client_);
   client_ = client;
-  // TODO(crbug.com/1061857): Enable streaming.
+  expected_module_type_ = expected_module_type;
+  // Streaming can currently only be triggered from the main thread. This
+  // currently happens only for dynamic imports in worker modules.
+  ScriptResource::StreamingAllowed streaming_allowed =
+                        IsMainThread() ? ScriptResource::kAllowStreaming
+                                       : ScriptResource::kNoStreaming;
   ScriptResource::Fetch(fetch_params, fetch_client_settings_object_fetcher,
-                        this, ScriptResource::kNoStreaming);
+                        this, streaming_allowed);
 }
 
 void DocumentModuleScriptFetcher::NotifyFinished(Resource* resource) {
@@ -38,11 +46,10 @@ void DocumentModuleScriptFetcher::NotifyFinished(Resource* resource) {
 
   auto* script_resource = To<ScriptResource>(resource);
 
-  ModuleScriptCreationParams::ModuleType module_type;
   {
     HeapVector<Member<ConsoleMessage>> error_messages;
-    if (!WasModuleLoadSuccessful(script_resource, &error_messages,
-                                 &module_type)) {
+    if (!WasModuleLoadSuccessful(script_resource, expected_module_type_,
+                                 &error_messages)) {
       client_->NotifyFetchFinishedError(error_messages);
       return;
     }
@@ -50,8 +57,8 @@ void DocumentModuleScriptFetcher::NotifyFinished(Resource* resource) {
   // Check if we can use the script streamer.
   ScriptStreamer* streamer;
   ScriptStreamer::NotStreamingReason not_streamed_reason;
-  std::tie(streamer, not_streamed_reason) =
-      ScriptStreamer::TakeFrom(script_resource);
+  std::tie(streamer, not_streamed_reason) = ScriptStreamer::TakeFrom(
+      script_resource, mojom::blink::ScriptType::kModule);
 
   ScriptStreamer::RecordStreamingHistogram(ScriptSchedulingType::kAsync,
                                            streamer, not_streamed_reason);
@@ -66,9 +73,8 @@ void DocumentModuleScriptFetcher::NotifyFinished(Resource* resource) {
   // https://html.spec.whatwg.org/multipage/webappapis.html#concept-script-base-url
   client_->NotifyFetchFinishedSuccess(ModuleScriptCreationParams(
       /*source_url=*/url, /*base_url=*/url,
-      ScriptSourceLocationType::kExternalFile, module_type,
-      script_resource->SourceText(), script_resource->CacheHandler(),
-      script_resource->GetResourceRequest().GetCredentialsMode(), streamer,
+      ScriptSourceLocationType::kExternalFile, expected_module_type_,
+      script_resource->SourceText(), script_resource->CacheHandler(), streamer,
       not_streamed_reason));
 }
 

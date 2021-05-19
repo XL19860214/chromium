@@ -86,8 +86,8 @@ public class UkmTest {
                 () -> UmaSessionStats.updateMetricsAndCrashReportingForTesting(true));
         Assert.assertFalse("UKM Enabled:", isUkmEnabled(normalTab));
 
-        // Finally, sign in and UKM is enabled.
-        CoreAccountInfo account = mSyncTestRule.setUpAccountAndSignInForTesting();
+        // Finally, sync and UKM is enabled.
+        CoreAccountInfo account = mSyncTestRule.setUpAccountAndEnableSyncForTesting();
         Assert.assertTrue("UKM Enabled:", isUkmEnabled(normalTab));
     }
 
@@ -98,13 +98,13 @@ public class UkmTest {
     public void singleSyncSignoutCheck() throws Exception {
         // Keep in sync with UkmBrowserTest.SingleSyncSignoutCheck in
         // chrome/browser/metrics/ukm_browsertest.cc.
-        // Make sure that UKM is disabled when an secondary passphrase is set.
+        // Make sure that UKM is disabled when an explicit passphrase is set.
 
         TestThreadUtils.runOnUiThreadBlocking(
                 () -> UmaSessionStats.updateMetricsAndCrashReportingForTesting(true));
 
         // Enable a Syncing account.
-        CoreAccountInfo account = mSyncTestRule.setUpAccountAndSignInForTesting();
+        CoreAccountInfo account = mSyncTestRule.setUpAccountAndEnableSyncForTesting();
         Tab normalTab = mSyncTestRule.getActivity().getActivityTab();
         Assert.assertTrue("UKM Enabled:", isUkmEnabled(normalTab));
 

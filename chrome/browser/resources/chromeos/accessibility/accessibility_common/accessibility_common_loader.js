@@ -2,16 +2,22 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import {Autoclick} from './autoclick/autoclick.js';
+import {Dictation} from './dictation/dictation.js';
+import {Magnifier} from './magnifier/magnifier.js';
+
 /**
  * Class to manage loading resources depending on which Accessibility features
  * are enabled.
  */
-class AccessibilityCommon {
+export class AccessibilityCommon {
   constructor() {
     /** @private {Autoclick} */
     this.autoclick_ = null;
     /** @private {Magnifier} */
     this.magnifier_ = null;
+    /** @private {Dictation} */
+    this.dictation_ = null;
 
     this.init_();
   }
@@ -49,6 +55,11 @@ class AccessibilityCommon {
         {}, this.onMagnifierUpdated_.bind(this, Magnifier.Type.DOCKED));
     chrome.accessibilityFeatures.dockedMagnifier.onChange.addListener(
         this.onMagnifierUpdated_.bind(this, Magnifier.Type.DOCKED));
+
+    chrome.accessibilityFeatures.dictation.get(
+        {}, this.onDictationUpdated_.bind(this));
+    chrome.accessibilityFeatures.dictation.onChange.addListener(
+        this.onDictationUpdated_.bind(this));
   }
 
   /**
@@ -82,8 +93,21 @@ class AccessibilityCommon {
       this.magnifier_ = null;
     }
   }
+
+  /**
+   * Called when the dictation feature is enabled or disabled.
+   * @param {*} details
+   * @private
+   */
+  onDictationUpdated_(details) {
+    if (details.value && !this.dictation_) {
+      this.dictation_ = new Dictation();
+    } else if (!details.value && this.dictation_) {
+      this.dictation_ = null;
+    }
+  }
 }
 
 InstanceChecker.closeExtraInstances();
 // Initialize the AccessibilityCommon extension.
-var accessibilityCommon = new AccessibilityCommon();
+window.accessibilityCommon = new AccessibilityCommon();

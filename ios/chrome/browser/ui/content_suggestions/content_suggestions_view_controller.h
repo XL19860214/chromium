@@ -10,11 +10,14 @@
 #import "ios/chrome/browser/ui/collection_view/collection_view_controller.h"
 #import "ios/chrome/browser/ui/content_suggestions/content_suggestions_collection_controlling.h"
 #import "ios/chrome/browser/ui/content_suggestions/content_suggestions_consumer.h"
+#import "ios/chrome/browser/ui/thumb_strip/thumb_strip_supporting.h"
 
+@class BubblePresenter;
 @class ContentSuggestionsSectionInformation;
 @protocol ContentSuggestionsActionHandler;
 @protocol ContentSuggestionsCommands;
 @protocol ContentSuggestionsDataSource;
+@protocol ContentSuggestionsHeaderControlling;
 @protocol ContentSuggestionsHeaderSynchronizing;
 @protocol ContentSuggestionsMenuProvider;
 @protocol ContentSuggestionsMetricsRecording;
@@ -28,18 +31,23 @@
 @protocol ThemeChangeDelegate;
 @class ViewRevealingVerticalPanHandler;
 
-extern NSString* const
-    kContentSuggestionsMostVisitedAccessibilityIdentifierPrefix;
-
 // CollectionViewController to display the suggestions items.
 @interface ContentSuggestionsViewController
     : CollectionViewController <ContentSuggestionsCollectionControlling,
-                                ContentSuggestionsConsumer>
+                                ContentSuggestionsConsumer,
+                                ThumbStripSupporting>
 
 // Inits view controller with |offset| to maintain scroll position if needed.
-// Offset is only required if Discover feed is enabled.
+// Offset is only required if Discover feed is visible.
+// |feedVisible| is YES if feed is enabled and visible.
+// |refactoredFeedVisible| is YES if the feed is visible using the refactored
+// NTP.
+// TODO(crbug.com/1200303): Remove |refactoredFeedVisible| after launch.
 - (instancetype)initWithStyle:(CollectionViewControllerStyle)style
-                       offset:(CGFloat)offset NS_DESIGNATED_INITIALIZER;
+                       offset:(CGFloat)offset
+                  feedVisible:(BOOL)visible
+        refactoredFeedVisible:(BOOL)refactoredFeedVisible
+    NS_DESIGNATED_INITIALIZER;
 
 - (instancetype)initWithLayout:(UICollectionViewLayout*)layout
                          style:(CollectionViewControllerStyle)style
@@ -66,6 +74,12 @@ extern NSString* const
     metricsRecorder;
 // Whether or not the contents section should be hidden completely.
 @property(nonatomic, assign) BOOL contentSuggestionsEnabled;
+// Provides information about the content suggestions header. Used to get the
+// header height.
+// TODO(crbug.com/1114792): Remove this and replace its call with refactored
+// header synchronizer.
+@property(nonatomic, weak) id<ContentSuggestionsHeaderControlling>
+    headerProvider;
 // Delegate for handling actions relating to content suggestions.
 @property(nonatomic, weak) id<ContentSuggestionsActionHandler> handler;
 // Provider of menu configurations for the contentSuggestions component.
@@ -75,8 +89,12 @@ extern NSString* const
 @property(nonatomic, strong)
     DiscoverFeedMetricsRecorder* discoverFeedMetricsRecorder;
 
-// The pan gesture handler for the hider view controller.
+// The pan gesture handler to notify of scroll events happening in this view
+// controller.
 @property(nonatomic, weak) ViewRevealingVerticalPanHandler* panGestureHandler;
+
+// Bubble presenter for displaying IPH bubbles relating to the NTP.
+@property(nonatomic, strong) BubblePresenter* bubblePresenter;
 
 - (void)setDataSource:(id<ContentSuggestionsDataSource>)dataSource;
 - (void)setDispatcher:(id<SnackbarCommands>)dispatcher;

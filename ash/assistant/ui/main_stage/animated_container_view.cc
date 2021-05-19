@@ -12,9 +12,10 @@
 #include "ash/assistant/ui/main_stage/element_animator.h"
 #include "ash/public/cpp/assistant/controller/assistant_interaction_controller.h"
 #include "chromeos/services/assistant/public/cpp/features.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/compositor/callback_layer_animation_observer.h"
+#include "ui/compositor/layer.h"
 #include "ui/compositor/layer_animator.h"
-#include "ui/views/metadata/metadata_impl_macros.h"
 
 namespace ash {
 
@@ -40,7 +41,7 @@ class AnimatedContainerView::ScopedDisablePreferredSizeChanged {
 
 AnimatedContainerView::AnimatedContainerView(AssistantViewDelegate* delegate)
     : delegate_(delegate) {
-  assistant_controller_observer_.Add(AssistantController::Get());
+  assistant_controller_observation_.Observe(AssistantController::Get());
   AssistantInteractionController::Get()->GetModel()->AddObserver(this);
 
   AddScrollViewObserver(this);
@@ -76,7 +77,9 @@ void AnimatedContainerView::OnChildViewRemoved(View* observed_view,
 
 void AnimatedContainerView::OnAssistantControllerDestroying() {
   AssistantInteractionController::Get()->GetModel()->RemoveObserver(this);
-  assistant_controller_observer_.Remove(AssistantController::Get());
+  DCHECK(assistant_controller_observation_.IsObservingSource(
+      AssistantController::Get()));
+  assistant_controller_observation_.Reset();
 }
 
 void AnimatedContainerView::OnCommittedQueryChanged(

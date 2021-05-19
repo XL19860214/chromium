@@ -8,16 +8,17 @@
 #include <utility>
 #include <vector>
 
-#include "base/macros.h"
-#include "base/time/time.h"
 #include "build/build_config.h"
 #include "chrome/browser/ui/views/frame/toolbar_button_provider.h"
 #include "third_party/skia/include/core/SkColor.h"
+#include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/gfx/color_palette.h"
 #include "ui/views/accessible_pane_view.h"
+#include "ui/views/view_targeter_delegate.h"
 
 namespace views {
 class View;
+class ViewTargeterDelegate;
 class Widget;
 }  // namespace views
 
@@ -29,11 +30,13 @@ class WebAppToolbarButtonContainer;
 
 // A container for web app buttons in the title bar.
 class WebAppFrameToolbarView : public views::AccessiblePaneView,
-                               public ToolbarButtonProvider {
+                               public ToolbarButtonProvider,
+                               public views::ViewTargeterDelegate {
  public:
-  static const char kViewClassName[];
-
+  METADATA_HEADER(WebAppFrameToolbarView);
   WebAppFrameToolbarView(views::Widget* widget, BrowserView* browser_view);
+  WebAppFrameToolbarView(const WebAppFrameToolbarView&) = delete;
+  WebAppFrameToolbarView& operator=(const WebAppFrameToolbarView&) = delete;
   ~WebAppFrameToolbarView() override;
 
   void UpdateStatusIconsVisibility();
@@ -44,6 +47,7 @@ class WebAppFrameToolbarView : public views::AccessiblePaneView,
 
   // Sets the container to paints its buttons the active/inactive color.
   void SetPaintAsActive(bool active);
+  bool GetPaintAsActive() const;
 
   // Sets own bounds equal to the available space and returns the bounds of the
   // remaining inner space as a pair of (leading x, trailing x).
@@ -52,10 +56,12 @@ class WebAppFrameToolbarView : public views::AccessiblePaneView,
                                         int y,
                                         int available_height);
 
+  // Sets own bounds within the available_space.
+  void LayoutForWindowControlsOverlay(gfx::Rect available_space);
+
   SkColor active_color_for_testing() const { return active_foreground_color_; }
 
   // ToolbarButtonProvider:
-  BrowserActionsContainer* GetBrowserActionsContainer() override;
   ExtensionsToolbarContainer* GetExtensionsToolbarContainer() override;
   gfx::Size GetToolbarButtonSize() const override;
   views::View* GetDefaultExtensionDialogAnchorView() override;
@@ -70,13 +76,20 @@ class WebAppFrameToolbarView : public views::AccessiblePaneView,
   ToolbarButton* GetBackButton() override;
   ReloadButton* GetReloadButton() override;
 
-  views::View* GetLeftContainerForTesting();
-  views::View* GetRightContainerForTesting();
+  // views::ViewTargeterDelegate
+  bool DoesIntersectRect(const View* target,
+                         const gfx::Rect& rect) const override;
+
+  WebAppNavigationButtonContainer* get_left_container_for_testing() {
+    return left_container_;
+  }
+  WebAppToolbarButtonContainer* get_right_container_for_testing() {
+    return right_container_;
+  }
   PageActionIconController* GetPageActionIconControllerForTesting();
 
  protected:
   // views::AccessiblePaneView:
-  const char* GetClassName() const override;
   void ChildPreferredSizeChanged(views::View* child) override;
   void OnThemeChanged() override;
 
@@ -111,8 +124,6 @@ class WebAppFrameToolbarView : public views::AccessiblePaneView,
   views::View* center_container_ = nullptr;
 
   WebAppToolbarButtonContainer* right_container_ = nullptr;
-
-  DISALLOW_COPY_AND_ASSIGN(WebAppFrameToolbarView);
 };
 
 #endif  // CHROME_BROWSER_UI_VIEWS_WEB_APPS_FRAME_TOOLBAR_WEB_APP_FRAME_TOOLBAR_VIEW_H_

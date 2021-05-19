@@ -2,12 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include <va/va.h>
+#include "media/gpu/vaapi/test/shared_va_surface.h"
 
 #include "base/files/file_util.h"
+#include "base/hash/md5.h"
 #include "media/base/video_types.h"
 #include "media/gpu/vaapi/test/macros.h"
-#include "media/gpu/vaapi/test/shared_va_surface.h"
+#include "media/gpu/vaapi/test/vaapi_device.h"
 #include "third_party/libyuv/include/libyuv.h"
 #include "ui/gfx/codec/png_codec.h"
 
@@ -16,6 +17,13 @@ namespace vaapi_test {
 
 namespace {
 
+// Returns whether the image format |fourcc| is supported for MD5 hash checking.
+// MD5 golden values are computed from vpxdec based on I420, and only certain
+// format conversions are implemented.
+bool IsSupportedFormat(uint32_t fourcc) {
+  return fourcc == VA_FOURCC_I420 || fourcc == VA_FOURCC_NV12;
+}
+
 // Derives the VAImage metadata and image data from |surface_id| in |display|,
 // returning true on success.
 bool DeriveImage(VADisplay display,
@@ -23,15 +31,19 @@ bool DeriveImage(VADisplay display,
                  VAImage* image,
                  uint8_t** image_data) {
   VAStatus res = vaDeriveImage(display, surface_id, image);
-  VLOG_IF(2, (res != VA_STATUS_SUCCESS))
-      << "vaDeriveImage failed, VA error: " << vaErrorStr(res);
+  if (res != VA_STATUS_SUCCESS) {
+    VLOG(2) << "vaDeriveImage failed, VA error: " << vaErrorStr(res);
+    return false;
+  }
+
+  const uint32_t fourcc = image->format.fourcc;
+  DCHECK_NE(fourcc, 0u);
 
   // TODO(jchinlee): Support derivation into 10-bit fourcc.
-  if (image->format.fourcc != VA_FOURCC_NV12) {
+  if (!IsSupportedFormat(fourcc)) {
     VLOG(2) << "Test decoder binary does not support derived surface format "
-            << "with fourcc " << media::FourccToString(image->format.fourcc);
-    res = vaDestroyImage(display, image->image_id);
-    VA_LOG_ASSERT(res, "vaDestroyImage");
+            << "with fourcc " << media::FourccToString(fourcc);
+    VA_LOG_ASSERT(vaDestroyImage(display, image->image_id), "vaDestroyImage");
     return false;
   }
 
@@ -40,7 +52,7 @@ bool DeriveImage(VADisplay display,
   return true;
 }
 
-// Returns image format to use given the surface's internal VA format.
+// Returns image format to fall back to given the surface's internal VA format.
 VAImageFormat GetImageFormat(unsigned int va_rt_format) {
   constexpr VAImageFormat kImageFormatNV12{.fourcc = VA_FOURCC_NV12,
                                            .byte_order = VA_LSB_FIRST,
@@ -59,22 +71,15 @@ VAImageFormat GetImageFormat(unsigned int va_rt_format) {
   }
 }
 
-// Maps the image data from |surface_id| in |display| with given |size| by
-// attempting to derive into |image| and |image_data|, or creating a
-// VAImage to use with vaGetImage as fallback and setting |image| and
-// |image_data| accordingly.
+// Retrieves the image data from |surface_id| in |display| with given |size| by
+// creating a VAImage with |format| to use with vaGetImage and setting |image|
+// and |image_data| accordingly.
 void GetSurfaceImage(VADisplay display,
                      VASurfaceID surface_id,
-                     unsigned int va_rt_format,
+                     VAImageFormat format,
                      const gfx::Size size,
                      VAImage* image,
                      uint8_t** image_data) {
-  // First attempt to derive the image from the surface.
-  if (DeriveImage(display, surface_id, image, image_data))
-    return;
-
-  // Fall back to getting the image with manually passed format.
-  VAImageFormat format = GetImageFormat(va_rt_format);
   VAStatus res =
       vaCreateImage(display, &format, size.width(), size.height(), image);
   VA_LOG_ASSERT(res, "vaCreateImage");
@@ -126,17 +131,32 @@ SharedVASurface::~SharedVASurface() {
   VLOG(1) << "destroyed surface " << id_;
 }
 
-void SharedVASurface::SaveAsPNG(const std::string& path) {
+void SharedVASurface::FetchData(FetchPolicy fetch_policy,
+                                const VAImageFormat& format,
+                                VAImage* image,
+                                uint8_t** image_data) const {
+  if (fetch_policy == FetchPolicy::kDeriveImage ||
+      fetch_policy == FetchPolicy::kAny) {
+    const bool res = DeriveImage(va_device_.display(), id_, image, image_data);
+    if (fetch_policy != FetchPolicy::kAny)
+      LOG_ASSERT(res) << "Failed to vaDeriveImage.";
+    if (res)
+      return;
+  }
+
+  GetSurfaceImage(va_device_.display(), id_, format, size_, image, image_data);
+}
+
+void SharedVASurface::SaveAsPNG(FetchPolicy fetch_policy,
+                                const std::string& path) const {
   VAImage image;
   uint8_t* image_data;
-
-  GetSurfaceImage(va_device_.display(), id_, va_rt_format_, size_, &image,
-                  &image_data);
+  FetchData(fetch_policy, GetImageFormat(va_rt_format_), &image, &image_data);
 
   // Convert the image data to ARGB and write to |path|.
   const size_t argb_stride = image.width * 4;
   auto argb_data = std::make_unique<uint8_t[]>(argb_stride * image.height);
-  int convert_res = 0;
+  int convert_res = -1;
   const uint32_t fourcc = image.format.fourcc;
   DCHECK(fourcc == VA_FOURCC_NV12 || fourcc == VA_FOURCC_P010);
 
@@ -198,6 +218,62 @@ void SharedVASurface::SaveAsPNG(const std::string& path) {
 
   res = vaDestroyImage(va_device_.display(), image.image_id);
   VA_LOG_ASSERT(res, "vaDestroyImage");
+}
+
+std::string SharedVASurface::GetMD5Sum(FetchPolicy fetch_policy) const {
+  VAImage image;
+  uint8_t* image_data;
+  constexpr VAImageFormat kImageFormatI420{.fourcc = VA_FOURCC_I420,
+                                           .byte_order = VA_LSB_FIRST,
+                                           .bits_per_pixel = 12};
+  FetchData(fetch_policy, kImageFormatI420, &image, &image_data);
+
+  // Golden values of MD5 sums are computed from vpxdec with packed I420 as the
+  // format, so convert as needed.
+  uint32_t luma_plane_size =
+      base::checked_cast<uint32_t>(image.height * image.width);
+  uint32_t chroma_plane_size = base::checked_cast<uint32_t>(
+      ((image.height + 1) / 2) * ((image.width + 1) / 2));
+  std::vector<uint8_t> i420_data(luma_plane_size + 2 * chroma_plane_size, 0u);
+  int convert_res = -1;
+  const uint32_t fourcc = image.format.fourcc;
+  if (fourcc == VA_FOURCC_I420) {
+    // I420 still needs to be packed.
+    LOG_ASSERT(image.num_planes == 3u);
+    convert_res = libyuv::I420Copy(
+        image_data + image.offsets[0],
+        base::checked_cast<int>(image.pitches[0]),
+        image_data + image.offsets[1],
+        base::checked_cast<int>(image.pitches[1]),
+        image_data + image.offsets[2],
+        base::checked_cast<int>(image.pitches[2]), i420_data.data(),
+        base::strict_cast<int>(image.width), i420_data.data() + luma_plane_size,
+        base::checked_cast<int>((image.width + 1) / 2),
+        i420_data.data() + luma_plane_size + chroma_plane_size,
+        base::checked_cast<int>((image.width + 1) / 2),
+        base::strict_cast<int>(image.width),
+        base::strict_cast<int>(image.height));
+  } else if (fourcc == VA_FOURCC_NV12) {
+    LOG_ASSERT(image.num_planes == 2u);
+    convert_res = libyuv::NV12ToI420(
+        image_data + image.offsets[0],
+        base::checked_cast<int>(image.pitches[0]),
+        image_data + image.offsets[1],
+        base::checked_cast<int>(image.pitches[1]), i420_data.data(),
+        base::strict_cast<int>(image.width), i420_data.data() + luma_plane_size,
+        base::checked_cast<int>((image.width + 1) / 2),
+        i420_data.data() + luma_plane_size + chroma_plane_size,
+        base::checked_cast<int>((image.width + 1) / 2),
+        base::strict_cast<int>(image.width),
+        base::strict_cast<int>(image.height));
+  }
+  LOG_ASSERT(convert_res == 0)
+      << "Failed to convert " << media::FourccToString(fourcc)
+      << " to packed I420.";
+
+  base::MD5Digest md5_digest;
+  base::MD5Sum(i420_data.data(), i420_data.size(), &md5_digest);
+  return MD5DigestToBase16(md5_digest);
 }
 
 }  // namespace vaapi_test

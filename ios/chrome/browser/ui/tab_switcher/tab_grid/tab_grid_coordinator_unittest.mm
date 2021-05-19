@@ -8,13 +8,18 @@
 
 #include "base/strings/sys_string_conversions.h"
 #import "base/test/ios/wait_util.h"
+#include "base/test/metrics/histogram_tester.h"
+#include "base/test/scoped_mock_clock_override.h"
+#include "ios/chrome/browser/browser_state/test_chrome_browser_state.h"
 #import "ios/chrome/browser/main/test_browser.h"
+#include "ios/chrome/browser/sessions/ios_chrome_tab_restore_service_factory.h"
 #import "ios/chrome/browser/snapshots/snapshot_browser_agent.h"
 #import "ios/chrome/browser/ui/commands/application_commands.h"
 #import "ios/chrome/browser/ui/commands/browsing_data_commands.h"
 #import "ios/chrome/browser/ui/main/scene_state.h"
 #import "ios/chrome/browser/ui/main/scene_state_browser_agent.h"
 #include "ios/chrome/browser/ui/tab_switcher/tab_grid/tab_grid_coordinator_delegate.h"
+#import "ios/chrome/browser/ui/util/uikit_ui_util.h"
 #import "ios/chrome/test/block_cleanup_test.h"
 #include "ios/web/public/test/web_task_environment.h"
 #include "testing/gtest_mac.h"
@@ -66,7 +71,7 @@ namespace {
 void AddAgentsToBrowser(Browser* browser, SceneState* scene_state) {
   SnapshotBrowserAgent::CreateForBrowser(browser);
   SnapshotBrowserAgent::FromBrowser(browser)->SetSessionID(
-      base::SysNSStringToUTF8([[NSUUID UUID] UUIDString]));
+      [[NSUUID UUID] UUIDString]);
   SceneStateBrowserAgent::CreateForBrowser(browser, scene_state);
 }
 
@@ -77,13 +82,20 @@ class TabGridCoordinatorTest : public BlockCleanupTest {
     scene_state_.window =
         [[UIApplication sharedApplication].windows firstObject];
 
-    browser_ = std::make_unique<TestBrowser>();
+    TestChromeBrowserState::Builder test_cbs_builder;
+    test_cbs_builder.AddTestingFactory(
+        IOSChromeTabRestoreServiceFactory::GetInstance(),
+        IOSChromeTabRestoreServiceFactory::GetDefaultFactory());
+    chrome_browser_state_ = test_cbs_builder.Build();
+
+    browser_ = std::make_unique<TestBrowser>(chrome_browser_state_.get());
+
     AddAgentsToBrowser(browser_.get(), scene_state_);
 
     incognito_browser_ = std::make_unique<TestBrowser>();
     AddAgentsToBrowser(incognito_browser_.get(), scene_state_);
 
-    UIWindow* window = [UIApplication sharedApplication].keyWindow;
+    UIWindow* window = GetAnyKeyWindow();
     coordinator_ = [[TabGridCoordinator alloc]
                      initWithWindow:window
          applicationCommandEndpoint:OCMProtocolMock(
@@ -95,8 +107,7 @@ class TabGridCoordinatorTest : public BlockCleanupTest {
     coordinator_.animationsDisabledForTesting = YES;
     // TabGirdCoordinator will make its view controller the root, so stash the
     // original root view controller before starting |coordinator_|.
-    original_root_view_controller_ =
-        [[[UIApplication sharedApplication] keyWindow] rootViewController];
+    original_root_view_controller_ = [GetAnyKeyWindow() rootViewController];
 
     [coordinator_ start];
 
@@ -114,14 +125,14 @@ class TabGridCoordinatorTest : public BlockCleanupTest {
 
   void TearDown() override {
     if (original_root_view_controller_) {
-      [[UIApplication sharedApplication] keyWindow].rootViewController =
-          original_root_view_controller_;
+      GetAnyKeyWindow().rootViewController = original_root_view_controller_;
       original_root_view_controller_ = nil;
     }
     [coordinator_ stop];
   }
 
  protected:
+  std::unique_ptr<TestChromeBrowserState> chrome_browser_state_;
   web::WebTaskEnvironment task_environment_;
   // Browser for the coordinator.
   std::unique_ptr<Browser> browser_;
@@ -147,6 +158,10 @@ class TabGridCoordinatorTest : public BlockCleanupTest {
   // available for use in tests.
   UIViewController* normal_tab_view_controller_;
   UIViewController* incognito_tab_view_controller_;
+
+  // Used to test logging the time spent in tab grid.
+  base::HistogramTester histogram_tester_;
+  base::ScopedMockClockOverride scoped_clock_;
 };
 
 // Tests that the tab grid view controller is the initial active view
@@ -265,11 +280,44 @@ TEST_F(TabGridCoordinatorTest, CompletionHandlers) {
   EXPECT_FALSE(delegate_.didEndCalled);
 }
 
-// Test that the tab grid coordinator sizes its view controller to the window.
+// Tests that the tab grid coordinator sizes its view controller to the window.
 TEST_F(TabGridCoordinatorTest, SizeTabGridCoordinatorViewController) {
   CGRect rect = [UIScreen mainScreen].bounds;
   EXPECT_TRUE(
       CGRectEqualToRect(rect, coordinator_.baseViewController.view.frame));
+}
+
+// Tests that the time spent in the tab grid is correctly logged.
+TEST_F(TabGridCoordinatorTest, TimeSpentInTabGrid) {
+  histogram_tester_.ExpectTotalCount("IOS.TabSwitcher.TimeSpent", 0);
+  scoped_clock_.Advance(base::TimeDelta::FromMinutes(1));
+  [coordinator_ showTabGrid];
+  histogram_tester_.ExpectTotalCount("IOS.TabSwitcher.TimeSpent", 0);
+  scoped_clock_.Advance(base::TimeDelta::FromSeconds(20));
+  [coordinator_ showTabViewController:normal_tab_view_controller_
+                   shouldCloseTabGrid:YES
+                           completion:nil];
+  histogram_tester_.ExpectUniqueTimeSample("IOS.TabSwitcher.TimeSpent",
+                                           base::TimeDelta::FromSeconds(20), 1);
+  histogram_tester_.ExpectTotalCount("IOS.TabSwitcher.TimeSpent", 1);
+}
+
+// Test that the tab grid coordinator reports the tab grid as the main interface
+// correctly.
+TEST_F(TabGridCoordinatorTest, tabGridActive) {
+  // tabGridActive is false until the first appearance.
+  EXPECT_FALSE(coordinator_.tabGridActive);
+
+  [coordinator_ showTabViewController:normal_tab_view_controller_
+                   shouldCloseTabGrid:YES
+                           completion:nil];
+  EXPECT_FALSE(coordinator_.tabGridActive);
+
+  [coordinator_ showTabGrid];
+  EXPECT_TRUE(base::test::ios::WaitUntilConditionOrTimeout(
+      base::test::ios::kWaitForUIElementTimeout, ^bool() {
+        return coordinator_.tabGridActive;
+      }));
 }
 
 }  // namespace

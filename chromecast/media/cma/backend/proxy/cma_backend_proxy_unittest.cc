@@ -8,6 +8,7 @@
 #include "base/memory/ref_counted.h"
 #include "chromecast/media/api/cma_backend.h"
 #include "chromecast/media/api/decoder_buffer_base.h"
+#include "chromecast/media/api/test/mock_cma_backend.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -18,23 +19,12 @@ namespace chromecast {
 namespace media {
 namespace {
 
-class MockCmaBackend : public CmaBackend {
- public:
-  MOCK_METHOD0(CreateAudioDecoder, CmaBackend::AudioDecoder*());
-  MOCK_METHOD0(CreateVideoDecoder, CmaBackend::VideoDecoder*());
-  MOCK_METHOD0(Initialize, bool());
-  MOCK_METHOD1(Start, bool(int64_t));
-  MOCK_METHOD0(Stop, void());
-  MOCK_METHOD0(Pause, bool());
-  MOCK_METHOD0(Resume, bool());
-  MOCK_METHOD0(GetCurrentPts, int64_t());
-  MOCK_METHOD1(SetPlaybackRate, bool(float rate));
-  MOCK_METHOD0(LogicalPause, void());
-  MOCK_METHOD0(LogicalResume, void());
-};
-
 class MockMultizoneAudioDecoderProxy : public MultizoneAudioDecoderProxy {
  public:
+  MockMultizoneAudioDecoderProxy()
+      : MultizoneAudioDecoderProxy(&audio_decoder_) {}
+  ~MockMultizoneAudioDecoderProxy() override = default;
+
   MOCK_METHOD0(Initialize, void());
   MOCK_METHOD1(Start, void(int64_t));
   MOCK_METHOD0(Stop, void());
@@ -52,6 +42,10 @@ class MockMultizoneAudioDecoderProxy : public MultizoneAudioDecoderProxy {
   MOCK_METHOD1(GetStatistics, void(Statistics*));
   MOCK_METHOD0(RequiresDecryption, bool());
   MOCK_METHOD1(SetObserver, void(Observer*));
+
+ private:
+  // Used only for the ctor parameter.
+  MockCmaBackend::AudioDecoder audio_decoder_;
 };
 
 }  // namespace
@@ -189,27 +183,6 @@ TEST_F(CmaBackendProxyTest, Resume) {
 
   EXPECT_TRUE(backend_->Resume());
   EXPECT_FALSE(backend_->Resume());
-}
-
-TEST_F(CmaBackendProxyTest, GetCurrentPts) {
-  EXPECT_EQ(backend_->GetCurrentPts(), std::numeric_limits<int64_t>::min());
-
-  CreateVideoDecoder();
-
-  EXPECT_CALL(*delegated_backend_, GetCurrentPts()).WillOnce(Return(42));
-  EXPECT_EQ(backend_->GetCurrentPts(), 42);
-  testing::Mock::VerifyAndClearExpectations(delegated_backend_);
-
-  ASSERT_EQ(backend_->CreateAudioDecoder(), audio_decoder_);
-  EXPECT_CALL(*audio_decoder_, GetCurrentPts())
-      .WillOnce(Return(42))
-      .WillOnce(Return(42));
-  EXPECT_CALL(*delegated_backend_, GetCurrentPts())
-      .WillOnce(Return(16))
-      .WillOnce(Return(360));
-
-  EXPECT_EQ(backend_->GetCurrentPts(), 16);
-  EXPECT_EQ(backend_->GetCurrentPts(), 42);
 }
 
 TEST_F(CmaBackendProxyTest, SetPlaybackRate) {

@@ -4,6 +4,7 @@
 
 #include "third_party/blink/renderer/core/frame/csp/csp_source.h"
 
+#include "services/network/public/mojom/content_security_policy.mojom-blink.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/frame/csp/content_security_policy.h"
@@ -434,6 +435,20 @@ TEST(CSPSourceTest, MatchingAsSelf) {
       {{"http", "example.com", "", url::PORT_UNSPECIFIED, false, false},
        "custom-scheme://example.com/some-path",
        false},
+
+      // If 'self' is file://, the host always matches.
+      {{"file", "", "", url::PORT_UNSPECIFIED, false, false},
+       "file:///info.txt",
+       true},
+      {{"file", "", "", url::PORT_UNSPECIFIED, false, false},
+       "file://localhost/info.txt",
+       true},
+      {{"file", "localhost", "", url::PORT_UNSPECIFIED, false, false},
+       "file:///info.txt",
+       true},
+      {{"file", "localhost", "", url::PORT_UNSPECIFIED, false, false},
+       "file://localhost/info.txt",
+       true},
   };
 
   KURL base;
@@ -443,7 +458,7 @@ TEST(CSPSourceTest, MatchingAsSelf) {
         test.self_source.path, test.self_source.host_wildcard,
         test.self_source.port_wildcard);
     EXPECT_EQ(test.expected,
-              CSPSourceMatchesAsSelf(*self_source, "", KURL(base, test.url)));
+              CSPSourceMatchesAsSelf(*self_source, KURL(base, test.url)));
   }
 }
 

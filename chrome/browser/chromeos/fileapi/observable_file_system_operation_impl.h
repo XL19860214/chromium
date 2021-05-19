@@ -34,7 +34,7 @@ class ObservableFileSystemOperationImpl
             const storage::FileSystemURL& dst,
             CopyOrMoveOption option,
             ErrorBehavior error_behavior,
-            const CopyProgressCallback& progress_callback,
+            const CopyOrMoveProgressCallback& progress_callback,
             StatusCallback callback) override;
   void CopyFileLocal(const storage::FileSystemURL& src,
                      const storage::FileSystemURL& dst,
@@ -44,11 +44,24 @@ class ObservableFileSystemOperationImpl
   void Move(const storage::FileSystemURL& src,
             const storage::FileSystemURL& dst,
             CopyOrMoveOption option,
+            ErrorBehavior error_behavior,
+            const CopyOrMoveProgressCallback& progress_callback,
             StatusCallback callback) override;
   void MoveFileLocal(const storage::FileSystemURL& src,
                      const storage::FileSystemURL& dst,
                      CopyOrMoveOption option,
                      StatusCallback callback) override;
+  void WriteBlob(const storage::FileSystemURL& url,
+                 std::unique_ptr<storage::FileWriterDelegate> writer_delegate,
+                 std::unique_ptr<storage::BlobReader> blob_reader,
+                 const WriteCallback& callback) override;
+  void Write(const storage::FileSystemURL& url,
+             std::unique_ptr<storage::FileWriterDelegate> writer_delegate,
+             mojo::ScopedDataPipeConsumerHandle data_pipe,
+             const WriteCallback& callback) override;
+  void Truncate(const storage::FileSystemURL& url,
+                int64_t length,
+                StatusCallback callback) override;
 
   const AccountId account_id_;
   base::WeakPtrFactory<ObservableFileSystemOperationImpl> weak_factory_{this};

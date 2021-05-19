@@ -116,6 +116,8 @@ class CastContentBrowserClient
 
   virtual void InitializeURLLoaderThrottleDelegate();
 
+  virtual void SetPersistentCookieAccessSettings(PrefService* pref_service);
+
   // Returns the task runner that must be used for media IO.
   scoped_refptr<base::SingleThreadTaskRunner> GetMediaTaskRunner();
 
@@ -159,7 +161,7 @@ class CastContentBrowserClient
   virtual void RunServiceInstance(
       const service_manager::Identity& identity,
       mojo::PendingReceiver<service_manager::mojom::Service>* receiver);
-  virtual base::Optional<service_manager::Manifest> GetServiceManifestOverlay(
+  virtual absl::optional<service_manager::Manifest> GetServiceManifestOverlay(
       base::StringPiece service_name);
   std::vector<service_manager::Manifest> GetExtraServiceManifests();
   std::vector<std::string> GetStartupServices();
@@ -174,7 +176,7 @@ class CastContentBrowserClient
                                       int child_process_id) override;
   std::string GetAcceptLangs(content::BrowserContext* context) override;
   network::mojom::NetworkContext* GetSystemNetworkContext() override;
-  void OverrideWebkitPrefs(content::RenderViewHost* render_view_host,
+  void OverrideWebkitPrefs(content::WebContents* web_contents,
                            blink::web_pref::WebPreferences* prefs) override;
   std::string GetApplicationLocale() override;
   scoped_refptr<content::QuotaPermissionContext> CreateQuotaPermissionContext()
@@ -226,7 +228,8 @@ class CastContentBrowserClient
       content::PosixFileDescriptorInfo* mappings) override;
   void GetAdditionalWebUISchemes(
       std::vector<std::string>* additional_schemes) override;
-  content::DevToolsManagerDelegate* GetDevToolsManagerDelegate() override;
+  std::unique_ptr<content::DevToolsManagerDelegate>
+  CreateDevToolsManagerDelegate() override;
   std::unique_ptr<content::NavigationUIData> GetNavigationUIData(
       content::NavigationHandle* navigation_handle) override;
   bool ShouldEnableStrictSiteIsolation() override;
@@ -247,8 +250,8 @@ class CastContentBrowserClient
       bool in_memory,
       const base::FilePath& relative_partition_path,
       network::mojom::NetworkContextParams* network_context_params,
-      network::mojom::CertVerifierCreationParams* cert_verifier_creation_params)
-      override;
+      cert_verifier::mojom::CertVerifierCreationParams*
+          cert_verifier_creation_params) override;
   std::string GetUserAgent() override;
   bool DoesSiteRequireDedicatedProcess(content::BrowserContext* browser_context,
                                        const GURL& effective_site_url) override;

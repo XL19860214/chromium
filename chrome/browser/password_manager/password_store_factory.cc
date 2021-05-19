@@ -27,6 +27,7 @@
 #include "components/password_manager/core/browser/password_store_factory_util.h"
 #include "components/password_manager/core/browser/password_store_impl.h"
 #include "components/password_manager/core/browser/password_store_signin_notifier_impl.h"
+#include "components/password_manager/core/common/password_manager_features.h"
 #include "components/password_manager/core/common/password_manager_pref_names.h"
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "components/prefs/pref_service.h"
@@ -48,8 +49,11 @@ namespace {
 std::string GetSyncUsername(Profile* profile) {
   auto* identity_manager =
       IdentityManagerFactory::GetForProfileIfExists(profile);
-  return identity_manager ? identity_manager->GetPrimaryAccountInfo().email
-                          : std::string();
+  return identity_manager
+             ? identity_manager
+                   ->GetPrimaryAccountInfo(signin::ConsentLevel::kSync)
+                   .email
+             : std::string();
 }
 
 bool IsSignedIn(Profile* profile) {
@@ -93,7 +97,7 @@ void PasswordStoreFactory::OnPasswordsSyncedStatePotentiallyChanged(
 
   password_manager::ToggleAffiliationBasedMatchingBasedOnPasswordSyncedState(
       password_store.get(), sync_service,
-      content::BrowserContext::GetDefaultStoragePartition(profile)
+      profile->GetDefaultStoragePartition()
           ->GetURLLoaderFactoryForBrowserProcess(),
       content::GetNetworkConnectionTracker(), profile->GetPath());
 }
@@ -151,8 +155,7 @@ PasswordStoreFactory::BuildServiceInstanceFor(
       [](Profile* profile) -> network::mojom::NetworkContext* {
         if (!g_browser_process->profile_manager()->IsValidProfile(profile))
           return nullptr;
-        return content::BrowserContext::GetDefaultStoragePartition(profile)
-            ->GetNetworkContext();
+        return profile->GetDefaultStoragePartition()->GetNetworkContext();
       },
       profile);
   password_manager_util::RemoveUselessCredentials(
@@ -169,6 +172,18 @@ PasswordStoreFactory::BuildServiceInstanceFor(
           IdentityManagerFactory::GetForProfile(profile));
   ps->SetPasswordStoreSigninNotifier(std::move(notifier));
 #endif
+
+  if (base::FeatureList::IsEnabled(
+          password_manager::features::kFillingAcrossAffiliatedWebsites)) {
+    // Try to create affiliation service without awaiting synced state changes.
+    // TODO(http://crbug.com/1202699): Remove sync service completely after
+    // launching HashAffiliationLookup.
+    password_manager::ToggleAffiliationBasedMatchingBasedOnPasswordSyncedState(
+        ps.get(), /*sync_service=*/nullptr,
+        profile->GetDefaultStoragePartition()
+            ->GetURLLoaderFactoryForBrowserProcess(),
+        content::GetNetworkConnectionTracker(), profile->GetPath());
+  }
 
   return ps;
 }

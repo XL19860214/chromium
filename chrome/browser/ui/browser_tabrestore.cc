@@ -11,8 +11,8 @@
 #include "chrome/browser/apps/app_service/launch_utils.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sessions/session_restore.h"
-#include "chrome/browser/sessions/session_service.h"
-#include "chrome/browser/sessions/session_service_factory.h"
+#include "chrome/browser/sessions/session_service_base.h"
+#include "chrome/browser/sessions/session_service_lookup.h"
 #include "chrome/browser/tab_contents/tab_util.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_window.h"
@@ -56,8 +56,9 @@ std::unique_ptr<WebContents> CreateRestoredTab(
   // SessionStorageNamespace objects. Also remove the
   // session_storage_namespace.h include since we only need that to assign
   // into the map.
-  content::SessionStorageNamespaceMap session_storage_namespace_map;
-  session_storage_namespace_map[std::string()] = session_storage_namespace;
+  content::SessionStorageNamespaceMap session_storage_namespace_map =
+      content::CreateMapWithDefaultSessionStorageNamespace(
+          browser->profile(), session_storage_namespace);
   WebContents::CreateParams create_params(
       browser->profile(),
       tab_util::GetSiteInstanceForNewTab(browser->profile(), restore_url));
@@ -122,7 +123,7 @@ WebContents* AddRestoredTab(
     int tab_index,
     int selected_navigation,
     const std::string& extension_app_id,
-    base::Optional<tab_groups::TabGroupId> group,
+    absl::optional<tab_groups::TabGroupId> group,
     bool select,
     bool pin,
     base::TimeTicks last_active_time,
@@ -144,7 +145,7 @@ WebContents* AddRestoredTab(
     add_types |= TabStripModel::ADD_PINNED;
   }
 
-  const base::Optional<tab_groups::TabGroupId> surrounding_group =
+  const absl::optional<tab_groups::TabGroupId> surrounding_group =
       tab_strip_model->GetSurroundingTabGroup(tab_index);
 
   // If inserting at |tab_index| would put the tab within a different
@@ -197,8 +198,8 @@ WebContents* AddRestoredTab(
       browser->window()->Activate();
   }
 
-  SessionService* session_service =
-      SessionServiceFactory::GetForProfileIfExisting(browser->profile());
+  SessionServiceBase* session_service =
+      GetAppropriateSessionServiceIfExisting(browser);
   if (session_service)
     session_service->TabRestored(raw_web_contents, pin);
 

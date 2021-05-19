@@ -1193,13 +1193,13 @@ class BtreeNodePeer {
     return btree_node<
         set_params<ValueType, std::less<ValueType>, std::allocator<ValueType>,
                    /*TargetNodeSize=*/256,  // This parameter isn't used here.
-                   /*Multi=*/false>>::SizeWithNValues(target_values_per_node);
+                   /*Multi=*/false>>::SizeWithNSlots(target_values_per_node);
   }
 
-  // Yields the number of values in a (non-root) leaf node for this btree.
+  // Yields the number of slots in a (non-root) leaf node for this btree.
   template <typename Btree>
-  constexpr static size_t GetNumValuesPerNode() {
-    return btree_node<typename Btree::params_type>::kNodeValues;
+  constexpr static size_t GetNumSlotsPerNode() {
+    return btree_node<typename Btree::params_type>::kNodeSlots;
   }
 
   template <typename Btree>
@@ -1458,7 +1458,7 @@ void ExpectOperationCounts(const int expected_moves,
 TEST(Btree, MovesComparisonsCopiesSwapsTracking) {
   InstanceTracker tracker;
   // Note: this is minimum number of values per node.
-  SizedBtreeSet<MovableOnlyInstance, /*TargetValuesPerNode=*/3> set3;
+  SizedBtreeSet<MovableOnlyInstance, /*TargetValuesPerNode=*/4> set4;
   // Note: this is the default number of values per node for a set of int32s
   // (with 64-bit pointers).
   SizedBtreeSet<MovableOnlyInstance, /*TargetValuesPerNode=*/61> set61;
@@ -1469,28 +1469,28 @@ TEST(Btree, MovesComparisonsCopiesSwapsTracking) {
   std::vector<int> values =
       GenerateValuesWithSeed<int>(10000, 1 << 22, /*seed=*/23);
 
-  EXPECT_EQ(BtreeNodePeer::GetNumValuesPerNode<decltype(set3)>(), 3);
-  EXPECT_EQ(BtreeNodePeer::GetNumValuesPerNode<decltype(set61)>(), 61);
-  EXPECT_EQ(BtreeNodePeer::GetNumValuesPerNode<decltype(set100)>(), 100);
+  EXPECT_EQ(BtreeNodePeer::GetNumSlotsPerNode<decltype(set4)>(), 4);
+  EXPECT_EQ(BtreeNodePeer::GetNumSlotsPerNode<decltype(set61)>(), 61);
+  EXPECT_EQ(BtreeNodePeer::GetNumSlotsPerNode<decltype(set100)>(), 100);
   if (sizeof(void *) == 8) {
-    EXPECT_EQ(BtreeNodePeer::GetNumValuesPerNode<absl::btree_set<int32_t>>(),
-              BtreeNodePeer::GetNumValuesPerNode<decltype(set61)>());
+    EXPECT_EQ(BtreeNodePeer::GetNumSlotsPerNode<absl::btree_set<int32_t>>(),
+              BtreeNodePeer::GetNumSlotsPerNode<decltype(set61)>());
   }
 
   // Test key insertion/deletion in random order.
-  ExpectOperationCounts(45281, 132551, values, &tracker, &set3);
+  ExpectOperationCounts(56540, 134212, values, &tracker, &set4);
   ExpectOperationCounts(386718, 129807, values, &tracker, &set61);
   ExpectOperationCounts(586761, 130310, values, &tracker, &set100);
 
   // Test key insertion/deletion in sorted order.
   std::sort(values.begin(), values.end());
-  ExpectOperationCounts(26638, 92134, values, &tracker, &set3);
+  ExpectOperationCounts(24972, 85563, values, &tracker, &set4);
   ExpectOperationCounts(20208, 87757, values, &tracker, &set61);
   ExpectOperationCounts(20124, 96583, values, &tracker, &set100);
 
   // Test key insertion/deletion in reverse sorted order.
   std::reverse(values.begin(), values.end());
-  ExpectOperationCounts(49951, 119325, values, &tracker, &set3);
+  ExpectOperationCounts(54949, 127531, values, &tracker, &set4);
   ExpectOperationCounts(338813, 118266, values, &tracker, &set61);
   ExpectOperationCounts(534529, 125279, values, &tracker, &set100);
 }
@@ -1507,9 +1507,9 @@ struct MovableOnlyInstanceThreeWayCompare {
 TEST(Btree, MovesComparisonsCopiesSwapsTrackingThreeWayCompare) {
   InstanceTracker tracker;
   // Note: this is minimum number of values per node.
-  SizedBtreeSet<MovableOnlyInstance, /*TargetValuesPerNode=*/3,
+  SizedBtreeSet<MovableOnlyInstance, /*TargetValuesPerNode=*/4,
                 MovableOnlyInstanceThreeWayCompare>
-      set3;
+      set4;
   // Note: this is the default number of values per node for a set of int32s
   // (with 64-bit pointers).
   SizedBtreeSet<MovableOnlyInstance, /*TargetValuesPerNode=*/61,
@@ -1524,28 +1524,28 @@ TEST(Btree, MovesComparisonsCopiesSwapsTrackingThreeWayCompare) {
   std::vector<int> values =
       GenerateValuesWithSeed<int>(10000, 1 << 22, /*seed=*/23);
 
-  EXPECT_EQ(BtreeNodePeer::GetNumValuesPerNode<decltype(set3)>(), 3);
-  EXPECT_EQ(BtreeNodePeer::GetNumValuesPerNode<decltype(set61)>(), 61);
-  EXPECT_EQ(BtreeNodePeer::GetNumValuesPerNode<decltype(set100)>(), 100);
+  EXPECT_EQ(BtreeNodePeer::GetNumSlotsPerNode<decltype(set4)>(), 4);
+  EXPECT_EQ(BtreeNodePeer::GetNumSlotsPerNode<decltype(set61)>(), 61);
+  EXPECT_EQ(BtreeNodePeer::GetNumSlotsPerNode<decltype(set100)>(), 100);
   if (sizeof(void *) == 8) {
-    EXPECT_EQ(BtreeNodePeer::GetNumValuesPerNode<absl::btree_set<int32_t>>(),
-              BtreeNodePeer::GetNumValuesPerNode<decltype(set61)>());
+    EXPECT_EQ(BtreeNodePeer::GetNumSlotsPerNode<absl::btree_set<int32_t>>(),
+              BtreeNodePeer::GetNumSlotsPerNode<decltype(set61)>());
   }
 
   // Test key insertion/deletion in random order.
-  ExpectOperationCounts(45281, 122560, values, &tracker, &set3);
+  ExpectOperationCounts(56540, 124221, values, &tracker, &set4);
   ExpectOperationCounts(386718, 119816, values, &tracker, &set61);
   ExpectOperationCounts(586761, 120319, values, &tracker, &set100);
 
   // Test key insertion/deletion in sorted order.
   std::sort(values.begin(), values.end());
-  ExpectOperationCounts(26638, 92134, values, &tracker, &set3);
+  ExpectOperationCounts(24972, 85563, values, &tracker, &set4);
   ExpectOperationCounts(20208, 87757, values, &tracker, &set61);
   ExpectOperationCounts(20124, 96583, values, &tracker, &set100);
 
   // Test key insertion/deletion in reverse sorted order.
   std::reverse(values.begin(), values.end());
-  ExpectOperationCounts(49951, 109326, values, &tracker, &set3);
+  ExpectOperationCounts(54949, 117532, values, &tracker, &set4);
   ExpectOperationCounts(338813, 108267, values, &tracker, &set61);
   ExpectOperationCounts(534529, 115280, values, &tracker, &set100);
 }
@@ -2036,6 +2036,30 @@ TEST(Btree, ExtractAndInsertNodeHandleMultiMap) {
   res = other.insert(std::move(nh));
   EXPECT_THAT(other, ElementsAre(Pair(3, 4), Pair(3, 6)));
   EXPECT_EQ(res, ++other.begin());
+}
+
+TEST(Btree, ExtractMultiMapEquivalentKeys) {
+  // Note: using string keys means a three-way comparator.
+  absl::btree_multimap<std::string, int> map;
+  for (int i = 0; i < 100; ++i) {
+    for (int j = 0; j < 100; ++j) {
+      map.insert({absl::StrCat(i), j});
+    }
+  }
+
+  for (int i = 0; i < 100; ++i) {
+    const std::string key = absl::StrCat(i);
+    auto node_handle = map.extract(key);
+    EXPECT_EQ(node_handle.key(), key);
+    EXPECT_EQ(node_handle.mapped(), 0) << i;
+  }
+
+  for (int i = 0; i < 100; ++i) {
+    const std::string key = absl::StrCat(i);
+    auto node_handle = map.extract(key);
+    EXPECT_EQ(node_handle.key(), key);
+    EXPECT_EQ(node_handle.mapped(), 1) << i;
+  }
 }
 
 // For multisets, insert with hint also affects correctness because we need to
@@ -2726,7 +2750,6 @@ TYPED_TEST_SUITE(BtreeMultiKeyTest, MultiKeyComps);
 
 TYPED_TEST(BtreeMultiKeyTest, EqualRange) {
   absl::btree_set<MultiKey, TypeParam> set;
-
   for (int i = 0; i < 100; ++i) {
     for (int j = 0; j < 100; ++j) {
       set.insert({i, j});
@@ -2736,8 +2759,29 @@ TYPED_TEST(BtreeMultiKeyTest, EqualRange) {
   for (int i = 0; i < 100; ++i) {
     auto equal_range = set.equal_range(i);
     EXPECT_EQ(equal_range.first->i1, i);
-    EXPECT_EQ(equal_range.first->i2, 0);
+    EXPECT_EQ(equal_range.first->i2, 0) << i;
     EXPECT_EQ(std::distance(equal_range.first, equal_range.second), 100) << i;
+  }
+}
+
+TYPED_TEST(BtreeMultiKeyTest, Extract) {
+  absl::btree_set<MultiKey, TypeParam> set;
+  for (int i = 0; i < 100; ++i) {
+    for (int j = 0; j < 100; ++j) {
+      set.insert({i, j});
+    }
+  }
+
+  for (int i = 0; i < 100; ++i) {
+    auto node_handle = set.extract(i);
+    EXPECT_EQ(node_handle.value().i1, i);
+    EXPECT_EQ(node_handle.value().i2, 0) << i;
+  }
+
+  for (int i = 0; i < 100; ++i) {
+    auto node_handle = set.extract(i);
+    EXPECT_EQ(node_handle.value().i1, i);
+    EXPECT_EQ(node_handle.value().i2, 1) << i;
   }
 }
 

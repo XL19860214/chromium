@@ -101,20 +101,21 @@ void SettingsPrivateEventRouter::StartOrStopListeningForPrefsChanges() {
       if (prefs_util_->IsCrosSetting(pref_name)) {
 #if BUILDFLAG(IS_CHROMEOS_ASH)
         base::CallbackListSubscription subscription =
-            chromeos::CrosSettings::Get()->AddSettingsObserver(
+            ash::CrosSettings::Get()->AddSettingsObserver(
                 pref_name.c_str(),
-                base::Bind(&SettingsPrivateEventRouter::OnPreferenceChanged,
-                           base::Unretained(this), pref_name));
+                base::BindRepeating(
+                    &SettingsPrivateEventRouter::OnPreferenceChanged,
+                    base::Unretained(this), pref_name));
         cros_settings_subscription_map_.insert(
             make_pair(pref_name, std::move(subscription)));
 #endif
       } else if (generated_prefs && generated_prefs->HasPref(pref_name)) {
         generated_prefs->AddObserver(pref_name, this);
       } else {
-        FindRegistrarForPref(it.first)
-            ->Add(pref_name,
-                  base::Bind(&SettingsPrivateEventRouter::OnPreferenceChanged,
-                             base::Unretained(this)));
+        FindRegistrarForPref(it.first)->Add(
+            pref_name, base::BindRepeating(
+                           &SettingsPrivateEventRouter::OnPreferenceChanged,
+                           base::Unretained(this)));
       }
     }
   } else if (!should_listen && listening_) {
@@ -158,8 +159,7 @@ void SettingsPrivateEventRouter::SendPrefChange(const std::string& pref_name) {
   if (pref_object)
     prefs.push_back(std::move(*pref_object));
 
-  std::unique_ptr<base::ListValue> args(
-      api::settings_private::OnPrefsChanged::Create(prefs));
+  auto args(api::settings_private::OnPrefsChanged::Create(prefs));
 
   std::unique_ptr<Event> extension_event(new Event(
       events::SETTINGS_PRIVATE_ON_PREFS_CHANGED,

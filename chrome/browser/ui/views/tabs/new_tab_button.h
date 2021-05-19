@@ -9,6 +9,7 @@
 #include "base/scoped_observation.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/browser/ui/views/tabs/tab_strip.h"
+#include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/views/controls/button/image_button.h"
 #include "ui/views/view.h"
 
@@ -26,7 +27,7 @@ class InkDropContainerView;
 class NewTabButton : public views::ImageButton,
                      public views::MaskedTargeterDelegate {
  public:
-  static constexpr char kClassName[] = "NewTabButton";
+  METADATA_HEADER(NewTabButton);
 
   static const gfx::Size kButtonSize;
 
@@ -40,10 +41,9 @@ class NewTabButton : public views::ImageButton,
   // the best contrast on the background.
   virtual void FrameColorsChanged();
 
-  void AnimateInkDropToStateForTesting(views::InkDropState state);
+  void AnimateToStateForTesting(views::InkDropState state);
 
   // views::ImageButton:
-  const char* GetClassName() const override;
   void AddLayerBeneathView(ui::Layer* new_layer) override;
   void RemoveLayerBeneathView(ui::Layer* old_layer) override;
 

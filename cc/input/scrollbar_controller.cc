@@ -453,9 +453,9 @@ float ScrollbarController::GetScrollerToScrollbarRatio() const {
 
 void ScrollbarController::ResetState() {
   drag_processed_for_current_frame_ = false;
-  drag_state_ = base::nullopt;
-  autoscroll_state_ = base::nullopt;
-  captured_scrollbar_metadata_ = base::nullopt;
+  drag_state_ = absl::nullopt;
+  autoscroll_state_ = absl::nullopt;
+  captured_scrollbar_metadata_ = absl::nullopt;
   if (cancelable_autoscroll_task_) {
     cancelable_autoscroll_task_->Cancel();
     cancelable_autoscroll_task_.reset();
@@ -599,6 +599,7 @@ void ScrollbarController::StartAutoScrollAnimation(
                                      ? AutoScrollDirection::AUTOSCROLL_BACKWARD
                                      : AutoScrollDirection::AUTOSCROLL_FORWARD;
 
+  layer_tree_host_impl_->mutator_host()->ScrollAnimationAbort();
   layer_tree_host_impl_->AutoScrollAnimationCreate(
       *scroll_node, target_offset_vector, std::abs(velocity));
 }

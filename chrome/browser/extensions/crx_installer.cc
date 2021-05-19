@@ -58,6 +58,7 @@
 #include "extensions/browser/preload_check_group.h"
 #include "extensions/browser/requirements_checker.h"
 #include "extensions/common/extension_icon_set.h"
+#include "extensions/common/extension_urls.h"
 #include "extensions/common/file_util.h"
 #include "extensions/common/manifest.h"
 #include "extensions/common/manifest_handlers/kiosk_mode_info.h"
@@ -107,7 +108,7 @@ CrxInstaller::CrxInstaller(base::WeakPtr<ExtensionService> service_weak,
                            const WebstoreInstaller::Approval* approval)
     : profile_(service_weak->profile()),
       install_directory_(service_weak->install_directory()),
-      install_source_(Manifest::INTERNAL),
+      install_source_(mojom::ManifestLocation::kInternal),
       approved_(false),
       verification_check_failed_(false),
       expected_manifest_check_level_(
@@ -146,12 +147,15 @@ CrxInstaller::CrxInstaller(base::WeakPtr<ExtensionService> service_weak,
     expected_manifest_check_level_ = approval->manifest_check_level;
     if (expected_manifest_check_level_ !=
         WebstoreInstaller::MANIFEST_CHECK_LEVEL_NONE) {
-      expected_manifest_ = approval->manifest->CreateDeepCopy();
+      expected_manifest_ = approval->manifest->value()->CreateDeepCopy();
     }
     expected_id_ = approval->extension_id;
   }
   if (approval->minimum_version.get())
     minimum_version_ = base::Version(*approval->minimum_version);
+
+  if (approval->bypassed_safebrowsing_friction)
+    install_flags_ = kInstallFlagBypassedSafeBrowsingFriction;
 
   show_dialog_callback_ = approval->show_dialog_callback;
 }
@@ -236,7 +240,7 @@ void CrxInstaller::InstallUserScript(const base::FilePath& source_file,
 }
 
 void CrxInstaller::ConvertUserScriptOnSharedFileThread() {
-  base::string16 error;
+  std::u16string error;
   scoped_refptr<Extension> extension = ConvertUserScriptToExtension(
       source_file_, download_url_, install_directory_, &error);
   if (!extension.get()) {
@@ -322,7 +326,7 @@ void CrxInstaller::ConvertWebAppOnSharedFileThread(
                                     {} /* ruleset_install_prefs */);
 }
 
-base::Optional<CrxInstallError> CrxInstaller::CheckExpectations(
+absl::optional<CrxInstallError> CrxInstaller::CheckExpectations(
     const Extension* extension) {
   DCHECK(shared_file_task_runner_->RunsTasksInCurrentSequence());
 
@@ -347,10 +351,10 @@ base::Optional<CrxInstallError> CrxInstaller::CheckExpectations(
             base::ASCIIToUTF16(extension->version().GetString())));
   }
 
-  return base::nullopt;
+  return absl::nullopt;
 }
 
-base::Optional<CrxInstallError> CrxInstaller::AllowInstall(
+absl::optional<CrxInstallError> CrxInstaller::AllowInstall(
     const Extension* extension) {
   DCHECK(shared_file_task_runner_->RunsTasksInCurrentSequence());
 
@@ -376,17 +380,13 @@ base::Optional<CrxInstallError> CrxInstaller::AllowInstall(
         valid = true;
       }
     } else {
-      valid = expected_manifest_->Equals(original_manifest_.get());
+      valid = *expected_manifest_ == *original_manifest_;
       if (!valid && expected_manifest_check_level_ ==
           WebstoreInstaller::MANIFEST_CHECK_LEVEL_LOOSE) {
         std::string error;
-        scoped_refptr<Extension> dummy_extension =
-            Extension::Create(base::FilePath(),
-                              install_source_,
-                              *expected_manifest_->value(),
-                              creation_flags_,
-                              extension->id(),
-                              &error);
+        scoped_refptr<Extension> dummy_extension = Extension::Create(
+            base::FilePath(), install_source_, *expected_manifest_,
+            creation_flags_, extension->id(), &error);
         if (error.empty()) {
           valid = !(PermissionMessageProvider::Get()->IsPrivilegeIncrease(
               dummy_extension->permissions_data()->active_permissions(),
@@ -409,7 +409,7 @@ base::Optional<CrxInstallError> CrxInstaller::AllowInstall(
   // SandboxedUnpacker sets extension->location.
   if (extension->is_theme() || extension->from_bookmark() ||
       Manifest::IsExternalLocation(install_source_)) {
-    return base::nullopt;
+    return absl::nullopt;
   }
 
   if (!extensions_enabled_) {
@@ -456,7 +456,9 @@ base::Optional<CrxInstallError> CrxInstaller::AllowInstall(
       // For apps with a gallery update URL, require that they be installed
       // from the gallery.
       // TODO(erikkay) Apply this rule for paid extensions and themes as well.
-      if (ManifestURL::UpdatesFromGallery(extension)) {
+      ExtensionManagement* extension_management =
+          ExtensionManagementFactory::GetForBrowserContext(profile_);
+      if (extension_management->UpdatesFromWebstore(*extension)) {
         return CrxInstallError(
             CrxInstallErrorType::OTHER,
             CrxInstallErrorDetail::NOT_INSTALLED_FROM_GALLERY,
@@ -485,7 +487,7 @@ base::Optional<CrxInstallError> CrxInstaller::AllowInstall(
     }
   }
 
-  return base::nullopt;
+  return absl::nullopt;
 }
 
 void CrxInstaller::ShouldComputeHashesOnUI(
@@ -558,17 +560,14 @@ void CrxInstaller::OnUnpackSuccessOnSharedFileThread(
   if (!install_icon.empty())
     install_icon_ = std::make_unique<SkBitmap>(install_icon);
 
-  if (original_manifest) {
-    original_manifest_ = std::make_unique<Manifest>(
-        Manifest::INVALID_LOCATION, std::move(original_manifest));
-  }
+  original_manifest_ = std::move(original_manifest);
 
   // We don't have to delete the unpack dir explicity since it is a child of
   // the temp dir.
   unpacked_extension_root_ = extension_dir;
 
   // Check whether the crx matches the set expectations.
-  base::Optional<CrxInstallError> expectations_error =
+  absl::optional<CrxInstallError> expectations_error =
       CheckExpectations(extension.get());
   if (expectations_error) {
     DCHECK_NE(CrxInstallErrorType::NONE, expectations_error->type());
@@ -593,7 +592,7 @@ void CrxInstaller::OnUnpackSuccessOnSharedFileThread(
     }
   }
 
-  base::Optional<CrxInstallError> error = AllowInstall(extension.get());
+  absl::optional<CrxInstallError> error = AllowInstall(extension.get());
   if (error) {
     DCHECK_NE(CrxInstallErrorType::NONE, error->type());
     ReportFailureFromSharedFileThread(*error);
@@ -725,8 +724,7 @@ void CrxInstaller::OnInstallChecksComplete(const PreloadCheck::Errors& errors) {
           l10n_util::GetStringFUTF16(IDS_EXTENSION_IS_BLOCKLISTED,
                                      base::UTF8ToUTF16(extension()->name()))));
       UMA_HISTOGRAM_ENUMERATION("ExtensionBlacklist.BlockCRX",
-                                extension()->location(),
-                                Manifest::NUM_LOCATIONS);
+                                extension()->location());
       return;
     }
   }
@@ -867,9 +865,15 @@ void CrxInstaller::InitializeCreationFlagsForUpdate(const Extension* extension,
   // its auto-update URL is from the webstore, treat it as a webstore install.
   // Note that we ignore some older extensions with blank auto-update URLs
   // because we are mostly concerned with restrictions on NaCl extensions,
-  // which are newer.
-  if (extension->from_webstore() || ManifestURL::UpdatesFromGallery(extension))
+  // which are newer. We need to check whether the update URL is from webstore
+  // or not from |ExtensionManagement| because the extension update URL might be
+  // overriden by policy.
+  ExtensionManagement* extension_management =
+      ExtensionManagementFactory::GetForBrowserContext(profile_);
+  if (extension->from_webstore() ||
+      extension_management->UpdatesFromWebstore(*extension)) {
     creation_flags_ |= Extension::FROM_WEBSTORE;
+  }
 
   // Bookmark apps being updated is kind of a contradiction, but that's because
   // we mark the default apps as bookmark apps, and they're hosted in the web
@@ -896,13 +900,22 @@ void CrxInstaller::UpdateCreationFlagsAndCompleteInstall(
   if (withholding_behavior == kWithholdPermissions)
     creation_flags_ |= Extension::WITHHOLD_PERMISSIONS;
 
+  ExtensionManagement* extension_management =
+      ExtensionManagementFactory::GetForBrowserContext(profile());
+  const GURL update_url =
+      extension_management->GetEffectiveUpdateURL(*(extension()));
+  const bool updates_from_webstore_or_empty_update_url =
+      update_url.is_empty() || extension_urls::IsWebstoreUpdateUrl(update_url);
   if (!shared_file_task_runner_->PostTask(
-          FROM_HERE, base::BindOnce(&CrxInstaller::CompleteInstall, this))) {
+          FROM_HERE,
+          base::BindOnce(&CrxInstaller::CompleteInstall, this,
+                         updates_from_webstore_or_empty_update_url))) {
     NOTREACHED();
   }
 }
 
-void CrxInstaller::CompleteInstall() {
+void CrxInstaller::CompleteInstall(
+    bool updates_from_webstore_or_empty_update_url) {
   DCHECK(shared_file_task_runner_->RunsTasksInCurrentSequence());
 
   if (current_version_.IsValid() &&
@@ -920,7 +933,8 @@ void CrxInstaller::CompleteInstall() {
       ExtensionAssetsManager::GetInstance();
   assets_manager->InstallExtension(
       extension(), unpacked_extension_root_, install_directory_, profile(),
-      base::BindOnce(&CrxInstaller::ReloadExtensionAfterInstall, this));
+      base::BindOnce(&CrxInstaller::ReloadExtensionAfterInstall, this),
+      updates_from_webstore_or_empty_update_url);
 }
 
 void CrxInstaller::ReloadExtensionAfterInstall(
@@ -942,7 +956,7 @@ void CrxInstaller::ReloadExtensionAfterInstall(
   // TODO(aa): All paths to resources inside extensions should be created
   // lazily and based on the Extension's root path at that moment.
   // TODO(rdevlin.cronin): Continue removing std::string errors and replacing
-  // with base::string16
+  // with std::u16string
   std::string extension_id = extension()->id();
   std::string error;
   extension_ = file_util::LoadExtension(
@@ -1043,7 +1057,7 @@ void CrxInstaller::ReportSuccessFromUIThread() {
 
   service_weak_->OnExtensionInstalled(extension(), page_ordinal_,
                                       install_flags_, ruleset_install_prefs_);
-  NotifyCrxInstallComplete(base::nullopt);
+  NotifyCrxInstallComplete(absl::nullopt);
 }
 
 void CrxInstaller::ReportInstallationStage(InstallationStage stage) {
@@ -1075,7 +1089,7 @@ void CrxInstaller::NotifyCrxInstallBegin() {
 }
 
 void CrxInstaller::NotifyCrxInstallComplete(
-    const base::Optional<CrxInstallError>& error) {
+    const absl::optional<CrxInstallError>& error) {
   ReportInstallationStage(InstallationStage::kComplete);
   const std::string extension_id =
       expected_id_.empty() && extension() ? extension()->id() : expected_id_;

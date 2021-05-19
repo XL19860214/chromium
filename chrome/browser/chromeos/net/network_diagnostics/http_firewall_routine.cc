@@ -12,12 +12,11 @@
 
 #include "base/bind.h"
 #include "base/no_destructor.h"
-#include "base/optional.h"
 #include "base/rand_util.h"
 #include "base/ranges/algorithm.h"
 #include "base/sequence_checker.h"
 #include "base/time/default_tick_clock.h"
-#include "chrome/browser/chromeos/profiles/profile_helper.h"
+#include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "components/session_manager/core/session_manager.h"
 #include "content/public/browser/storage_partition.h"
@@ -27,6 +26,7 @@
 #include "net/socket/client_socket_factory.h"
 #include "net/socket/transport_client_socket.h"
 #include "services/network/public/mojom/network_context.mojom.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace chromeos {
 namespace network_diagnostics {
@@ -97,7 +97,7 @@ class HttpFirewallRoutine::HostResolver
   void OnComplete(
       int result,
       const net::ResolveErrorInfo& resolve_error_info,
-      const base::Optional<net::AddressList>& resolved_addresses) override;
+      const absl::optional<net::AddressList>& resolved_addresses) override;
 
   // Performs the DNS resolution.
   void Run(const std::string& hostname);
@@ -128,8 +128,7 @@ HttpFirewallRoutine::HostResolver::HostResolver(
 
   profile_ = GetUserProfile();
   network_context_ =
-      content::BrowserContext::GetDefaultStoragePartition(profile_)
-          ->GetNetworkContext();
+      profile_->GetDefaultStoragePartition()->GetNetworkContext();
   DCHECK(network_context_);
 }
 
@@ -138,7 +137,7 @@ HttpFirewallRoutine::HostResolver::~HostResolver() = default;
 void HttpFirewallRoutine::HostResolver::OnComplete(
     int result,
     const net::ResolveErrorInfo& resolve_error_info,
-    const base::Optional<net::AddressList>& resolved_addresses) {
+    const absl::optional<net::AddressList>& resolved_addresses) {
   receiver_.reset();
 
   http_firewall_routine_->OnHostResolutionComplete(result, resolve_error_info,
@@ -176,7 +175,7 @@ void HttpFirewallRoutine::HostResolver::CreateHostResolver() {
 void HttpFirewallRoutine::HostResolver::OnMojoConnectionError() {
   CreateHostResolver();
   OnComplete(net::ERR_NAME_NOT_RESOLVED, net::ResolveErrorInfo(net::ERR_FAILED),
-             base::nullopt);
+             absl::nullopt);
 }
 
 HttpFirewallRoutine::HttpFirewallRoutine() {
@@ -241,7 +240,7 @@ void HttpFirewallRoutine::AttemptNextResolution() {
 void HttpFirewallRoutine::OnHostResolutionComplete(
     int result,
     const net::ResolveErrorInfo& resolve_error_info,
-    const base::Optional<net::AddressList>& resolved_addresses) {
+    const absl::optional<net::AddressList>& resolved_addresses) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   bool success = result == net::OK && !resolved_addresses->empty() &&

@@ -6,6 +6,8 @@
 
 #include <stddef.h>
 
+#include <memory>
+
 #include "base/environment.h"
 #include "base/files/file_util.h"
 #include "base/json/json_string_value_serializer.h"
@@ -14,6 +16,7 @@
 #include "base/notreached.h"
 #include "base/stl_util.h"
 #include "base/strings/string_util.h"
+#include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "chrome/common/env_vars.h"
 #include "chrome/common/pref_names.h"
@@ -93,6 +96,15 @@ InitialPreferences::InitialPreferences(const std::string& prefs) {
   InitializeFromString(prefs);
 }
 
+InitialPreferences::InitialPreferences(const base::DictionaryValue& prefs)
+    : initial_dictionary_(prefs.CreateDeepCopy()) {
+  // Cache a pointer to the distribution dictionary.
+  initial_dictionary_->GetDictionary(
+      installer::initial_preferences::kDistroDict, &distribution_);
+
+  EnforceLegacyPreferences();
+}
+
 InitialPreferences::~InitialPreferences() = default;
 
 void InitialPreferences::InitializeFromCommandLine(
@@ -103,7 +115,7 @@ void InitialPreferences::InitializeFromCommandLine(
         cmd_line.GetSwitchValuePath(installer::switches::kInstallerData));
     InitializeFromFilePath(prefs_path);
   } else {
-    initial_dictionary_.reset(new base::DictionaryValue());
+    initial_dictionary_ = std::make_unique<base::DictionaryValue>();
   }
 
   DCHECK(initial_dictionary_.get());
@@ -147,7 +159,7 @@ void InitialPreferences::InitializeFromCommandLine(
   if (!str_value.empty()) {
     name.assign(installer::initial_preferences::kDistroDict);
     name.append(".").append(installer::initial_preferences::kLogFile);
-    initial_dictionary_->SetString(name, str_value);
+    initial_dictionary_->SetString(name, base::WideToUTF8(str_value));
   }
 
   // Handle the special case of --system-level being implied by the presence of
@@ -190,7 +202,7 @@ bool InitialPreferences::InitializeFromString(const std::string& json_data) {
 
   bool data_is_valid = true;
   if (!initial_dictionary_.get()) {
-    initial_dictionary_.reset(new base::DictionaryValue());
+    initial_dictionary_ = std::make_unique<base::DictionaryValue>();
     data_is_valid = false;
   } else {
     // Cache a pointer to the distribution dictionary.
@@ -275,6 +287,15 @@ bool InitialPreferences::GetString(const std::string& name,
   if (distribution_)
     ret = (distribution_->GetString(name, value) && !value->empty());
   return ret;
+}
+
+bool InitialPreferences::GetPath(const std::string& name,
+                                 base::FilePath* value) const {
+  std::string string_value;
+  if (!GetString(name, &string_value))
+    return false;
+  *value = base::FilePath::FromUTF8Unsafe(string_value);
+  return true;
 }
 
 std::vector<std::string> InitialPreferences::GetFirstRunTabs() const {

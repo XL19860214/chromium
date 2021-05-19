@@ -140,12 +140,9 @@ public class EphemeralTabCoordinator implements View.OnLayoutChangeListener {
             assert mSheetContent == null;
             createWebContents(profile);
             mSheetObserver = new EmptyBottomSheetObserver() {
-                private int mCloseReason;
-
                 @Override
                 public void onSheetContentChanged(BottomSheetContent newContent) {
                     if (newContent != mSheetContent) {
-                        mMetrics.recordMetricsForClosed(mCloseReason);
                         mPeeked = false;
                         destroyWebContents();
                     }
@@ -179,13 +176,6 @@ public class EphemeralTabCoordinator implements View.OnLayoutChangeListener {
                 }
 
                 @Override
-                public void onSheetClosed(int reason) {
-                    // "Closed" actually means "Peek" for bottom sheet. Save the reason to
-                    // log when the sheet goes to hidden state. See http://crbug.com/986310.
-                    mCloseReason = reason;
-                }
-
-                @Override
                 public void onSheetOffsetChanged(float heightFraction, float offsetPx) {
                     if (mSheetContent == null) return;
                     if (mCanPromoteToNewTab) mSheetContent.showOpenInNewTabButton(heightFraction);
@@ -210,8 +200,9 @@ public class EphemeralTabCoordinator implements View.OnLayoutChangeListener {
     private Profile getProfile(boolean isIncognito) {
         if (!isIncognito) return Profile.getLastUsedRegularProfile();
         Profile otrProfile = IncognitoUtils.getNonPrimaryOTRProfileFromWindowAndroid(mWindow);
-        return (otrProfile == null) ? Profile.getLastUsedRegularProfile().getPrimaryOTRProfile()
-                                    : otrProfile;
+        return (otrProfile == null)
+                ? Profile.getLastUsedRegularProfile().getPrimaryOTRProfile(/*createIfNeeded=*/true)
+                : otrProfile;
     }
 
     private void createWebContents(Profile profile) {
@@ -226,7 +217,7 @@ public class EphemeralTabCoordinator implements View.OnLayoutChangeListener {
         mWebContents.initialize(ChromeVersionInfo.getProductVersion(),
                 ViewAndroidDelegate.createBasicDelegate(mContentView), mContentView, mWindow,
                 WebContents.createDefaultInternalsHolder());
-        ContentUtils.setUserAgentOverride(mWebContents);
+        ContentUtils.setUserAgentOverride(mWebContents, /* overrideInNewTabs= */ false);
     }
 
     private void destroyWebContents() {
@@ -332,8 +323,7 @@ public class EphemeralTabCoordinator implements View.OnLayoutChangeListener {
                 callback.onResult(drawable);
             };
 
-            mFaviconHelper.getLocalFaviconImageForURL(
-                    profile, url.getSpec(), mFaviconSize, imageCallback);
+            mFaviconHelper.getLocalFaviconImageForURL(profile, url, mFaviconSize, imageCallback);
         }
     }
 }

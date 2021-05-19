@@ -14,6 +14,7 @@ import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
 
 import org.chromium.base.Callback;
+import org.chromium.base.supplier.BooleanSupplier;
 import org.chromium.base.supplier.ObservableSupplier;
 import org.chromium.base.supplier.OneShotCallback;
 import org.chromium.base.supplier.OneshotSupplier;
@@ -23,6 +24,7 @@ import org.chromium.chrome.browser.browser_controls.BrowserControlsStateProvider
 import org.chromium.chrome.browser.device.DeviceClassManager;
 import org.chromium.chrome.browser.layouts.LayoutManager;
 import org.chromium.chrome.browser.layouts.LayoutStateProvider;
+import org.chromium.chrome.browser.layouts.LayoutType;
 import org.chromium.chrome.browser.omnibox.LocationBar;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tabmodel.IncognitoStateProvider;
@@ -40,7 +42,6 @@ import org.chromium.chrome.browser.toolbar.menu_button.MenuButtonCoordinator;
 import org.chromium.chrome.browser.ui.appmenu.AppMenuButtonHelper;
 import org.chromium.chrome.browser.user_education.UserEducationHelper;
 import org.chromium.chrome.features.start_surface.StartSurface;
-import org.chromium.chrome.features.start_surface.StartSurfaceConfiguration;
 import org.chromium.chrome.features.start_surface.StartSurfaceState;
 import org.chromium.ui.resources.ResourceManager;
 
@@ -68,6 +69,8 @@ public class TopToolbarCoordinator implements Toolbar {
     public static final int TAB_SWITCHER_MODE_GTS_ANIMATION_DURATION_MS = 150;
 
     private final ToolbarLayout mToolbarLayout;
+
+    private final boolean mIsGridTabSwitcherEnabled;
 
     /**
      * The coordinator for the tab switcher mode toolbar (phones only). This will be lazily created
@@ -101,7 +104,10 @@ public class TopToolbarCoordinator implements Toolbar {
      * @param normalThemeColorProvider The {@link ThemeColorProvider} for normal mode.
      * @param overviewThemeColorProvider The {@link ThemeColorProvider} for overview mode.
      * @param tabModelSelectorSupplier Supplier of the {@link TabModelSelector}.
-     * @param homeButtonVisibilitySupplier Supplier of the visibility change of Home button.
+     * @param homepageEnabledSupplier Supplier of whether Home button is enabled.
+     * @param startSurfaceAsHomepageSupplier Supplier of whether start surface should be shown as
+     *         homepage.
+     * @param homepageManagedByPolicySupplier Supplier of whether the homepage is managed by policy.
      * @param identityDiscStateSupplier Supplier of the state change of identity disc button.
      * @param invalidatorCallback Callback that will be invoked  when the toolbar attempts to
      *        invalidate the drawing surface.  This will give the object that registers as the host
@@ -109,6 +115,12 @@ public class TopToolbarCoordinator implements Toolbar {
      * @param identityDiscButtonSupplier Supplier of Identity Disc button.
      * @param startSurfaceSupplier Supplier of the StartSurface.
      * @param resourceManagerSupplier A supplier of a resource manager for native textures.
+     * @param isInVrSupplier A supplier of the state of VR mode.
+     * @param isGridTabSwitcherEnabled Whether grid tab switcher is enabled via a feature flag.
+     * @param isTabToGtsAnimationEnabled Whether Tab-to-GTS animation is enabled via a feature flag.
+     * @param isStartSurfaceEnabled Whether start surface is enabled via a feature flag.
+     * @param isTabGroupsAndroidContinuationEnabled Whether flag TabGroupsContinuationAndroid is
+     *         enabled.
      */
     public TopToolbarCoordinator(ToolbarControlContainer controlContainer,
             ToolbarLayout toolbarLayout, ToolbarDataProvider toolbarDataProvider,
@@ -121,11 +133,15 @@ public class TopToolbarCoordinator implements Toolbar {
             MenuButtonCoordinator overviewModeMenuButtonCoordinator,
             ObservableSupplier<AppMenuButtonHelper> appMenuButtonHelperSupplier,
             ObservableSupplier<TabModelSelector> tabModelSelectorSupplier,
-            ObservableSupplier<Boolean> homeButtonVisibilitySupplier,
+            ObservableSupplier<Boolean> homepageEnabledSupplier,
+            ObservableSupplier<Boolean> startSurfaceAsHomepageSupplier,
+            ObservableSupplier<Boolean> homepageManagedByPolicySupplier,
             ObservableSupplier<Boolean> identityDiscStateSupplier,
             Callback<Runnable> invalidatorCallback, Supplier<ButtonData> identityDiscButtonSupplier,
             OneshotSupplier<StartSurface> startSurfaceSupplier,
-            Supplier<ResourceManager> resourceManagerSupplier) {
+            Supplier<ResourceManager> resourceManagerSupplier, BooleanSupplier isInVrSupplier,
+            boolean isGridTabSwitcherEnabled, boolean isTabToGtsAnimationEnabled,
+            boolean isStartSurfaceEnabled, boolean isTabGroupsAndroidContinuationEnabled) {
         mControlContainer = controlContainer;
         mToolbarLayout = toolbarLayout;
         mMenuButtonCoordinator = browsingModeMenuButtonCoordinator;
@@ -136,25 +152,36 @@ public class TopToolbarCoordinator implements Toolbar {
         mTabModelSelectorSupplier = tabModelSelectorSupplier;
 
         if (mToolbarLayout instanceof ToolbarPhone) {
-            if (StartSurfaceConfiguration.isStartSurfaceEnabled()) {
+            if (isStartSurfaceEnabled) {
+                View.OnClickListener homeButtonOnClickListener = v -> {
+                    if (tabController != null) {
+                        tabController.openHomepage();
+                    }
+                };
                 mStartSurfaceToolbarCoordinator = new StartSurfaceToolbarCoordinator(
                         controlContainer.getRootView().findViewById(R.id.tab_switcher_toolbar_stub),
                         userEducationHelper, layoutStateProviderSupplier, identityDiscStateSupplier,
                         overviewThemeColorProvider, overviewModeMenuButtonCoordinator,
-                        identityDiscButtonSupplier);
+                        identityDiscButtonSupplier, isGridTabSwitcherEnabled,
+                        homepageEnabledSupplier, startSurfaceAsHomepageSupplier,
+                        homepageManagedByPolicySupplier, homeButtonOnClickListener,
+                        isTabGroupsAndroidContinuationEnabled);
             } else {
                 mTabSwitcherModeCoordinatorPhone = new TabSwitcherModeTTCoordinatorPhone(
                         controlContainer.getRootView().findViewById(R.id.tab_switcher_toolbar_stub),
-                        overviewModeMenuButtonCoordinator);
+                        overviewModeMenuButtonCoordinator, isGridTabSwitcherEnabled,
+                        isTabToGtsAnimationEnabled, isStartSurfaceEnabled);
             }
         }
+        mIsGridTabSwitcherEnabled = isGridTabSwitcherEnabled;
         controlContainer.setToolbar(this);
-        mToolbarLayout.initialize(toolbarDataProvider, tabController, mMenuButtonCoordinator);
+        mToolbarLayout.initialize(
+                toolbarDataProvider, tabController, mMenuButtonCoordinator, isInVrSupplier);
 
         mToolbarLayout.setThemeColorProvider(normalThemeColorProvider);
         mAppMenuButtonHelperSupplier = appMenuButtonHelperSupplier;
         new OneShotCallback<>(mAppMenuButtonHelperSupplier, this::setAppMenuButtonHelper);
-        homeButtonVisibilitySupplier.addObserver((show) -> mToolbarLayout.onHomeButtonUpdate(show));
+        homepageEnabledSupplier.addObserver((show) -> mToolbarLayout.onHomeButtonUpdate(show));
         mToolbarLayout.setInvalidatorCallback(invalidatorCallback);
     }
 
@@ -218,8 +245,9 @@ public class TopToolbarCoordinator implements Toolbar {
         if (DeviceClassManager.enableFullscreen()) {
             mOverlayCoordinator = new TopToolbarOverlayCoordinator(mToolbarLayout.getContext(),
                     layoutManager, mControlContainer::getProgressBarDrawingInfo, tabSupplier,
-                    browserControlsStateProvider, mResourceManagerSupplier,
-                    topUiThemeColorProvider);
+                    browserControlsStateProvider, mResourceManagerSupplier, topUiThemeColorProvider,
+                    LayoutType.BROWSING | LayoutType.SIMPLE_ANIMATION | LayoutType.TAB_SWITCHER,
+                    false);
             layoutManager.addSceneOverlay(mOverlayCoordinator);
             mToolbarLayout.setOverlayCoordinator(mOverlayCoordinator);
         }
@@ -597,6 +625,16 @@ public class TopToolbarCoordinator implements Toolbar {
     }
 
     /**
+     * Force to hide toolbar shadow.
+     * @param forceHideShadow Whether toolbar shadow should be hidden.
+     *
+     * TODO(crbug.com/1202994): change to token-based access
+     */
+    public void setForceHideShadow(boolean forceHideShadow) {
+        mToolbarLayout.setForceHideShadow(forceHideShadow);
+    }
+
+    /**
      * Finish any toolbar animations.
      */
     public void finishAnimations() {
@@ -614,35 +652,35 @@ public class TopToolbarCoordinator implements Toolbar {
      * Update the start surface toolbar state.
      * @param newState New Start Surface State.
      * @param requestToShow Whether or not request showing the start surface toolbar.
+     * @param toolbarHeight The height of start surface toolbar.
      */
     public void updateStartSurfaceToolbarState(
-            @StartSurfaceState int newState, boolean requestToShow) {
+            @StartSurfaceState int newState, boolean requestToShow, int toolbarHeight) {
         if (mStartSurfaceToolbarCoordinator == null
                 || mToolbarLayout.getToolbarDataProvider() == null) {
             return;
         }
         mStartSurfaceToolbarCoordinator.onStartSurfaceStateChanged(newState, requestToShow);
-        updateToolbarContainerVisibility();
+        updateToolbarLayoutVisibility(toolbarHeight);
     }
 
     /**
      * Triggered when the offset of start surface header view is changed.
      * @param verticalOffset The start surface header view's offset.
+     * @param toolbarHeight The height of start surface toolbar.
      */
-    public void onStartSurfaceHeaderOffsetChanged(int verticalOffset) {
+    public void onStartSurfaceHeaderOffsetChanged(int verticalOffset, int toolbarHeight) {
         if (mStartSurfaceToolbarCoordinator != null) {
             mStartSurfaceToolbarCoordinator.onStartSurfaceHeaderOffsetChanged(verticalOffset);
-            updateToolbarContainerVisibility();
+            updateToolbarLayoutVisibility(toolbarHeight);
         }
     }
 
-    private void updateToolbarContainerVisibility() {
-        if (mStartSurfaceToolbarCoordinator != null) {
-            boolean shouldHideToolbarContainer =
-                    mStartSurfaceToolbarCoordinator.shouldHideToolbarContainer(getHeight());
-            mControlContainer.setToolbarContainerVisibility(
-                    shouldHideToolbarContainer ? View.INVISIBLE : View.VISIBLE);
-        }
+    private void updateToolbarLayoutVisibility(int toolbarHeight) {
+        assert mStartSurfaceToolbarCoordinator != null;
+        mToolbarLayout.onStartSurfaceStateChanged(
+                mStartSurfaceToolbarCoordinator.shouldShowRealSearchBox(toolbarHeight),
+                mStartSurfaceToolbarCoordinator.isOnHomepage());
     }
 
     @Override

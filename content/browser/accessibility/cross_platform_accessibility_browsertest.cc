@@ -9,6 +9,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "base/callback_helpers.h"
 #include "base/macros.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/scoped_feature_list.h"
@@ -160,6 +161,22 @@ class CrossPlatformAccessibilityBrowserTest : public ContentBrowserTest {
                       const ax::mojom::StringAttribute attr);
   int GetIntAttr(const ui::AXNode* node, const ax::mojom::IntAttribute attr);
   bool GetBoolAttr(const ui::AXNode* node, const ax::mojom::BoolAttribute attr);
+
+  void PressTabAndWaitForFocusChange() {
+    AccessibilityNotificationWaiter waiter(
+        shell()->web_contents(), ui::kAXModeComplete,
+        ui::AXEventGenerator::Event::FOCUS_CHANGED);
+    SimulateKeyPress(shell()->web_contents(), ui::DomKey::TAB, ui::DomCode::TAB,
+                     ui::VKEY_TAB, false, false, false, false);
+    waiter.WaitForNotification();
+  }
+
+  std::string GetNameOfFocusedNode() {
+    ui::AXNodeData focused_node_data =
+        content::GetFocusedAccessibilityNodeInfo(shell()->web_contents());
+    return focused_node_data.GetStringAttribute(
+        ax::mojom::StringAttribute::kName);
+  }
 
  private:
   base::test::ScopedFeatureList scoped_feature_list_;
@@ -435,7 +452,7 @@ IN_PROC_BROWSER_TEST_F(CrossPlatformAccessibilityBrowserTest,
   // into a separate accessibility tree. (See "out-of-process cross-origin
   // iframes in Chromium documentation.)
   ASSERT_EQ(0u, iframe->children().size());
-  const ui::AXTreeID iframe_tree_id = AXTreeID::FromString(
+  const ui::AXTreeID iframe_tree_id = ui::AXTreeID::FromString(
       GetAttr(iframe, ax::mojom::StringAttribute::kChildTreeId));
   const BrowserAccessibilityManager* iframe_manager =
       BrowserAccessibilityManager::FromID(iframe_tree_id);
@@ -613,7 +630,43 @@ IN_PROC_BROWSER_TEST_F(CrossPlatformAccessibilityBrowserTest,
   EXPECT_FALSE(test_position->AtStartOfAXTree());
   EXPECT_TRUE(test_position->AtEndOfAXTree());
 }
-#endif
+#endif  // !defined(OS_ANDROID)
+
+// Android's text representation is different, so disable the test there.
+#if !defined(OS_ANDROID)
+IN_PROC_BROWSER_TEST_F(CrossPlatformAccessibilityBrowserTest,
+                       NavigationSkipsCompositeItems) {
+  LoadInitialAccessibilityTreeFromHtml(R"HTML(
+      <!DOCTYPE html>
+      <html>
+      <body>
+        <input type="search" placeholder="Sample text">
+      </body>
+      </html>)HTML");
+
+  WaitForAccessibilityTreeToContainNodeWithName(shell()->web_contents(),
+                                                "Sample text");
+
+  const BrowserAccessibility* root = GetManager()->GetRoot();
+  ASSERT_NE(root, nullptr);
+  const BrowserAccessibility* body = root->PlatformGetChild(0);
+  ASSERT_NE(body, nullptr);
+  const BrowserAccessibility* input_text = FindNode("Sample text");
+
+  // Create a position rooted at the start of the search input, then perform
+  // some AXPosition operations. This will crash if AsTreePosition() is
+  // erroneously turned into a null position.
+  ui::AXNodePosition::AXPositionInstance position =
+      input_text->CreateTextPositionAt(0);
+  EXPECT_TRUE(position->IsValid());
+  ui::AXNodePosition::AXPositionInstance test_position =
+      position->AsTreePosition();
+  EXPECT_TRUE(test_position->IsValid());
+  EXPECT_EQ(*test_position, *position);
+  test_position = position->CreatePositionAtEndOfAnchor();
+  EXPECT_TRUE(position->IsValid());
+}
+#endif  // !defined(OS_ANDROID)
 
 IN_PROC_BROWSER_TEST_F(CrossPlatformAccessibilityBrowserTest,
                        PlatformIterator) {
@@ -696,7 +749,7 @@ IN_PROC_BROWSER_TEST_F(CrossPlatformAccessibilityBrowserTest, WritableElement) {
       <!DOCTYPE html>
       <html>
       <body>
-        <div role="textbox" tabindex="0">
+        <div role="textbox" contenteditable tabindex="0">
           Some text
         </div>
       </body>
@@ -767,27 +820,29 @@ IN_PROC_BROWSER_TEST_F(CrossPlatformAccessibilityBrowserTest,
         <main aria-label="main"></main>
         <nav aria-label="nav"></nav>
         <section></section>
-        <section aria-label="section"></section>
+        <section aria-label="a label"></section>
         <div role="banner" aria-label="banner"></div>
         <div role="complementary" aria-label="complementary"></div>
         <div role="contentinfo" aria-label="contentinfo"></div>
         <div role="form" aria-label="role_form"></div>
         <div role="main" aria-label="role_main"></div>
         <div role="navigation" aria-label="role_nav"></div>
-        <div role="region"></div>
+        <div role="region"></div> <!-- No name: will be ignored -->
         <div role="region" aria-label="region"></div>
+        <section></section>
+        <section aria-label="a label"></section>
         <div role="search" aria-label="search"></div>
       </body>
       </html>)HTML");
 
   BrowserAccessibility* root = GetManager()->GetRoot();
   ASSERT_NE(nullptr, root);
-  ASSERT_EQ(17u, root->PlatformChildCount());
+  ASSERT_EQ(18u, root->PlatformChildCount());
 
   auto TestLocalizedLandmarkType =
       [root](int child_index, ax::mojom::Role expected_role,
              const std::string& expected_name,
-             const base::string16& expected_localized_landmark_type = {}) {
+             const std::u16string& expected_localized_landmark_type = {}) {
         BrowserAccessibility* node = root->PlatformGetChild(child_index);
         ASSERT_NE(nullptr, node);
 
@@ -799,32 +854,29 @@ IN_PROC_BROWSER_TEST_F(CrossPlatformAccessibilityBrowserTest,
       };
 
   // For testing purposes, assume we get en-US localized strings.
-  TestLocalizedLandmarkType(0, ax::mojom::Role::kHeader, "header",
-                            base::ASCIIToUTF16("banner"));
+  TestLocalizedLandmarkType(0, ax::mojom::Role::kHeader, "header", u"banner");
   TestLocalizedLandmarkType(1, ax::mojom::Role::kComplementary, "aside",
-                            base::ASCIIToUTF16("complementary"));
+                            u"complementary");
   TestLocalizedLandmarkType(2, ax::mojom::Role::kFooter, "footer",
-                            base::ASCIIToUTF16("content information"));
+                            u"content information");
   TestLocalizedLandmarkType(3, ax::mojom::Role::kForm, "form");
   TestLocalizedLandmarkType(4, ax::mojom::Role::kMain, "main");
   TestLocalizedLandmarkType(5, ax::mojom::Role::kNavigation, "nav");
   TestLocalizedLandmarkType(6, ax::mojom::Role::kSection, "");
-  TestLocalizedLandmarkType(7, ax::mojom::Role::kSection, "section",
-                            base::ASCIIToUTF16("region"));
+  TestLocalizedLandmarkType(7, ax::mojom::Role::kRegion, "a label", u"region");
 
-  TestLocalizedLandmarkType(8, ax::mojom::Role::kBanner, "banner",
-                            base::ASCIIToUTF16("banner"));
+  TestLocalizedLandmarkType(8, ax::mojom::Role::kBanner, "banner", u"banner");
   TestLocalizedLandmarkType(9, ax::mojom::Role::kComplementary, "complementary",
-                            base::ASCIIToUTF16("complementary"));
+                            u"complementary");
   TestLocalizedLandmarkType(10, ax::mojom::Role::kContentInfo, "contentinfo",
-                            base::ASCIIToUTF16("content information"));
+                            u"content information");
   TestLocalizedLandmarkType(11, ax::mojom::Role::kForm, "role_form");
   TestLocalizedLandmarkType(12, ax::mojom::Role::kMain, "role_main");
   TestLocalizedLandmarkType(13, ax::mojom::Role::kNavigation, "role_nav");
-  TestLocalizedLandmarkType(14, ax::mojom::Role::kRegion, "");
-  TestLocalizedLandmarkType(15, ax::mojom::Role::kRegion, "region",
-                            base::ASCIIToUTF16("region"));
-  TestLocalizedLandmarkType(16, ax::mojom::Role::kSearch, "search");
+  TestLocalizedLandmarkType(14, ax::mojom::Role::kRegion, "region", u"region");
+  TestLocalizedLandmarkType(15, ax::mojom::Role::kSection, "", u"");
+  TestLocalizedLandmarkType(16, ax::mojom::Role::kRegion, "a label", u"region");
+  TestLocalizedLandmarkType(17, ax::mojom::Role::kSearch, "search");
 }
 
 // TODO(https://crbug.com/1020456) re-enable when crashing on linux is resolved.
@@ -850,14 +902,13 @@ IN_PROC_BROWSER_TEST_F(CrossPlatformAccessibilityBrowserTest,
         <input type="date">
         <input type="datetime-local">
         <input type="email">
+        <input type="month">
         <input type="tel">
         <input type="url">
         <input type="week">
         <mark></mark>
         <meter></meter>
         <output></output>
-        <section></section>
-        <section aria-label="section"></section>
         <time></time>
         <div role="contentinfo" aria-label="contentinfo"></div>
       </body>
@@ -865,11 +916,11 @@ IN_PROC_BROWSER_TEST_F(CrossPlatformAccessibilityBrowserTest,
 
   BrowserAccessibility* root = GetManager()->GetRoot();
   ASSERT_NE(nullptr, root);
-  ASSERT_EQ(21u, root->PlatformChildCount());
+  ASSERT_EQ(20u, root->PlatformChildCount());
 
   auto TestLocalizedRoleDescription =
       [root](int child_index,
-             const base::string16& expected_localized_role_description = {}) {
+             const std::u16string& expected_localized_role_description = {}) {
         BrowserAccessibility* node = root->PlatformGetChild(child_index);
         ASSERT_NE(nullptr, node);
 
@@ -878,28 +929,26 @@ IN_PROC_BROWSER_TEST_F(CrossPlatformAccessibilityBrowserTest,
       };
 
   // For testing purposes, assume we get en-US localized strings.
-  TestLocalizedRoleDescription(0, base::ASCIIToUTF16("article"));
-  TestLocalizedRoleDescription(1, base::ASCIIToUTF16("audio"));
-  TestLocalizedRoleDescription(2, base::ASCIIToUTF16("details"));
-  TestLocalizedRoleDescription(3, base::ASCIIToUTF16("figure"));
-  TestLocalizedRoleDescription(4, base::ASCIIToUTF16("footer"));
-  TestLocalizedRoleDescription(5, base::ASCIIToUTF16("header"));
-  TestLocalizedRoleDescription(6, base::ASCIIToUTF16(""));
-  TestLocalizedRoleDescription(7, base::ASCIIToUTF16("color picker"));
-  TestLocalizedRoleDescription(8, base::ASCIIToUTF16("date picker"));
-  TestLocalizedRoleDescription(
-      9, base::ASCIIToUTF16("local date and time picker"));
-  TestLocalizedRoleDescription(10, base::ASCIIToUTF16("email"));
-  TestLocalizedRoleDescription(11, base::ASCIIToUTF16("telephone"));
-  TestLocalizedRoleDescription(12, base::ASCIIToUTF16("url"));
-  TestLocalizedRoleDescription(13, base::ASCIIToUTF16("week picker"));
-  TestLocalizedRoleDescription(14, base::ASCIIToUTF16("highlight"));
-  TestLocalizedRoleDescription(15, base::ASCIIToUTF16("meter"));
-  TestLocalizedRoleDescription(16, base::ASCIIToUTF16("output"));
-  TestLocalizedRoleDescription(17, base::ASCIIToUTF16(""));
-  TestLocalizedRoleDescription(18, base::ASCIIToUTF16("section"));
-  TestLocalizedRoleDescription(19, base::ASCIIToUTF16("time"));
-  TestLocalizedRoleDescription(20, base::ASCIIToUTF16("content information"));
+  TestLocalizedRoleDescription(0, u"article");
+  TestLocalizedRoleDescription(1, u"audio");
+  TestLocalizedRoleDescription(2, u"details");
+  TestLocalizedRoleDescription(3, u"figure");
+  TestLocalizedRoleDescription(4, u"footer");
+  TestLocalizedRoleDescription(5, u"header");
+  TestLocalizedRoleDescription(6, u"");
+  TestLocalizedRoleDescription(7, u"color picker");
+  TestLocalizedRoleDescription(8, u"date picker");
+  TestLocalizedRoleDescription(9, u"local date and time picker");
+  TestLocalizedRoleDescription(10, u"email");
+  TestLocalizedRoleDescription(11, u"month picker");
+  TestLocalizedRoleDescription(12, u"telephone");
+  TestLocalizedRoleDescription(13, u"url");
+  TestLocalizedRoleDescription(14, u"week picker");
+  TestLocalizedRoleDescription(15, u"highlight");
+  TestLocalizedRoleDescription(16, u"meter");
+  TestLocalizedRoleDescription(17, u"output");
+  TestLocalizedRoleDescription(18, u"time");
+  TestLocalizedRoleDescription(19, u"content information");
 }
 
 IN_PROC_BROWSER_TEST_F(CrossPlatformAccessibilityBrowserTest,
@@ -918,7 +967,7 @@ IN_PROC_BROWSER_TEST_F(CrossPlatformAccessibilityBrowserTest,
 
   auto TestGetStyleNameAttributeAsLocalizedString =
       [](BrowserAccessibility* node, ax::mojom::Role expected_role,
-         const base::string16& expected_localized_style_name_attribute = {}) {
+         const std::u16string& expected_localized_style_name_attribute = {}) {
         ASSERT_NE(nullptr, node);
 
         EXPECT_EQ(expected_role, node->GetRole());
@@ -939,15 +988,14 @@ IN_PROC_BROWSER_TEST_F(CrossPlatformAccessibilityBrowserTest,
 
   BrowserAccessibility* mark_node = para_node->PlatformGetChild(1);
   TestGetStyleNameAttributeAsLocalizedString(mark_node, ax::mojom::Role::kMark,
-                                             base::ASCIIToUTF16("highlight"));
+                                             u"highlight");
 
   // Android doesn't always have a child in this case.
   if (mark_node->PlatformChildCount() > 0u) {
     BrowserAccessibility* mark_text_node = mark_node->PlatformGetChild(0);
     ASSERT_EQ(0u, mark_text_node->PlatformChildCount());
-    TestGetStyleNameAttributeAsLocalizedString(mark_text_node,
-                                               ax::mojom::Role::kStaticText,
-                                               base::ASCIIToUTF16("highlight"));
+    TestGetStyleNameAttributeAsLocalizedString(
+        mark_text_node, ax::mojom::Role::kStaticText, u"highlight");
   }
 }
 
@@ -1430,32 +1478,13 @@ IN_PROC_BROWSER_TEST_F(CrossPlatformAccessibilityBrowserTest,
 }
 #endif  // !defined(OS_ANDROID)
 
-class CrossPlatformAccessibilityBrowserTestWithImplicitRootScrolling
-    : public CrossPlatformAccessibilityBrowserTest {
- public:
-  CrossPlatformAccessibilityBrowserTestWithImplicitRootScrolling() = default;
-  ~CrossPlatformAccessibilityBrowserTestWithImplicitRootScrolling() override =
-      default;
-
- protected:
-  void ChooseFeatures(std::vector<base::Feature>* enabled_features,
-                      std::vector<base::Feature>* disabled_features) override {
-    enabled_features->emplace_back(blink::features::kImplicitRootScroller);
-    CrossPlatformAccessibilityBrowserTest::ChooseFeatures(enabled_features,
-                                                          disabled_features);
-  }
-};
-
+// This test is checking behavior when ImplicitRootScroller is enabled which
+// applies only on Android.
 // TODO(http://crbug.com/1137425): Re-enable the test after it gets fixed on
 // Android O.
 #if defined(OS_ANDROID)
-#define MAYBE_ImplicitRootScroller DISABLED_ImplicitRootScroller
-#else
-#define MAYBE_ImplicitRootScroller ImplicitRootScroller
-#endif
-IN_PROC_BROWSER_TEST_F(
-    CrossPlatformAccessibilityBrowserTestWithImplicitRootScrolling,
-    MAYBE_ImplicitRootScroller) {
+IN_PROC_BROWSER_TEST_F(CrossPlatformAccessibilityBrowserTest,
+                       DISABLED_ImplicitRootScroller) {
   LoadInitialAccessibilityTreeFromHtmlFilePath(
       "/accessibility/scrolling/implicit-root-scroller.html");
 
@@ -1465,7 +1494,7 @@ IN_PROC_BROWSER_TEST_F(
 
   // Ensure that this page has an implicit root scroller that's something
   // other than the root of the accessibility tree.
-  ui::AXNode::AXID root_scroller_id = manager->GetTreeData().root_scroller_id;
+  ui::AXNodeID root_scroller_id = manager->GetTreeData().root_scroller_id;
   BrowserAccessibility* root_scroller = manager->GetFromID(root_scroller_id);
   ASSERT_TRUE(root_scroller);
   EXPECT_NE(root_scroller_id, manager->GetRoot()->GetId());
@@ -1482,6 +1511,7 @@ IN_PROC_BROWSER_TEST_F(
   bounds = heading->GetUnclippedRootFrameBoundsRect();
   EXPECT_GT(bounds.y(), 0);
 }
+#endif  // defined(OS_ANDROID)
 
 #if defined(IS_FAST_BUILD)  // Avoid flakiness on slower debug/sanitizer builds.
 IN_PROC_BROWSER_TEST_F(CrossPlatformAccessibilityBrowserTest,
@@ -1676,6 +1706,37 @@ IN_PROC_BROWSER_TEST_F(CrossPlatformAccessibilityBrowserTest,
 
   // The body should no longer be ignored after adding a mouse button listener.
   ASSERT_FALSE(body_node->IsIgnored());
+}
+
+IN_PROC_BROWSER_TEST_F(CrossPlatformAccessibilityBrowserTest,
+                       NavigateInIframe) {
+  LoadInitialAccessibilityTreeFromHtmlFilePath(
+      "/accessibility/regression/iframe-navigation.html");
+  WaitForAccessibilityTreeToContainNodeWithName(shell()->web_contents(),
+                                                "Go to Inner 2");
+
+  // Keep pressing Tab until we get to the "Go to Inner 2" link in the
+  // inner iframe.
+  while (GetNameOfFocusedNode() != "Go to Inner 2") {
+    PressTabAndWaitForFocusChange();
+  }
+
+  // Press enter to activate the link, wait for the second iframe to load.
+  {
+    AccessibilityNotificationWaiter waiter(
+        shell()->web_contents(), ui::kAXModeComplete,
+        ui::AXEventGenerator::Event::LOAD_COMPLETE);
+    SimulateKeyPress(shell()->web_contents(), ui::DomKey::ENTER,
+                     ui::DomCode::ENTER, ui::VKEY_RETURN, false, false, false,
+                     false);
+    waiter.WaitForNotification();
+  }
+
+  // Press Tab, we should eventually land on the last button within the
+  // second iframe.
+  while (GetNameOfFocusedNode() != "Bottom of Inner 2") {
+    PressTabAndWaitForFocusChange();
+  }
 }
 
 }  // namespace content

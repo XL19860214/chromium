@@ -9,7 +9,7 @@
 
 #include "base/base64.h"
 #include "base/bind.h"
-#include "base/optional.h"
+#include "base/containers/contains.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
 #include "content/browser/payments/payment_app.pb.h"
@@ -17,6 +17,7 @@
 #include "content/browser/service_worker/service_worker_context_wrapper.h"
 #include "content/browser/service_worker/service_worker_registration.h"
 #include "content/public/browser/browser_thread.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/common/manifest/manifest.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/gfx/codec/png_codec.h"
@@ -112,7 +113,7 @@ SupportedDelegations ToSupportedDelegations(
 std::unique_ptr<StoredPaymentApp> ToStoredPaymentApp(const std::string& input) {
   StoredPaymentAppProto app_proto;
   if (!app_proto.ParseFromString(input))
-    return std::unique_ptr<StoredPaymentApp>();
+    return nullptr;
 
   std::unique_ptr<StoredPaymentApp> app = std::make_unique<StoredPaymentApp>();
   app->registration_id = app_proto.registration_id();

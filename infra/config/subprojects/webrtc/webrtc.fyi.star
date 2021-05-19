@@ -110,12 +110,14 @@ builder(
 builder(
     name = "WebRTC Chromium FYI Win Builder",
     goma_backend = goma.backend.RBE_PROD,
+    goma_enable_ats = True,
     os = os.WINDOWS_DEFAULT,
 )
 
 builder(
     name = "WebRTC Chromium FYI Win Builder (dbg)",
     goma_backend = goma.backend.RBE_PROD,
+    goma_enable_ats = True,
     os = os.WINDOWS_DEFAULT,
 )
 
@@ -142,7 +144,7 @@ builder(
     executable = "recipe:webrtc/chromium_ios",
     goma_backend = goma.backend.RBE_PROD,
     os = os.MAC_ANY,
-    xcode = xcode.x12a7209,
+    xcode = xcode.x12d4e,
 )
 
 builder(
@@ -150,5 +152,5 @@ builder(
     executable = "recipe:webrtc/chromium_ios",
     goma_backend = goma.backend.RBE_PROD,
     os = os.MAC_ANY,
-    xcode = xcode.x12a7209,
+    xcode = xcode.x12d4e,
 )

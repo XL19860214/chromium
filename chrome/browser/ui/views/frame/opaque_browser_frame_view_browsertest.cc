@@ -12,12 +12,15 @@
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/browser/ui/views/frame/opaque_browser_frame_view_layout.h"
 #include "chrome/browser/ui/views/web_apps/frame_toolbar/web_app_frame_toolbar_view.h"
+#include "chrome/browser/ui/views/web_apps/frame_toolbar/web_app_toolbar_button_container.h"
 #include "chrome/browser/ui/web_applications/test/web_app_browsertest_util.h"
 #include "chrome/browser/web_applications/components/web_application_info.h"
+#include "chrome/browser/web_applications/test/web_app_install_test_utils.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "content/public/test/browser_test.h"
 #include "ui/gfx/color_utils.h"
 #include "ui/views/test/test_views.h"
+#include "ui/views/view_utils.h"
 
 // Tests web-app windows that use the OpaqueBrowserFrameView implementation
 // for their non client frames.
@@ -31,14 +34,14 @@ class WebAppOpaqueBrowserFrameViewTest : public InProcessBrowserTest {
   void SetUpOnMainThread() override { SetThemeMode(ThemeMode::kDefault); }
 
   bool InstallAndLaunchWebApp(
-      base::Optional<SkColor> theme_color = base::nullopt) {
+      absl::optional<SkColor> theme_color = absl::nullopt) {
     auto web_app_info = std::make_unique<WebApplicationInfo>();
     web_app_info->start_url = GetAppURL();
     web_app_info->scope = GetAppURL().GetWithoutFilename();
     web_app_info->theme_color = theme_color;
 
-    web_app::AppId app_id =
-        web_app::InstallWebApp(browser()->profile(), std::move(web_app_info));
+    web_app::AppId app_id = web_app::test::InstallWebApp(
+        browser()->profile(), std::move(web_app_info));
     Browser* app_browser =
         web_app::LaunchWebAppBrowser(browser()->profile(), app_id);
 
@@ -51,7 +54,7 @@ class WebAppOpaqueBrowserFrameViewTest : public InProcessBrowserTest {
     // Not all platform configurations use OpaqueBrowserFrameView for their
     // browser windows, see |CreateBrowserNonClientFrameView()|.
     bool is_opaque_browser_frame_view =
-        frame_view->GetClassName() == OpaqueBrowserFrameView::kClassName;
+        views::IsViewClass<OpaqueBrowserFrameView>(frame_view);
 #if defined(OS_LINUX) && !BUILDFLAG(IS_CHROMEOS_ASH) && \
     !BUILDFLAG(IS_CHROMEOS_LACROS)
     DCHECK(is_opaque_browser_frame_view);
@@ -168,7 +171,7 @@ IN_PROC_BROWSER_TEST_F(WebAppOpaqueBrowserFrameViewTest, StaticTitleBarHeight) {
 
   // Add taller children to the web app frame toolbar RHS.
   const int container_height = web_app_frame_toolbar_->height();
-  web_app_frame_toolbar_->GetRightContainerForTesting()->AddChildView(
+  web_app_frame_toolbar_->get_right_container_for_testing()->AddChildView(
       new views::StaticSizedView(gfx::Size(1, title_bar_height * 2)));
   opaque_browser_frame_view_->Layout();
 

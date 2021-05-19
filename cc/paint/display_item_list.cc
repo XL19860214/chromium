@@ -339,7 +339,7 @@ bool DisplayItemList::GetColorIfSolidInRect(const gfx::Rect& rect,
     offsets_to_use = &offsets;
   }
 
-  base::Optional<SkColor> solid_color =
+  absl::optional<SkColor> solid_color =
       SolidColorAnalyzer::DetermineIfSolidColor(
           &paint_op_buffer_, rect, max_ops_to_analyze, offsets_to_use);
   if (solid_color) {
@@ -349,7 +349,7 @@ bool DisplayItemList::GetColorIfSolidInRect(const gfx::Rect& rect,
   return false;
 }
 
-base::Optional<DisplayItemList::DirectlyCompositedImageResult>
+absl::optional<DisplayItemList::DirectlyCompositedImageResult>
 DisplayItemList::GetDirectlyCompositedImageResult(
     gfx::Size containing_layer_bounds) const {
   const PaintOpBuffer* op_buffer = nullptr;
@@ -364,7 +364,7 @@ DisplayItemList::GetDirectlyCompositedImageResult(
       op_buffer = &paint_op_buffer_;
     }
   } else {
-    return base::nullopt;
+    return absl::nullopt;
   }
 
   const DrawImageRectOp* draw_image_rect_op = nullptr;
@@ -391,56 +391,40 @@ DisplayItemList::GetDirectlyCompositedImageResult(
         case PaintOpType::Translate: {
           const TranslateOp* translate = static_cast<const TranslateOp*>(op);
           if (translate->dx != 0 || translate->dy != 0)
-            return base::nullopt;
+            return absl::nullopt;
           break;
         }
         case PaintOpType::Concat: {
           // We only expect a single transformation. If we see another one, then
           // this image won't be eligible for directly compositing.
           if (transpose_image_size)
-            return base::nullopt;
+            return absl::nullopt;
 
           const ConcatOp* concat_op = static_cast<const ConcatOp*>(op);
-          if (concat_op->matrix.hasPerspective() ||
-              !concat_op->matrix.preservesAxisAlignment())
-            return base::nullopt;
+          if (!MathUtil::SkM44Preserves2DAxisAlignment(concat_op->matrix))
+            return absl::nullopt;
 
           // If the image has been rotated +/-90 degrees we'll need to transpose
           // the width and height dimensions to account for the same transform
           // applying when the layer bounds were calculated. Since we already
           // know that the transformation preserves axis alignment, we only
-          // need to test the main diagonal
-          transpose_image_size = (concat_op->matrix.getScaleX() == 0 &&
-                                  concat_op->matrix.getScaleY() == 0);
-          break;
-        }
-        case PaintOpType::Concat44: {
-          // TODO(aaronhk) this replace Concact with Concat44 everywhere
-          // This function only needs to exist temporarily
-          if (transpose_image_size)
-            return base::nullopt;
-
-          const Concat44Op* concat_op = static_cast<const Concat44Op*>(op);
-          if (!MathUtil::SkM44Preserves2DAxisAlignment(concat_op->matrix))
-            return base::nullopt;
-
-          transpose_image_size = (concat_op->matrix.rc(0, 0) == 0 &&
-                                  concat_op->matrix.rc(1, 1) == 0);
+          // need to confirm that this is not a scaling operation.
+          transpose_image_size = (concat_op->matrix.rc(0, 0) == 0);
           break;
         }
         case PaintOpType::DrawImageRect:
           if (draw_image_rect_op)
-            return base::nullopt;
+            return absl::nullopt;
           draw_image_rect_op = static_cast<const DrawImageRectOp*>(op);
           break;
         default:
-          return base::nullopt;
+          return absl::nullopt;
       }
     }
   }
 
   if (!draw_image_rect_op)
-    return base::nullopt;
+    return absl::nullopt;
 
   // The src rect must match the image size exactly, i.e. the entire image
   // must be drawn.
@@ -448,7 +432,7 @@ DisplayItemList::GetDirectlyCompositedImageResult(
   if (src.fLeft != 0 || src.fTop != 0 ||
       src.fRight != draw_image_rect_op->image.width() ||
       src.fBottom != draw_image_rect_op->image.height())
-    return base::nullopt;
+    return absl::nullopt;
 
   // The DrawImageRect op's destination rect must match the layer bounds
   // exactly. Note that the layer bounds have already taken into account image
@@ -460,7 +444,7 @@ DisplayItemList::GetDirectlyCompositedImageResult(
   if (dst.fLeft != 0 || dst.fTop != 0 ||
       dst_width != containing_layer_bounds.width() ||
       dst_height != containing_layer_bounds.height())
-    return base::nullopt;
+    return absl::nullopt;
 
   int width = transpose_image_size ? draw_image_rect_op->image.height()
                                    : draw_image_rect_op->image.width();

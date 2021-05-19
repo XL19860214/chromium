@@ -5,6 +5,7 @@
 #include "base/cpu.h"
 #include "base/containers/contains.h"
 #include "base/logging.h"
+#include "base/strings/string_util.h"
 #include "build/build_config.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -152,41 +153,50 @@ TEST(CPU, BrandAndVendorContainsNoNUL) {
 // Tests that we compute the correct CPU family and model based on the vendor
 // and CPUID signature.
 TEST(CPU, X86FamilyAndModel) {
-  int family;
-  int model;
-  int ext_family;
-  int ext_model;
+  base::internal::X86ModelInfo info;
 
   // Check with an Intel Skylake signature.
-  std::tie(family, model, ext_family, ext_model) =
-      base::internal::ComputeX86FamilyAndModel("GenuineIntel", 0x000406e3);
-  EXPECT_EQ(family, 6);
-  EXPECT_EQ(model, 78);
-  EXPECT_EQ(ext_family, 0);
-  EXPECT_EQ(ext_model, 4);
+  info = base::internal::ComputeX86FamilyAndModel("GenuineIntel", 0x000406e3);
+  EXPECT_EQ(info.family, 6);
+  EXPECT_EQ(info.model, 78);
+  EXPECT_EQ(info.ext_family, 0);
+  EXPECT_EQ(info.ext_model, 4);
 
   // Check with an Intel Airmont signature.
-  std::tie(family, model, ext_family, ext_model) =
-      base::internal::ComputeX86FamilyAndModel("GenuineIntel", 0x000406c2);
-  EXPECT_EQ(family, 6);
-  EXPECT_EQ(model, 76);
-  EXPECT_EQ(ext_family, 0);
-  EXPECT_EQ(ext_model, 4);
+  info = base::internal::ComputeX86FamilyAndModel("GenuineIntel", 0x000406c2);
+  EXPECT_EQ(info.family, 6);
+  EXPECT_EQ(info.model, 76);
+  EXPECT_EQ(info.ext_family, 0);
+  EXPECT_EQ(info.ext_model, 4);
 
   // Check with an Intel Prescott signature.
-  std::tie(family, model, ext_family, ext_model) =
-      base::internal::ComputeX86FamilyAndModel("GenuineIntel", 0x00000f31);
-  EXPECT_EQ(family, 15);
-  EXPECT_EQ(model, 3);
-  EXPECT_EQ(ext_family, 0);
-  EXPECT_EQ(ext_model, 0);
+  info = base::internal::ComputeX86FamilyAndModel("GenuineIntel", 0x00000f31);
+  EXPECT_EQ(info.family, 15);
+  EXPECT_EQ(info.model, 3);
+  EXPECT_EQ(info.ext_family, 0);
+  EXPECT_EQ(info.ext_model, 0);
 
   // Check with an AMD Excavator signature.
-  std::tie(family, model, ext_family, ext_model) =
-      base::internal::ComputeX86FamilyAndModel("AuthenticAMD", 0x00670f00);
-  EXPECT_EQ(family, 21);
-  EXPECT_EQ(model, 112);
-  EXPECT_EQ(ext_family, 6);
-  EXPECT_EQ(ext_model, 7);
+  info = base::internal::ComputeX86FamilyAndModel("AuthenticAMD", 0x00670f00);
+  EXPECT_EQ(info.family, 21);
+  EXPECT_EQ(info.model, 112);
+  EXPECT_EQ(info.ext_family, 6);
+  EXPECT_EQ(info.ext_model, 7);
 }
 #endif  // defined(ARCH_CPU_X86_FAMILY)
+
+#if defined(ARCH_CPU_ARM_FAMILY) && \
+    (defined(OS_LINUX) || defined(OS_ANDROID) || defined(OS_CHROMEOS))
+TEST(CPU, ARMImplementerAndPartNumber) {
+  base::CPU cpu;
+
+  const std::string& cpu_brand = cpu.cpu_brand();
+
+  // Some devices, including on the CQ, do not report a cpu_brand
+  // https://crbug.com/1166533 and https://crbug.com/1167123.
+  EXPECT_EQ(cpu_brand, base::TrimWhitespaceASCII(cpu_brand, base::TRIM_ALL));
+  EXPECT_GT(cpu.implementer(), 0u);
+  EXPECT_GT(cpu.part_number(), 0u);
+}
+#endif  // defined(ARCH_CPU_ARM_FAMILY) && (defined(OS_LINUX) ||
+        // defined(OS_ANDROID) || defined(OS_CHROMEOS))

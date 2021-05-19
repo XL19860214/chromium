@@ -4,9 +4,11 @@ include_rules = [
   "+components/keyed_service/core",
   "+components/printing/browser",
   "+components/printing/common",
+  "+components/profile_metrics",
   "+components/security_state",
   "+components/viz",
   "+printing",
+  "+services/cert_verifier/public/mojom",
   "+services/network",
   "+storage/browser/quota",
   "+storage/common/quota",
@@ -18,3 +20,18 @@ include_rules = [
   "+ui/compositor",
   "+ui/events/keycodes/dom",
 ]
+specific_include_rules = {
+  "headless_browser_main_parts.*": [
+    "+components/policy",
+    "+components/prefs",
+    "+components/pref_registry",
+    "+components/keyed_service/content",
+  ],
+  "headless_browser_context_impl.cc": [
+    "+components/keyed_service/content",
+    "+components/user_prefs",
+  ],
+  "headless_content_browser_client.cc": [
+    "+components/policy",
+  ],
+}

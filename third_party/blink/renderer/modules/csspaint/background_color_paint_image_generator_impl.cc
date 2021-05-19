@@ -13,8 +13,9 @@ BackgroundColorPaintImageGenerator*
 BackgroundColorPaintImageGeneratorImpl::Create(LocalFrame& local_root) {
   BackgroundColorPaintWorklet* background_color_paint_worklet =
       BackgroundColorPaintWorklet::Create(local_root);
+  if (!background_color_paint_worklet)
+    return nullptr;
 
-  DCHECK(background_color_paint_worklet);
   BackgroundColorPaintImageGeneratorImpl* generator =
       MakeGarbageCollected<BackgroundColorPaintImageGeneratorImpl>(
           background_color_paint_worklet);
@@ -28,8 +29,26 @@ BackgroundColorPaintImageGeneratorImpl::BackgroundColorPaintImageGeneratorImpl(
 
 scoped_refptr<Image> BackgroundColorPaintImageGeneratorImpl::Paint(
     const FloatSize& container_size,
-    const Node* node) {
-  return background_color_paint_worklet_->Paint(container_size, node);
+    const Node* node,
+    const Vector<Color>& animated_colors,
+    const Vector<double>& offsets,
+    const absl::optional<double>& progress) {
+  return background_color_paint_worklet_->Paint(
+      container_size, node, animated_colors, offsets, progress);
+}
+
+bool BackgroundColorPaintImageGeneratorImpl::GetBGColorPaintWorkletParams(
+    Node* node,
+    Vector<Color>* animated_colors,
+    Vector<double>* offsets,
+    absl::optional<double>* progress) {
+  return BackgroundColorPaintWorklet::GetBGColorPaintWorkletParams(
+      node, animated_colors, offsets, progress);
+}
+
+Animation* BackgroundColorPaintImageGeneratorImpl::GetAnimationIfCompositable(
+    const Element* element) {
+  return BackgroundColorPaintWorklet::GetAnimationIfCompositable(element);
 }
 
 void BackgroundColorPaintImageGeneratorImpl::Shutdown() {

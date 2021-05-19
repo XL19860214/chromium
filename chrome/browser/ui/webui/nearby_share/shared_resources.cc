@@ -21,6 +21,7 @@ void RegisterNearbySharedStrings(content::WebUIDataSource* data_source) {
       {"nearbyShareActionsCancel", IDS_NEARBY_ACTIONS_CANCEL},
       {"nearbyShareActionsClose", IDS_NEARBY_ACTIONS_CLOSE},
       {"nearbyShareActionsConfirm", IDS_NEARBY_ACTIONS_CONFIRM},
+      {"nearbyShareActionsDecline", IDS_NEARBY_ACTIONS_DECLINE},
       {"nearbyShareActionsNext", IDS_NEARBY_ACTIONS_NEXT},
       {"nearbyShareActionsReject", IDS_NEARBY_ACTIONS_REJECT},
       {"nearbyShareConfirmationPageAddContactSubtitle",
@@ -54,8 +55,6 @@ void RegisterNearbySharedStrings(content::WebUIDataSource* data_source) {
       {"nearbyShareContactVisibilityUnknown", IDS_NEARBY_VISIBLITY_UNKNOWN},
       {"nearbyShareContactVisibilityUnknownDescription",
        IDS_NEARBY_VISIBLITY_UNKNOWN_DESCRIPTION},
-      {"nearbyShareContactVisibilityZeroStateInfo",
-       IDS_NEARBY_CONTACT_VISIBILITY_ZERO_STATE_INFO},
       {"nearbyShareContactVisibilityZeroStateText",
        IDS_NEARBY_CONTACT_VISIBILITY_ZERO_STATE_TEXT},
       {"nearbyShareDeviceNameEmptyError", IDS_NEARBY_DEVICE_NAME_EMPTY_ERROR},
@@ -120,7 +119,7 @@ void RegisterNearbySharedStrings(content::WebUIDataSource* data_source) {
        IDS_NEARBY_HIGH_VISIBILITY_TRANSFER_IN_PROGRESS_ERROR},
       {"nearbyShareErrorTransferInProgressDescription",
        IDS_NEARBY_HIGH_VISIBILITY_TRANSFER_IN_PROGRESS_DESCRIPTION}};
-  webui::AddLocalizedStringsBulk(data_source, kLocalizedStrings);
+  data_source->AddLocalizedStrings(kLocalizedStrings);
 
   data_source->AddString("nearbyShareLearnMoreLink",
                          base::ASCIIToUTF16(chrome::kNearbyShareLearnMoreURL));

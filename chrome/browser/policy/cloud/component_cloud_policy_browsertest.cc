@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <memory>
 #include <string>
 
 #include "base/base64url.h"
@@ -40,8 +41,8 @@
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #if BUILDFLAG(IS_CHROMEOS_ASH)
+#include "ash/constants/ash_switches.h"
 #include "chrome/browser/chromeos/policy/user_cloud_policy_manager_chromeos.h"
-#include "chromeos/constants/chromeos_switches.h"
 #else
 #include "chrome/browser/net/system_network_context_manager.h"
 #include "chrome/browser/signin/identity_manager_factory.h"
@@ -135,7 +136,8 @@ class ComponentCloudPolicyTest : public extensions::ExtensionBrowserTest {
 
     // Install the initial extension.
     ExtensionTestMessageListener ready_listener("ready", false);
-    event_listener_.reset(new ExtensionTestMessageListener("event", true));
+    event_listener_ =
+        std::make_unique<ExtensionTestMessageListener>("event", true);
     extension_ = LoadExtension(kTestExtensionPath);
     ASSERT_TRUE(extension_.get());
     ASSERT_EQ(kTestExtension, extension_->id());
@@ -184,7 +186,7 @@ class ComponentCloudPolicyTest : public extensions::ExtensionBrowserTest {
     // the account id to the UserCloudPolicyValidator.
     signin::SetPrimaryAccount(
         IdentityManagerFactory::GetForProfile(browser()->profile()),
-        PolicyBuilder::kFakeUsername);
+        PolicyBuilder::kFakeUsername, signin::ConsentLevel::kSync);
 
     UserCloudPolicyManager* policy_manager =
         browser()->profile()->GetUserCloudPolicyManager();
@@ -222,7 +224,7 @@ class ComponentCloudPolicyTest : public extensions::ExtensionBrowserTest {
             ->GetPrimaryAccountMutator();
     primary_account_mutator->ClearPrimaryAccount(
         signin_metrics::SIGNOUT_TEST,
-        signin_metrics::SignoutDelete::IGNORE_METRIC);
+        signin_metrics::SignoutDelete::kIgnoreMetric);
   }
 #endif
 
@@ -255,7 +257,8 @@ IN_PROC_BROWSER_TEST_F(ComponentCloudPolicyTest, UpdateExtensionPolicy) {
   EXPECT_TRUE(policy_listener.WaitUntilSatisfied());
 
   // Update the policy at the server and reload policy.
-  event_listener_.reset(new ExtensionTestMessageListener("event", true));
+  event_listener_ =
+      std::make_unique<ExtensionTestMessageListener>("event", true);
   policy_listener.Reply("idle");
   EXPECT_TRUE(test_server_.UpdatePolicyData(
       dm_protocol::kChromeExtensionPolicyType, kTestExtension, kTestPolicy2));
@@ -394,7 +397,8 @@ IN_PROC_BROWSER_TEST_F(KeyRotationComponentCloudPolicyTest, Basic) {
 
   // Update the policy at the server and reload the policy, causing also the key
   // rotation to be performed by the policy test server.
-  event_listener_.reset(new ExtensionTestMessageListener("event", true));
+  event_listener_ =
+      std::make_unique<ExtensionTestMessageListener>("event", true);
   policy_listener.Reply("idle");
   EXPECT_TRUE(test_server_.UpdatePolicyData(
       dm_protocol::kChromeExtensionPolicyType, kTestExtension, kTestPolicy2));

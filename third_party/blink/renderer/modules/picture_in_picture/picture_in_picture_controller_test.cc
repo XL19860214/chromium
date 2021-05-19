@@ -4,7 +4,10 @@
 
 #include "third_party/blink/renderer/modules/picture_in_picture/picture_in_picture_controller_impl.h"
 
+#include <memory>
+
 #include "media/mojo/mojom/media_player.mojom-blink.h"
+#include "mojo/public/cpp/bindings/pending_associated_remote.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/bindings/receiver.h"
@@ -45,11 +48,13 @@ class MockPictureInPictureSession
   ~MockPictureInPictureSession() override = default;
 
   MOCK_METHOD1(Stop, void(StopCallback));
-  MOCK_METHOD4(Update,
-               void(uint32_t,
-                    const base::Optional<viz::SurfaceId>&,
-                    const gfx::Size&,
-                    bool));
+  MOCK_METHOD5(
+      Update,
+      void(uint32_t,
+           mojo::PendingAssociatedRemote<media::mojom::blink::MediaPlayer>,
+           const absl::optional<viz::SurfaceId>&,
+           const gfx::Size&,
+           bool));
 
  private:
   mojo::Receiver<mojom::blink::PictureInPictureSession> receiver_;
@@ -73,15 +78,15 @@ class MockPictureInPictureService
     receiver_.Bind(mojo::PendingReceiver<mojom::blink::PictureInPictureService>(
         std::move(handle)));
 
-    session_.reset(new MockPictureInPictureSession(
-        session_remote_.InitWithNewPipeAndPassReceiver()));
+    session_ = std::make_unique<MockPictureInPictureSession>(
+        session_remote_.InitWithNewPipeAndPassReceiver());
   }
 
   MOCK_METHOD7(
       StartSession,
       void(uint32_t,
-           mojo::PendingRemote<media::mojom::blink::MediaPlayer>,
-           const base::Optional<viz::SurfaceId>&,
+           mojo::PendingAssociatedRemote<media::mojom::blink::MediaPlayer>,
+           const absl::optional<viz::SurfaceId>&,
            const gfx::Size&,
            bool,
            mojo::PendingRemote<mojom::blink::PictureInPictureSessionObserver>,
@@ -91,8 +96,8 @@ class MockPictureInPictureService
 
   void StartSessionInternal(
       uint32_t,
-      mojo::PendingRemote<media::mojom::blink::MediaPlayer>,
-      const base::Optional<viz::SurfaceId>&,
+      mojo::PendingAssociatedRemote<media::mojom::blink::MediaPlayer>,
+      const absl::optional<viz::SurfaceId>&,
       const gfx::Size&,
       bool,
       mojo::PendingRemote<mojom::blink::PictureInPictureSessionObserver>,

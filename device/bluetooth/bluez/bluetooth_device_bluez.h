@@ -9,7 +9,6 @@
 
 #include <memory>
 #include <string>
-#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -63,15 +62,18 @@ class DEVICE_BLUETOOTH_EXPORT BluetoothDeviceBlueZ
   uint16_t GetProductID() const override;
   uint16_t GetDeviceID() const override;
   uint16_t GetAppearance() const override;
-  base::Optional<std::string> GetName() const override;
+  absl::optional<std::string> GetName() const override;
   bool IsPaired() const override;
   bool IsConnected() const override;
   bool IsGattConnected() const override;
   bool IsConnectable() const override;
   bool IsConnecting() const override;
+#if defined(OS_CHROMEOS)
+  bool IsBlockedByPolicy() const override;
+#endif
   UUIDSet GetUUIDs() const override;
-  base::Optional<int8_t> GetInquiryRSSI() const override;
-  base::Optional<int8_t> GetInquiryTxPower() const override;
+  absl::optional<int8_t> GetInquiryRSSI() const override;
+  absl::optional<int8_t> GetInquiryTxPower() const override;
   bool ExpectingPinCode() const override;
   bool ExpectingPasskey() const override;
   bool ExpectingConfirmation() const override;
@@ -181,7 +183,7 @@ class DEVICE_BLUETOOTH_EXPORT BluetoothDeviceBlueZ
  protected:
   // BluetoothDevice override
   void CreateGattConnectionImpl(
-      base::Optional<device::BluetoothUUID> service_uuid) override;
+      absl::optional<device::BluetoothUUID> service_uuid) override;
   void DisconnectGatt() override;
 
  private:
@@ -243,6 +245,13 @@ class DEVICE_BLUETOOTH_EXPORT BluetoothDeviceBlueZ
   void OnConnectError(ConnectErrorCallback error_callback,
                       const std::string& error_name,
                       const std::string& error_message);
+
+// Once DisconnectLE is supported on Linux, this buildflag will not be necessary
+// (this bluez code is only run on Chrome OS and Linux).
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  void OnDisconnectLEError(const std::string& error_name,
+                           const std::string& error_message);
+#endif
 
   // Called by dbus:: on completion of the D-Bus method call to pair the device,
   // made inside |Connect()|.

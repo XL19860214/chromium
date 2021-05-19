@@ -33,7 +33,6 @@
 
 #include <memory>
 
-#include "base/time/time.h"
 #include "services/network/public/mojom/ip_address_space.mojom-shared.h"
 #include "services/network/public/mojom/referrer_policy.mojom-shared.h"
 #include "third_party/blink/public/common/loader/previews_state.h"
@@ -116,6 +115,7 @@ class BLINK_EXPORT WebDocumentLoader {
   // Extra data associated with this DocumentLoader.
   // Setting extra data will cause any existing extra data to be deleted.
   virtual ExtraData* GetExtraData() const = 0;
+  virtual std::unique_ptr<ExtraData> TakeExtraData() = 0;
   virtual void SetExtraData(std::unique_ptr<ExtraData>) = 0;
 
   // Allows the embedder to inject a filter that will be consulted for each
@@ -149,8 +149,9 @@ class BLINK_EXPORT WebDocumentLoader {
   // Returns archive info for the archive.
   virtual WebArchiveInfo GetArchiveInfo() const = 0;
 
-  // Whether this load was started with a user gesture.
-  virtual bool HadUserGesture() const = 0;
+  // Whether the last navigation (cross-document or same-document) that
+  // committed in this WebDocumentLoader had transient activation.
+  virtual bool LastNavigationHadTransientUserActivation() const = 0;
 
   // Returns true when the document is a FTP directory.
   virtual bool IsListingFtpDirectory() const = 0;
@@ -161,4 +162,4 @@ class BLINK_EXPORT WebDocumentLoader {
 
 }  // namespace blink
 
-#endif
+#endif  // THIRD_PARTY_BLINK_PUBLIC_WEB_WEB_DOCUMENT_LOADER_H_

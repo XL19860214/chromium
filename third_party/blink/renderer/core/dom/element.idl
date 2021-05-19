@@ -58,6 +58,8 @@ callback ScrollStateCallback = void (ScrollState scrollState);
     [RaisesException, CEReactions] Attr? setAttributeNodeNS(Attr attr);
     [RaisesException, CEReactions] Attr removeAttributeNode(Attr attr);
 
+    [RuntimeEnabled=EditContext] attribute EditContext? editContext;
+
     [RaisesException, MeasureAs=ElementAttachShadow] ShadowRoot attachShadow(ShadowRootInit shadowRootInitDict);
     [Affects=Nothing, PerWorldBindings, ImplementedAs=OpenShadowRoot] readonly attribute ShadowRoot? shadowRoot;
 
@@ -97,7 +99,7 @@ callback ScrollStateCallback = void (ScrollState scrollState);
     [CEReactions, RaisesException] void insertAdjacentHTML(DOMString position, HTMLString text);
 
     // Declarative Shadow DOM getInnerHTML() function.
-    [Affects=Nothing, RuntimeEnabled=DeclarativeShadowDOM, RuntimeCallStatsCounter=ElementGetInnerHTML] HTMLString getInnerHTML(optional GetInnerHTMLOptions options = {});
+    [Affects=Nothing, RuntimeEnabled=DeclarativeShadowDOM, MeasureAs=ElementGetInnerHTML] HTMLString getInnerHTML(optional GetInnerHTMLOptions options = {});
 
     // Pointer Lock
     // https://w3c.github.io/pointerlock/#extensions-to-the-element-interface

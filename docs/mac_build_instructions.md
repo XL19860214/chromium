@@ -52,6 +52,11 @@ Ensure that unicode filenames aren't mangled by HFS:
 $ git config --global core.precomposeUnicode true
 ```
 
+In System Preferences, check that "Energy Saver" -> "Power Adapter" ->
+"Prevent computer from sleeping automatically when the display is off" is
+checked so that your laptop doesn't go to sleep and interrupt the long network
+connection needed here.
+
 Create a `chromium` directory for the checkout and change to it (you can call
 this whatever you like and put it wherever you like, as long as the full path
 has no spaces):
@@ -195,21 +200,7 @@ You can find out more about GoogleTest at its
 
 ## Debugging
 
-Good debugging tips can be found
-[here](https://dev.chromium.org/developers/how-tos/debugging-on-os-x). If you
-would like to debug in a graphical environment, rather than using `lldb` at the
-command line, that is possible without building in Xcode (see
-[Debugging in Xcode](https://www.chromium.org/developers/how-tos/debugging-on-os-x/building-with-ninja-debugging-with-xcode)).
-
-Tips for printing variables from `lldb` prompt (both in Xcode or in terminal):
-* If `uptr` is a `std::unique_ptr`, the address it wraps is accessible as
-  `uptr.__ptr_.__value_`.
-* To pretty-print `base::string16`, ensure you have a `~/.lldbinit` file and
-  add the following line into it (substitute {SRC} for your actual path to the
-  root of Chromium's sources):
-```
-command script import {SRC}/tools/lldb/lldb_chrome.py
-```
+Good debugging tips can be found [here](mac/debugging.md).
 
 ## Update your checkout
 

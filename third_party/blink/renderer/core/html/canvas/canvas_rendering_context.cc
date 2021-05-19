@@ -40,50 +40,8 @@ CanvasRenderingContext::CanvasRenderingContext(
     CanvasRenderingContextHost* host,
     const CanvasContextCreationAttributesCore& attrs)
     : host_(host),
-      color_params_(CanvasColorSpace::kSRGB,
-                    CanvasPixelFormat::kUint8,
-                    kNonOpaque),
-      creation_attributes_(attrs) {
-  if (creation_attributes_.pixel_format == kF16CanvasPixelFormatName)
-    color_params_.SetCanvasPixelFormat(CanvasPixelFormat::kF16);
-
-  if (creation_attributes_.color_space == kRec2020CanvasColorSpaceName)
-    color_params_.SetCanvasColorSpace(CanvasColorSpace::kRec2020);
-  else if (creation_attributes_.color_space == kP3CanvasColorSpaceName)
-    color_params_.SetCanvasColorSpace(CanvasColorSpace::kP3);
-
-  if (!creation_attributes_.alpha)
-    color_params_.SetOpacityMode(kOpaque);
-
-  // Make creation_attributes_ reflect the effective color_space and
-  // pixel_format rather than the requested one.
-  creation_attributes_.color_space = ColorSpaceAsString();
-  creation_attributes_.pixel_format = PixelFormatAsString();
-}
-
-WTF::String CanvasRenderingContext::ColorSpaceAsString() const {
-  switch (color_params_.ColorSpace()) {
-    case CanvasColorSpace::kSRGB:
-      return kSRGBCanvasColorSpaceName;
-    case CanvasColorSpace::kRec2020:
-      return kRec2020CanvasColorSpaceName;
-    case CanvasColorSpace::kP3:
-      return kP3CanvasColorSpaceName;
-  };
-  CHECK(false);
-  return "";
-}
-
-WTF::String CanvasRenderingContext::PixelFormatAsString() const {
-  switch (color_params_.PixelFormat()) {
-    case CanvasPixelFormat::kF16:
-      return kF16CanvasPixelFormatName;
-    case CanvasPixelFormat::kUint8:
-      return kUint8CanvasPixelFormatName;
-  };
-  CHECK(false);
-  return "";
-}
+      color_params_(attrs.color_space, attrs.pixel_format, attrs.alpha),
+      creation_attributes_(attrs) {}
 
 void CanvasRenderingContext::Dispose() {
   StopListeningForDidProcessTask();
@@ -156,7 +114,8 @@ void CanvasRenderingContext::RecordUKMCanvasDrawnToRenderingAPI(
 }
 
 CanvasRenderingContext::ContextType CanvasRenderingContext::ContextTypeFromId(
-    const String& id) {
+    const String& id,
+    const ExecutionContext* execution_context) {
   if (id == "2d")
     return kContext2D;
   if (id == "experimental-webgl")
@@ -167,7 +126,8 @@ CanvasRenderingContext::ContextType CanvasRenderingContext::ContextTypeFromId(
     return kContextWebgl2;
   if (id == "bitmaprenderer")
     return kContextImageBitmap;
-  if (id == "gpupresent" && RuntimeEnabledFeatures::WebGPUEnabled())
+  if (id == "gpupresent" &&
+      RuntimeEnabledFeatures::WebGPUEnabled(execution_context))
     return kContextGPUPresent;
   return kContextTypeUnknown;
 }

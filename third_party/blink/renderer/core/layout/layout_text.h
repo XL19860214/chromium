@@ -24,6 +24,8 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_LAYOUT_TEXT_H_
 
 #include <iterator>
+
+#include "base/dcheck_is_on.h"
 #include "base/memory/scoped_refptr.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/dom/text.h"
@@ -85,6 +87,11 @@ class CORE_EXPORT LayoutText : public LayoutObject {
   static LayoutText* CreateEmptyAnonymous(Document&,
                                           scoped_refptr<const ComputedStyle>,
                                           LegacyLayout);
+
+  static LayoutText* CreateAnonymous(Document&,
+                                     scoped_refptr<const ComputedStyle>,
+                                     scoped_refptr<StringImpl>,
+                                     LegacyLayout legacy);
 
   const char* GetName() const override {
     NOT_DESTROYED();
@@ -280,7 +287,7 @@ class CORE_EXPORT LayoutText : public LayoutObject {
   // Returns the offset in the |text_| string that corresponds to the given
   // position in DOM; Returns nullopt is the position is not in this LayoutText.
   // TODO(layout-dev): Fix it when text-transform changes text length.
-  virtual base::Optional<unsigned> CaretOffsetForPosition(
+  virtual absl::optional<unsigned> CaretOffsetForPosition(
       const Position&) const;
 
   // Returns true if the offset (0-based in the |text_| string) is next to a
@@ -411,6 +418,9 @@ class CORE_EXPORT LayoutText : public LayoutObject {
 
   // Returns the size of area occupied by this LayoutText.
   LayoutUnit PhysicalAreaSize() const;
+
+  // Returns the rightmost offset occupied by this LayoutText.
+  LayoutUnit PhysicalRightOffset() const;
 
   // For LayoutShiftTracker. Saves the value of LogicalStartingPoint() value
   // during the previous paint invalidation.
@@ -598,7 +608,6 @@ inline InlineTextBoxList& LayoutText::MutableTextBoxes() {
 inline wtf_size_t LayoutText::FirstInlineFragmentItemIndex() const {
   if (!IsInLayoutNGInlineFormattingContext())
     return 0u;
-  DCHECK(RuntimeEnabledFeatures::LayoutNGFragmentItemEnabled());
   return first_fragment_item_index_;
 }
 
