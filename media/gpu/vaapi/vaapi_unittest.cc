@@ -393,6 +393,10 @@ TEST_P(VaapiVppTest, BlitWithVAAllocatedSurfaces) {
   const uint32_t va_fourcc_in = std::get<0>(GetParam());
   const uint32_t va_fourcc_out = std::get<1>(GetParam());
 
+  // TODO(b/187852384): enable the other two backends.
+  if (VaapiWrapper::GetImplementationType() != VAImplementation::kIntelIHD)
+    GTEST_SKIP() << "backend not supported";
+
   if (!VaapiWrapper::IsVppFormatSupported(va_fourcc_in) ||
       !VaapiWrapper::IsVppFormatSupported(va_fourcc_out)) {
     GTEST_SKIP() << FourccToString(va_fourcc_in) << " -> "

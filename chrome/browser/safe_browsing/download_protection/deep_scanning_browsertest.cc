@@ -6,6 +6,7 @@
 
 #include "base/base64.h"
 #include "base/path_service.h"
+#include "base/test/bind.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/threading/thread_restrictions.h"
@@ -44,6 +45,9 @@
 #include "content/public/test/browser_test.h"
 #include "content/public/test/download_test_observer.h"
 #include "content/public/test/test_utils.h"
+#include "mojo/public/cpp/bindings/remote.h"
+#include "services/network/public/cpp/data_element.h"
+#include "services/network/public/mojom/data_pipe_getter.mojom.h"
 #include "services/network/test/test_utils.h"
 
 namespace safe_browsing {
@@ -151,7 +155,8 @@ class DownloadDeepScanningBrowserTestBase
 #endif
     identity_test_environment_ =
         std::make_unique<signin::IdentityTestEnvironment>();
-    identity_test_environment_->MakePrimaryAccountAvailable(kUserName);
+    identity_test_environment_->MakePrimaryAccountAvailable(
+        kUserName, signin::ConsentLevel::kSync);
     extensions::SafeBrowsingPrivateEventRouterFactory::GetForProfile(
         browser()->profile())
         ->SetIdentityManagerForTesting(
@@ -340,10 +345,54 @@ class DownloadDeepScanningBrowserTestBase
         profile, std::move(binary_fcm_service));
   }
 
+  std::string GetDataPipeUploadData(const network::ResourceRequest& request) {
+    EXPECT_TRUE(request.request_body);
+    EXPECT_EQ(1u, request.request_body->elements()->size());
+    network::DataElement& data_pipe_element =
+        (*request.request_body->elements_mutable())[0];
+
+    data_pipe_getter_.Bind(data_pipe_element.As<network::DataElementDataPipe>()
+                               .ReleaseDataPipeGetter());
+    EXPECT_TRUE(data_pipe_getter_);
+
+    mojo::ScopedDataPipeProducerHandle data_pipe_producer;
+    mojo::ScopedDataPipeConsumerHandle data_pipe_consumer;
+    base::RunLoop run_loop;
+    EXPECT_EQ(MOJO_RESULT_OK, mojo::CreateDataPipe(nullptr, data_pipe_producer,
+                                                   data_pipe_consumer));
+    data_pipe_getter_->Read(
+        std::move(data_pipe_producer),
+        base::BindLambdaForTesting([&run_loop](int32_t status, uint64_t size) {
+          EXPECT_EQ(net::OK, status);
+          run_loop.Quit();
+        }));
+    data_pipe_getter_.FlushForTesting();
+    run_loop.Run();
+
+    EXPECT_TRUE(data_pipe_consumer.is_valid());
+    std::string body;
+    while (true) {
+      char buffer[1024];
+      uint32_t read_size = sizeof(buffer);
+      MojoResult result = data_pipe_consumer->ReadData(
+          buffer, &read_size, MOJO_READ_DATA_FLAG_NONE);
+      if (result == MOJO_RESULT_SHOULD_WAIT) {
+        base::RunLoop().RunUntilIdle();
+        continue;
+      }
+      if (result != MOJO_RESULT_OK) {
+        break;
+      }
+      body.append(buffer, read_size);
+    }
+
+    return body;
+  }
+
   void InterceptRequest(const network::ResourceRequest& request) {
     if (request.url ==
         BinaryUploadService::GetUploadUrl(/*is_consumer_scan_eligible=*/true)) {
-      ASSERT_TRUE(GetUploadMetadata(network::GetUploadData(request),
+      ASSERT_TRUE(GetUploadMetadata(GetDataPipeUploadData(request),
                                     &last_app_request_));
       if (waiting_for_app_)
         std::move(waiting_for_upload_closure_).Run();
@@ -351,14 +400,14 @@ class DownloadDeepScanningBrowserTestBase
 
     if (request.url == BinaryUploadService::GetUploadUrl(
                            /*is_consumer_scan_eligible=*/false)) {
-      ASSERT_TRUE(GetUploadMetadata(network::GetUploadData(request),
+      ASSERT_TRUE(GetUploadMetadata(GetDataPipeUploadData(request),
                                     &last_enterprise_request_));
       if (waiting_for_enterprise_)
         std::move(waiting_for_upload_closure_).Run();
     }
 
     if (request.url == connector_url_) {
-      ASSERT_TRUE(GetUploadMetadata(network::GetUploadData(request),
+      ASSERT_TRUE(GetUploadMetadata(GetDataPipeUploadData(request),
                                     &last_enterprise_request_));
       if (waiting_for_enterprise_)
         std::move(waiting_for_upload_closure_).Run();
@@ -391,6 +440,8 @@ class DownloadDeepScanningBrowserTestBase
 
   bool connectors_machine_scope_;
   base::test::ScopedFeatureList scoped_feature_list_;
+
+  mojo::Remote<network::mojom::DataPipeGetter> data_pipe_getter_;
 };
 
 class DownloadDeepScanningBrowserTest
@@ -1024,13 +1075,17 @@ class MetadataCheckAndDeepScanningBrowserTest
         return "POTENTIALLY_UNWANTED";
       case ClientDownloadResponse::DANGEROUS_HOST:
         return "DANGEROUS_HOST";
+      case ClientDownloadResponse::DANGEROUS_ACCOUNT_COMPROMISE:
+        return "DANGEROUS_ACCOUNT_COMPROMISE";
     }
   }
 
   std::string expected_threat_type() const {
     // These results exempt the file from being deep scanned.
     if (metadata_check_verdict() == ClientDownloadResponse::DANGEROUS ||
-        metadata_check_verdict() == ClientDownloadResponse::DANGEROUS_HOST) {
+        metadata_check_verdict() == ClientDownloadResponse::DANGEROUS_HOST ||
+        metadata_check_verdict() ==
+            ClientDownloadResponse::DANGEROUS_ACCOUNT_COMPROMISE) {
       return metadata_check_threat_type();
     }
     switch (scanning_verdict()) {
@@ -1051,6 +1106,9 @@ class MetadataCheckAndDeepScanningBrowserTest
       case ClientDownloadResponse::DANGEROUS_HOST:
         return download::DownloadDangerType::
             DOWNLOAD_DANGER_TYPE_DANGEROUS_HOST;
+      case ClientDownloadResponse::DANGEROUS_ACCOUNT_COMPROMISE:
+        return download::DownloadDangerType::
+            DOWNLOAD_DANGER_TYPE_DANGEROUS_ACCOUNT_COMPROMISE;
       case ClientDownloadResponse::UNCOMMON:
         if (scanning_verdict() != ScanningVerdict::MALWARE) {
           return download::DownloadDangerType::
@@ -1084,7 +1142,9 @@ class MetadataCheckAndDeepScanningBrowserTest
 
   bool deep_scan_needed() const {
     return metadata_check_verdict() != ClientDownloadResponse::DANGEROUS &&
-           metadata_check_verdict() != ClientDownloadResponse::DANGEROUS_HOST;
+           metadata_check_verdict() != ClientDownloadResponse::DANGEROUS_HOST &&
+           metadata_check_verdict() !=
+               ClientDownloadResponse::DANGEROUS_ACCOUNT_COMPROMISE;
   }
 };
 
@@ -1097,7 +1157,8 @@ INSTANTIATE_TEST_SUITE_P(
                         ClientDownloadResponse::UNCOMMON,
                         ClientDownloadResponse::POTENTIALLY_UNWANTED,
                         ClientDownloadResponse::DANGEROUS_HOST,
-                        ClientDownloadResponse::UNKNOWN),
+                        ClientDownloadResponse::UNKNOWN,
+                        ClientDownloadResponse::DANGEROUS_ACCOUNT_COMPROMISE),
         testing::Values(ScanningVerdict::MALWARE,
                         ScanningVerdict::UNWANTED,
                         ScanningVerdict::SAFE),

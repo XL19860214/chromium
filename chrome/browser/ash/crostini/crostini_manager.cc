@@ -175,12 +175,6 @@ void EmitTimeInStageHistogram(base::TimeDelta duration,
     case mojom::InstallerState::kStartContainer:
       name = "Crostini.RestarterTimeInState.StartContainer";
       break;
-    case mojom::InstallerState::kFetchSshKeys:
-      name = "Crostini.RestarterTimeInState.FetchSshKeys";
-      break;
-    case mojom::InstallerState::kMountContainer:
-      name = "Crostini.RestarterTimeInState.MountContainer";
-      break;
     case mojom::InstallerState::kConfigureContainer:
       NOTREACHED();
       return;
@@ -301,12 +295,6 @@ class CrostiniManager::CrostiniRestarter
       case mojom::InstallerState::kStartContainer:
         result = CrostiniResult::START_CONTAINER_TIMED_OUT;
         break;
-      case mojom::InstallerState::kFetchSshKeys:
-        result = CrostiniResult::FETCH_SSH_KEYS_TIMED_OUT;
-        break;
-      case mojom::InstallerState::kMountContainer:
-        result = CrostiniResult::MOUNT_CONTAINER_TIMED_OUT;
-        break;
       case mojom::InstallerState::kConfigureContainer:
       case mojom::InstallerState::kStart:
         NOTREACHED();
@@ -424,36 +412,13 @@ class CrostiniManager::CrostiniRestarter
     // try mounting sshfs in that case.
     auto info = crostini_manager_->GetContainerInfo(container_id_);
     if (container_id_ == ContainerId::GetDefault() && info) {
-      StartStage(mojom::InstallerState::kFetchSshKeys);
-      crostini_manager_->MountCrostiniFiles(container_id_, base::DoNothing());
-      // TODO(crbug/1142321): Metrics
-      FinishDefaultContainerRestart(result);
-    } else {
-      FinishRestart(result);
-    }
-  }
-
- private:
-  void FinishDefaultContainerRestart(CrostiniResult result) {
-    // TODO(crbug/1198006): For backwards compatibility quickly run through
-    // these stages which have since been removed, but some clients still
-    // expect to see.
-    for (auto& observer : observer_list_) {
-      observer.OnSshKeysFetched(true);
-    }
-    if (ReturnEarlyIfAborted()) {
-      return;
-    }
-    StartStage(mojom::InstallerState::kMountContainer);
-    for (auto& observer : observer_list_) {
-      observer.OnContainerMounted(result == CrostiniResult::SUCCESS);
-    }
-    if (ReturnEarlyIfAborted()) {
-      return;
+      crostini_manager_->MountCrostiniFiles(container_id_, base::DoNothing(),
+                                            true);
     }
     FinishRestart(result);
   }
 
+ private:
   void ContinueRestart() {
     is_running_ = true;
     // Skip to the end immediately if testing.
@@ -493,8 +458,6 @@ class CrostiniManager::CrostiniRestarter
       // StartContainer might need to do a UID remapping, which in the worst
       // case can take a very long time.
       {mojom::InstallerState::kStartContainer, base::TimeDelta::FromDays(5)},
-      {mojom::InstallerState::kFetchSshKeys, base::TimeDelta::FromMinutes(5)},
-      {mojom::InstallerState::kMountContainer, base::TimeDelta::FromMinutes(5)},
       // ConfigureContainer is special, it's not part of the restarter flow, so
       // it doesn't have a timeout.
       {mojom::InstallerState::kConfigureContainer,
@@ -1050,13 +1013,13 @@ bool CrostiniManager::IsDevKvmPresent() {
   return is_dev_kvm_present_;
 }
 
-void CrostiniManager::MaybeUpdateCrostini() {
+void CrostiniManager::RunSessionStartTasks() {
   // This is a new user session, perhaps using an old CrostiniManager.
   container_upgrade_prompt_shown_.clear();
   base::ThreadPool::PostTaskAndReply(
       FROM_HERE, {base::MayBlock()},
       base::BindOnce(&CrostiniManager::CheckPaths),
-      base::BindOnce(&CrostiniManager::MaybeUpdateCrostiniAfterChecks,
+      base::BindOnce(&CrostiniManager::MaybeUpgradeCrostiniAfterChecks,
                      weak_ptr_factory_.GetWeakPtr()));
   // Probe Concierge - if it's still running after an unclean shutdown, a
   // success response will be received.
@@ -1090,7 +1053,7 @@ void CrostiniManager::CheckPaths() {
   is_dev_kvm_present_ = base::PathExists(base::FilePath("/dev/kvm"));
 }
 
-void CrostiniManager::MaybeUpdateCrostiniAfterChecks() {
+void CrostiniManager::MaybeUpgradeCrostiniAfterChecks() {
   if (!CrostiniFeatures::Get()->IsEnabled(profile_)) {
     return;
   }
@@ -1101,8 +1064,6 @@ void CrostiniManager::MaybeUpdateCrostiniAfterChecks() {
     upgrade_available_notification_ =
         CrostiniUpgradeAvailableNotification::Show(profile_, base::DoNothing());
   }
-  // TODO(crbug/953544) Remove this once we have transitioned completely to DLC
-  InstallTermina(base::DoNothing(), /*is_initial_install=*/false);
 }
 
 void CrostiniManager::InstallTermina(CrostiniResultCallback callback,
@@ -2308,6 +2269,16 @@ void CrostiniManager::OnStartTerminaVm(
       break;
     default:
       break;
+  }
+
+  // The UI can only resize the default VM, so only (maybe) show the
+  // notification for the default VM. Additionally, ignore <= 0 as -1 means
+  // error and 0 is ambiguous meaning both no free space and missing data.
+  // TODO(crbug/1212890): Distinguish 0 bytes free from didn't populate field
+  // e.g. when VM is already running.
+  if (vm_name == ContainerId::GetDefault().vm_name &&
+      response->free_bytes() > 0) {
+    low_disk_notifier_->ShowNotificationIfAppropriate(response->free_bytes());
   }
 
   // If the vm is already marked "running" run the callback.
@@ -3604,15 +3575,18 @@ void CrostiniManager::EmitVmDiskTypeMetric(const std::string vm_name) {
 }
 
 void CrostiniManager::MountCrostiniFiles(ContainerId container_id,
-                                         CrostiniResultCallback callback) {
+                                         CrostiniResultCallback callback,
+                                         bool background) {
   crostini_sshfs_->MountCrostiniFiles(
-      container_id, base::BindOnce(
-                        [](CrostiniResultCallback callback, bool success) {
-                          std::move(callback).Run(
-                              success ? CrostiniResult::SUCCESS
-                                      : CrostiniResult::SSHFS_MOUNT_ERROR);
-                        },
-                        std::move(callback)));
+      container_id,
+      base::BindOnce(
+          [](CrostiniResultCallback callback, bool success) {
+            std::move(callback).Run(success
+                                        ? CrostiniResult::SUCCESS
+                                        : CrostiniResult::SSHFS_MOUNT_ERROR);
+          },
+          std::move(callback)),
+      background);
 }
 
 void CrostiniManager::CallRestarterStartLxdContainerFinishedForTesting(

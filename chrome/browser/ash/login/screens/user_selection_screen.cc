@@ -156,10 +156,9 @@ FingerprintState GetInitialFingerprintState(const user_manager::User* user) {
 }
 
 // Returns true if dircrypto migration check should be performed.
+// TODO(achuith): Get rid of this function altogether.
 bool ShouldCheckNeedDircryptoMigration() {
-  return !base::CommandLine::ForCurrentProcess()->HasSwitch(
-             switches::kDisableEncryptionMigration) &&
-         arc::IsArcAvailable();
+  return arc::IsArcAvailable();
 }
 
 // Returns true if the user can run ARC based on the user type.
@@ -768,9 +767,8 @@ void UserSelectionScreen::ShowBannerMessage(const std::u16string& message,
 
 void UserSelectionScreen::ShowUserPodCustomIcon(
     const AccountId& account_id,
-    const proximity_auth::ScreenlockBridge::UserPodCustomIconOptions&
-        icon_options) {
-  view_->ShowUserPodCustomIcon(account_id, icon_options);
+    const proximity_auth::ScreenlockBridge::UserPodCustomIconInfo& icon_info) {
+  view_->ShowUserPodCustomIcon(account_id, icon_info);
 }
 
 void UserSelectionScreen::HideUserPodCustomIcon(const AccountId& account_id) {

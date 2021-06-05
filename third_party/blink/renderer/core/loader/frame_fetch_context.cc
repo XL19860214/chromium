@@ -34,6 +34,7 @@
 #include <memory>
 
 #include "base/feature_list.h"
+#include "base/metrics/histogram_macros.h"
 #include "build/build_config.h"
 #include "mojo/public/cpp/bindings/associated_remote.h"
 #include "net/http/structured_headers.h"
@@ -57,6 +58,7 @@
 #include "third_party/blink/public/web/web_local_frame_client.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_controller.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_core.h"
+#include "third_party/blink/renderer/core/css/media_values.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/fileapi/public_url_manager.h"
 #include "third_party/blink/renderer/core/frame/ad_tracker.h"
@@ -71,7 +73,7 @@
 #include "third_party/blink/renderer/core/frame/settings.h"
 #include "third_party/blink/renderer/core/html/html_frame_owner_element.h"
 #include "third_party/blink/renderer/core/inspector/console_message.h"
-#include "third_party/blink/renderer/core/inspector/inspector_attribution_issue.h"
+#include "third_party/blink/renderer/core/inspector/inspector_audits_issue.h"
 #include "third_party/blink/renderer/core/inspector/inspector_trace_events.h"
 #include "third_party/blink/renderer/core/loader/appcache/application_cache_host.h"
 #include "third_party/blink/renderer/core/loader/back_forward_cache_loader_helper_for_frame.h"
@@ -472,7 +474,11 @@ void FrameFetchContext::AddClientHintsIfNecessary(
                ->navigator()
                ->SerializeLanguagesForClientHintHeader();
 
-    prefers_color_scheme = document_->InDarkMode() ? "dark" : "light";
+    MediaValues* media_values =
+        MediaValues::CreateDynamicIfFrameExists(GetFrame());
+    bool is_dark_mode = media_values->GetPreferredColorScheme() ==
+                        mojom::blink::PreferredColorScheme::kDark;
+    prefers_color_scheme = is_dark_mode ? "dark" : "light";
 
     // TODO(crbug.com/1151050): |SerializeLanguagesForClientHintHeader| getter
     // affects later calls if there is a DevTools override. The following blink
@@ -796,7 +802,16 @@ bool FrameFetchContext::SendConversionRequestInsteadOfRedirecting(
     const absl::optional<ResourceRequest::RedirectInfo>& redirect_info,
     ReportingDisposition reporting_disposition,
     const String& devtools_request_id) const {
-  if (GetResourceFetcherProperties().IsDetached())
+  const char kWellKnownConversionRegistrationPath[] =
+      "/.well-known/attribution-reporting/trigger-attribution";
+  if (url.GetPath() != kWellKnownConversionRegistrationPath)
+    return false;
+
+  const bool detached = GetResourceFetcherProperties().IsDetached();
+  UMA_HISTOGRAM_BOOLEAN("Conversions.RedirectInterceptedFrameDetached",
+                        detached);
+
+  if (detached)
     return false;
 
   if (!RuntimeEnabledFeatures::ConversionMeasurementEnabled(
@@ -810,16 +825,11 @@ bool FrameFetchContext::SendConversionRequestInsteadOfRedirecting(
     return false;
   }
 
-  const char kWellKnownConversionRegsitrationPath[] =
-      "/.well-known/attribution-reporting/trigger-attribution";
-  if (url.GetPath() != kWellKnownConversionRegsitrationPath)
-    return false;
-
   if (!document_->domWindow()->IsFeatureEnabled(
           mojom::blink::PermissionsPolicyFeature::kAttributionReporting)) {
-    ReportAttributionIssue(
-        GetFrame(),
-        mojom::blink::AttributionReportingIssueType::kPermissionPolicyDisabled,
+    AuditsIssue::ReportAttributionIssue(
+        document_->domWindow(),
+        AttributionReportingIssueType::kPermissionPolicyDisabled,
         GetFrame()->GetDevToolsFrameToken(), nullptr, devtools_request_id);
 
     // TODO(crbug.com/1178400): Remove console message once the issue reported
@@ -839,10 +849,9 @@ bool FrameFetchContext::SendConversionRequestInsteadOfRedirecting(
   if (!main_frame.GetSecurityContext()
            ->GetSecurityOrigin()
            ->IsPotentiallyTrustworthy()) {
-    ReportAttributionIssue(
-        GetFrame(),
-        mojom::blink::AttributionReportingIssueType::
-            kAttributionUntrustworthyOrigin,
+    AuditsIssue::ReportAttributionIssue(
+        document_->domWindow(),
+        AttributionReportingIssueType::kAttributionUntrustworthyOrigin,
         main_frame.GetDevToolsFrameToken(), nullptr, devtools_request_id,
         main_frame.GetSecurityContext()->GetSecurityOrigin()->ToString());
     return false;
@@ -852,10 +861,9 @@ bool FrameFetchContext::SendConversionRequestInsteadOfRedirecting(
                                          ->GetSecurityContext()
                                          ->GetSecurityOrigin()
                                          ->IsPotentiallyTrustworthy()) {
-    ReportAttributionIssue(
-        GetFrame(),
-        mojom::blink::AttributionReportingIssueType::
-            kAttributionUntrustworthyOrigin,
+    AuditsIssue::ReportAttributionIssue(
+        document_->domWindow(),
+        AttributionReportingIssueType::kAttributionUntrustworthyOrigin,
         GetFrame()->GetDevToolsFrameToken(), nullptr, devtools_request_id,
         GetFrame()->GetSecurityContext()->GetSecurityOrigin()->ToString());
     return false;
@@ -864,11 +872,11 @@ bool FrameFetchContext::SendConversionRequestInsteadOfRedirecting(
   scoped_refptr<const SecurityOrigin> redirect_origin =
       SecurityOrigin::Create(url);
   if (!redirect_origin->IsPotentiallyTrustworthy()) {
-    ReportAttributionIssue(GetFrame(),
-                           mojom::blink::AttributionReportingIssueType::
-                               kAttributionUntrustworthyOrigin,
-                           absl::nullopt, nullptr, devtools_request_id,
-                           redirect_origin->ToString());
+    AuditsIssue::ReportAttributionIssue(
+        document_->domWindow(),
+        AttributionReportingIssueType::kAttributionUntrustworthyOrigin,
+        absl::nullopt, nullptr, devtools_request_id,
+        redirect_origin->ToString());
     return false;
   }
 
@@ -893,17 +901,16 @@ bool FrameFetchContext::SendConversionRequestInsteadOfRedirecting(
     conversion->conversion_data = is_valid_integer ? data : 0UL;
 
     if (!is_valid_integer) {
-      ReportAttributionIssue(
-          GetFrame(),
-          mojom::blink::AttributionReportingIssueType::kInvalidAttributionData,
-          absl::nullopt, nullptr, devtools_request_id,
-          search_params->get(kTriggerDataParam));
+      AuditsIssue::ReportAttributionIssue(
+          document_->domWindow(),
+          AttributionReportingIssueType::kInvalidAttributionData, absl::nullopt,
+          nullptr, devtools_request_id, search_params->get(kTriggerDataParam));
     }
   } else {
-    ReportAttributionIssue(
-        GetFrame(),
-        mojom::blink::AttributionReportingIssueType::kInvalidAttributionData,
-        absl::nullopt, nullptr, devtools_request_id);
+    AuditsIssue::ReportAttributionIssue(
+        document_->domWindow(),
+        AttributionReportingIssueType::kInvalidAttributionData, absl::nullopt,
+        nullptr, devtools_request_id);
   }
   // Defaulting to 0 means that it is not possible to selectively convert only
   // event sources or navigation sources.

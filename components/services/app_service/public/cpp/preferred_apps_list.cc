@@ -130,6 +130,9 @@ apps::mojom::ReplacedAppPreferencesPtr PreferredAppsList::AddPreferredApp(
   if (IsSupportedLink(intent_filter)) {
     for (auto& obs : observers_) {
       obs.OnPreferredAppChanged(app_id, true);
+      for (auto& app : replaced_preference_map) {
+        obs.OnPreferredAppChanged(app.first, false);
+      }
     }
   }
   return replaced_app_preferences;
@@ -235,6 +238,18 @@ absl::optional<std::string> PreferredAppsList::FindPreferredAppForIntent(
 
 size_t PreferredAppsList::GetEntrySize() {
   return preferred_apps_.size();
+}
+
+bool PreferredAppsList::IsPreferredAppForSupportedLinks(
+    const std::string& app_id) {
+  for (const auto& preferred_app : preferred_apps_) {
+    if (preferred_app->app_id == app_id &&
+        IsSupportedLink(preferred_app->intent_filter)) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 }  // namespace apps

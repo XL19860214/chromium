@@ -629,7 +629,7 @@ This file contains the strings for ash.
         Mic is muted.
       </message>
       <message name="IDS_ASH_STATUS_TRAY_MIC_STATE_MUTED_BY_HW_SWITCH" desc="The text used as a tooltip for microphone mute button in Chrome OS quick settings when the mic gain button is muted because the device microphone mute switch is turned on. Used as a status text for IDS_ASH_STATUS_TRAY_MIC_GAIN.">
-        Device microphone button is muted.
+        Device's microphone button is turned off.
       </message>
       <message name="IDS_ASH_STATUS_AREA_TOAST_MIC_OFF" desc="The text in the toast that shows up when the mic is muted using a physical key or shortcut.">
         Microphone is off
@@ -1071,17 +1071,26 @@ This file contains the strings for ash.
       <message name="IDS_ASH_HOLDING_SPACE_SCREEN_CAPTURES_TITLE" desc="Title of the screen captures area in the holding space bubble.">
         Screen captures
       </message>
+      <message name="IDS_ASH_HOLDING_SPACE_CONTEXT_MENU_CANCEL" desc="Title of the cancel option in the holding space item context menu.">
+        Cancel
+      </message>
       <message name="IDS_ASH_HOLDING_SPACE_CONTEXT_MENU_COPY_IMAGE_TO_CLIPBOARD" desc="Title of the option to copy an image to the clipboard in the holding space item context menu.">
         Copy image
       </message>
       <message name="IDS_ASH_HOLDING_SPACE_CONTEXT_MENU_HIDE_PREVIEWS" desc="Title of the option to hide previews in the holding space tray context menu.">
         Hide previews
       </message>
+      <message name="IDS_ASH_HOLDING_SPACE_CONTEXT_MENU_PAUSE" desc="Title of the pause option in the holding space item context menu.">
+        Pause
+      </message>
       <message name="IDS_ASH_HOLDING_SPACE_CONTEXT_MENU_PIN" desc="Title of the pin option in the holding space item context menu.">
         Pin
       </message>
       <message name="IDS_ASH_HOLDING_SPACE_CONTEXT_MENU_REMOVE" desc="Title of the remove option in the holding space item context menu.">
         Remove
+      </message>
+      <message name="IDS_ASH_HOLDING_SPACE_CONTEXT_MENU_RESUME" desc="Title of the resume option in the holding space item context menu.">
+        Resume
       </message>
       <message name="IDS_ASH_HOLDING_SPACE_CONTEXT_MENU_SHOW_IN_FOLDER" desc="Title of the option to show item in its folder in the holding space item context menu.">
         Show in folder
@@ -1818,6 +1827,10 @@ This file contains the strings for ash.
         Mic jack
       </message>
 
+      <message name="IDS_ASH_STATUS_TRAY_AUDIO_INPUT_NOISE_CANCELLATION" desc="label used for input noise cancellation toggle">
+        Noise cancellation
+      </message>
+
       <!-- Status tray Live Caption strings. -->
       <message name="IDS_ASH_STATUS_TRAY_LIVE_CAPTION_TOGGLE_TOOLTIP" desc="The tooltip text used for the button in the status tray to toggle the Live Caption feature on or off.">
         Toggle Live Caption. <ph name="STATE_TEXT">$1<ex>Live Caption is on.</ex></ph>
@@ -2099,8 +2112,20 @@ This file contains the strings for ash.
       <message name="IDS_ASH_STATUS_TRAY_CELLULAR_ADDRESS" desc="The label for the mac address of the cellular device.">
         Cellular: <ph name="ADDRESS">$1<ex>01:23:45:67:89:AB</ex></ph>
       </message>
-      <message name="IDS_ASH_STATUS_TRAY_INHIBITED_CELLULAR" desc="When the modem is rebooting, it cannot process any new commands, so we disable the button and show this message in the tooltip.">
-        Modem reboot. Wait 30 sec before trying again.
+      <message name="IDS_ASH_STATUS_TRAY_INHIBITED_CELLULAR_INSTALLING_PROFILE" desc="Tooltip message for disabled add cellular button, indicating cellular network profile is being installed.">
+        Adding profile. Wait a few minutes.
+      </message>
+      <message name="IDS_ASH_STATUS_TRAY_INHIBITED_CELLULAR_REMOVING_PROFILE" desc="Tooltip message for disabled add cellular button, indicating cellular network profile is being removed.">
+       Removing profile. Wait a few minutes.
+      </message>
+      <message name="IDS_ASH_STATUS_TRAY_INHIBITED_CELLULAR_RENAMING_PROFILE" desc="Tooltip message for disabled add cellular button, indicating cellular network profile is being renamed.">
+        Renaming profile. Wait a few minutes.
+      </message>
+      <message name="IDS_ASH_STATUS_TRAY_INHIBITED_CELLULAR_CONNECTING_TO_PROFILE" desc="Tooltip message for disabled add cellular button, indicating cellular network profile is being connected to.">
+        Connecting to profile. Wait a few minutes.
+      </message>
+      <message name="IDS_ASH_STATUS_TRAY_INHIBITED_CELLULAR_REFRESHING_PROFILE_LIST" desc="Tooltip message for disabled add cellular button, indicating cellular network profile list is being refreshed.">
+        Refreshing profile list. Wait a few minutes.
       </message>
       <message name="IDS_ASH_STATUS_TRAY_INITIALIZING_CELLULAR" desc="Message for the status area when initializing the cellular device.">
         Initializing...
@@ -3107,6 +3132,9 @@ Here are some things you can try to get started.
       <message name="IDS_ASH_QUICK_ANSWERS_DOGFOOD_BUTTON_TOOLTIP_TEXT" desc="Tooltip text for the dogfood-button within Quick-Answers related views to help users file bugs easily.">
         File feedback
       </message>
+      <message name="IDS_ASH_QUICK_ANSWERS_SETTINGS_BUTTON_TOOLTIP_TEXT" desc="Tootip text for the settings-button in Quick-Answers related views.">
+        Settings
+      </message>
       <message name="IDS_ASH_QUICK_ANSWERS_DEFINITION_INTENT" desc="Display text of definition intent. This is used in the title of Quick Answers user consent dialog.">
         definition
       </message>
@@ -3551,10 +3579,19 @@ Here are some things you can try to get started.
         The Alt + click keyboard shortcut has changed. To use your keyboard to right-click, press the <ph name="LAUNCHER_KEY_NAME">$1<ex>Launcher</ex></ph> key + click.
       </message>
       <message name="IDS_ASH_SHORTCUT_DEPRECATION_FKEY" desc="Message telling user to use search/launcher + top row key instead of Search + a digit key to emulate a F-Key. The name of the launcher key varies by device and may be either Search or Launcher depending on the glyph on the keyboard.">
-        The <ph name="LAUNCHER_KEY_NAME">$1<ex>Launcher</ex></ph> + Number keyboard shortcut has changed. To use F-Keys, press the <ph name="LAUNCHER_KEY_NAME">$1<ex>Launcher</ex></ph> key + a key on the top row.
+        The <ph name="LAUNCHER_KEY_NAME">$1<ex>Launcher</ex></ph> + Number keyboard shortcut has changed. To use function keys, press the <ph name="LAUNCHER_KEY_NAME">$1<ex>Launcher</ex></ph> key + a key on the top row.
       </message>
       <message name="IDS_ASH_SHORTCUT_DEPRECATION_SEARCH_PERIOD_INSERT" desc="Message telling user to use search/launcher + shift + backspace instead of search/launcher + period to emulate the delete key. The name of the launcher key varies by device and may be either Search or Launcher depending on the glyph on the keyboard.">
         The <ph name="LAUNCHER_KEY_NAME">$1<ex>Launcher</ex></ph> + Period keyboard shortcut has changed. To use the Insert key, press the <ph name="LAUNCHER_KEY_NAME">$1<ex>Launcher</ex></ph> key + Shift + Backspace.
+      </message>
+      <message name="IDS_SHORTCUT_CHANGES_IN_RELEASE_NOTIFICATION_BODY" desc="Message body of notification telling user that this release has changes to keyboard shortcuts.">
+        To see the updates, open the Shortcuts app
+      </message>
+      <message name="IDS_SHORTCUT_CHANGES_IN_RELEASE_NOTIFICATION_TITLE" desc="Title of notification telling user that this release has changes to keyboard shortcuts.">
+        Keyboard shortcuts have been improved
+      </message>
+      <message name="IDS_SHORTCUT_CHANGES_IN_RELEASE_NOTIFICATION_LEARN_MORE_BUTTON_TEXT" desc="Button text on notification to learn more. Links to a help page.">
+        Learn more
       </message>
 
       <!-- PciePeripheral notifications -->

@@ -5,6 +5,7 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_PAINT_NG_NG_HIGHLIGHT_PAINTER_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_PAINT_NG_NG_HIGHLIGHT_PAINTER_H_
 
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/editing/frame_selection.h"
 #include "third_party/blink/renderer/core/editing/markers/document_marker.h"
@@ -105,6 +106,11 @@ class CORE_EXPORT NGHighlightPainter {
   void Paint(Phase phase);
 
   absl::optional<SelectionPaintState>& Selection() { return selection_; }
+  absl::optional<AppliedTextDecoration> SelectionDecoration() {
+    return selection_
+               ? selection_->GetSelectionStyle().selection_text_decoration
+               : absl::nullopt;
+  }
 
  private:
   NGTextPainter& text_painter_;

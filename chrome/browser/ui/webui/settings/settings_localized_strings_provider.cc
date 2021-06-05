@@ -28,7 +28,7 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_shortcut_manager.h"
 #include "chrome/browser/signin/account_consistency_mode_manager.h"
-#include "chrome/browser/sync/profile_sync_service_factory.h"
+#include "chrome/browser/sync/sync_service_factory.h"
 #include "chrome/browser/ui/passwords/manage_passwords_view_utils.h"
 #include "chrome/browser/ui/ui_features.h"
 #include "chrome/browser/ui/webui/management/management_ui.h"
@@ -271,6 +271,14 @@ void AddAboutStrings(content::WebUIDataSource* html_source, Profile* profile) {
       l10n_util::GetStringUTF16(IDS_SETTINGS_UPGRADE_UP_TO_DATE));
 #endif
 
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+  // On Lacros, we don't have the concept of channels, in their usual semantics.
+  // Replace the channel string with "Lacros". https://crbug.com/1215734.
+  std::string channel_name = "Lacros";
+#else
+  std::string channel_name =
+      chrome::GetChannelName(chrome::WithExtendedStable(true));
+#endif
   html_source->AddString(
       "aboutBrowserVersion",
       l10n_util::GetStringFUTF16(
@@ -279,8 +287,7 @@ void AddAboutStrings(content::WebUIDataSource* html_source, Profile* profile) {
           l10n_util::GetStringUTF16(version_info::IsOfficialBuild()
                                         ? IDS_VERSION_UI_OFFICIAL
                                         : IDS_VERSION_UI_UNOFFICIAL),
-          base::UTF8ToUTF16(
-              chrome::GetChannelName(chrome::WithExtendedStable(true))),
+          base::UTF8ToUTF16(channel_name),
           l10n_util::GetStringUTF16(VersionUI::VersionProcessorVariation())));
   html_source->AddString(
       "aboutProductCopyright",
@@ -1102,7 +1109,7 @@ void AddAutofillStrings(content::WebUIDataSource* html_source,
       "migrationEnabled",
       !is_guest_mode && autofill::IsCreditCardMigrationEnabled(
                             personal_data, profile->GetPrefs(),
-                            ProfileSyncServiceFactory::GetForProfile(profile),
+                            SyncServiceFactory::GetForProfile(profile),
                             /*is_test_mode=*/false,
                             /*log_manager=*/nullptr));
   html_source->AddBoolean(
@@ -1277,6 +1284,15 @@ void AddPeopleStrings(content::WebUIDataSource* html_source, Profile* profile) {
   AddSyncPageStrings(html_source);
 }
 
+bool IsSecureDnsAvailable() {
+  return
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+      (!base::FeatureList::IsEnabled(chromeos::features::kEnableDnsProxy) ||
+       !base::FeatureList::IsEnabled(::features::kDnsProxyEnableDOH)) &&
+#endif
+      features::kDnsOverHttpsShowUiParam.Get();
+}
+
 void AddPrivacyStrings(content::WebUIDataSource* html_source,
                        Profile* profile) {
   static constexpr webui::LocalizedString kLocalizedStrings[] = {
@@ -1296,30 +1312,6 @@ void AddPrivacyStrings(content::WebUIDataSource* html_source,
       {"manageCertificates", IDS_SETTINGS_MANAGE_CERTIFICATES},
       {"manageCertificatesDescription",
        IDS_SETTINGS_MANAGE_CERTIFICATES_DESCRIPTION},
-      {"secureDns", IDS_SETTINGS_SECURE_DNS},
-      {"secureDnsDescription", IDS_SETTINGS_SECURE_DNS_DESCRIPTION},
-      {"secureDnsDisabledForManagedEnvironment",
-       IDS_SETTINGS_SECURE_DNS_DISABLED_FOR_MANAGED_ENVIRONMENT},
-      {"secureDnsDisabledForParentalControl",
-       IDS_SETTINGS_SECURE_DNS_DISABLED_FOR_PARENTAL_CONTROL},
-      {"secureDnsAutomaticModeDescription",
-       IDS_SETTINGS_AUTOMATIC_MODE_DESCRIPTION},
-      {"secureDnsAutomaticModeDescriptionSecondary",
-       IDS_SETTINGS_AUTOMATIC_MODE_DESCRIPTION_SECONDARY},
-      {"secureDnsSecureModeA11yLabel",
-       IDS_SETTINGS_SECURE_MODE_DESCRIPTION_ACCESSIBILITY_LABEL},
-      {"secureDnsDropdownA11yLabel",
-       IDS_SETTINGS_SECURE_DNS_DROPDOWN_ACCESSIBILITY_LABEL},
-      {"secureDnsSecureDropdownModeDescription",
-       IDS_SETTINGS_SECURE_DROPDOWN_MODE_DESCRIPTION},
-      {"secureDnsSecureDropdownModePrivacyPolicy",
-       IDS_SETTINGS_SECURE_DROPDOWN_MODE_PRIVACY_POLICY},
-      {"secureDnsCustomPlaceholder",
-       IDS_SETTINGS_SECURE_DNS_CUSTOM_PLACEHOLDER},
-      {"secureDnsCustomFormatError",
-       IDS_SETTINGS_SECURE_DNS_CUSTOM_FORMAT_ERROR},
-      {"secureDnsCustomConnectionError",
-       IDS_SETTINGS_SECURE_DNS_CUSTOM_CONNECTION_ERROR},
       {"contentSettings", IDS_SETTINGS_CONTENT_SETTINGS},
       {"siteSettings", IDS_SETTINGS_SITE_SETTINGS},
       {"siteSettingsDescription", IDS_SETTINGS_SITE_SETTINGS_DESCRIPTION},
@@ -1427,8 +1419,8 @@ void AddPrivacyStrings(content::WebUIDataSource* html_source,
   html_source->AddBoolean(
       "driveSuggestAvailable",
       base::FeatureList::IsEnabled(omnibox::kDocumentProvider));
-  html_source->AddBoolean("showSecureDnsSetting",
-                          features::kDnsOverHttpsShowUiParam.Get());
+
+  html_source->AddBoolean("showSecureDnsSetting", IsSecureDnsAvailable());
 
   // The link to the Advanced Protection Program landing page, with a referrer
   // from Chrome settings.
@@ -1444,6 +1436,7 @@ void AddPrivacyStrings(content::WebUIDataSource* html_source,
                          advanced_protection_url.spec());
 
   AddPersonalizationOptionsStrings(html_source);
+  AddSecureDnsStrings(html_source);
 }
 
 void AddPrivacySandboxStrings(content::WebUIDataSource* html_source,
@@ -1476,6 +1469,8 @@ void AddPrivacySandboxStrings(content::WebUIDataSource* html_source,
          IDS_SETTINGS_PRIVACY_SANDBOX_PAGE_EXPLANATION2},
         {"privacySandboxPageExplanation3",
          IDS_SETTINGS_PRIVACY_SANDBOX_PAGE_EXPLANATION3},
+        {"privacySandboxPageExplanation2Phase2",
+         IDS_SETTINGS_PRIVACY_SANDBOX_PAGE_EXPLANATION2_PHASE2},
         {"privacySandboxPageSettingTitle",
          IDS_SETTINGS_PRIVACY_SANDBOX_PAGE_SETTING_TITLE},
         {"privacySandboxPageSettingExplanation1",
@@ -1484,16 +1479,22 @@ void AddPrivacySandboxStrings(content::WebUIDataSource* html_source,
          IDS_SETTINGS_PRIVACY_SANDBOX_PAGE_SETTING_EXPLANATION2},
         {"privacySandboxPageSettingExplanation3",
          IDS_SETTINGS_PRIVACY_SANDBOX_PAGE_SETTING_EXPLANATION3},
+        {"privacySandboxPageSettingExplanation1Phase2",
+         IDS_SETTINGS_PRIVACY_SANDBOX_PAGE_SETTING_EXPLANATION1_PHASE2},
+        {"privacySandboxPageSettingExplanation2Phase2",
+         IDS_SETTINGS_PRIVACY_SANDBOX_PAGE_SETTING_EXPLANATION2_PHASE2},
+        {"privacySandboxPageSettingExplanation3Phase2",
+         IDS_SETTINGS_PRIVACY_SANDBOX_PAGE_SETTING_EXPLANATION3_PHASE2},
         {"privacySandboxPageDetails",
          IDS_SETTINGS_PRIVACY_SANDBOX_PAGE_DETAILS},
         {"privacySandboxPageFlocHeading",
          IDS_SETTINGS_PRIVACY_SANDBOX_PAGE_FLOC_HEADING},
-        {"privacySandboxPageFlocExplanation",
-         IDS_SETTINGS_PRIVACY_SANDBOX_PAGE_FLOC_EXPLANATION},
+        {"privacySandboxPageFlocStatus",
+         IDS_SETTINGS_PRIVACY_SANDBOX_PAGE_FLOC_STATUS},
         {"privacySandboxPageFlocCohort",
          IDS_SETTINGS_PRIVACY_SANDBOX_PAGE_FLOC_COHORT},
-        {"privacySandboxPageFlocCohortUpdated",
-         IDS_SETTINGS_PRIVACY_SANDBOX_PAGE_FLOC_COHORT_UPDATED},
+        {"privacySandboxPageFlocCohortNextUpdate",
+         IDS_SETTINGS_PRIVACY_SANDBOX_PAGE_FLOC_COHORT_NEXT_UPDATE},
         {"privacySandboxPageFlocResetCohort",
          IDS_SETTINGS_PRIVACY_SANDBOX_PAGE_FLOC_RESET_COHORT},
     };
@@ -1508,6 +1509,26 @@ void AddPrivacySandboxStrings(content::WebUIDataSource* html_source,
         l10n_util::GetStringFUTF16(
             IDS_SETTINGS_PRIVACY_SANDBOX_PAGE_EXPLANATION4,
             base::ASCIIToUTF16(features::kPrivacySandboxSettingsURL.Get())));
+
+    html_source->AddString(
+        "privacySandboxPageExplanation1Phase2",
+        l10n_util::GetStringFUTF16(
+            IDS_SETTINGS_PRIVACY_SANDBOX_PAGE_EXPLANATION1_PHASE2,
+            base::ASCIIToUTF16(features::kPrivacySandboxSettingsURL.Get())));
+
+    // The complete FLoC explanation string must be built from two strings,
+    // one provided by the Privacy Sandbox service, and one with a URL
+    // replacement based on a feature parameter.
+    std::u16string floc_explanation =
+        PrivacySandboxSettingsFactory::GetForProfile(profile)
+            ->GetFlocDescriptionForDisplay() +
+        u" " +  // Whitespace is a valid separator w.r.t l10n.
+        l10n_util::GetStringFUTF16(
+            IDS_SETTINGS_PRIVACY_SANDBOX_FLOC_TRIAL_ACTIVE,
+            base::ASCIIToUTF16(
+                features::kPrivacySandboxSettings2FlocURL.Get()));
+    html_source->AddString("privacySandboxPageFlocExplanation",
+                           floc_explanation);
 
     // The FLoC compute frequency string is constant through the life of the
     // profile, and so the relevant string can be injected here, rather than

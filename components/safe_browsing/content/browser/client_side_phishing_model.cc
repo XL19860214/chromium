@@ -4,11 +4,21 @@
 
 #include "components/safe_browsing/content/browser/client_side_phishing_model.h"
 
+#include <stdint.h>
+#include <memory>
+
 #include "base/command_line.h"
+#include "base/feature_list.h"
+#include "base/logging.h"
+#include "base/memory/read_only_shared_memory_region.h"
+#include "base/memory/shared_memory_mapping.h"
 #include "base/memory/singleton.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
+#include "build/build_config.h"
+#include "components/safe_browsing/core/fbs/client_model_generated.h"
+#include "components/safe_browsing/core/features.h"
 #include "components/safe_browsing/core/proto/client_model.pb.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
@@ -72,10 +82,14 @@ base::CallbackListSubscription ClientSidePhishingModel::RegisterCallback(
 }
 
 bool ClientSidePhishingModel::IsEnabled() const {
-  return !model_str_.empty() || visual_tflite_model_.IsValid();
+  return (model_type_ == CSDModelType::kFlatbuffer &&
+          mapped_region_.IsValid()) ||
+         (model_type_ == CSDModelType::kProtobuf && !model_str_.empty()) ||
+         visual_tflite_model_.IsValid();
 }
 
 std::string ClientSidePhishingModel::GetModelStr() const {
+  DCHECK(model_type_ != CSDModelType::kFlatbuffer);
   return model_str_;
 }
 
@@ -83,28 +97,68 @@ const base::File& ClientSidePhishingModel::GetVisualTfLiteModel() const {
   return visual_tflite_model_;
 }
 
+CSDModelType ClientSidePhishingModel::GetModelType() const {
+  return model_type_;
+}
+
+base::ReadOnlySharedMemoryRegion
+ClientSidePhishingModel::GetModelSharedMemoryRegion() const {
+  return mapped_region_.region.Duplicate();
+}
+
 void ClientSidePhishingModel::PopulateFromDynamicUpdate(
     const std::string& model_str,
     base::File visual_tflite_model) {
   AutoLock lock(lock_);
 
-  bool proto_valid = false;
+  bool model_valid = false;
+  int model_version_field = 0;
+  model_type_ = CSDModelType::kNone;
+
   if (!base::CommandLine::ForCurrentProcess()->HasSwitch(
           kOverrideCsdModelFlag) &&
       !model_str.empty()) {
-    ClientSideModel model_proto;
-    proto_valid = model_proto.ParseFromString(model_str);
-    base::UmaHistogramBoolean("SBClientPhishing.ModelDynamicUpdateSuccess",
-                              proto_valid);
+    if (base::FeatureList::IsEnabled(kClientSideDetectionModelIsFlatBuffer)) {
+      flatbuffers::Verifier verifier(
+          reinterpret_cast<const uint8_t*>(model_str.data()),
+          model_str.length());
+      model_valid = flat::VerifyClientSideModelBuffer(verifier);
+      if (model_valid) {
+        mapped_region_ =
+            base::ReadOnlySharedMemoryRegion::Create(model_str.length());
+        if (mapped_region_.IsValid()) {
+          model_type_ = CSDModelType::kFlatbuffer;
+          model_version_field =
+              flat::GetClientSideModel(model_str.data())->version();
+          memcpy(mapped_region_.mapping.memory(), model_str.data(),
+                 model_str.length());
+        } else {
+          model_valid = false;
+        }
+        base::UmaHistogramBoolean(
+            "SBClientPhishing.FlatBufferMappedRegionValid",
+            mapped_region_.IsValid());
+      }
+    } else {
+      ClientSideModel model_proto;
+      model_valid = model_proto.ParseFromString(model_str);
+      if (model_valid) {
+        model_type_ = CSDModelType::kProtobuf;
+        model_version_field = model_proto.version();
+        model_str_ = model_str;
+      }
+    }
 
-    if (proto_valid) {
+    base::UmaHistogramBoolean("SBClientPhishing.ModelDynamicUpdateSuccess",
+                              model_valid);
+
+    if (model_valid) {
       // At time of writing, versions go up to 25. We set a max version of 100
       // to give some room.
       const int kMaxVersion = 100;
       base::UmaHistogramExactLinear(
-          "SBClientPhishing.ModelDynamicUpdateVersion", model_proto.version(),
+          "SBClientPhishing.ModelDynamicUpdateVersion", model_version_field,
           kMaxVersion + 1);
-      model_str_ = model_str;
     }
   }
 
@@ -113,7 +167,7 @@ void ClientSidePhishingModel::PopulateFromDynamicUpdate(
     visual_tflite_model_ = std::move(visual_tflite_model);
   }
 
-  if (proto_valid || tflite_valid) {
+  if (model_valid || tflite_valid) {
     // Unretained is safe because this is a singleton.
     base::PostTask(FROM_HERE, {content::BrowserThread::UI},
                    base::BindOnce(&ClientSidePhishingModel::NotifyCallbacksOnUI,
@@ -137,37 +191,86 @@ void ClientSidePhishingModel::SetVisualTfLiteModelForTesting(base::File file) {
   visual_tflite_model_ = std::move(file);
 }
 
+void ClientSidePhishingModel::SetModelTypeForTesting(CSDModelType model_type) {
+  AutoLock lock(lock_);
+  model_type_ = model_type;
+}
+
+void ClientSidePhishingModel::ClearMappedRegionForTesting() {
+  AutoLock lock(lock_);
+  mapped_region_.mapping = base::WritableSharedMemoryMapping();
+  mapped_region_.region = base::ReadOnlySharedMemoryRegion();
+}
+
+void* ClientSidePhishingModel::GetFlatBufferMemoryAddressForTesting() {
+  return mapped_region_.mapping.memory();
+}
+
 void ClientSidePhishingModel::MaybeOverrideModel() {
   if (base::CommandLine::ForCurrentProcess()->HasSwitch(
           kOverrideCsdModelFlag)) {
     base::FilePath overriden_model_path =
         base::CommandLine::ForCurrentProcess()->GetSwitchValuePath(
             kOverrideCsdModelFlag);
-
+    CSDModelType model_type =
+        base::FeatureList::IsEnabled(kClientSideDetectionModelIsFlatBuffer)
+            ? CSDModelType::kFlatbuffer
+            : CSDModelType::kProtobuf;
     base::ThreadPool::PostTaskAndReplyWithResult(
         FROM_HERE, {base::MayBlock()},
         base::BindOnce(&ReadFileIntoString, overriden_model_path),
         // base::Unretained is safe because this is a singleton.
         base::BindOnce(&ClientSidePhishingModel::OnGetOverridenModelData,
-                       base::Unretained(this)));
+                       base::Unretained(this), model_type));
   }
 }
 
 void ClientSidePhishingModel::OnGetOverridenModelData(
+    CSDModelType model_type,
     const std::string& model_data) {
   if (model_data.empty()) {
     VLOG(2) << "Overriden model data is empty";
     return;
   }
 
-  std::unique_ptr<ClientSideModel> model(new ClientSideModel());
-  if (!model->ParseFromArray(model_data.data(), model_data.size())) {
-    VLOG(2) << "Overriden model data is not a valid ClientSideModel proto";
-    return;
+  switch (model_type) {
+    case CSDModelType::kProtobuf: {
+      std::unique_ptr<ClientSideModel> model =
+          std::make_unique<ClientSideModel>();
+      if (!model->ParseFromArray(model_data.data(), model_data.size())) {
+        VLOG(2) << "Overriden model data is not a valid ClientSideModel proto";
+        return;
+      }
+      model_type_ = model_type;
+      model_str_ = model_data;
+      break;
+    }
+    case CSDModelType::kFlatbuffer: {
+      flatbuffers::Verifier verifier(
+          reinterpret_cast<const uint8_t*>(model_data.data()),
+          model_data.length());
+      if (!flat::VerifyClientSideModelBuffer(verifier)) {
+        VLOG(2)
+            << "Overriden model data is not a valid ClientSideModel flatbuffer";
+        return;
+      }
+      mapped_region_ =
+          base::ReadOnlySharedMemoryRegion::Create(model_data.length());
+      if (!mapped_region_.IsValid()) {
+        VLOG(2) << "Could not create shared memory region for flatbuffer";
+        return;
+      }
+      memcpy(mapped_region_.mapping.memory(), model_data.data(),
+             model_data.length());
+      model_type_ = model_type;
+      break;
+    }
+    case CSDModelType::kNone:
+      VLOG(2) << "Model type should have been either proto or flatbuffer";
+      return;
   }
 
   VLOG(2) << "Model overriden successfully";
-  model_str_ = model_data;
 
   // Unretained is safe because this is a singleton.
   base::PostTask(FROM_HERE, {content::BrowserThread::UI},

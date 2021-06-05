@@ -28,7 +28,7 @@
 #include "chrome/browser/profiles/profile_metrics.h"
 #include "chrome/browser/profiles/profiles_state.h"
 #include "chrome/browser/signin/identity_manager_factory.h"
-#include "chrome/browser/sync/profile_sync_service_factory.h"
+#include "chrome/browser/sync/sync_service_factory.h"
 #include "chrome/browser/sync/test/integration/profile_sync_service_harness.h"
 #include "chrome/browser/sync/test/integration/secondary_account_helper.h"
 #include "chrome/browser/sync/test/integration/status_change_checker.h"
@@ -197,6 +197,11 @@ class ProfileMenuViewExtensionsTest : public ProfileMenuViewTestBase,
                                       public extensions::ExtensionBrowserTest {
  public:
   ProfileMenuViewExtensionsTest() {
+#if !BUILDFLAG(IS_CHROMEOS_LACROS)
+    // The IPH is not implemented on Lacros.
+    scoped_feature_list_.InitAndEnableFeature(
+        feature_engagement::kIPHProfileSwitchFeature);
+#endif
     subscription_ =
         BrowserContextDependencyManager::GetInstance()
             ->RegisterCreateServicesCallbackForTesting(base::BindRepeating(
@@ -209,6 +214,7 @@ class ProfileMenuViewExtensionsTest : public ProfileMenuViewTestBase,
         context, base::BindRepeating(&CreateTestTracker));
   }
   base::CallbackListSubscription subscription_;
+  base::test::ScopedFeatureList scoped_feature_list_;
 };
 
 // Make sure nothing bad happens when the browser theme changes while the
@@ -549,8 +555,8 @@ class ProfileMenuClickTestBase : public SyncTest,
     return IdentityManagerFactory::GetForProfile(browser()->profile());
   }
 
-  syncer::ProfileSyncService* sync_service() {
-    return ProfileSyncServiceFactory::GetAsProfileSyncServiceForProfile(
+  syncer::SyncServiceImpl* sync_service() {
+    return SyncServiceFactory::GetAsSyncServiceImplForProfile(
         browser()->profile());
   }
 

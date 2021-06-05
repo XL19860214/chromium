@@ -41,6 +41,7 @@ class WebThreadScheduler;
 class WebGraphicsContext3DProvider;
 class WebSecurityOrigin;
 enum class ProtocolHandlerSecurityLevel;
+struct WebContentSecurityPolicyHeader;
 }  // namespace blink
 
 namespace gpu {
@@ -105,6 +106,11 @@ class CONTENT_EXPORT RendererBlinkPlatformImpl : public BlinkPlatformImpl {
       const url::Origin& top_origin,
       std::vector<std::unique_ptr<blink::URLLoaderThrottle>>* throttles)
       override;
+  std::unique_ptr<blink::URLLoaderThrottleProvider>
+  CreateURLLoaderThrottleProviderForWorker(
+      blink::URLLoaderThrottleProviderType provider_type) override;
+  std::unique_ptr<blink::WebSocketHandshakeThrottleProvider>
+  CreateWebSocketHandshakeThrottleProvider() override;
   blink::WebString DefaultLocale() override;
   void SuddenTerminationChanged(bool enabled) override;
   blink::WebString DatabaseCreateOriginIdentifier(
@@ -206,8 +212,29 @@ class CONTENT_EXPORT RendererBlinkPlatformImpl : public BlinkPlatformImpl {
       override;
   bool IsExcludedHeaderForServiceWorkerFetchEvent(
       const blink::WebString& header_name) override;
+  bool OriginCanAccessServiceWorkers(const blink::WebURL& url) override;
+  std::tuple<blink::CrossVariantMojoRemote<
+                 blink::mojom::ServiceWorkerContainerHostInterfaceBase>,
+             blink::CrossVariantMojoRemote<
+                 blink::mojom::ServiceWorkerContainerHostInterfaceBase>>
+  CloneServiceWorkerContainerHost(
+      blink::CrossVariantMojoRemote<
+          blink::mojom::ServiceWorkerContainerHostInterfaceBase>
+          service_worker_container_host) override;
+  void CreateServiceWorkerSubresourceLoaderFactory(
+      blink::CrossVariantMojoRemote<
+          blink::mojom::ServiceWorkerContainerHostInterfaceBase>
+          service_worker_container_host,
+      const blink::WebString& client_id,
+      std::unique_ptr<network::PendingSharedURLLoaderFactory> fallback_factory,
+      mojo::PendingReceiver<network::mojom::URLLoaderFactory> receiver,
+      scoped_refptr<base::SequencedTaskRunner> task_runner,
+      scoped_refptr<base::SequencedTaskRunner>
+          worker_timing_callback_task_runner,
+      base::RepeatingCallback<
+          void(int, mojo::PendingReceiver<blink::mojom::WorkerTimingContainer>)>
+          worker_timing_callback) override;
   void RecordMetricsForBackgroundedRendererPurge() override;
-  std::unique_ptr<blink::WebCodeCacheLoader> CreateCodeCacheLoader() override;
   std::unique_ptr<blink::WebURLLoaderFactory> WrapURLLoaderFactory(
       blink::CrossVariantMojoRemote<
           network::mojom::URLLoaderFactoryInterfaceBase> url_loader_factory)
@@ -216,7 +243,8 @@ class CONTENT_EXPORT RendererBlinkPlatformImpl : public BlinkPlatformImpl {
       scoped_refptr<network::SharedURLLoaderFactory> factory) override;
   std::unique_ptr<media::MediaLog> GetMediaLog(
       blink::MediaInspectorContext* inspector_context,
-      scoped_refptr<base::SingleThreadTaskRunner> owner_task_runner) override;
+      scoped_refptr<base::SingleThreadTaskRunner> owner_task_runner,
+      bool is_on_worker) override;
   media::GpuVideoAcceleratorFactories* GetGpuFactories() override;
   scoped_refptr<base::SingleThreadTaskRunner> MediaThreadTaskRunner() override;
   media::DecoderFactory* GetMediaDecoderFactory() override;
@@ -227,6 +255,9 @@ class CONTENT_EXPORT RendererBlinkPlatformImpl : public BlinkPlatformImpl {
   SkBitmap* GetSadPageBitmap() override;
   std::unique_ptr<blink::WebV8ValueConverter> CreateWebV8ValueConverter()
       override;
+  void AppendContentSecurityPolicy(
+      const blink::WebURL& url,
+      blink::WebVector<blink::WebContentSecurityPolicyHeader>* csp) override;
 
   // Tells this platform that the renderer is locked to a site (i.e., a scheme
   // plus eTLD+1, such as https://google.com), or to a more specific origin.

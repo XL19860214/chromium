@@ -186,13 +186,11 @@ class WebAppBrowserTest : public WebAppControllerBrowserTest {
 // line switch to enable manifest parsing.
 class WebAppBrowserTest_WindowControlsOverlay : public WebAppBrowserTest {
  public:
-  WebAppBrowserTest_WindowControlsOverlay() {
-    scoped_feature_list_.InitWithFeatures(
-        {features::kWebAppWindowControlsOverlay}, {});
-  }
+  WebAppBrowserTest_WindowControlsOverlay() = default;
 
  private:
-  base::test::ScopedFeatureList scoped_feature_list_;
+  base::test::ScopedFeatureList scoped_feature_list_{
+      features::kWebAppWindowControlsOverlay};
 };
 
 using WebAppTabRestoreBrowserTest = WebAppBrowserTest;
@@ -433,7 +431,7 @@ IN_PROC_BROWSER_TEST_F(WebAppBrowserTest,
                                    /*open_as_window=*/false));
 }
 
-// Tests that desktop PWAs open links in the browser.
+// Tests that desktop PWAs open out-of-scope links with a custom toolbar.
 IN_PROC_BROWSER_TEST_F(WebAppBrowserTest, DesktopPWAsOpenLinksInApp) {
   const GURL app_url = GetSecureAppURL();
   const AppId app_id = InstallPWA(app_url);
@@ -1145,12 +1143,11 @@ IN_PROC_BROWSER_TEST_F(WebAppBrowserTest, InScopeHttpUrlsDisplayAppTitle) {
 
 class WebAppBrowserTest_HideOrigin : public WebAppBrowserTest {
  public:
-  WebAppBrowserTest_HideOrigin() {
-    scoped_feature_list_.InitAndEnableFeature(features::kHideWebAppOriginText);
-  }
+  WebAppBrowserTest_HideOrigin() = default;
 
  private:
-  base::test::ScopedFeatureList scoped_feature_list_;
+  base::test::ScopedFeatureList scoped_feature_list_{
+      features::kHideWebAppOriginText};
 };
 
 // WebApps should not have origin text with this feature on.
@@ -1163,13 +1160,11 @@ IN_PROC_BROWSER_TEST_F(WebAppBrowserTest_HideOrigin, OriginTextRemoved) {
 
 class WebAppBrowserTest_AppNameInsteadOfOrigin : public WebAppBrowserTest {
  public:
-  WebAppBrowserTest_AppNameInsteadOfOrigin() {
-    scoped_feature_list_.InitAndEnableFeature(
-        features::kDesktopPWAsFlashAppNameInsteadOfOrigin);
-  }
+  WebAppBrowserTest_AppNameInsteadOfOrigin() = default;
 
  private:
-  base::test::ScopedFeatureList scoped_feature_list_;
+  base::test::ScopedFeatureList scoped_feature_list_{
+      features::kDesktopPWAsFlashAppNameInsteadOfOrigin};
 };
 
 // Web apps should flash the app name with this feature on.
@@ -1270,6 +1265,29 @@ IN_PROC_BROWSER_TEST_F(WebAppBrowserTest, PopupLocationBar) {
       popup_browser->CanSupportWindowFeature(Browser::FEATURE_LOCATIONBAR));
 }
 
+// Make sure chrome://internals/web-app page loads fine.
+IN_PROC_BROWSER_TEST_F(WebAppBrowserTest, InternalWebAppPage) {
+  // Loads with no web app.
+  NavigateToURLAndWait(browser(), GURL("chrome://internals/web-app"));
+
+  const GURL app_url = GetSecureAppURL();
+  InstallPWA(app_url);
+  // Loads with one web app.
+  NavigateToURLAndWait(browser(), GURL("chrome://internals/web-app"));
+
+  // Install a non-promotable web app.
+  NavigateToURLAndWait(
+      browser(), https_server()->GetURL("/banners/no_manifest_test_page.html"));
+  chrome::SetAutoAcceptWebAppDialogForTesting(/*auto_accept=*/true,
+                                              /*auto_open_in_window=*/false);
+  WebAppInstallObserver observer(profile());
+  CHECK(chrome::ExecuteCommand(browser(), IDC_CREATE_SHORTCUT));
+  observer.AwaitNextInstall();
+  chrome::SetAutoAcceptWebAppDialogForTesting(false, false);
+  // Loads with two apps.
+  NavigateToURLAndWait(browser(), GURL("chrome://internals/web-app"));
+}
+
 IN_PROC_BROWSER_TEST_F(WebAppBrowserTest_WindowControlsOverlay,
                        WindowControlsOverlay) {
   GURL test_url = https_server()->GetURL(
@@ -1288,18 +1306,16 @@ IN_PROC_BROWSER_TEST_F(WebAppBrowserTest_WindowControlsOverlay,
 
   Browser* const app_browser = LaunchWebAppBrowser(app_id);
   EXPECT_EQ(true,
-            app_browser->app_controller()->IsWindowControlsOverlayEnabled());
+            app_browser->app_controller()->AppUsesWindowControlsOverlay());
 }
 
 class WebAppBrowserTest_RemoveStatusBar : public WebAppBrowserTest {
  public:
-  WebAppBrowserTest_RemoveStatusBar() {
-    scoped_feature_list_.InitAndEnableFeature(
-        features::kRemoveStatusBarInWebApps);
-  }
+  WebAppBrowserTest_RemoveStatusBar() = default;
 
  private:
-  base::test::ScopedFeatureList scoped_feature_list_;
+  base::test::ScopedFeatureList scoped_feature_list_{
+      features::kRemoveStatusBarInWebApps};
 };
 
 IN_PROC_BROWSER_TEST_F(WebAppBrowserTest_RemoveStatusBar, RemoveStatusBar) {

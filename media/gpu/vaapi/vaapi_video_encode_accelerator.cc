@@ -18,10 +18,10 @@
 #include "base/bits.h"
 #include "base/callback.h"
 #include "base/callback_helpers.h"
+#include "base/cxx17_backports.h"
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
 #include "base/numerics/safe_conversions.h"
-#include "base/stl_util.h"
 #include "base/task/post_task.h"
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
@@ -36,8 +36,10 @@
 #include "media/gpu/h264_dpb.h"
 #include "media/gpu/macros.h"
 #include "media/gpu/vaapi/h264_encoder.h"
+#include "media/gpu/vaapi/va_surface.h"
 #include "media/gpu/vaapi/vaapi_common.h"
 #include "media/gpu/vaapi/vaapi_utils.h"
+#include "media/gpu/vaapi/vaapi_wrapper.h"
 #include "media/gpu/vaapi/vp8_encoder.h"
 #include "media/gpu/vaapi/vp9_encoder.h"
 #include "media/gpu/vaapi/vp9_temporal_layers.h"
@@ -112,43 +114,6 @@ gfx::Size GetInputFrameSize(VideoPixelFormat format,
 
 }  // namespace
 
-// Encode job for one frame. Created when an input frame is awaiting and
-// enough resources are available to proceed. Once the job is prepared and
-// submitted to the hardware, it awaits on the |submitted_encode_jobs_| queue
-// for an output bitstream buffer to become available. Once one is ready,
-// the encoded bytes are downloaded to it, job resources are released
-// and become available for reuse.
-class VaapiEncodeJob : public AcceleratedVideoEncoder::EncodeJob {
- public:
-  VaapiEncodeJob(scoped_refptr<VideoFrame> input_frame,
-                 bool keyframe,
-                 base::OnceClosure execute_cb,
-                 scoped_refptr<VASurface> input_surface,
-                 scoped_refptr<CodecPicture> picture,
-                 std::unique_ptr<ScopedVABuffer> coded_buffer);
-
-  ~VaapiEncodeJob() override = default;
-
-  VaapiEncodeJob* AsVaapiEncodeJob() override { return this; }
-
-  VABufferID coded_buffer_id() const { return coded_buffer_->id(); }
-  const scoped_refptr<VASurface> input_surface() const {
-    return input_surface_;
-  }
-  const scoped_refptr<CodecPicture> picture() const { return picture_; }
-
- private:
-  // Input surface for video frame data or scaled data.
-  const scoped_refptr<VASurface> input_surface_;
-
-  const scoped_refptr<CodecPicture> picture_;
-
-  // Buffer that will contain the output bitstream data for this frame.
-  const std::unique_ptr<ScopedVABuffer> coded_buffer_;
-
-  DISALLOW_COPY_AND_ASSIGN(VaapiEncodeJob);
-};
-
 struct VaapiVideoEncodeAccelerator::InputFrameRef {
   InputFrameRef(scoped_refptr<VideoFrame> frame, bool force_keyframe)
       : frame(frame), force_keyframe(force_keyframe) {}
@@ -184,15 +149,15 @@ class VaapiVideoEncodeAccelerator::H264Accelerator
 
   // H264Encoder::Accelerator implementation.
   scoped_refptr<H264Picture> GetPicture(
-      AcceleratedVideoEncoder::EncodeJob* job) override;
+      VaapiVideoEncoderDelegate::EncodeJob* job) override;
 
   bool SubmitPackedHeaders(
-      AcceleratedVideoEncoder::EncodeJob* job,
+      VaapiVideoEncoderDelegate::EncodeJob* job,
       scoped_refptr<H264BitstreamBuffer> packed_sps,
       scoped_refptr<H264BitstreamBuffer> packed_pps) override;
 
   bool SubmitFrameParameters(
-      AcceleratedVideoEncoder::EncodeJob* job,
+      VaapiVideoEncoderDelegate::EncodeJob* job,
       const H264Encoder::EncodeParams& encode_params,
       const H264SPS& sps,
       const H264PPS& pps,
@@ -213,9 +178,9 @@ class VaapiVideoEncodeAccelerator::VP8Accelerator
 
   // VP8Encoder::Accelerator implementation.
   scoped_refptr<VP8Picture> GetPicture(
-      AcceleratedVideoEncoder::EncodeJob* job) override;
+      VaapiVideoEncoderDelegate::EncodeJob* job) override;
 
-  bool SubmitFrameParameters(AcceleratedVideoEncoder::EncodeJob* job,
+  bool SubmitFrameParameters(VaapiVideoEncoderDelegate::EncodeJob* job,
                              const VP8Encoder::EncodeParams& encode_params,
                              scoped_refptr<VP8Picture> pic,
                              const Vp8ReferenceFrameVector& ref_frames,
@@ -235,10 +200,10 @@ class VaapiVideoEncodeAccelerator::VP9Accelerator
 
   // VP9Encoder::Accelerator implementation.
   scoped_refptr<VP9Picture> GetPicture(
-      AcceleratedVideoEncoder::EncodeJob* job) override;
+      VaapiVideoEncoderDelegate::EncodeJob* job) override;
 
   bool SubmitFrameParameters(
-      AcceleratedVideoEncoder::EncodeJob* job,
+      VaapiVideoEncoderDelegate::EncodeJob* job,
       const VP9Encoder::EncodeParams& encode_params,
       scoped_refptr<VP9Picture> pic,
       const Vp9ReferenceFrameVector& ref_frames,
@@ -275,11 +240,6 @@ VaapiVideoEncodeAccelerator::VaapiVideoEncodeAccelerator()
 VaapiVideoEncodeAccelerator::~VaapiVideoEncodeAccelerator() {
   VLOGF(2);
   DCHECK_CALLED_ON_VALID_SEQUENCE(encoder_sequence_checker_);
-}
-
-CodecPicture* VaapiVideoEncodeAccelerator::GetPictureFromJobForTesting(
-    VaapiEncodeJob* job) {
-  return job->picture().get();
 }
 
 bool VaapiVideoEncodeAccelerator::Initialize(const Config& config,
@@ -382,7 +342,7 @@ void VaapiVideoEncodeAccelerator::InitializeTask(const Config& config) {
   VLOGF(2);
 
   output_codec_ = VideoCodecProfileToVideoCodec(config.output_profile);
-  AcceleratedVideoEncoder::Config ave_config{};
+  VaapiVideoEncoderDelegate::Config ave_config{};
   DCHECK_EQ(IsConfiguredForTesting(), !!encoder_);
   switch (output_codec_) {
     case kCodecH264:
@@ -391,7 +351,7 @@ void VaapiVideoEncodeAccelerator::InitializeTask(const Config& config) {
             std::make_unique<H264Accelerator>(this));
       }
       DCHECK_EQ(ave_config.bitrate_control,
-                AcceleratedVideoEncoder::BitrateControl::kConstantBitrate);
+                VaapiVideoEncoderDelegate::BitrateControl::kConstantBitrate);
       break;
     case kCodecVP8:
       if (!IsConfiguredForTesting()) {
@@ -399,14 +359,14 @@ void VaapiVideoEncodeAccelerator::InitializeTask(const Config& config) {
             std::make_unique<VP8Accelerator>(this));
       }
       DCHECK_EQ(ave_config.bitrate_control,
-                AcceleratedVideoEncoder::BitrateControl::kConstantBitrate);
+                VaapiVideoEncoderDelegate::BitrateControl::kConstantBitrate);
       break;
     case kCodecVP9:
       if (!IsConfiguredForTesting()) {
         encoder_ = std::make_unique<VP9Encoder>(
             std::make_unique<VP9Accelerator>(this));
       }
-      ave_config.bitrate_control = AcceleratedVideoEncoder::BitrateControl::
+      ave_config.bitrate_control = VaapiVideoEncoderDelegate::BitrateControl::
           kConstantQuantizationParameter;
       break;
     default:
@@ -619,7 +579,7 @@ void VaapiVideoEncodeAccelerator::TryToReturnBitstreamBuffer() {
 }
 
 void VaapiVideoEncodeAccelerator::ReturnBitstreamBuffer(
-    std::unique_ptr<VaapiEncodeJob> encode_job,
+    std::unique_ptr<EncodeJob> encode_job,
     std::unique_ptr<BitstreamBufferRef> buffer) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(encoder_sequence_checker_);
   const VABufferID coded_buffer_id = encode_job->coded_buffer_id();
@@ -665,9 +625,9 @@ void VaapiVideoEncodeAccelerator::EncodeTask(scoped_refptr<VideoFrame> frame,
   EncodePendingInputs();
 }
 
-std::unique_ptr<VaapiEncodeJob> VaapiVideoEncodeAccelerator::CreateEncodeJob(
-    scoped_refptr<VideoFrame> frame,
-    bool force_keyframe) {
+std::unique_ptr<VaapiVideoEncoderDelegate::EncodeJob>
+VaapiVideoEncodeAccelerator::CreateEncodeJob(scoped_refptr<VideoFrame> frame,
+                                             bool force_keyframe) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(encoder_sequence_checker_);
 
   if (native_input_mode_ &&
@@ -815,7 +775,7 @@ std::unique_ptr<VaapiEncodeJob> VaapiVideoEncodeAccelerator::CreateEncodeJob(
       return nullptr;
   }
 
-  auto job = std::make_unique<VaapiEncodeJob>(
+  auto job = std::make_unique<EncodeJob>(
       frame, force_keyframe,
       base::BindOnce(&VaapiVideoEncodeAccelerator::ExecuteEncode,
                      encoder_weak_this_, input_surface->id()),
@@ -839,7 +799,7 @@ void VaapiVideoEncodeAccelerator::EncodePendingInputs() {
 
     // If this is a flush (null) frame, don't create/submit a new encode job for
     // it, but forward a null job to the submitted_encode_jobs_ queue.
-    std::unique_ptr<VaapiEncodeJob> job;
+    std::unique_ptr<EncodeJob> job;
     TRACE_EVENT0("media,gpu", "VAVEA::FromCreateEncodeJobToReturn");
     if (input_frame) {
       job = CreateEncodeJob(input_frame->frame, input_frame->force_keyframe);
@@ -1006,7 +966,7 @@ void VaapiVideoEncodeAccelerator::DestroyTask() {
   while (!input_queue_.empty())
     input_queue_.pop();
 
-  // Note ScopedVABuffer in VaapiEncodeJob must be destroyed before
+  // Note ScopedVABuffer in EncodeJob must be destroyed before
   // |vaapi_wrapper_| is destroyed to ensure VADisplay is valid on the
   // ScopedVABuffer's destruction.
   DCHECK(vaapi_wrapper_ || submitted_encode_jobs_.empty());
@@ -1045,21 +1005,6 @@ void VaapiVideoEncodeAccelerator::NotifyError(Error error) {
   }
 }
 
-VaapiEncodeJob::VaapiEncodeJob(scoped_refptr<VideoFrame> input_frame,
-                               bool keyframe,
-                               base::OnceClosure execute_cb,
-                               scoped_refptr<VASurface> input_surface,
-                               scoped_refptr<CodecPicture> picture,
-                               std::unique_ptr<ScopedVABuffer> coded_buffer)
-    : EncodeJob(input_frame, keyframe, std::move(execute_cb)),
-      input_surface_(input_surface),
-      picture_(std::move(picture)),
-      coded_buffer_(std::move(coded_buffer)) {
-  DCHECK(input_surface_);
-  DCHECK(picture_);
-  DCHECK(coded_buffer_);
-}
-
 static void InitVAPictureH264(VAPictureH264* va_pic) {
   *va_pic = {};
   va_pic->picture_id = VA_INVALID_ID;
@@ -1073,7 +1018,7 @@ static scoped_refptr<base::RefCountedBytes> MakeRefCountedBytes(void* ptr,
 }
 
 bool VaapiVideoEncodeAccelerator::H264Accelerator::SubmitFrameParameters(
-    AcceleratedVideoEncoder::EncodeJob* job,
+    VaapiVideoEncoderDelegate::EncodeJob* job,
     const H264Encoder::EncodeParams& encode_params,
     const H264SPS& sps,
     const H264PPS& pps,
@@ -1143,7 +1088,7 @@ bool VaapiVideoEncodeAccelerator::H264Accelerator::SubmitFrameParameters(
   pic_param.CurrPic.BottomFieldOrderCnt = pic->bottom_field_order_cnt;
   pic_param.CurrPic.flags = 0;
 
-  pic_param.coded_buf = job->AsVaapiEncodeJob()->coded_buffer_id();
+  pic_param.coded_buf = job->coded_buffer_id();
   pic_param.pic_parameter_set_id = pps.pic_parameter_set_id;
   pic_param.seq_parameter_set_id = pps.seq_parameter_set_id;
   pic_param.frame_num = pic->frame_num;
@@ -1245,13 +1190,13 @@ bool VaapiVideoEncodeAccelerator::H264Accelerator::SubmitFrameParameters(
 
 scoped_refptr<H264Picture>
 VaapiVideoEncodeAccelerator::H264Accelerator::GetPicture(
-    AcceleratedVideoEncoder::EncodeJob* job) {
+    VaapiVideoEncoderDelegate::EncodeJob* job) {
   return base::WrapRefCounted(
-      reinterpret_cast<H264Picture*>(job->AsVaapiEncodeJob()->picture().get()));
+      reinterpret_cast<H264Picture*>(job->picture().get()));
 }
 
 bool VaapiVideoEncodeAccelerator::H264Accelerator::SubmitPackedHeaders(
-    AcceleratedVideoEncoder::EncodeJob* job,
+    VaapiVideoEncoderDelegate::EncodeJob* job,
     scoped_refptr<H264BitstreamBuffer> packed_sps,
     scoped_refptr<H264BitstreamBuffer> packed_pps) {
   // Submit SPS.
@@ -1287,13 +1232,13 @@ bool VaapiVideoEncodeAccelerator::H264Accelerator::SubmitPackedHeaders(
 
 scoped_refptr<VP8Picture>
 VaapiVideoEncodeAccelerator::VP8Accelerator::GetPicture(
-    AcceleratedVideoEncoder::EncodeJob* job) {
+    VaapiVideoEncoderDelegate::EncodeJob* job) {
   return base::WrapRefCounted(
-      reinterpret_cast<VP8Picture*>(job->AsVaapiEncodeJob()->picture().get()));
+      reinterpret_cast<VP8Picture*>(job->picture().get()));
 }
 
 bool VaapiVideoEncodeAccelerator::VP8Accelerator::SubmitFrameParameters(
-    AcceleratedVideoEncoder::EncodeJob* job,
+    VaapiVideoEncoderDelegate::EncodeJob* job,
     const VP8Encoder::EncodeParams& encode_params,
     scoped_refptr<VP8Picture> pic,
     const Vp8ReferenceFrameVector& ref_frames,
@@ -1326,7 +1271,7 @@ bool VaapiVideoEncodeAccelerator::VP8Accelerator::SubmitFrameParameters(
   pic_param.ref_arf_frame =
       alt_frame ? alt_frame->AsVaapiVP8Picture()->GetVASurfaceID()
                 : VA_INVALID_ID;
-  pic_param.coded_buf = job->AsVaapiEncodeJob()->coded_buffer_id();
+  pic_param.coded_buf = job->coded_buffer_id();
   DCHECK_NE(pic_param.coded_buf, VA_INVALID_ID);
   pic_param.ref_flags.bits.no_ref_last =
       !ref_frames_used[Vp8RefType::VP8_FRAME_LAST];
@@ -1459,13 +1404,13 @@ bool VaapiVideoEncodeAccelerator::VP8Accelerator::SubmitFrameParameters(
 
 scoped_refptr<VP9Picture>
 VaapiVideoEncodeAccelerator::VP9Accelerator::GetPicture(
-    AcceleratedVideoEncoder::EncodeJob* job) {
+    VaapiVideoEncoderDelegate::EncodeJob* job) {
   return base::WrapRefCounted(
-      reinterpret_cast<VP9Picture*>(job->AsVaapiEncodeJob()->picture().get()));
+      reinterpret_cast<VP9Picture*>(job->picture().get()));
 }
 
 bool VaapiVideoEncodeAccelerator::VP9Accelerator::SubmitFrameParameters(
-    AcceleratedVideoEncoder::EncodeJob* job,
+    VaapiVideoEncoderDelegate::EncodeJob* job,
     const VP9Encoder::EncodeParams& encode_params,
     scoped_refptr<VP9Picture> pic,
     const Vp9ReferenceFrameVector& ref_frames,
@@ -1499,7 +1444,7 @@ bool VaapiVideoEncodeAccelerator::VP9Accelerator::SubmitFrameParameters(
                 : VA_INVALID_ID;
   }
 
-  pic_param.coded_buf = job->AsVaapiEncodeJob()->coded_buffer_id();
+  pic_param.coded_buf = job->coded_buffer_id();
   DCHECK_NE(pic_param.coded_buf, VA_INVALID_ID);
 
   if (frame_header->IsKeyframe()) {
@@ -1563,44 +1508,10 @@ bool VaapiVideoEncodeAccelerator::VP9Accelerator::SubmitFrameParameters(
                      base::Unretained(vea_), VAEncPictureParameterBufferType,
                      MakeRefCountedBytes(&pic_param, sizeof(pic_param))));
 
-  if (bitrate_control_ ==
-      AcceleratedVideoEncoder::BitrateControl::kConstantQuantizationParameter) {
-    job->AddPostExecuteCallback(base::BindOnce(
-        &VaapiVideoEncodeAccelerator::NotifyEncodedChunkSize,
-        base::Unretained(vea_), job->AsVaapiEncodeJob()->coded_buffer_id(),
-        job->AsVaapiEncodeJob()->input_surface()->id()));
-    return true;
-  }
-
-  VAEncMiscParameterRateControl rate_control_param;
-  VAEncMiscParameterFrameRate framerate_param;
-  VAEncMiscParameterHRD hrd_param;
-  FillVAEncRateControlParams(
-      base::checked_cast<uint32_t>(
-          encode_params.bitrate_allocation.GetSumBps()),
-      base::strict_cast<uint32_t>(encode_params.cpb_window_size_ms),
-      base::strict_cast<uint32_t>(encode_params.initial_qp),
-      base::strict_cast<uint32_t>(encode_params.min_qp),
-      base::strict_cast<uint32_t>(encode_params.max_qp),
-      encode_params.framerate,
-      base::strict_cast<uint32_t>(encode_params.cpb_size_bits),
-      rate_control_param, framerate_param, hrd_param);
-
-  job->AddSetupCallback(base::BindOnce(
-      &VaapiVideoEncodeAccelerator::SubmitVAEncMiscParamBuffer,
-      base::Unretained(vea_), VAEncMiscParameterTypeRateControl,
-      MakeRefCountedBytes(&rate_control_param, sizeof(rate_control_param))));
-
-  job->AddSetupCallback(base::BindOnce(
-      &VaapiVideoEncodeAccelerator::SubmitVAEncMiscParamBuffer,
-      base::Unretained(vea_), VAEncMiscParameterTypeFrameRate,
-      MakeRefCountedBytes(&framerate_param, sizeof(framerate_param))));
-
-  job->AddSetupCallback(
-      base::BindOnce(&VaapiVideoEncodeAccelerator::SubmitVAEncMiscParamBuffer,
-                     base::Unretained(vea_), VAEncMiscParameterTypeHRD,
-                     MakeRefCountedBytes(&hrd_param, sizeof(hrd_param))));
-
+  job->AddPostExecuteCallback(
+      base::BindOnce(&VaapiVideoEncodeAccelerator::NotifyEncodedChunkSize,
+                     base::Unretained(vea_), job->coded_buffer_id(),
+                     job->input_surface()->id()));
   return true;
 }
 

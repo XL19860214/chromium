@@ -43,10 +43,6 @@ class EncryptionModuleTest : public ::testing::Test {
   EncryptionModuleTest() = default;
 
   void SetUp() override {
-    // Enable encryption.
-    scoped_feature_list_.InitFromCommandLine(
-        {EncryptionModuleInterface::kEncryptedReporting}, {});
-
     encryption_module_ = EncryptionModule::Create();
 
     auto decryptor_result = test::Decryptor::Create();
@@ -165,7 +161,7 @@ TEST_F(EncryptionModuleTest, EncryptAndDecrypt) {
 TEST_F(EncryptionModuleTest, EncryptionDisabled) {
   constexpr char kTestString[] = "ABCDEF";
 
-  // Disable encryption.
+  // Disable encryption for this test.
   base::test::ScopedFeatureList scoped_feature_list;
   scoped_feature_list.InitFromCommandLine(
       {}, {EncryptionModuleInterface::kEncryptedReporting});

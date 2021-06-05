@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import 'chrome://resources/cr_elements/cr_button/cr_button.m.js';
 import 'chrome://resources/cr_elements/cr_icon_button/cr_icon_button.m.js';
 import 'chrome://resources/cr_elements/cr_icons_css.m.js';
 import 'chrome://resources/cr_elements/icons.m.js';
@@ -10,6 +11,7 @@ import './download_list.js';
 import './strings.m.js';
 
 import {CustomElement} from 'chrome://resources/js/custom_element.js';
+import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
 import {DownloadShelfApiProxy, DownloadShelfApiProxyImpl} from './download_shelf_api_proxy.js';
 
 export class DownloadShelfAppElement extends CustomElement {
@@ -23,14 +25,22 @@ export class DownloadShelfAppElement extends CustomElement {
     /** @private {!DownloadShelfApiProxy} */
     this.apiProxy_ = DownloadShelfApiProxyImpl.getInstance();
 
-    this.$('#close-button').addEventListener('click', e => this.onClose_(e));
+    const showAllButton = this.$('#show-all-button');
+    showAllButton.innerText = loadTimeData.getString('showAll');
+    showAllButton.addEventListener('click', e => this.onShowAll_());
+
+    const closeButton = this.$('#close-button');
+    closeButton.setAttribute('aria-label', loadTimeData.getString('close'));
+    closeButton.addEventListener('click', e => this.onClose_());
   }
 
-  /**
-   * @param {!Event} e
-   * @private
-   */
-  onClose_(e) {
+  /** @private */
+  onShowAll_() {
+    this.apiProxy_.doShowAll();
+  }
+
+  /** @private */
+  onClose_() {
     this.apiProxy_.doClose();
   }
 }

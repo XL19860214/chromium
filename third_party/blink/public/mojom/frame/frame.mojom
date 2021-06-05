@@ -21,13 +21,13 @@ import "services/network/public/mojom/url_request.mojom";
 import "services/network/public/mojom/web_sandbox_flags.mojom";
 import "services/viz/public/mojom/compositing/frame_sink_id.mojom";
 import "skia/public/mojom/skcolor.mojom";
-import "third_party/blink/public/mojom/ad_tagging/ad_frame.mojom";
 import "third_party/blink/public/mojom/blob/blob.mojom";
 import "third_party/blink/public/mojom/blob/blob_url_store.mojom";
 import "third_party/blink/public/mojom/messaging/transferable_message.mojom";
 import "third_party/blink/public/mojom/choosers/popup_menu.mojom";
 import "third_party/blink/public/mojom/context_menu/context_menu.mojom";
 import "third_party/blink/public/mojom/conversions/conversions.mojom";
+import "third_party/blink/public/mojom/css/preferred_color_scheme.mojom";
 import "third_party/blink/public/mojom/devtools/console_message.mojom";
 import "third_party/blink/public/mojom/devtools/devtools_agent.mojom";
 import "third_party/blink/public/mojom/devtools/inspector_issue.mojom";
@@ -385,13 +385,15 @@ interface LocalFrameHost {
 
   // A request to run a JavaScript dialog displaying |alert_message|.
   [Sync]
-  RunModalAlertDialog(mojo_base.mojom.String16 alert_message) => ();
+  RunModalAlertDialog(mojo_base.mojom.String16 alert_message,
+                      bool disable_third_party_subframe_suppresion) => ();
 
   // A request to run a JavaScript dialog displaying |alert_message|.
   // |success| will be true if the user clicked 'OK', false if the
   // dialog was canceled.
   [Sync]
-  RunModalConfirmDialog(mojo_base.mojom.String16 alert_message) =>
+  RunModalConfirmDialog(mojo_base.mojom.String16 alert_message,
+                        bool disable_third_party_subframe_suppresion) =>
                         (bool success);
 
   // A request to run a confirm JavaScript dialog displaying
@@ -401,7 +403,8 @@ interface LocalFrameHost {
   // the editable text area.
   [Sync]
   RunModalPromptDialog(mojo_base.mojom.String16 alert_message,
-                       mojo_base.mojom.String16 default_value) =>
+                       mojo_base.mojom.String16 default_value,
+                       bool disable_third_party_subframe_suppresion) =>
                        (bool success, mojo_base.mojom.String16 result);
 
   // A request to run a confirmation JavaScript dialog. |is_reload|
@@ -542,6 +545,10 @@ interface LocalFrameHost {
   // Used when a prerendered page is activated. Notifies the browser that the
   // document in this frame dispatched the prerenderingchange event.
   DidActivateForPrerendering();
+
+  // Notifies the frame that the document preferred color scheme has changed
+  // due to DevTools media emulation.
+  DidUpdatePreferredColorScheme(PreferredColorScheme preferred_color_scheme);
 };
 
 // Implemented in Blink, this interface defines frame-specific methods that will
@@ -797,7 +804,9 @@ interface LocalFrame {
   // Sent to a prerendered frame to inform it that it is being activated.
   // The document in the frame updates `document.prerendering` and dispatches
   // the prerenderingchange event.
-  ActivateForPrerendering();
+  // |activation_start| is the time that activation started for use in
+  // PerformanceNavigationTiming.
+  ActivateForPrerendering(mojo_base.mojom.TimeTicks activation_start);
 
   // Returns a DevToolsAgent interface for this frame, used for
   // remote debugging. See DevToolsAgent for details.
@@ -988,9 +997,9 @@ interface RemoteFrame {
   SetReplicatedOrigin(url.mojom.Origin origin,
     bool is_potentially_trustworthy_unique_origin);
 
-  // Update the replicated ad frame type. Used when the frame is determined to
-  // be an ad frame.
-  SetReplicatedAdFrameType(blink.mojom.AdFrameType ad_frame_type);
+  // Update the replicated ad status. Used when the frame is tagged or untagged
+  // as an ad frame by Ad Tagging.
+  SetReplicatedIsAdSubframe(bool is_ad_subframe);
 
   // Sets the replicated name and unique name for the frame. Used when the
   // name of a frame changes.

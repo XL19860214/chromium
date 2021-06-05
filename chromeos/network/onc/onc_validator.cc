@@ -23,6 +23,7 @@
 #include "components/crx_file/id_util.h"
 #include "components/device_event_log/device_event_log.h"
 #include "components/onc/onc_constants.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace chromeos {
 namespace onc {
@@ -418,15 +419,15 @@ bool Validator::FieldExistsAndIsNotInRange(const base::DictionaryValue& object,
                                            const std::string& field_name,
                                            int lower_bound,
                                            int upper_bound) {
-  int actual_value;
-  if (!object.GetIntegerWithoutPathExpansion(field_name, &actual_value) ||
-      (lower_bound <= actual_value && actual_value <= upper_bound)) {
+  absl::optional<int> actual_value = object.FindIntKey(field_name);
+  if (!actual_value || (lower_bound <= actual_value.value() &&
+                        actual_value.value() <= upper_bound)) {
     return false;
   }
 
   path_.push_back(field_name);
   std::ostringstream msg;
-  msg << "Found value '" << actual_value
+  msg << "Found value '" << actual_value.value()
       << "', but expected a value in the range [" << lower_bound << ", "
       << upper_bound << "] (boundaries inclusive)";
   AddValidationIssue(true /* is_error */, msg.str());
@@ -436,8 +437,8 @@ bool Validator::FieldExistsAndIsNotInRange(const base::DictionaryValue& object,
 
 bool Validator::FieldExistsAndIsEmpty(const base::DictionaryValue& object,
                                       const std::string& field_name) {
-  const base::Value* value = NULL;
-  if (!object.GetWithoutPathExpansion(field_name, &value))
+  const base::Value* value = object.FindKey(field_name);
+  if (!value)
     return false;
 
   std::string str;
@@ -664,8 +665,7 @@ bool Validator::ValidateNetworkConfiguration(base::DictionaryValue* result) {
 
   bool all_required_exist = RequireField(*result, ::onc::network_config::kGUID);
 
-  bool remove = false;
-  result->GetBooleanWithoutPathExpansion(::onc::kRemove, &remove);
+  bool remove = result->FindBoolKey(::onc::kRemove).value_or(false);
   if (!remove) {
     all_required_exist &= RequireField(*result, ::onc::network_config::kName) &&
                           RequireField(*result, ::onc::network_config::kType);
@@ -1149,8 +1149,7 @@ bool Validator::ValidateCertificate(base::DictionaryValue* result) {
 
   bool all_required_exist = RequireField(*result, ::onc::certificate::kGUID);
 
-  bool remove = false;
-  result->GetBooleanWithoutPathExpansion(::onc::kRemove, &remove);
+  bool remove = result->FindBoolKey(::onc::kRemove).value_or(false);
   if (remove) {
     path_.push_back(::onc::kRemove);
     std::ostringstream msg;

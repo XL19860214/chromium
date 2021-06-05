@@ -132,22 +132,22 @@ std::string NearbyShareLocalDeviceDataManagerImpl::GetDeviceName() const {
 
 absl::optional<std::string> NearbyShareLocalDeviceDataManagerImpl::GetFullName()
     const {
-  std::string name =
-      pref_service_->GetString(prefs::kNearbySharingFullNamePrefName);
-  if (name.empty())
+  if (pref_service_->FindPreference(prefs::kNearbySharingFullNamePrefName)
+          ->IsDefaultValue()) {
     return absl::nullopt;
+  }
 
-  return name;
+  return pref_service_->GetString(prefs::kNearbySharingFullNamePrefName);
 }
 
 absl::optional<std::string> NearbyShareLocalDeviceDataManagerImpl::GetIconUrl()
     const {
-  std::string url =
-      pref_service_->GetString(prefs::kNearbySharingIconUrlPrefName);
-  if (url.empty())
+  if (pref_service_->FindPreference(prefs::kNearbySharingIconUrlPrefName)
+          ->IsDefaultValue()) {
     return absl::nullopt;
+  }
 
-  return url;
+  return pref_service_->GetString(prefs::kNearbySharingIconUrlPrefName);
 }
 
 nearby_share::mojom::DeviceNameValidationResult
@@ -260,8 +260,10 @@ void NearbyShareLocalDeviceDataManagerImpl::OnDownloadDeviceDataFinished(
 void NearbyShareLocalDeviceDataManagerImpl::OnUploadContactsFinished(
     UploadCompleteCallback callback,
     const absl::optional<nearbyshare::proto::UpdateDeviceResponse>& response) {
-  if (response)
-    HandleUpdateDeviceResponse(response);
+  // TODO(http://crbug.com/1211189): Only process the UpdateDevice response for
+  // DownloadDeviceData() calls. We want avoid infinite loops if the full name
+  // or icon URL unexpectedly change. When the bug is resolved, handle the
+  // response sent from uploading contacts or certificates as well.
 
   std::move(callback).Run(/*success=*/response.has_value());
 }
@@ -269,8 +271,10 @@ void NearbyShareLocalDeviceDataManagerImpl::OnUploadContactsFinished(
 void NearbyShareLocalDeviceDataManagerImpl::OnUploadCertificatesFinished(
     UploadCompleteCallback callback,
     const absl::optional<nearbyshare::proto::UpdateDeviceResponse>& response) {
-  if (response)
-    HandleUpdateDeviceResponse(response);
+  // TODO(http://crbug.com/1211189): Only process the UpdateDevice response for
+  // DownloadDeviceData() calls. We want avoid infinite loops if the full name
+  // or icon URL unexpectedly change. When the bug is resolved, handle the
+  // response sent from uploading contacts or certificates as well.
 
   std::move(callback).Run(/*success=*/response.has_value());
 }

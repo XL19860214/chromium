@@ -95,23 +95,7 @@ TextInputType MockInputMethod::GetTextInputType() const {
   return TEXT_INPUT_TYPE_NONE;
 }
 
-TextInputMode MockInputMethod::GetTextInputMode() const {
-  return TEXT_INPUT_MODE_DEFAULT;
-}
-
-int MockInputMethod::GetTextInputFlags() const {
-  return 0;
-}
-
-bool MockInputMethod::CanComposeInline() const {
-  return true;
-}
-
 bool MockInputMethod::IsCandidatePopupOpen() const {
-  return false;
-}
-
-bool MockInputMethod::GetClientShouldDoLearning() {
   return false;
 }
 

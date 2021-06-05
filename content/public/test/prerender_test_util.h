@@ -5,6 +5,7 @@
 #ifndef CONTENT_PUBLIC_TEST_PRERENDER_TEST_UTIL_H_
 #define CONTENT_PUBLIC_TEST_PRERENDER_TEST_UTIL_H_
 
+#include "base/callback.h"
 #include "base/test/scoped_feature_list.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/test/browser_test_utils.h"
@@ -91,26 +92,34 @@ class PrerenderTestHelper {
   // RenderFrameHost::kNoFrameTreeNodeId upon failure.
   int GetHostForUrl(const GURL& gurl);
 
+  // Waits until a prerender has finished loading. Note: this may not be called
+  // when the load fails (e.g. because it was blocked by a NavigationThrottle,
+  // or the WebContents is destroyed). If the prerender doesn't yet exist, this
+  // will wait until it is triggered.
   void WaitForPrerenderLoadCompletion(const GURL& gurl);
   void WaitForPrerenderLoadCompletion(int host_id);
 
+  // Adds <script type="speculationrules"> in the current main frame and waits
+  // until the completion of prerendering. Returns the id of the resulting
+  // prerendering host.
+  //
+  // AddPrerenderAsync() is the same as AddPrerender(), but does not wait until
+  // the completion of prerendering.
+  int AddPrerender(const GURL& prerendering_url);
+  void AddPrerenderAsync(const GURL& prerendering_url);
+
+  // DEPRECATED:
+  // TODO(https://crbug.com/1214964): Do not use AddLinkRelPrerender and
+  // AddLinkRelPrerenderAsync; the <link rel="prerender"> trigger will be
+  // removed soon.
   // Adds <link rel=prerender> in the current main frame and waits until the
   // completion of prerendering. Returns the id of the resulting prerendering
   // host.
   //
-  // AddPrerenderAsync() is the same as AddPrerender(), but does not wait until
-  // the completion of prerendering.
-  //
-  // NOTE: this function requires that the add_prerender.html has been
-  // loaded. This is most easily accomplished by using PrerenderBrowserTest,
-  // but if that's not possible, ensure that you have this file loaded before
-  // making this call.
-  int AddPrerender(const GURL& gurl);
-  void AddPrerenderAsync(const GURL& gurl);
-
-  // Adds <link rel=prerender> in the current main frame without loading
-  // add_prerender.html and waits until the completion of prerendering.
-  int AddPrerenderWithTestUtilJS(const GURL& gurl);
+  // AddLinkRelPrerenderAsync() is the same as AddLinkRelPrerender(), but does
+  // not wait until the completion of prerendering.
+  int AddLinkRelPrerender(const GURL& gurl);
+  void AddLinkRelPrerenderAsync(const GURL& gurl);
 
   // This navigates, but does not activate, the prerendered page.
   void NavigatePrerenderedPage(int host_id, const GURL& gurl);

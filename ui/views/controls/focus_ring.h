@@ -37,6 +37,21 @@ class VIEWS_EXPORT FocusRing : public View, public ViewObserver {
   // owned by the |parent|.
   static FocusRing* Install(View* parent);
 
+  // Configures `view` so that FocusRings under it are aware of the background
+  // they are painted against. Unless the color of the FocusRing has been
+  // explicitly set, a color will be chosen that contrasts well against
+  // `background_color_id`.
+  // Warning: The FocusRing ThemeProvider is queried for these IDs, do not use
+  // NativeTheme color IDs here.
+  // WARNING: This is temporary shenanigans to solve an accessibility problem.
+  // DO NOT COPY this pattern or its implementation to other places in its
+  // current state.
+  // TODO(pbos): This seems not directly related to the FocusRing anymore,
+  // perhaps we could inform the view of what background color it's being
+  // painted onto orthogonally to how FocusRing uses it.
+  static void SetBackgroundColorIdForSubtree(View* view,
+                                             int background_color_id);
+
   ~FocusRing() override;
 
   // Sets the HighlightPathGenerator to draw this FocusRing around.
@@ -58,6 +73,10 @@ class VIEWS_EXPORT FocusRing : public View, public ViewObserver {
   void SetHasFocusPredicate(const ViewPredicate& predicate);
 
   void SetColor(absl::optional<SkColor> color);
+
+  // Sets |should_paint_focus_aura_| and repaints the focus ring so that it may
+  // or may not include the focus aura.
+  void SetShouldPaintFocusAura(bool should_paint_focus_aura);
 
   // View:
   void Layout() override;
@@ -89,6 +108,11 @@ class VIEWS_EXPORT FocusRing : public View, public ViewObserver {
   // Whether the enclosed View is in an invalid state, which controls whether
   // the focus ring shows an invalid appearance (usually a different color).
   bool invalid_ = false;
+
+  // If true, paint the focus aura (the inside area of the focus ring) with the
+  // color |kColorId_FocusAuraColor|. The focus aura is not painted by default
+  // and can be painted or unpainted by SetShouldSetFocusAura.
+  bool should_paint_focus_aura_ = false;
 
   // Overriding color for the focus ring.
   absl::optional<SkColor> color_;

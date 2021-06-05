@@ -11,8 +11,8 @@
 #include "base/containers/contains.h"
 #include "base/guid.h"
 #include "base/strings/stringprintf.h"
-#include "components/services/storage/public/cpp/storage_key.h"
 #include "content/browser/child_process_security_policy_impl.h"
+#include "content/browser/renderer_host/frame_tree_node.h"
 #include "content/browser/service_worker/service_worker_consts.h"
 #include "content/browser/service_worker/service_worker_context_core.h"
 #include "content/browser/service_worker/service_worker_context_wrapper.h"
@@ -27,6 +27,7 @@
 #include "mojo/public/cpp/bindings/callback_helpers.h"
 #include "third_party/blink/public/common/features.h"
 #include "third_party/blink/public/common/service_worker/service_worker_scope_match.h"
+#include "third_party/blink/public/common/storage_key/storage_key.h"
 
 namespace content {
 
@@ -140,7 +141,7 @@ ServiceWorkerContainerHost::~ServiceWorkerContainerHost() {
   }
 
   if (IsContainerForClient() && controller_)
-    controller_->OnControlleeDestroyed(client_uuid());
+    controller_->Uncontrol(client_uuid());
 
   // Remove |this| as an observer of ServiceWorkerRegistrations.
   // TODO(falken): Use base::ScopedObservation instead of this explicit call.
@@ -208,16 +209,27 @@ void ServiceWorkerContainerHost::Register(
       std::move(callback), blink::mojom::ServiceWorkerErrorType::kUnknown,
       std::string(), nullptr);
 
+  // We record the requesting frame host and pass it down, so that we can use
+  // this context for things like printing console error if the service worker
+  // does not have a process yet.
+  GlobalFrameRoutingId requesting_frame_id;
+  FrameTreeNode* requesting_frame_tree_node =
+      FrameTreeNode::GloballyFindByID(frame_tree_node_id());
+  if (requesting_frame_tree_node)
+    requesting_frame_id = requesting_frame_tree_node->current_frame_host()
+                              ->GetGlobalFrameRoutingId();
+
   // TODO(crbug.com/1199077): Update this when ServiceWorkerContainerHost
   // implements StorageKey.
-  storage::StorageKey key(url::Origin::Create(options->scope));
+  blink::StorageKey key(url::Origin::Create(options->scope));
   context_->RegisterServiceWorker(
       script_url, key, *options,
       std::move(outside_fetch_client_settings_object),
       base::BindOnce(&ServiceWorkerContainerHost::RegistrationComplete,
                      weak_factory_.GetWeakPtr(), GURL(script_url),
                      GURL(options->scope), std::move(wrapped_callback),
-                     trace_id, mojo::GetBadMessageCallback()));
+                     trace_id, mojo::GetBadMessageCallback()),
+      requesting_frame_id);
 }
 
 void ServiceWorkerContainerHost::GetRegistration(
@@ -247,7 +259,7 @@ void ServiceWorkerContainerHost::GetRegistration(
                            "ServiceWorkerContainerHost::GetRegistration",
                            trace_id, "Client URL", client_url.spec());
   context_->registry()->FindRegistrationForClientUrl(
-      client_url, storage::StorageKey(url::Origin::Create(client_url)),
+      client_url, blink::StorageKey(url::Origin::Create(client_url)),
       base::BindOnce(&ServiceWorkerContainerHost::GetRegistrationComplete,
                      weak_factory_.GetWeakPtr(), std::move(callback),
                      trace_id));
@@ -279,7 +291,7 @@ void ServiceWorkerContainerHost::GetRegistrations(
                            "ServiceWorkerContainerHost::GetRegistrations",
                            trace_id);
   context_->registry()->GetRegistrationsForStorageKey(
-      storage::StorageKey(url::Origin::Create(url_)),
+      blink::StorageKey(url::Origin::Create(url_)),
       base::BindOnce(&ServiceWorkerContainerHost::GetRegistrationsComplete,
                      weak_factory_.GetWeakPtr(), std::move(callback),
                      trace_id));
@@ -1251,7 +1263,7 @@ void ServiceWorkerContainerHost::UpdateController(
     }
   }
   if (previous_version)
-    previous_version->RemoveControllee(client_uuid());
+    previous_version->Uncontrol(client_uuid());
 
   // SetController message should be sent only for clients.
   DCHECK(IsContainerForClient());

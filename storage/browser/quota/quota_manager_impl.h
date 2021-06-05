@@ -19,7 +19,6 @@
 #include "base/callback.h"
 #include "base/component_export.h"
 #include "base/containers/contains.h"
-#include "base/containers/flat_set.h"
 #include "base/files/file_path.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
@@ -322,8 +321,6 @@ class COMPONENT_EXPORT(STORAGE_BROWSER) QuotaManagerImpl
   static constexpr int kThresholdRandomizationPercent = 5;
 
   static constexpr char kDatabaseName[] = "QuotaManager";
-  static constexpr char kDaysBetweenRepeatedOriginEvictionsHistogram[] =
-      "Quota.DaysBetweenRepeatedOriginEvictions";
   static constexpr char kEvictedOriginAccessedCountHistogram[] =
       "Quota.EvictedOriginAccessCount";
   static constexpr char kEvictedOriginDaysSinceAccessHistogram[] =

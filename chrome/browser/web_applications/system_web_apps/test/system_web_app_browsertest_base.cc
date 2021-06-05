@@ -11,18 +11,24 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/web_applications/system_web_app_ui_utils.h"
+#include "components/services/app_service/public/cpp/types_util.h"
 #include "content/public/test/test_navigation_observer.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "url/gurl.h"
 
 namespace web_app {
 
-SystemWebAppBrowserTestBase::SystemWebAppBrowserTestBase(bool install_mock) {}
+SystemWebAppBrowserTestBase::SystemWebAppBrowserTestBase(bool install_mock) {
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+  WebAppProvider::EnableSystemWebAppsInLacrosForTesting();
+#endif
+}
 
 SystemWebAppBrowserTestBase::~SystemWebAppBrowserTestBase() = default;
 
 SystemWebAppManager& SystemWebAppBrowserTestBase::GetManager() {
-  return WebAppProvider::Get(browser()->profile())->system_web_app_manager();
+  return WebAppProvider::GetForSystemWebApps(browser()->profile())
+      ->system_web_app_manager();
 }
 
 SystemAppType SystemWebAppBrowserTestBase::GetMockAppType() {
@@ -109,7 +115,7 @@ GURL SystemWebAppBrowserTestBase::GetStartUrl(
     const apps::AppLaunchParams& params) {
   return params.override_url.is_valid()
              ? params.override_url
-             : WebAppProvider::Get(browser()->profile())
+             : WebAppProvider::GetForSystemWebApps(browser()->profile())
                    ->registrar()
                    .GetAppStartUrl(params.app_id);
 }

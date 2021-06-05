@@ -38,7 +38,11 @@ namespace full_restore {
 
 namespace {
 
+bool g_launch_browser_for_testing = false;
+
 constexpr char kRestoredAppLaunchHistogramPrefix[] = "Apps.RestoredAppLaunch";
+constexpr char kArcGhostWindowLaunchHistogramPrefix[] =
+    "Apps.ArcGhostWindowLaunch";
 
 // Returns apps::AppTypeName used for metrics.
 apps::AppTypeName GetHistogrameAppType(apps::mojom::AppType app_type) {
@@ -106,6 +110,11 @@ void AppLaunchHandler::OnAppRegistryCacheWillBeDestroyed(
 }
 
 void AppLaunchHandler::LaunchBrowserWhenReady() {
+  if (g_launch_browser_for_testing) {
+    ForceLaunchBrowserForTesting();
+    return;
+  }
+
   // If the restore data has been loaded, and the user has chosen to restore,
   // launch the browser.
   if (should_restore_ && restore_data_) {
@@ -124,8 +133,9 @@ void AppLaunchHandler::SetShouldRestore() {
   MaybePostRestore();
 }
 
-void AppLaunchHandler::SetForceLaunchBrowserForTesting() {
-  force_launch_browser_ = true;
+void AppLaunchHandler::ForceLaunchBrowserForTesting() {
+  UserSessionManager::GetInstance()->LaunchBrowser(profile_);
+  UserSessionManager::GetInstance()->MaybeLaunchSettings(profile_);
 }
 
 void AppLaunchHandler::OnGetRestoreData(
@@ -193,12 +203,10 @@ void AppLaunchHandler::LaunchBrowser() {
   // If the browser is not launched before reboot, don't launch browser during
   // the startup phase.
   const auto& launch_list = restore_data_->app_id_to_launch_list();
-  if (launch_list.find(extension_misc::kChromeAppId) == launch_list.end() &&
-      !force_launch_browser_) {
+  if (launch_list.find(extension_misc::kChromeAppId) == launch_list.end())
     return;
-  }
 
-  RecordRestoredAppsCount(apps::AppTypeName::kChromeBrowser);
+  RecordRestoredAppLaunch(apps::AppTypeName::kChromeBrowser);
 
   restore_data_->RemoveApp(extension_misc::kChromeAppId);
 
@@ -270,7 +278,7 @@ void AppLaunchHandler::LaunchSystemWebAppOrChromeApp(
     return;
 
   for (const auto& it : launch_list) {
-    RecordRestoredAppsCount(GetHistogrameAppType(app_type));
+    RecordRestoredAppLaunch(GetHistogrameAppType(app_type));
 
     DCHECK(it.second->container.has_value());
     DCHECK(it.second->disposition.has_value());
@@ -298,7 +306,7 @@ void AppLaunchHandler::LaunchArcApp(
   auto* arc_handler = FullRestoreArcTaskHandler::GetForProfile(profile_);
 
   for (const auto& it : launch_list) {
-    RecordRestoredAppsCount(apps::AppTypeName::kArc);
+    RecordRestoredAppLaunch(apps::AppTypeName::kArc);
 
     DCHECK(it.second->event_flag.has_value());
 
@@ -317,8 +325,11 @@ void AppLaunchHandler::LaunchArcApp(
 #if BUILDFLAG(ENABLE_WAYLAND_SERVER)
     if (!window_info->bounds.is_null() && arc_handler &&
         arc_handler->window_handler()) {
+      RecordArcGhostWindowLaunch(/*is_arc_ghost_window=*/true);
       arc_handler->window_handler()->LaunchArcGhostWindow(
           app_id, arc_session_id, it.second.get());
+    } else {
+      RecordArcGhostWindowLaunch(/*is_arc_ghost_window=*/false);
     }
 #endif
 
@@ -335,10 +346,23 @@ void AppLaunchHandler::LaunchArcApp(
   }
 }
 
-void AppLaunchHandler::RecordRestoredAppsCount(
+void AppLaunchHandler::RecordRestoredAppLaunch(
     apps::AppTypeName app_type_name) {
   base::UmaHistogramEnumeration(kRestoredAppLaunchHistogramPrefix,
                                 app_type_name);
+}
+
+void AppLaunchHandler::RecordArcGhostWindowLaunch(bool is_arc_ghost_window) {
+  base::UmaHistogramBoolean(kArcGhostWindowLaunchHistogramPrefix,
+                            is_arc_ghost_window);
+}
+
+ScopedLaunchBrowserForTesting::ScopedLaunchBrowserForTesting() {
+  g_launch_browser_for_testing = true;
+}
+
+ScopedLaunchBrowserForTesting::~ScopedLaunchBrowserForTesting() {
+  g_launch_browser_for_testing = false;
 }
 
 }  // namespace full_restore

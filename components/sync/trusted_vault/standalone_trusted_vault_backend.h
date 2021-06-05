@@ -18,6 +18,7 @@
 #include "components/signin/public/identity_manager/account_info.h"
 #include "components/sync/protocol/local_trusted_vault.pb.h"
 #include "components/sync/trusted_vault/trusted_vault_connection.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace base {
 class Clock;
@@ -163,6 +164,24 @@ class StandaloneTrustedVaultBackend
   // Only current |primary_account_| can be used for communication with trusted
   // vault server.
   absl::optional<CoreAccountInfo> primary_account_;
+
+  // If AddTrustedRecoveryMethod() gets invoked before SetPrimaryAccount(), the
+  // execution gets deferred until SetPrimaryAccount() is invoked.
+  struct PendingTrustedRecoveryMethod {
+    PendingTrustedRecoveryMethod();
+    PendingTrustedRecoveryMethod(PendingTrustedRecoveryMethod&) = delete;
+    PendingTrustedRecoveryMethod& operator=(PendingTrustedRecoveryMethod&) =
+        delete;
+    PendingTrustedRecoveryMethod(PendingTrustedRecoveryMethod&&);
+    PendingTrustedRecoveryMethod& operator=(PendingTrustedRecoveryMethod&&);
+    ~PendingTrustedRecoveryMethod();
+
+    std::string gaia_id;
+    std::vector<uint8_t> public_key;
+    int method_type_hint;
+    base::OnceClosure completion_callback;
+  };
+  absl::optional<PendingTrustedRecoveryMethod> pending_trusted_recovery_method_;
 
   // Used to plumb FetchKeys() result to the caller.
   FetchKeysCallback ongoing_fetch_keys_callback_;

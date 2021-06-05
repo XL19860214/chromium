@@ -512,6 +512,8 @@ _CONFIG = [
             'ui::AXMode',
             'ui::AXNodeData',
             'ui::AXTreeID',
+            'ui::kAXModeBasic',
+            'ui::kAXModeComplete',
             'ax::mojom::BoolAttribute',
             'ax::mojom::HasPopup',
             'ax::mojom::State',
@@ -524,6 +526,7 @@ _CONFIG = [
             'ui::IsContainerWithSelectableChildren',
             'ui::IsDialog',
             'ui::IsHeading',
+            'ui::IsLandmark',
             'ui::IsPlatformDocument',
             'ui::IsPresentational',
             'ui::IsTableLike',
@@ -896,6 +899,15 @@ _CONFIG = [
         ],
     },
     {
+        'paths': [
+            'third_party/blink/renderer/core/loader/document_loader.cc',
+            'third_party/blink/renderer/core/loader/document_loader.h',
+        ],
+        'allowed': [
+            'blink::mojom::CodeCacheHost',
+        ],
+    },
+    {
         'paths': ['third_party/blink/renderer/core/xml'],
         'allowed': [
             'xpathyy::.+',
@@ -1248,6 +1260,9 @@ _CONFIG = [
 
             # The liburlpattern API requires using std::vector.
             'std::vector',
+
+            # Internal namespace used by url_pattern module.
+            'url_pattern::.+',
         ],
     },
     {
@@ -1432,7 +1447,13 @@ _CONFIG = [
             'third_party/blink/renderer/platform/graphics/document_transition_shared_element_id.h'
         ],
         'allowed': ['cc::DocumentTransitionSharedElementId'],
-    }
+    },
+    {
+        'paths': [
+            'third_party/blink/renderer/modules/storage/',
+        ],
+        'allowed': ['blink::mojom::StorageKeyDataView'],
+    },
 ]
 
 

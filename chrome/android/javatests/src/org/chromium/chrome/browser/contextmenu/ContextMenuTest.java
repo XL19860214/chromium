@@ -1057,7 +1057,7 @@ public class ContextMenuTest implements DownloadTestRule.CustomMainActivityStart
                 R.id.contextmenu_open_image_in_new_tab, R.id.contextmenu_share_image,
                 R.id.contextmenu_copy_image, R.id.contextmenu_search_with_google_lens};
         expectedItems = addItemsIf(EphemeralTabCoordinator.isSupported(), expectedItems,
-                new Integer[] {R.id.contextmenu_open_in_ephemeral_tab});
+                new Integer[] {R.id.contextmenu_open_image_in_ephemeral_tab});
         String title = getMenuTitleFromItem(menu, R.id.contextmenu_search_with_google_lens);
         Assert.assertTrue("Context menu item name should be \'Search with Google Lens\'.",
                 title.startsWith("Search with Google Lens"));
@@ -1084,7 +1084,7 @@ public class ContextMenuTest implements DownloadTestRule.CustomMainActivityStart
                 R.id.contextmenu_open_image_in_new_tab, R.id.contextmenu_share_image,
                 R.id.contextmenu_copy_image, R.id.contextmenu_search_with_google_lens};
         expectedItems = addItemsIf(EphemeralTabCoordinator.isSupported(), expectedItems,
-                new Integer[] {R.id.contextmenu_open_in_ephemeral_tab});
+                new Integer[] {R.id.contextmenu_open_image_in_ephemeral_tab});
         String title = getMenuTitleFromItem(menu, R.id.contextmenu_search_with_google_lens);
         Assert.assertTrue("Context menu item name should be \'Search image with Google Lens\'.",
                 title.startsWith("Search image with Google Lens"));
@@ -1150,12 +1150,19 @@ public class ContextMenuTest implements DownloadTestRule.CustomMainActivityStart
         TestThreadUtils.runOnUiThreadBlocking(() -> {
             ContextMenuHelper.setMenuShownCallbackForTests((coordinator) -> {
                 assertMenuItemsAreEqual(coordinator, expectedItems);
+                Assert.assertEquals(
+                        1, RecordHistogram.getHistogramTotalCountForTesting("ContextMenu.Shown"));
+                Assert.assertEquals(1,
+                        RecordHistogram.getHistogramTotalCountForTesting(
+                                "ContextMenu.Shown.SharedHighlightingInteraction"));
                 ContextMenuHelper.setMenuShownCallbackForTests(null);
             });
             contextMenuHelper.showContextMenuForTesting(
                     populatorFactory, params, null, tab.getView(), 0);
         });
     }
+
+    // TODO(benwgold): Add more test coverage for histogram recording of other context menu types.
 
     /**
      * Takes all the visible items on the menu and compares them to a the list of expected items.

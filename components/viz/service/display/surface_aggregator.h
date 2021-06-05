@@ -22,6 +22,7 @@
 #include "components/viz/service/display/aggregated_frame.h"
 #include "components/viz/service/display/render_pass_id_remapper.h"
 #include "components/viz/service/viz_service_export.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/gfx/delegated_ink_metadata.h"
 #include "ui/gfx/display_color_spaces.h"
 #include "ui/gfx/overlay_transform.h"
@@ -264,7 +265,8 @@ class VIZ_SERVICE_EXPORT SurfaceAggregator {
   int ChildIdForSurface(Surface* surface);
   bool IsSurfaceFrameIndexSameAsPrevious(const Surface* surface) const;
   gfx::Rect DamageRectForSurface(const Surface* surface,
-                                 const CompositorRenderPass& source) const;
+                                 const CompositorRenderPass& source,
+                                 bool include_per_quad_damage) const;
 
   // This function adds |damage_rect| to
   // |damage_rects_union_of_surfaces_on_top_|. |damage_rect| is in the quad

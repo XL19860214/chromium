@@ -1114,6 +1114,11 @@ TabStrip::TabStrip(std::unique_ptr<TabStripController> controller)
           base::BindRepeating(&TabStrip::tabs_view_model,
                               base::Unretained(this)))),
       drag_context_(std::make_unique<TabDragContextImpl>(this)) {
+  // TODO(pbos): This is probably incorrect, the background of individual tabs
+  // depend on their selected state. This should probably be pushed down into
+  // tabs.
+  views::FocusRing::SetBackgroundColorIdForSubtree(
+      this, ThemeProperties::COLOR_TOOLBAR);
   Init();
   SetEventTargeter(std::make_unique<views::ViewTargeter>(this));
 }
@@ -1325,6 +1330,13 @@ void TabStrip::AddTabAt(int model_index, TabRendererData data, bool is_active) {
     else if (profile->IsIncognitoProfile())
       base::UmaHistogramCounts100("Tab.Count.Incognito", GetTabCount());
   }
+
+  if (new_tab_button_pressed_start_time_.has_value()) {
+    base::UmaHistogramTimes(
+        "TabStrip.TimeToCreateNewTabFromPress",
+        base::TimeTicks::Now() - new_tab_button_pressed_start_time_.value());
+    new_tab_button_pressed_start_time_.reset();
+  }
 }
 
 void TabStrip::MoveTab(int from_model_index,
@@ -1400,6 +1412,11 @@ void TabStrip::ScrollTabToVisible(int model_index) {
     return;
   }
 
+  // If the tab strip won't be scrollable after the current tabstrip animations
+  // complete, scroll animation wouldn't be meaningful.
+  if (ideal_bounds(GetTabCount() - 1).right() <= GetAvailableWidthForTabStrip())
+    return;
+
   if (tab_scrolling_animation_)
     tab_scrolling_animation_->Stop();
 
@@ -1413,23 +1430,30 @@ void TabStrip::ScrollTabToVisible(int model_index) {
 
   bool scroll_left = active_tab_ideal_bounds.x() < visible_content_rect.x();
   if (scroll_left) {
-    gfx::Rect new_visible(active_tab_ideal_bounds.x(), visible_content_rect.y(),
-                          visible_content_rect.width(),
-                          visible_content_rect.height());
+    // Scroll the left edge of |visible_content_rect| to show the left edge of
+    // the tab at |model_index|. We can leave the width entirely up to the
+    // ScrollView.
+    gfx::Rect start_left_edge(visible_content_rect.x(),
+                              visible_content_rect.y(), 0, 0);
+    gfx::Rect target_left_edge(active_tab_ideal_bounds.x(),
+                               visible_content_rect.y(), 0, 0);
     tab_scrolling_animation_ = std::make_unique<TabScrollingAnimation>(
         this, bounds_animator_.container(),
-        bounds_animator_.GetAnimationDuration(), visible_content_rect,
-        new_visible);
+        bounds_animator_.GetAnimationDuration(), start_left_edge,
+        target_left_edge);
     tab_scrolling_animation_->Start();
   } else {
-    gfx::Rect new_visible(
-        active_tab_ideal_bounds.right() - visible_content_rect.width(),
-        visible_content_rect.y(), visible_content_rect.width(),
-        visible_content_rect.height());
+    // Scroll the right edge of |visible_content_rect| to show the right edge
+    // of the tab at |model_index|. We can leave the width entirely up to the
+    // ScrollView.
+    gfx::Rect start_right_edge(visible_content_rect.right(),
+                               visible_content_rect.y(), 0, 0);
+    gfx::Rect target_right_edge(active_tab_ideal_bounds.right(),
+                                visible_content_rect.y(), 0, 0);
     tab_scrolling_animation_ = std::make_unique<TabScrollingAnimation>(
         this, bounds_animator_.container(),
-        bounds_animator_.GetAnimationDuration(), visible_content_rect,
-        new_visible);
+        bounds_animator_.GetAnimationDuration(), start_right_edge,
+        target_right_edge);
     tab_scrolling_animation_->Start();
   }
 }
@@ -1883,6 +1907,8 @@ void TabStrip::SelectTab(Tab* tab, const ui::Event& event) {
                                model_index);
       base::UmaHistogramSparse("Tabs.DesktopTabOffsetFromRightOfSwitch",
                                GetModelCount() - model_index - 1);
+      base::UmaHistogramEnumeration("TabStrip.Tab.Views.ActivationAction",
+                                    TabStripModel::TabActivationTypes::kTab);
 
       if (tab->group().has_value()) {
         base::RecordAction(
@@ -2333,9 +2359,6 @@ void TabStrip::Layout() {
 }
 
 void TabStrip::PaintChildren(const views::PaintInfo& paint_info) {
-  // This is used to log to UMA. NO EARLY RETURNS!
-  base::ElapsedTimer paint_timer;
-
   // The view order doesn't match the paint order (layout_helper_ contains the
   // view ordering).
   bool is_dragging = false;
@@ -2452,11 +2475,6 @@ void TabStrip::PaintChildren(const views::PaintInfo& paint_info) {
   // If the active tab is being dragged, it goes last.
   if (active_tab && is_dragging)
     active_tab->Paint(paint_info);
-
-  UMA_HISTOGRAM_CUSTOM_MICROSECONDS_TIMES(
-      "TabStrip.PaintChildrenDuration", paint_timer.Elapsed(),
-      base::TimeDelta::FromMicroseconds(1),
-      base::TimeDelta::FromMicroseconds(10000), 50);
 }
 
 gfx::Size TabStrip::GetMinimumSize() const {
@@ -2630,6 +2648,8 @@ std::map<tab_groups::TabGroupId, TabGroupHeader*> TabStrip::GetGroupHeaders() {
 }
 
 void TabStrip::NewTabButtonPressed(const ui::Event& event) {
+  new_tab_button_pressed_start_time_ = base::TimeTicks::Now();
+
   base::RecordAction(base::UserMetricsAction("NewTab_Button"));
   UMA_HISTOGRAM_ENUMERATION("Tab.NewTab", TabStripModel::NEW_TAB_BUTTON,
                             TabStripModel::NEW_TAB_ENUM_COUNT);

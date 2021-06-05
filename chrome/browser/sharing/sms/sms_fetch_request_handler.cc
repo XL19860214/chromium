@@ -4,18 +4,36 @@
 
 #include "chrome/browser/sharing/sms/sms_fetch_request_handler.h"
 
+#include <string>
+
 #include "base/android/jni_string.h"
 #include "base/check.h"
+#include "base/threading/sequenced_task_runner_handle.h"
+#include "base/time/time.h"
 #include "build/build_config.h"
 #include "chrome/android/chrome_jni_headers/SmsFetcherMessageHandler_jni.h"
 #include "chrome/browser/sharing/proto/sms_fetch_message_test_proto3_optional.pb.h"
+#include "chrome/browser/sharing/sharing_device_source.h"
+#include "components/sync_device_info/device_info.h"
 #include "components/url_formatter/elide_url.h"
+#include "content/public/browser/browser_task_traits.h"
+#include "content/public/browser/browser_thread.h"
 #include "content/public/browser/sms_fetcher.h"
 #include "url/gurl.h"
 #include "url/origin.h"
 
-SmsFetchRequestHandler::SmsFetchRequestHandler(content::SmsFetcher* fetcher)
-    : fetcher_(fetcher) {}
+namespace {
+// To mitigate the overlapping of the notification for SMS and the one for
+// user permission, we postpone showing the latter to make sure it's always
+// visible to users.
+static constexpr base::TimeDelta kNotificationDelay =
+    base::TimeDelta::FromSeconds(1);
+}  // namespace
+
+SmsFetchRequestHandler::SmsFetchRequestHandler(
+    SharingDeviceSource* device_source,
+    content::SmsFetcher* fetcher)
+    : device_source_(device_source), fetcher_(fetcher) {}
 
 SmsFetchRequestHandler::~SmsFetchRequestHandler() {
   JNIEnv* env = base::android::AttachCurrentThread();
@@ -27,8 +45,12 @@ void SmsFetchRequestHandler::OnMessage(
     SharingMessageHandler::DoneCallback done_callback) {
   DCHECK(message.has_sms_fetch_request());
 
+  std::unique_ptr<syncer::DeviceInfo> device =
+      device_source_->GetDeviceByGuid(message.sender_guid());
+  const std::string remote_os = device ? device->GetOSString() : "";
+
   auto origin = url::Origin::Create(GURL(message.sms_fetch_request().origin()));
-  auto request = std::make_unique<Request>(this, fetcher_, origin,
+  auto request = std::make_unique<Request>(this, fetcher_, origin, remote_os,
                                            std::move(done_callback));
   requests_.insert(std::move(request));
 }
@@ -39,11 +61,13 @@ void SmsFetchRequestHandler::RemoveRequest(Request* request) {
 
 void SmsFetchRequestHandler::AskUserPermission(
     const content::OriginList& origin_list,
-    const std::string& one_time_code) {
+    const std::string& one_time_code,
+    const std::string& remote_os) {
   JNIEnv* env = base::android::AttachCurrentThread();
   // TODO(crbug.com/1015645): Support iframe in cross-device WebOTP.
   const std::u16string origin = url_formatter::FormatOriginForSecurityDisplay(
       origin_list[0], url_formatter::SchemeDisplay::OMIT_HTTP_AND_HTTPS);
+
   // If there is a notification from a previous request on screen this will
   // overwrite that one with the new origin. In most cases where there's only
   // one pending origin, the request will be removed when |SmsRetrieverClient|
@@ -53,6 +77,7 @@ void SmsFetchRequestHandler::AskUserPermission(
   Java_SmsFetcherMessageHandler_showNotification(
       env, base::android::ConvertUTF8ToJavaString(env, one_time_code),
       base::android::ConvertUTF16ToJavaString(env, origin),
+      base::android::ConvertUTF8ToJavaString(env, remote_os),
       reinterpret_cast<intptr_t>(this));
 }
 
@@ -90,14 +115,20 @@ SmsFetchRequestHandler::Request* SmsFetchRequestHandler::GetRequest(
   return nullptr;
 }
 
+base::WeakPtr<SmsFetchRequestHandler> SmsFetchRequestHandler::GetWeakPtr() {
+  return weak_ptr_factory_.GetWeakPtr();
+}
+
 SmsFetchRequestHandler::Request::Request(
     SmsFetchRequestHandler* handler,
     content::SmsFetcher* fetcher,
     const url::Origin& origin,
+    const std::string& remote_os,
     SharingMessageHandler::DoneCallback respond_callback)
     : handler_(handler),
       fetcher_(fetcher),
       origin_list_(content::OriginList{origin}),
+      remote_os_(remote_os),
       respond_callback_(std::move(respond_callback)) {
   // TODO(crbug.com/1015645): Support iframe in cross-device WebOTP.
   fetcher_->Subscribe(origin_list_, this);
@@ -117,7 +148,15 @@ void SmsFetchRequestHandler::Request::OnReceive(
   // TODO(crbug.com/1015645): Support iframe in cross-device WebOTP.
   DCHECK_EQ(origin_list[0], origin_list_[0]);
   one_time_code_ = one_time_code;
-  handler_->AskUserPermission(origin_list, one_time_code);
+
+  // Postpones asking for user permission to make sure that the notification is
+  // not covered by the SMS notification.
+  base::SequencedTaskRunnerHandle::Get()->PostDelayedTask(
+      FROM_HERE,
+      base::BindOnce(&SmsFetchRequestHandler::AskUserPermission,
+                     handler_->GetWeakPtr(), origin_list, one_time_code,
+                     remote_os_),
+      kNotificationDelay);
 }
 
 void SmsFetchRequestHandler::Request::SendSuccessMessage() {

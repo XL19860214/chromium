@@ -54,7 +54,7 @@ reviews. Googlers can read more about this at go/gwsq-gerrit.
 </histogram>
 
 <histogram name="InputMethod.Assistive.Autocorrect.Count"
-    enum="IMETextInputClient" expires_after="2021-09-19">
+    enum="IMETextInputClient" expires_after="2021-11-21">
   <owner>myy@google.com</owner>
   <owner>essential-inputs-team@google.com</owner>
   <summary>
@@ -75,7 +75,7 @@ reviews. Googlers can read more about this at go/gwsq-gerrit.
 </histogram>
 
 <histogram name="InputMethod.Assistive.Coverage" enum="IMEAssistiveAction"
-    expires_after="2021-09-19">
+    expires_after="2021-11-21">
   <owner>jiwan@google.com</owner>
   <owner>essential-inputs-team@google.com</owner>
   <summary>
@@ -85,7 +85,7 @@ reviews. Googlers can read more about this at go/gwsq-gerrit.
 </histogram>
 
 <histogram name="InputMethod.Assistive.Disabled" enum="IMEAssistiveAction"
-    expires_after="2021-09-19">
+    expires_after="2021-11-21">
   <owner>jiwan@google.com</owner>
   <owner>essential-inputs-team@google.com</owner>
   <summary>
@@ -97,7 +97,7 @@ reviews. Googlers can read more about this at go/gwsq-gerrit.
 </histogram>
 
 <histogram name="InputMethod.Assistive.Disabled.Emoji"
-    enum="IMEAssistiveDisabledReason" expires_after="2021-09-19">
+    enum="IMEAssistiveDisabledReason" expires_after="2021-11-21">
   <owner>myy@google.com</owner>
   <owner>essential-inputs-team@google.com</owner>
   <summary>
@@ -105,6 +105,18 @@ reviews. Googlers can read more about this at go/gwsq-gerrit.
     surrounding text could trigger emoji suggestions but the feature was
     disabled. Only the first applicable reason in IMEAssistiveDisabledReason
     enum is recorded per occurrence.
+  </summary>
+</histogram>
+
+<histogram name="InputMethod.Assistive.Disabled.MultiWord"
+    enum="IMEAssistiveDisabledReason" expires_after="2022-05-31">
+  <owner>curtismcmullan@google.com</owner>
+  <owner>essential-inputs-team@google.com</owner>
+  <summary>
+    The reason for multi word suggestions not being shown to users. Recorded
+    when the surrounding text could trigger multi word suggestions but the
+    feature was disabled. Only the first applicable reason in
+    IMEAssistiveDisabledReason enum is recorded per occurrence.
   </summary>
 </histogram>
 
@@ -121,7 +133,7 @@ reviews. Googlers can read more about this at go/gwsq-gerrit.
 </histogram>
 
 <histogram name="InputMethod.Assistive.EmojiSuggestAddition.AcceptanceIndex"
-    units="times" expires_after="2021-09-19">
+    units="times" expires_after="2021-11-21">
   <owner>myy@google.com</owner>
   <owner>essential-inputs-team@google.com</owner>
   <summary>
@@ -143,7 +155,7 @@ reviews. Googlers can read more about this at go/gwsq-gerrit.
 </histogram>
 
 <histogram name="InputMethod.Assistive.Match" enum="IMEAssistiveAction"
-    expires_after="2021-09-19">
+    expires_after="2021-11-21">
   <owner>jiwan@google.com</owner>
   <owner>essential-inputs-team@google.com</owner>
   <summary>
@@ -168,7 +180,7 @@ reviews. Googlers can read more about this at go/gwsq-gerrit.
 </histogram>
 
 <histogram name="InputMethod.Assistive.Success" enum="IMEAssistiveAction"
-    expires_after="2021-09-19">
+    expires_after="2021-11-21">
   <owner>jiwan@google.com</owner>
   <owner>essential-inputs-team@google.com</owner>
   <summary>
@@ -218,7 +230,7 @@ reviews. Googlers can read more about this at go/gwsq-gerrit.
 </histogram>
 
 <histogram name="InputMethod.Assistive.UserPref.Emoji" enum="BooleanEnabled"
-    expires_after="2021-09-19">
+    expires_after="2021-11-21">
   <owner>myy@google.com</owner>
   <owner>essential-inputs-team@google.com</owner>
   <summary>
@@ -624,6 +636,24 @@ reviews. Googlers can read more about this at go/gwsq-gerrit.
   </summary>
 </histogram>
 
+<histogram name="InputMethod.SystemEmojiPicker.Delay" units="ms"
+    expires_after="M95">
+  <owner>jopalmer@chromium.org</owner>
+  <owner>essential-inputs-team@google.com</owner>
+  <summary>
+    Time between when emoji picker shown and when the emoji is inserted
+  </summary>
+</histogram>
+
+<histogram name="InputMethod.SystemEmojiPicker.SearchLength" units="characters"
+    expires_after="M95">
+  <owner>jopalmer@chromium.org</owner>
+  <owner>essential-inputs-team@google.com</owner>
+  <summary>
+    Length of search string in emoji picker when emoji was inserted.
+  </summary>
+</histogram>
+
 <histogram name="InputMethod.SystemEmojiPicker.TriggerType"
     enum="VirtualKeyboardEmojiTriggerType" expires_after="M95">
   <owner>jopalmer@chromium.org</owner>
@@ -741,6 +771,15 @@ reviews. Googlers can read more about this at go/gwsq-gerrit.
   <summary>How long the virtual keyboard was visible.</summary>
 </histogram>
 
+<histogram name="InputMethod.VirtualKeyboard.Emoji.Delay" units="ms"
+    expires_after="M95">
+  <owner>jopalmer@chromium.org</owner>
+  <owner>essential-inputs-team@google.com</owner>
+  <summary>
+    Time between when emoji shown in VK and when the emoji is inserted.
+  </summary>
+</histogram>
+
 <histogram name="InputMethod.VirtualKeyboard.Emoji.TriggerType"
     enum="VirtualKeyboardEmojiTriggerType" expires_after="M95">
   <owner>shend@chromium.org</owner>
@@ -773,7 +812,7 @@ reviews. Googlers can read more about this at go/gwsq-gerrit.
 </histogram>
 
 <histogram name="InputMethod.VirtualKeyboard.Handwriting.CommitType"
-    enum="VirtualKeyboardHandwritingCommitType" expires_after="2021-07-01">
+    enum="VirtualKeyboardHandwritingCommitType" expires_after="2022-02-01">
   <owner>curtismcmullan@chromium.org</owner>
   <owner>essential-inputs-team@google.com</owner>
   <summary>
@@ -881,7 +920,7 @@ reviews. Googlers can read more about this at go/gwsq-gerrit.
 </histogram>
 
 <histogram name="InputMethod.VirtualKeyboard.ResizableWindowInitWidth"
-    units="px" expires_after="2021-07-06">
+    units="px" expires_after="2022-02-01">
   <owner>curtismcmullan@chromium.org</owner>
   <owner>essential-inputs-team@google.com</owner>
   <summary>

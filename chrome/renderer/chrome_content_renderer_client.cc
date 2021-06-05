@@ -84,6 +84,7 @@
 #include "components/dom_distiller/core/url_constants.h"
 #include "components/error_page/common/error.h"
 #include "components/error_page/common/localized_error.h"
+#include "components/feed/buildflags.h"
 #include "components/grit/components_scaled_resources.h"
 #include "components/network_hints/renderer/web_prescient_networking_impl.h"
 #include "components/no_state_prefetch/common/prerender_url_loader_throttle.h"
@@ -141,8 +142,10 @@
 #include "third_party/blink/public/platform/scheduler/web_renderer_process_type.h"
 #include "third_party/blink/public/platform/url_conversion.h"
 #include "third_party/blink/public/platform/web_cache.h"
+#include "third_party/blink/public/platform/web_content_security_policy_struct.h"
 #include "third_party/blink/public/platform/web_runtime_features.h"
 #include "third_party/blink/public/platform/web_security_origin.h"
+#include "third_party/blink/public/platform/web_string.h"
 #include "third_party/blink/public/platform/web_url.h"
 #include "third_party/blink/public/platform/web_url_error.h"
 #include "third_party/blink/public/platform/web_url_request.h"
@@ -179,6 +182,11 @@
 #include "base/win/scoped_hstring.h"
 #endif
 
+#if BUILDFLAG(ENABLE_FEED_V2)
+#include "components/feed/content/renderer/rss_link_reader.h"
+#include "components/feed/feed_feature_list.h"
+#endif
+
 #if BUILDFLAG(ENABLE_NACL)
 #include "components/nacl/common/nacl_constants.h"
 #include "components/nacl/renderer/nacl_helper.h"
@@ -189,6 +197,7 @@
 #include "chrome/renderer/extensions/chrome_extensions_renderer_client.h"
 #include "extensions/common/constants.h"
 #include "extensions/common/extension_urls.h"
+#include "extensions/common/manifest_handlers/csp_info.h"
 #include "extensions/common/manifest_handlers/web_accessible_resources_info.h"
 #include "extensions/common/switches.h"
 #include "extensions/renderer/dispatcher.h"
@@ -388,6 +397,8 @@ void ChromeContentRendererClient::RenderThreadStarted() {
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
   ChromeExtensionsRendererClient::GetInstance()->RenderThreadStarted();
+  WebSecurityPolicy::RegisterURLSchemeAsExtension(
+      WebString::FromASCII(extensions::kExtensionScheme));
 #endif
 
 #if BUILDFLAG(ENABLE_SPELLCHECK)
@@ -673,11 +684,16 @@ void ChromeContentRendererClient::RenderFrameCreated(
   new SpellCheckPanel(render_frame, registry, this);
 #endif  // BUILDFLAG(HAS_SPELLCHECK_PANEL)
 #endif
+#if BUILDFLAG(ENABLE_FEED_V2)
+  if (render_frame->IsMainFrame() &&
+      base::FeatureList::IsEnabled(feed::kWebFeed)) {
+    new feed::RssLinkReader(render_frame, registry);
+  }
+#endif
 }
 
-void ChromeContentRendererClient::RenderViewCreated(
-    content::RenderView* render_view) {
-  new prerender::NoStatePrefetchClient(render_view->GetWebView());
+void ChromeContentRendererClient::WebViewCreated(blink::WebView* web_view) {
+  new prerender::NoStatePrefetchClient(web_view);
 }
 
 SkBitmap* ChromeContentRendererClient::GetSadPluginBitmap() {
@@ -973,8 +989,7 @@ WebPlugin* ChromeContentRendererClient::CreatePlugin(
         if (GURL(frame->GetDocument().Url()).host_piece() ==
             extension_misc::kPdfExtensionId) {
           if (!base::FeatureList::IsEnabled(features::kWebUIDarkMode)) {
-            auto* render_view = render_frame->GetRenderView();
-            auto* web_view = render_view ? render_view->GetWebView() : nullptr;
+            auto* web_view = render_frame->GetWebView();
             if (web_view) {
               web_view->GetSettings()->SetPreferredColorScheme(
                   blink::mojom::PreferredColorScheme::kLight);
@@ -1643,5 +1658,30 @@ void ChromeContentRendererClient::DidSetUserAgent(
     const std::string& user_agent) {
 #if BUILDFLAG(ENABLE_PRINTING)
   printing::SetAgent(user_agent);
+#endif
+}
+
+void ChromeContentRendererClient::AppendContentSecurityPolicy(
+    const blink::WebURL& url,
+    blink::WebVector<blink::WebContentSecurityPolicyHeader>* csp) {
+#if BUILDFLAG(ENABLE_EXTENSIONS)
+  DCHECK(csp);
+  GURL gurl(url);
+  const extensions::Extension* extension =
+      extensions::RendererExtensionRegistry::Get()->GetExtensionOrAppByURL(
+          gurl);
+  if (!extension || !extension->is_extension() ||
+      extension->manifest_version() < 3) {
+    return;
+  }
+
+  // Append the default extension pages CSP to ensure the extension can't relax
+  // the default applied CSP through means like Service Worker.
+  const std::string& default_csp =
+      extensions::CSPInfo::GetDefaultMV3ExtensionPagesCSP();
+
+  csp->push_back({blink::WebString::FromUTF8(default_csp),
+                  network::mojom::ContentSecurityPolicyType::kEnforce,
+                  network::mojom::ContentSecurityPolicySource::kHTTP});
 #endif
 }

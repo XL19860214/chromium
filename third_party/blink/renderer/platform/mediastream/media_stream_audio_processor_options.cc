@@ -72,13 +72,22 @@ void GetExtraConfigFromJson(
   *noise_suppression_level = GetNoiseSuppressionLevel(*config);
 }
 
-}  // namespace
+using ClippingPredictor = webrtc::AudioProcessing::Config::GainController1::
+    AnalogGainController::ClippingPredictor;
 
-AudioProcessingProperties::AudioProcessingProperties() = default;
-AudioProcessingProperties::AudioProcessingProperties(
-    const AudioProcessingProperties& other) = default;
-AudioProcessingProperties& AudioProcessingProperties::operator=(
-    const AudioProcessingProperties& other) = default;
+ClippingPredictor::Mode GetClippingPredictorMode(
+    int clipping_predictor_param_mode) {
+  switch (clipping_predictor_param_mode) {
+    case 1:
+      return ClippingPredictor::Mode::kAdaptiveStepClippingPeakPrediction;
+    case 2:
+      return ClippingPredictor::Mode::kFixedStepClippingPeakPrediction;
+    default:
+      return ClippingPredictor::Mode::kClippingEventPrediction;
+  }
+}
+
+}  // namespace
 
 void AudioProcessingProperties::DisableDefaultProperties() {
   echo_cancellation_type = EchoCancellationType::kEchoCancellationDisabled;
@@ -184,9 +193,12 @@ void StopEchoCancellationDump(AudioProcessing* audio_processing) {
   audio_processing->DetachAecDump();
 }
 
+// TODO(bugs.webrtc.org/7494): Remove unused cases, simplify decision logic.
 void ConfigAutomaticGainControl(
     const AudioProcessingProperties& properties,
-    absl::optional<AdaptiveGainController2Properties> agc2_properties,
+    const absl::optional<WebRtcHybridAgcParams>& hybrid_agc_params,
+    const absl::optional<WebRtcAnalogAgcClippingControlParams>&
+        clipping_control_params,
     absl::optional<double> compression_gain_db,
     AudioProcessing::Config& apm_config) {
   // If system level gain control is activated, turn off all gain control
@@ -194,21 +206,26 @@ void ConfigAutomaticGainControl(
   if (properties.system_gain_control_activated) {
     apm_config.gain_controller1.enabled = false;
     apm_config.gain_controller2.enabled = false;
-    apm_config.gain_controller2.adaptive_digital.enabled = false;
     return;
   }
 
+  // The AGC2 fixed digital controller is always enabled when automatic gain
+  // control is enabled, the experimental analog AGC is disabled and a
+  // compression gain is specified.
+  // TODO(bugs.webrtc.org/7494): Remove this option since it makes no sense to
+  // run a fixed digital gain after AGC1 adaptive digital.
   const bool use_fixed_digital_agc2 =
       properties.goog_auto_gain_control &&
       !properties.goog_experimental_auto_gain_control &&
       compression_gain_db.has_value();
-  const bool use_hybrid_agc = agc2_properties.has_value();
+  const bool use_hybrid_agc = hybrid_agc_params.has_value();
   const bool agc1_enabled = properties.goog_auto_gain_control &&
                             (use_hybrid_agc || !use_fixed_digital_agc2);
 
   // Configure AGC1.
   if (agc1_enabled) {
     apm_config.gain_controller1.enabled = true;
+    // TODO(bugs.webrtc.org/7909): Maybe set mode to kFixedDigital also for IOS.
     apm_config.gain_controller1.mode =
 #if defined(OS_ANDROID)
         AudioProcessing::Config::GainController1::Mode::kFixedDigital;
@@ -218,55 +235,80 @@ void ConfigAutomaticGainControl(
   }
 
   // Configure AGC2.
+  auto& agc2_config = apm_config.gain_controller2;
   if (properties.goog_experimental_auto_gain_control) {
     // Experimental AGC is enabled. Hybrid AGC may or may not be enabled. Config
     // AGC2 with adaptive mode and the given options, while ignoring
-    // |use_fixed_digital_agc2|.
-    apm_config.gain_controller2.enabled = use_hybrid_agc;
-    apm_config.gain_controller2.fixed_digital.gain_db = 0.f;
-    apm_config.gain_controller2.adaptive_digital.enabled = true;
-
+    // `use_fixed_digital_agc2`.
+    agc2_config.enabled = use_hybrid_agc;
+    agc2_config.fixed_digital.gain_db = 0.0f;
+    agc2_config.adaptive_digital.enabled = use_hybrid_agc;
     if (use_hybrid_agc) {
-      auto& adaptive_digital = apm_config.gain_controller2.adaptive_digital;
+      DCHECK(hybrid_agc_params.has_value());
+      // Set AGC2 adaptive digital configuration.
+      agc2_config.adaptive_digital.dry_run = hybrid_agc_params->dry_run;
+      agc2_config.adaptive_digital.vad_reset_period_ms =
+          hybrid_agc_params->vad_reset_period_ms;
+      agc2_config.adaptive_digital.adjacent_speech_frames_threshold =
+          hybrid_agc_params->adjacent_speech_frames_threshold;
+      agc2_config.adaptive_digital.max_gain_change_db_per_second =
+          hybrid_agc_params->max_gain_change_db_per_second;
+      agc2_config.adaptive_digital.max_output_noise_level_dbfs =
+          hybrid_agc_params->max_output_noise_level_dbfs;
+      agc2_config.adaptive_digital.sse2_allowed =
+          hybrid_agc_params->sse2_allowed;
+      agc2_config.adaptive_digital.avx2_allowed =
+          hybrid_agc_params->avx2_allowed;
+      agc2_config.adaptive_digital.neon_allowed =
+          hybrid_agc_params->neon_allowed;
+      // Enable AGC1 adaptive digital if AGC2 adaptive digital runs in dry-run
+      // mode.
+      apm_config.gain_controller1.analog_gain_controller
+          .enable_digital_adaptive = agc2_config.adaptive_digital.dry_run;
+    } else {
+      // Enable AGC1 adaptive digital since AGC2 adaptive digital is disabled.
+      apm_config.gain_controller1.analog_gain_controller
+          .enable_digital_adaptive = true;
+    }
 
-      adaptive_digital.vad_probability_attack =
-          agc2_properties->vad_probability_attack;
+    // When experimental AGC is enabled, we enable clipping control given that
+    // 1. `clipping_control_params` is not nullopt,
+    // 2. AGC1 is used,
+    // 3. AGC1 uses analog gain controller.
+    if (apm_config.gain_controller1.enabled &&
+        apm_config.gain_controller1.analog_gain_controller.enabled &&
+        clipping_control_params.has_value()) {
+      auto* const analog_gain_controller =
+          &apm_config.gain_controller1.analog_gain_controller;
+      analog_gain_controller->clipped_level_step =
+          clipping_control_params->clipped_level_step;
+      analog_gain_controller->clipped_ratio_threshold =
+          clipping_control_params->clipped_ratio_threshold;
+      analog_gain_controller->clipped_wait_frames =
+          clipping_control_params->clipped_wait_frames;
 
-      using LevelEstimator =
-          AudioProcessing::Config::GainController2::LevelEstimator;
-      adaptive_digital.level_estimator = agc2_properties->use_peaks_not_rms
-                                             ? LevelEstimator::kPeak
-                                             : LevelEstimator::kRms;
-
-      adaptive_digital.level_estimator_adjacent_speech_frames_threshold =
-          agc2_properties->level_estimator_speech_frames_threshold;
-
-      adaptive_digital.initial_saturation_margin_db =
-          agc2_properties->initial_saturation_margin_db;
-
-      adaptive_digital.extra_saturation_margin_db =
-          agc2_properties->extra_saturation_margin_db;
-
-      adaptive_digital.gain_applier_adjacent_speech_frames_threshold =
-          agc2_properties->gain_applier_speech_frames_threshold;
-
-      adaptive_digital.max_gain_change_db_per_second =
-          agc2_properties->max_gain_change_db_per_second;
-
-      adaptive_digital.max_output_noise_level_dbfs =
-          agc2_properties->max_output_noise_level_dbfs;
-
-      adaptive_digital.sse2_allowed = agc2_properties->sse2_allowed;
-      adaptive_digital.avx2_allowed = agc2_properties->avx2_allowed;
-      adaptive_digital.neon_allowed = agc2_properties->neon_allowed;
+      auto* const clipping_predictor =
+          &analog_gain_controller->clipping_predictor;
+      clipping_predictor->enabled = true;
+      clipping_predictor->mode =
+          GetClippingPredictorMode(clipping_control_params->mode);
+      clipping_predictor->window_length =
+          clipping_control_params->window_length;
+      clipping_predictor->reference_window_length =
+          clipping_control_params->reference_window_length;
+      clipping_predictor->reference_window_delay =
+          clipping_control_params->reference_window_delay;
+      clipping_predictor->clipping_threshold =
+          clipping_control_params->clipping_threshold;
+      clipping_predictor->crest_factor_margin =
+          clipping_control_params->crest_factor_margin;
     }
   } else if (use_fixed_digital_agc2) {
     // Experimental AGC is disabled, thus hybrid AGC is disabled. Config AGC2
     // with fixed gain mode.
-    apm_config.gain_controller2.enabled = true;
-    apm_config.gain_controller2.fixed_digital.gain_db =
-        compression_gain_db.value();
-    apm_config.gain_controller2.adaptive_digital.enabled = false;
+    agc2_config.enabled = true;
+    agc2_config.fixed_digital.gain_db = compression_gain_db.value();
+    agc2_config.adaptive_digital.enabled = false;
   }
 }
 
@@ -275,8 +317,8 @@ void PopulateApmConfig(
     const AudioProcessingProperties& properties,
     const absl::optional<std::string>& audio_processing_platform_config_json,
     absl::optional<double>* gain_control_compression_gain_db) {
-  // TODO(saza): When Chrome uses AGC2, handle all JSON config via the
-  // webrtc::AudioProcessing::Config, crbug.com/895814.
+  // TODO(crbug.com/895814): When Chrome uses AGC2, handle all JSON config via
+  // webrtc::AudioProcessing::Config.
   absl::optional<double> pre_amplifier_fixed_gain_factor;
   absl::optional<NoiseSuppression::Level> noise_suppression_level;
   if (audio_processing_platform_config_json.has_value()) {

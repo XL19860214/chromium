@@ -13,6 +13,7 @@
 
 #include "content/common/navigation_params.mojom.h"
 #include "content/public/browser/certificate_request_result_type.h"
+#include "content/public/browser/global_routing_id.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "services/network/public/mojom/network_service.mojom.h"
 #include "services/network/public/mojom/url_loader_factory.mojom.h"
@@ -53,7 +54,9 @@ class NavigationThrottle;
 class RenderFrameHostImpl;
 class RenderProcessHost;
 class SharedWorkerHost;
+class ServiceWorkerContextWrapper;
 class SignedExchangeEnvelope;
+class StoragePartition;
 class WebContents;
 
 struct SignedExchangeError;
@@ -86,12 +89,7 @@ bool WillCreateURLLoaderFactory(
     bool is_navigation,
     bool is_download,
     mojo::PendingReceiver<network::mojom::URLLoaderFactory>*
-        loader_factory_receiver,
-    network::mojom::URLLoaderFactoryOverridePtr* factory_override);
-
-bool WillCreateURLLoaderFactoryForWorker(
-    DevToolsAgentHostImpl* host,
-    const base::UnguessableToken& worker_token,
+        target_factory_receiver,
     network::mojom::URLLoaderFactoryOverridePtr* factory_override);
 
 bool WillCreateURLLoaderFactoryForServiceWorker(
@@ -99,8 +97,19 @@ bool WillCreateURLLoaderFactoryForServiceWorker(
     int routing_id,
     network::mojom::URLLoaderFactoryOverridePtr* factory_override);
 
+bool WillCreateURLLoaderFactoryForServiceWorkerMainScript(
+    const ServiceWorkerContextWrapper* context_wrapper,
+    int64_t version_id,
+    mojo::PendingReceiver<network::mojom::URLLoaderFactory>*
+        loader_factory_receiver);
+
 bool WillCreateURLLoaderFactoryForSharedWorker(
     SharedWorkerHost* host,
+    network::mojom::URLLoaderFactoryOverridePtr* factory_override);
+
+bool WillCreateURLLoaderFactoryForWorkerMainScript(
+    DevToolsAgentHostImpl* host,
+    const base::UnguessableToken& worker_token,
     network::mojom::URLLoaderFactoryOverridePtr* factory_override);
 
 bool WillCreateURLLoaderFactory(
@@ -108,6 +117,17 @@ bool WillCreateURLLoaderFactory(
     bool is_navigation,
     bool is_download,
     std::unique_ptr<network::mojom::URLLoaderFactory>* factory);
+
+bool WillCreateURLLoaderFactoryInternal(
+    DevToolsAgentHostImpl* agent_host,
+    const base::UnguessableToken& devtools_token,
+    int process_id,
+    StoragePartition* storage_partition,
+    bool is_navigation,
+    bool is_download,
+    mojo::PendingReceiver<network::mojom::URLLoaderFactory>*
+        target_factory_receiver,
+    network::mojom::URLLoaderFactoryOverridePtr* factory_override);
 
 void OnResetNavigationRequest(NavigationRequest* navigation_request);
 void OnNavigationRequestWillBeSent(const NavigationRequest& navigation_request);
@@ -175,7 +195,7 @@ void PortalActivated(RenderFrameHostImpl* render_frame_host_impl);
 
 void ReportSameSiteCookieIssue(
     RenderFrameHostImpl* render_frame_host_impl,
-    const net::CookieWithAccessResult& excluded_cookie,
+    const network::mojom::CookieOrLineWithAccessResultPtr& excluded_cookie,
     const GURL& url,
     const net::SiteForCookies& site_for_cookies,
     blink::mojom::SameSiteCookieOperation operation,
@@ -210,6 +230,10 @@ void OnWebTransportHandshakeFailed(
     RenderFrameHostImpl* frame_host,
     const GURL& url,
     const absl::optional<net::WebTransportError>& error);
+
+void OnServiceWorkerMainScriptFetchingFailed(
+    const GlobalFrameRoutingId& requesting_frame_id,
+    const std::string& error);
 
 // Adds a debug error message from a worklet to the devtools console.
 void LogWorkletError(RenderFrameHostImpl* frame_host, const std::string& error);

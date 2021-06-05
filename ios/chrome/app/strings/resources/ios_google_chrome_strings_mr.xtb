@@ -1,6 +1,7 @@
 <?xml version="1.0" ?>
 <!DOCTYPE translationbundle>
 <translationbundle lang="mr">
+<translation id="1096883626080133124">सोपे, सुरक्षित आणि पूर्वीपेक्षा अधिक जलद Google Chrome वापरून आणखी बरेच काही करा</translation>
 <translation id="1282031177488366470">Chrome ची वैशिष्ट्ये आणि परफॉर्मन्स सुधारण्यात मदत करा</translation>
 <translation id="1314663809820920746">तुम्ही तरीही या डिव्हाइसवर तुमचे सर्व बुकमार्क, इतिहास, पासवर्ड आणि इतर सेटिंग्ज पाहू शकता. तुम्ही बदल केल्यास, ते तुमच्या Google खाते मध्ये सिंक केले जाणार नाहीत.</translation>
 <translation id="1479202195792305274">तुम्ही तुमचे Google खाते वापरून साइन इन करता तेव्हा, Chrome तुमचे पासवर्ड तपासू शकते.</translation>
@@ -8,6 +9,7 @@
 <translation id="1504372625950710826">Chrome ला अपडेट तपासता आली नाहीत. तुमचे इंटरनेट कनेक्शन तपासून पाहा.</translation>
 <translation id="1682483655351012182">तुमचा Chrome डेटा सिंक करा</translation>
 <translation id="1759842336958782510">Chrome</translation>
+<translation id="1812249337131447686">Google कडे वापर आकडेवारी आणि क्रॅश अहवाल पाठवून Chrome मध्ये सुधारणा करण्यात मदत करा</translation>
 <translation id="1917964099031477364">हे खाते आणि कोणताही सेव्ह न केलेला डेटा Chrome आणि या डिव्हाइसवरील इतर Google अ‍ॅप्समधून काढून टाकला जाईल.</translation>
 <translation id="2009224836393115614">Chrome ला तुमचे पासवर्ड तपासता आले नाहीत. तुमचे इंटरनेट कनेक्शन तपासून पहा.</translation>
 <translation id="2147651015520127414"><ph name="ISSUER" /> ने या वेबसाइटचे सर्टिफिकेट जारी केले हे Chrome ने पडताळले.</translation>
@@ -22,12 +24,12 @@
 <translation id="2695886661449553974">Chrome ला अपडेट तपासता आली नाहीत. नंतर पुन्हा प्रयत्न करा.</translation>
 <translation id="2732745070297234559">Chrome ला सर्व पासवर्ड तपासता आले नाहीत. उद्या पुन्हा प्रयत्न करा.</translation>
 <translation id="2740105938841089077">लिंक उघडण्यासाठी Chrome वापरा</translation>
+<translation id="2869959624320573933">Chrome वर साइन इन करा</translation>
 <translation id="2919738076569633423">Chrome वापरून, तुम्ही <ph name="BEGIN_LINK_TOS" />सेवा अटी<ph name="END_LINK_TOS" /> यांना सहमती दर्शवता.</translation>
 <translation id="3030414234702425231">तुम्ही <ph name="SIGNOUT_MANAGED_DOMAIN" /> द्वारे व्यवस्थापित केलेल्या खात्यातून साइन आउट केले आहे, तुमचा Chrom डेटा या डिव्हाइसवरून हटवला जाईल. तुमचा डेटा तुमच्या Google खाते मध्ये असेल</translation>
 <translation id="3167189358072330585">तुमचे खाते Google Chrome वर काम करत नाही. कृपया तुमच्या डोमेन ॲडमिनिस्ट्रेटरशी संपर्क साधा किंवा साइन इन करण्यासाठी एक नियमित Google खाते वापरा.</translation>
 <translation id="3173834708294760622">Google Chrome पेज</translation>
 <translation id="3196546062792660320">तुमची खाती वेबवर आणून Chrome तुमचा वेळ वाचविते. तुम्ही सेटिंग्जमध्ये खाती जोडू किंवा काढू शकता.</translation>
-<translation id="3223655207402797071">ही साइट, तुमचे Google खाते आणि Chrome यांमध्ये साइन इन करा. तुम्ही सिंक नंतर सुरू करू शकता.</translation>
 <translation id="3282568296779691940">Chrome वर साइन इन करा</translation>
 <translation id="3345341804167540816">Chrome सर्वत्र वापरा</translation>
 <translation id="3455456143708465450">Chrome चा पुरेपूर वापर करण्यासाठी, तुमचे Google खाते वापरून साइन इन करा</translation>
@@ -62,7 +64,6 @@
 <translation id="6063091872902370735">Chrome मध्ये साइन-इन करण्यासाठी अनुमती द्या</translation>
 <translation id="6181930887571472871">Chrome वर स्विच करा</translation>
 <translation id="6238746320622508509">Chrome ला तुमचे गुप्त टॅब लॉक करू द्या.</translation>
-<translation id="6573431926118603307">आपल्या अन्य डिव्हाइसेसवर तुम्ही Chrome मध्ये उघडलेले टॅब येथे दिसतील.</translation>
 <translation id="6600954340915313787">Chrome वर कॉपी केले</translation>
 <translation id="6634107063912726160">तुम्ही साइन आउट करता तेव्हा, Chrome तुमच्या Google खाते मध्ये कोणताही नवीन डेटा सिंक करणार नाही. याआधी सिंक केलेला डेटा खात्यामध्ये राहील.</translation>
 <translation id="6648150602980899529"><ph name="DOMAIN" /> द्वारे व्यवस्थापित केलेल्या खात्यासह तुम्ही साइन इन करत आहात आणि त्याच्या ॲडमिनिस्ट्रेटरला तुमच्या Chrome डेटाचे नियंत्रण देत आहात. तुमचा डेटा कायमचा या खात्यामध्ये असेल. Chrome मधून साइन आउट केल्याने तुमचा डेटा या डिव्हाइस वरून हटवला जाईल परंतु तो तुमच्या Google खात्यामध्ये स्टोअर केलेला असेल.</translation>
@@ -76,8 +77,6 @@
 <translation id="7172660552945675509">टीप: <ph name="BEGIN_LINK" />Chrome तुमच्या डॉकमध्ये हलवा<ph name="END_LINK" /></translation>
 <translation id="7173660919484573146">तुमच्या पासवर्डच्या परवानगी दिलेल्या ॲक्सेसची खात्री करण्यासाठी Chrome फेस आयडी वापरते.</translation>
 <translation id="7261678641327190792">Chrome तुमचे पासवर्ड तपासू शकत नाही</translation>
-<translation id="7265369419224458312">तुम्ही तुमच्या कॉंप्युटरवर उघडलेल्‍या टॅबमध्‍ये, थेट येथून ॲक्सेस करा.
-तुमच्या कॉंप्युटरवर फक्त Chrome उघडा, मेनूवर जा आणि "Chrome वर साइन इन करा…" निवडा</translation>
 <translation id="7272930098487145294">इमेज सेव्ह करण्यासाठी, तुमच्या फोटोंमध्ये Chrome ला जोडण्यासाठी सेटिंग्ज वर टॅप करा</translation>
 <translation id="7275945473750112644">तुमचे खाते <ph name="HOSTED_DOMAIN" /> द्वारे व्यवस्थापित केले जात असल्याने, या डिव्हाइसवरून तुमचा Chrome डेटा साफ केला जाईल</translation>
 <translation id="7400722733683201933">Google Chrome बद्दल</translation>
@@ -90,6 +89,7 @@
 <translation id="7855730255114109580">Google Chrome अपडेट झाले आहे</translation>
 <translation id="8022947259858476807">लिंक उघडण्यासाठी, विजेटमध्ये शोधण्यासाठी आणि इतर ॲप्समध्ये पासवर्ड ऑटोफिल करण्यासाठी बाय डीफॉल्ट Chrome वापरा</translation>
 <translation id="8160472928944011082">Chrome अपडेट करू शकत नाही</translation>
+<translation id="8263079278049777200">ही साइट, तुमचे Google खाते आणि Chrome यांमध्ये साइन इन करा. तुम्ही नंतर सिंक करणे सुरू करू शकता.</translation>
 <translation id="8357607116237445042">या डिव्हाइसवरून तुमचा Chrome डेटा साफ करायचा की ठेवायचा ते निवडा</translation>
 <translation id="8370517070665726704">कॉपीराइट <ph name="YEAR" /> Google LLC. सर्व हक्क राखीव.</translation>
 <translation id="840168496893712993">काही ॲड-ऑनमुळे Chrome क्रॅश होऊ शकते. कृपया ते अनइंस्टॉल करून पहा.</translation>

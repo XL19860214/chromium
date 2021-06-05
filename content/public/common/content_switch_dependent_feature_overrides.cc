@@ -29,7 +29,11 @@ GetSwitchDependentFeatureOverrides(const base::CommandLine& command_line) {
       {switches::kAppCacheForceEnabled,
        std::cref(blink::features::kAppCacheRequireOriginTrial),
        base::FeatureList::OVERRIDE_DISABLE_FEATURE},
+
       // Overrides for --enable-experimental-web-platform-features.
+      {switches::kEnableExperimentalWebPlatformFeatures,
+       std::cref(net::features::kCookieSameSiteConsidersRedirectChain),
+       base::FeatureList::OVERRIDE_ENABLE_FEATURE},
       {switches::kEnableExperimentalWebPlatformFeatures,
        std::cref(network::features::kCrossOriginEmbedderPolicyCredentialless),
        base::FeatureList::OVERRIDE_ENABLE_FEATURE},
@@ -38,9 +42,6 @@ GetSwitchDependentFeatureOverrides(const base::CommandLine& command_line) {
        base::FeatureList::OVERRIDE_ENABLE_FEATURE},
       {switches::kEnableExperimentalWebPlatformFeatures,
        std::cref(network::features::kCrossOriginOpenerPolicyAccessReporting),
-       base::FeatureList::OVERRIDE_ENABLE_FEATURE},
-      {switches::kEnableExperimentalWebPlatformFeatures,
-       std::cref(network::features::kCrossOriginIsolated),
        base::FeatureList::OVERRIDE_ENABLE_FEATURE},
       {switches::kEnableExperimentalWebPlatformFeatures,
        std::cref(features::kDocumentPolicyNegotiation),
@@ -76,6 +77,9 @@ GetSwitchDependentFeatureOverrides(const base::CommandLine& command_line) {
        std::cref(features::kBlockInsecurePrivateNetworkRequests),
        base::FeatureList::OVERRIDE_ENABLE_FEATURE},
       {switches::kEnableExperimentalWebPlatformFeatures,
+       std::cref(features::kWarnAboutSecurePrivateNetworkRequests),
+       base::FeatureList::OVERRIDE_ENABLE_FEATURE},
+      {switches::kEnableExperimentalWebPlatformFeatures,
        std::cref(network::features::kAcceptCHFrame),
        base::FeatureList::OVERRIDE_ENABLE_FEATURE},
       {switches::kEnableExperimentalWebPlatformFeatures,
@@ -83,6 +87,9 @@ GetSwitchDependentFeatureOverrides(const base::CommandLine& command_line) {
        base::FeatureList::OVERRIDE_ENABLE_FEATURE},
 
       // Overrides for --enable-experimental-cookie-features.
+      {switches::kEnableExperimentalCookieFeatures,
+       std::cref(net::features::kCookieSameSiteConsidersRedirectChain),
+       base::FeatureList::OVERRIDE_ENABLE_FEATURE},
       {switches::kEnableExperimentalCookieFeatures,
        std::cref(net::features::kCookiesWithoutSameSiteMustBeSecure),
        base::FeatureList::OVERRIDE_ENABLE_FEATURE},

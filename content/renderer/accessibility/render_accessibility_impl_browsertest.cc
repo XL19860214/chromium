@@ -311,7 +311,7 @@ class RenderAccessibilityImplTest : public RenderViewTest {
   }
 
   RenderFrameImpl* frame() {
-    return static_cast<RenderFrameImpl*>(view()->GetMainRenderFrame());
+    return static_cast<RenderFrameImpl*>(RenderViewTest::GetMainRenderFrame());
   }
 
   IPC::TestSink* sink() { return sink_; }
@@ -734,7 +734,7 @@ TEST_F(RenderAccessibilityImplTest, ShowAccessibilityObject) {
 TEST_F(RenderAccessibilityImplTest, TestBoundsForFixedNodeAfterScroll) {
   constexpr char html[] = R"HTML(
       <div id="positioned" style="position:fixed; top:10px; font-size:40px;"
-        aria-label="first">title</div>
+        role="group" aria-label="first">title</div>
       <div style="padding-top: 50px; font-size:40px;">
         <h2>Heading #1</h2>
         <h2>Heading #2</h2>
@@ -803,9 +803,9 @@ TEST_F(RenderAccessibilityImplTest, TestBoundsForFixedNodeAfterScroll) {
 TEST_F(RenderAccessibilityImplTest, TestBoundsForMultipleFixedNodeAfterScroll) {
   constexpr char html[] = R"HTML(
     <div id="positioned" style="position:fixed; top:10px; font-size:40px;"
-      aria-label="first">title1</div>
+      role="group" aria-label="first">title1</div>
     <div id="positioned" style="position:fixed; top:50px; font-size:40px;"
-      aria-label="second">title2</div>
+      role="group" aria-label="second">title2</div>
     <div style="padding-top: 50px; font-size:40px;">
       <h2>Heading #1</h2>
       <h2>Heading #2</h2>
@@ -1252,6 +1252,7 @@ class AXImageAnnotatorTest : public RenderAccessibilityImplTest {
     GetRenderAccessibilityImpl()->tree_source_->RemoveImageAnnotator();
     GetRenderAccessibilityImpl()->tree_source_->AddImageAnnotator(
         GetRenderAccessibilityImpl()->ax_image_annotator_.get());
+    BlinkAXTreeSource::IgnoreProtocolChecksForTesting();
   }
 
   void TearDown() override {

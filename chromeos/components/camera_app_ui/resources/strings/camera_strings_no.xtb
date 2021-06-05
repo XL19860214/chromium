@@ -38,6 +38,7 @@ Apper med lagringstillatelser har tilgang til bildene og videoene dine.</transla
 <translation id="3227137524299004712">Mikrofon</translation>
 <translation id="3240426699337459095">Linken er kopiert</translation>
 <translation id="3259149966178251584">Kameraoppløsning</translation>
+<translation id="3448774564454087943">Videoen blir ikke lagret, siden den er for kort</translation>
 <translation id="3517926952904427380">Kunne ikke ta bilde i stående format</translation>
 <translation id="3569311554794739032">Er du sikker på at du vil fjerne <ph name="FILE" />?</translation>
 <translation id="3733597664308256288">Flere kamerakontroller er tilgjengelige. Trykk på søketasten + høyrepil for å se dem.</translation>
@@ -76,6 +77,7 @@ Hvis tilbakemeldingen din gjelder bilde- eller videokvalitet, ber vi deg legge v
 <translation id="6420689864531458495">(<ph name="ASPECT_RATIO_WIDTH" />:<ph name="ASPECT_RATIO_HEIGHT" /> – <ph name="WIDTH" />x<ph name="HEIGHT" />) <ph name="MEGAPIXEL" /> megapiksel</translation>
 <translation id="6681668084120808868">Ta et bilde</translation>
 <translation id="6778482348691154169">Kan ikke ta bilde</translation>
+<translation id="695140971690006676">Tilbakestill alle</translation>
 <translation id="6965382102122355670">OK</translation>
 <translation id="698156982839284926">3 sekunder</translation>
 <translation id="712848772518857951">Er du sikker på at du vil fjerne de <ph name="COUNT" /> elementene?</translation>

@@ -26,6 +26,7 @@
 #include "components/feed/core/v2/metrics_reporter.h"
 #include "components/feed/core/v2/prefs.h"
 #include "components/feed/core/v2/public/feed_stream_surface.h"
+#include "components/feed/core/v2/public/types.h"
 #include "components/feed/core/v2/stream_model.h"
 #include "components/feed/core/v2/test/proto_printer.h"
 #include "components/feed/core/v2/test/stream_builder.h"
@@ -91,6 +92,8 @@ class TestSurfaceBase : public FeedStreamSurface {
   // Returns a description of the updates this surface received. Each update
   // is separated by ' -> '. Returns only the updates since the last call.
   std::string DescribeUpdates();
+  // Returns a description of the current state, ignoring prior updates.
+  std::string DescribeState();
 
   std::map<std::string, std::string> GetDataStoreEntries() const;
 
@@ -357,7 +360,7 @@ class FeedApiTest : public testing::Test, public FeedStream::Delegate {
   DisplayMetrics GetDisplayMetrics() override;
   std::string GetLanguageTag() override;
   bool IsAutoplayEnabled() override;
-  void ClearAll() override {}
+  void ClearAll() override;
   std::string GetSyncSignedInGaia() override;
   void PrefetchImage(const GURL& url) override;
   void RegisterExperiments(const Experiments& experiments) override {}
@@ -369,6 +372,7 @@ class FeedApiTest : public testing::Test, public FeedStream::Delegate {
   bool IsTaskQueueIdle() const;
   void WaitForIdleTaskQueue();
   void UnloadModel(const StreamType& stream_type);
+  void FollowWebFeed(const WebFeedPageInformation page_info);
 
   // Dumps the state of |FeedStore| to a string for debugging.
   std::string DumpStoreState(bool print_keys = false);
@@ -407,6 +411,7 @@ class FeedApiTest : public testing::Test, public FeedStream::Delegate {
   base::test::ScopedFeatureList scoped_feature_list_;
   int prefetch_image_call_count_ = 0;
   std::vector<GURL> prefetched_images_;
+  base::RepeatingClosure on_clear_all_;
 };
 
 class FeedStreamTestForAllStreamTypes

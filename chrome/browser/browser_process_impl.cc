@@ -157,6 +157,7 @@
 #include "chrome/browser/gcm/gcm_product_util.h"
 #include "chrome/browser/intranet_redirect_detector.h"
 #include "chrome/browser/resource_coordinator/tab_manager.h"
+#include "chrome/browser/serial/serial_policy_allowed_ports.h"
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_list.h"
 #include "components/gcm_driver/gcm_client_factory.h"
@@ -225,6 +226,7 @@ BrowserProcessImpl::BrowserProcessImpl(StartupData* startup_data)
       platform_part_(std::make_unique<BrowserProcessPlatformPart>()) {
   g_browser_process = this;
 
+  DCHECK(local_state_);
   DCHECK(startup_data);
   // Most work should be done in Init().
 }
@@ -455,8 +457,7 @@ void BrowserProcessImpl::StartTearDown() {
   // |g_browser_process->local_state()|. See crbug.com/1187418
   status_tray_.reset();
 
-  if (local_state_)
-    local_state_->CommitPendingWrite();
+  local_state_->CommitPendingWrite();
 
   // This expects to be destroyed before the task scheduler is torn down.
   SystemNetworkContextManager::DeleteInstance();
@@ -565,11 +566,7 @@ void RequestProxyResolvingSocketFactory(
 }  // namespace
 
 void BrowserProcessImpl::FlushLocalStateAndReply(base::OnceClosure reply) {
-  if (local_state_) {
-    local_state_->CommitPendingWrite(std::move(reply));
-    return;
-  }
-  base::SequencedTaskRunnerHandle::Get()->PostTask(FROM_HERE, std::move(reply));
+  local_state_->CommitPendingWrite(std::move(reply));
 }
 
 void BrowserProcessImpl::EndSession() {
@@ -589,7 +586,7 @@ void BrowserProcessImpl::EndSession() {
 
   // Tell the metrics service it was cleanly shutdown.
   metrics::MetricsService* metrics = g_browser_process->metrics_service();
-  if (metrics && local_state_) {
+  if (metrics) {
     metrics->RecordStartOfSessionEnd();
 #if !BUILDFLAG(IS_CHROMEOS_ASH)
     // MetricsService lazily writes to prefs, force it to write now.
@@ -898,6 +895,17 @@ BrowserProcessImpl::resource_coordinator_parts() {
   }
   return resource_coordinator_parts_.get();
 }
+
+#if !defined(OS_ANDROID)
+SerialPolicyAllowedPorts* BrowserProcessImpl::serial_policy_allowed_ports() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  if (!serial_policy_allowed_ports_) {
+    serial_policy_allowed_ports_ =
+        std::make_unique<SerialPolicyAllowedPorts>(local_state());
+  }
+  return serial_policy_allowed_ports_.get();
+}
+#endif
 
 BuildState* BrowserProcessImpl::GetBuildState() {
 #if !defined(OS_ANDROID)

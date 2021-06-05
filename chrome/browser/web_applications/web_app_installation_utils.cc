@@ -49,12 +49,14 @@ std::vector<IconSizes> GetDownloadedShortcutsMenuIconsSizes(
   shortcuts_menu_icons_sizes.reserve(shortcuts_menu_icon_bitmaps.size());
   for (const auto& shortcut_icon_bitmaps : shortcuts_menu_icon_bitmaps) {
     IconSizes icon_sizes;
-    // TODO (crbug.com/1114638): Return monochrome icon sizes too.
     icon_sizes.SetSizesForPurpose(IconPurpose::ANY,
                                   GetSquareSizePxs(shortcut_icon_bitmaps.any));
     icon_sizes.SetSizesForPurpose(
         IconPurpose::MASKABLE,
         GetSquareSizePxs(shortcut_icon_bitmaps.maskable));
+    icon_sizes.SetSizesForPurpose(
+        IconPurpose::MONOCHROME,
+        GetSquareSizePxs(shortcut_icon_bitmaps.monochrome));
     shortcuts_menu_icons_sizes.push_back(std::move(icon_sizes));
   }
   return shortcuts_menu_icons_sizes;
@@ -153,8 +155,8 @@ void SetWebAppManifestFields(const WebApplicationInfo& web_app_info,
   SetWebAppFileHandlers(web_app_info.file_handlers, web_app);
   web_app.SetShareTarget(web_app_info.share_target);
   SetWebAppProtocolHandlers(web_app_info.protocol_handlers, web_app);
-  web_app.SetNoteTakingNewNoteUrl(web_app_info.note_taking_new_note_url);
   web_app.SetUrlHandlers(web_app_info.url_handlers);
+  web_app.SetNoteTakingNewNoteUrl(web_app_info.note_taking_new_note_url);
 
   if (base::FeatureList::IsEnabled(features::kDesktopPWAsRunOnOsLogin) &&
       web_app_info.run_on_os_login) {

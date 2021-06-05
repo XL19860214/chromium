@@ -650,14 +650,6 @@ class BASE_EXPORT DictionaryValue : public Value {
   // DEPRECATED, use `Value::FindKey(key)` instead.
   bool HasKey(StringPiece key) const;
 
-  // Returns the number of Values in this dictionary.
-  // DEPRECATED, use `Value::DictSize()` instead.
-  size_t size() const { return dict().size(); }
-
-  // Returns whether the dictionary is empty.
-  // DEPRECATED, use `Value::DictEmpty()` instead.
-  bool empty() const { return dict().empty(); }
-
   // Clears any current contents of this dictionary.
   // DEPRECATED, use `Value::DictClear()` instead.
   void Clear();
@@ -745,14 +737,8 @@ class BASE_EXPORT DictionaryValue : public Value {
 
   // Like `Get()`, but without special treatment of '.'.  This allows e.g. URLs
   // to be used as paths.
-  // DEPRECATED, use `Value::FindKey(key)` instead.
-  bool GetWithoutPathExpansion(StringPiece key, const Value** out_value) const;
-  // DEPRECATED, use `Value::FindKey(key)` instead.
-  bool GetWithoutPathExpansion(StringPiece key, Value** out_value);
   // DEPRECATED, use `Value::FindBoolKey(key)` instead.
   bool GetBooleanWithoutPathExpansion(StringPiece key, bool* out_value) const;
-  // DEPRECATED, use `Value::FindIntKey(key)` instead.
-  bool GetIntegerWithoutPathExpansion(StringPiece key, int* out_value) const;
   // DEPRECATED, use `Value::FindDoubleKey(key)` instead.
   bool GetDoubleWithoutPathExpansion(StringPiece key, double* out_value) const;
   // DEPRECATED, use `Value::FindStringKey(key)` instead.
@@ -914,13 +900,6 @@ class BASE_EXPORT ListValue : public Value {
   // DEPRECATED, use `GetList()::erase()` instead.
   bool Remove(const Value& value, size_t* index);
 
-  // Removes the element at `iter`. If `out_value` is NULL, the value will be
-  // deleted, otherwise ownership of the value is passed back to the caller.
-  // Returns an iterator pointing to the location of the element that
-  // followed the erased element.
-  // DEPRECATED, use `GetList()::erase()` instead.
-  iterator Erase(iterator iter, std::unique_ptr<Value>* out_value);
-
   using Value::Append;
   // Appends a Value to the end of the list.
   // DEPRECATED, use `Value::Append()` instead.
@@ -932,8 +911,6 @@ class BASE_EXPORT ListValue : public Value {
   void AppendInteger(int in_value);
   void AppendString(StringPiece in_value);
   void AppendString(const std::u16string& in_value);
-  // DEPRECATED, use `Value::Append()` in a loop instead.
-  void AppendStrings(const std::vector<std::string>& in_values);
 
   using Value::Insert;
   // Insert a Value at index.

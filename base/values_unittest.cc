@@ -1646,8 +1646,8 @@ TEST(ValuesTest, DictionaryWithoutPathExpansion) {
   EXPECT_TRUE(dict.HasKey("this.isnt.expanded"));
   Value* value3;
   EXPECT_FALSE(dict.Get("this.isnt.expanded", &value3));
-  Value* value4;
-  ASSERT_TRUE(dict.GetWithoutPathExpansion("this.isnt.expanded", &value4));
+  Value* value4 = dict.FindKey("this.isnt.expanded");
+  ASSERT_TRUE(value4);
   EXPECT_EQ(Value::Type::NONE, value4->type());
 }
 
@@ -1670,8 +1670,8 @@ TEST(ValuesTest, DictionaryWithoutPathExpansionDeprecated) {
   EXPECT_TRUE(dict.HasKey("this.isnt.expanded"));
   Value* value3;
   EXPECT_FALSE(dict.Get("this.isnt.expanded", &value3));
-  Value* value4;
-  ASSERT_TRUE(dict.GetWithoutPathExpansion("this.isnt.expanded", &value4));
+  Value* value4 = dict.FindKey("this.isnt.expanded");
+  ASSERT_TRUE(value4);
   EXPECT_EQ(Value::Type::NONE, value4->type());
 }
 
@@ -2405,32 +2405,31 @@ TEST(ValuesTest, GetWithNullOutValue) {
   EXPECT_TRUE(main_dict.GetList("list", nullptr));
   EXPECT_FALSE(main_dict.GetList("DNE", nullptr));
 
-  EXPECT_TRUE(main_dict.GetWithoutPathExpansion("bool", nullptr));
-  EXPECT_TRUE(main_dict.GetWithoutPathExpansion("int", nullptr));
-  EXPECT_TRUE(main_dict.GetWithoutPathExpansion("double", nullptr));
-  EXPECT_TRUE(main_dict.GetWithoutPathExpansion("string", nullptr));
-  EXPECT_TRUE(main_dict.GetWithoutPathExpansion("binary", nullptr));
-  EXPECT_TRUE(main_dict.GetWithoutPathExpansion("dict", nullptr));
-  EXPECT_TRUE(main_dict.GetWithoutPathExpansion("list", nullptr));
-  EXPECT_FALSE(main_dict.GetWithoutPathExpansion("DNE", nullptr));
+  EXPECT_TRUE(main_dict.FindKey("bool"));
+  EXPECT_TRUE(main_dict.FindKey("int"));
+  EXPECT_TRUE(main_dict.FindKey("double"));
+  EXPECT_TRUE(main_dict.FindKey("string"));
+  EXPECT_TRUE(main_dict.FindKey("binary"));
+  EXPECT_TRUE(main_dict.FindKey("dict"));
+  EXPECT_TRUE(main_dict.FindKey("list"));
+  EXPECT_FALSE(main_dict.FindKey("DNE"));
 
-  EXPECT_TRUE(main_dict.GetBooleanWithoutPathExpansion("bool", nullptr));
-  EXPECT_FALSE(main_dict.GetBooleanWithoutPathExpansion("int", nullptr));
-  EXPECT_FALSE(main_dict.GetBooleanWithoutPathExpansion("double", nullptr));
-  EXPECT_FALSE(main_dict.GetBooleanWithoutPathExpansion("string", nullptr));
-  EXPECT_FALSE(main_dict.GetBooleanWithoutPathExpansion("binary", nullptr));
-  EXPECT_FALSE(main_dict.GetBooleanWithoutPathExpansion("dict", nullptr));
-  EXPECT_FALSE(main_dict.GetBooleanWithoutPathExpansion("list", nullptr));
-  EXPECT_FALSE(main_dict.GetBooleanWithoutPathExpansion("DNE", nullptr));
+  EXPECT_NE(absl::nullopt, main_dict.FindBoolKey("bool"));
+  EXPECT_EQ(absl::nullopt, main_dict.FindBoolKey("int"));
+  EXPECT_EQ(absl::nullopt, main_dict.FindBoolKey("double"));
+  EXPECT_EQ(absl::nullopt, main_dict.FindBoolKey("string"));
+  EXPECT_EQ(absl::nullopt, main_dict.FindBoolKey("binary"));
+  EXPECT_EQ(absl::nullopt, main_dict.FindBoolKey("list"));
+  EXPECT_EQ(absl::nullopt, main_dict.FindBoolKey("DNE"));
 
-  EXPECT_FALSE(main_dict.GetIntegerWithoutPathExpansion("bool", nullptr));
-  EXPECT_TRUE(main_dict.GetIntegerWithoutPathExpansion("int", nullptr));
-  EXPECT_FALSE(main_dict.GetIntegerWithoutPathExpansion("double", nullptr));
-  EXPECT_FALSE(main_dict.GetIntegerWithoutPathExpansion("string", nullptr));
-  EXPECT_FALSE(main_dict.GetIntegerWithoutPathExpansion("binary", nullptr));
-  EXPECT_FALSE(main_dict.GetIntegerWithoutPathExpansion("dict", nullptr));
-  EXPECT_FALSE(main_dict.GetIntegerWithoutPathExpansion("list", nullptr));
-  EXPECT_FALSE(main_dict.GetIntegerWithoutPathExpansion("DNE", nullptr));
+  EXPECT_EQ(absl::nullopt, main_dict.FindIntKey("bool"));
+  EXPECT_NE(absl::nullopt, main_dict.FindIntKey("int"));
+  EXPECT_EQ(absl::nullopt, main_dict.FindIntKey("double"));
+  EXPECT_EQ(absl::nullopt, main_dict.FindIntKey("string"));
+  EXPECT_EQ(absl::nullopt, main_dict.FindIntKey("binary"));
+  EXPECT_EQ(absl::nullopt, main_dict.FindIntKey("dict"));
+  EXPECT_EQ(absl::nullopt, main_dict.FindIntKey("list"));
+  EXPECT_EQ(absl::nullopt, main_dict.FindIntKey("DNE"));
 
   EXPECT_FALSE(main_dict.GetDoubleWithoutPathExpansion("bool", nullptr));
   EXPECT_TRUE(main_dict.GetDoubleWithoutPathExpansion("int", nullptr));

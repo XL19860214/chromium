@@ -9,10 +9,11 @@
 #include <memory>
 #include <utility>
 
+#include "ash/content/file_manager/url_constants.h"
 #include "base/check_op.h"
 #include "base/command_line.h"
+#include "base/cxx17_backports.h"
 #include "base/notreached.h"
-#include "base/stl_util.h"
 #include "base/task/post_task.h"
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
@@ -23,7 +24,6 @@
 #include "chrome/browser/chromeos/fileapi/observable_file_system_operation_impl.h"
 #include "chrome/browser/media_galleries/fileapi/media_file_system_backend.h"
 #include "chrome/common/url_constants.h"
-#include "chromeos/components/file_manager/url_constants.h"
 #include "chromeos/dbus/cros_disks_client.h"
 #include "net/base/escape.h"
 #include "storage/browser/file_system/async_file_util.h"
@@ -244,8 +244,7 @@ bool FileSystemBackend::IsAccessAllowed(
 
 #if !defined(OFFICIAL_BUILD)
   // The chrome://file-manager can access its filesystem origin.
-  if (url.origin().GetURL() ==
-      chromeos::file_manager::kChromeUIFileManagerURL) {
+  if (url.origin().GetURL() == ash::file_manager::kChromeUIFileManagerURL) {
     return true;
   }
 #endif

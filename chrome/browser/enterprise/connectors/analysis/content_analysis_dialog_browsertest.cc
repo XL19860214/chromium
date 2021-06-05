@@ -141,7 +141,7 @@ class ContentAnalysisDialogBehaviorBrowserTest
   }
 
   void DialogUpdated(ContentAnalysisDialog* dialog,
-                     ContentAnalysisDelegate::FinalResult result) override {
+                     ContentAnalysisDelegateBase::FinalResult result) override {
     DCHECK_EQ(dialog, dialog_);
     dialog_updated_timestamp_ = base::TimeTicks::Now();
 
@@ -154,7 +154,8 @@ class ContentAnalysisDialogBehaviorBrowserTest
 
     // The dialog can only be updated to the success or failure case.
     EXPECT_TRUE(dialog_->is_result());
-    bool is_success = result == ContentAnalysisDelegate::FinalResult::SUCCESS;
+    bool is_success =
+        result == ContentAnalysisDelegateBase::FinalResult::SUCCESS;
     EXPECT_EQ(dialog_->is_success(), is_success);
     EXPECT_EQ(dialog_->is_success(), expected_scan_result_);
 
@@ -301,7 +302,7 @@ class ContentAnalysisDialogWarningBrowserTest
   }
 
   void DialogUpdated(ContentAnalysisDialog* dialog,
-                     ContentAnalysisDelegate::FinalResult result) override {
+                     ContentAnalysisDelegateBase::FinalResult result) override {
     ASSERT_TRUE(dialog->is_warning());
 
     // The dialog's buttons should be Ok and Cancel.
@@ -376,7 +377,7 @@ class ContentAnalysisDialogAppearanceBrowserTest
   }
 
   void DialogUpdated(ContentAnalysisDialog* dialog,
-                     ContentAnalysisDelegate::FinalResult result) override {
+                     ContentAnalysisDelegateBase::FinalResult result) override {
     // The dialog shows the failure or success message for the appropriate
     // access point and scan type.
     std::u16string final_message = dialog->GetMessageForTesting()->GetText();
@@ -745,13 +746,15 @@ class ContentAnalysisDialogPlainTests : public InProcessBrowserTest {
  protected:
   ContentAnalysisDialog* dialog() { return dialog_; }
 
-  ContentAnalysisDialog* CreateContentAnalysisDialog() {
+  ContentAnalysisDialog* CreateContentAnalysisDialog(
+      ContentAnalysisDelegateBase::FinalResult result =
+          ContentAnalysisDelegateBase::FinalResult::SUCCESS) {
     // This ctor ends up calling into constrained_window to show itself, in a
     // way that relinquishes its ownership. Because of this, new it here and
     // let it be deleted by the constrained_window code.
     dialog_ = new ContentAnalysisDialog(
         nullptr, browser()->tab_strip_model()->GetActiveWebContents(),
-        safe_browsing::DeepScanAccessPoint::DOWNLOAD, 0);
+        safe_browsing::DeepScanAccessPoint::DOWNLOAD, 0, result);
 
     return dialog_;
   }
@@ -766,11 +769,57 @@ IN_PROC_BROWSER_TEST_F(ContentAnalysisDialogPlainTests, TestCustomMessage) {
           base::TimeDelta::FromMilliseconds(0));
 
   ContentAnalysisDialog* dialog = CreateContentAnalysisDialog();
-  dialog->ShowResult(ContentAnalysisDelegate::FinalResult::WARNING, u"Test",
+  dialog->ShowResult(ContentAnalysisDelegateBase::FinalResult::WARNING, u"Test",
                      GURL("http://www.example.com"));
 
   EXPECT_EQ(dialog->GetMessageForTesting()->GetText(),
             u"Your administrator says \"Test\".");
+}
+
+IN_PROC_BROWSER_TEST_F(ContentAnalysisDialogPlainTests,
+                       TestOpenInDefaultPendingState) {
+  ContentAnalysisDialog* dialog = CreateContentAnalysisDialog();
+  EXPECT_TRUE(dialog->GetSideIconSpinnerForTesting());
+  EXPECT_EQ(
+      dialog->GetMessageForTesting()->GetText(),
+      u"Checking this data with your organization's security policies...");
+}
+
+IN_PROC_BROWSER_TEST_F(ContentAnalysisDialogPlainTests,
+                       TestOpenInWarningState) {
+  ContentAnalysisDialog* dialog = CreateContentAnalysisDialog(
+      ContentAnalysisDelegateBase::FinalResult::WARNING);
+  EXPECT_EQ(nullptr, dialog->GetSideIconSpinnerForTesting());
+  EXPECT_EQ(dialog->GetMessageForTesting()->GetText(),
+            u"This data has sensitive or dangerous content");
+}
+
+IN_PROC_BROWSER_TEST_F(ContentAnalysisDialogPlainTests, TestOpenInBlockState) {
+  ContentAnalysisDialog* dialog = CreateContentAnalysisDialog(
+      ContentAnalysisDelegateBase::FinalResult::FAILURE);
+  EXPECT_EQ(nullptr, dialog->GetSideIconSpinnerForTesting());
+  EXPECT_EQ(dialog->GetMessageForTesting()->GetText(),
+            u"This data has sensitive or dangerous content. Remove this "
+            u"content and try again.");
+}
+
+IN_PROC_BROWSER_TEST_F(ContentAnalysisDialogPlainTests,
+                       TestOpenInLargeFilesState) {
+  ContentAnalysisDialog* dialog = CreateContentAnalysisDialog(
+      ContentAnalysisDelegateBase::FinalResult::LARGE_FILES);
+  EXPECT_EQ(nullptr, dialog->GetSideIconSpinnerForTesting());
+  EXPECT_EQ(dialog->GetMessageForTesting()->GetText(),
+            u"Some of these files are too big for a security check. You can "
+            u"upload files up to 50 MB.");
+}
+
+IN_PROC_BROWSER_TEST_F(ContentAnalysisDialogPlainTests,
+                       TestOpenInEncryptedFilesState) {
+  ContentAnalysisDialog* dialog = CreateContentAnalysisDialog(
+      ContentAnalysisDelegateBase::FinalResult::ENCRYPTED_FILES);
+  EXPECT_EQ(nullptr, dialog->GetSideIconSpinnerForTesting());
+  EXPECT_EQ(dialog->GetMessageForTesting()->GetText(),
+            u"Some of these files are encrypted. Ask their owner to decrypt.");
 }
 
 }  // namespace enterprise_connectors

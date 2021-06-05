@@ -20,6 +20,7 @@
 #include "net/base/isolation_info.h"
 #include "services/network/public/cpp/cross_origin_embedder_policy.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
+#include "third_party/blink/public/common/service_worker/service_worker_status_code.h"
 #include "third_party/blink/public/common/tokens/tokens.h"
 #include "third_party/blink/public/mojom/idle/idle_manager.mojom-forward.h"
 #include "third_party/blink/public/mojom/loader/content_security_notifier.mojom.h"
@@ -39,10 +40,13 @@
 
 namespace content {
 
+class ServiceWorkerContainerHost;
+class ServiceWorkerRegistration;
 class DedicatedWorkerServiceImpl;
 class ServiceWorkerMainResourceHandle;
 class ServiceWorkerObjectHost;
 class StoragePartitionImpl;
+class CrossOriginEmbedderPolicyReporter;
 
 // A host for a single dedicated worker. It deletes itself upon Mojo
 // disconnection from the worker in the renderer or when the RenderProcessHost
@@ -118,9 +122,21 @@ class DedicatedWorkerHost final : public blink::mojom::DedicatedWorkerHost,
   // TODO(crbug.com/906991): Remove this method once PlzDedicatedWorker is
   // enabled by default.
   void MaybeCountWebFeature(const GURL& script_url);
+  // TODO(crbug.com/906991): Remove this method once PlzDedicatedWorker is
+  // enabled by default.
+  void ContinueOnMaybeCountWebFeature(
+      const GURL& script_url,
+      base::WeakPtr<ServiceWorkerContainerHost> container_host,
+      blink::ServiceWorkerStatusCode status,
+      const std::vector<scoped_refptr<ServiceWorkerRegistration>>&
+          registrations);
 
   const net::NetworkIsolationKey& GetNetworkIsolationKey() const {
     return isolation_info_.network_isolation_key();
+  }
+
+  const base::UnguessableToken& GetReportingSource() const {
+    return reporting_source_;
   }
 
   const network::CrossOriginEmbedderPolicy& cross_origin_embedder_policy()
@@ -226,6 +242,8 @@ class DedicatedWorkerHost final : public blink::mojom::DedicatedWorkerHost,
   // The IsolationInfo associated with this worker. Same as that of the
   // frame or the worker that created this worker.
   const net::IsolationInfo isolation_info_;
+
+  const base::UnguessableToken reporting_source_;
 
   // The frame/worker's Cross-Origin-Embedder-Policy (COEP) that directly starts
   // this worker.

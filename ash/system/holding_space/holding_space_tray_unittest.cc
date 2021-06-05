@@ -17,6 +17,7 @@
 #include "ash/public/cpp/holding_space/holding_space_model.h"
 #include "ash/public/cpp/holding_space/holding_space_prefs.h"
 #include "ash/public/cpp/holding_space/holding_space_test_api.h"
+#include "ash/public/cpp/holding_space/mock_holding_space_client.h"
 #include "ash/public/cpp/test/shell_test_api.h"
 #include "ash/shelf/shelf.h"
 #include "ash/shelf/shelf_widget.h"
@@ -30,6 +31,7 @@
 #include "ash/wm/overview/overview_item_view.h"
 #include "ash/wm/tablet_mode/tablet_mode_controller_test_api.h"
 #include "ash/wm/window_preview_view.h"
+#include "base/bind.h"
 #include "base/files/file_path.h"
 #include "base/strings/strcat.h"
 #include "base/test/bind.h"
@@ -125,52 +127,6 @@ std::unique_ptr<HoldingSpaceImage> CreateStubHoldingSpaceImage(
       HoldingSpaceImage::GetMaxSizeForType(type), file_path,
       /*async_bitmap_resolver=*/base::DoNothing());
 }
-
-// Mocks -----------------------------------------------------------------------
-
-class MockHoldingSpaceClient : public HoldingSpaceClient {
- public:
-  // HoldingSpaceClient:
-  MOCK_METHOD(void,
-              AddScreenshot,
-              (const base::FilePath& file_path),
-              (override));
-  MOCK_METHOD(void,
-              AddScreenRecording,
-              (const base::FilePath& file_path),
-              (override));
-  MOCK_METHOD(void,
-              CopyImageToClipboard,
-              (const HoldingSpaceItem& item, SuccessCallback callback),
-              (override));
-  MOCK_METHOD(base::FilePath,
-              CrackFileSystemUrl,
-              (const GURL& file_system_url),
-              (const, override));
-  MOCK_METHOD(void, OpenDownloads, (SuccessCallback callback), (override));
-  MOCK_METHOD(void, OpenMyFiles, (SuccessCallback callback), (override));
-  MOCK_METHOD(void,
-              OpenItems,
-              (const std::vector<const HoldingSpaceItem*>& items,
-               SuccessCallback callback),
-              (override));
-  MOCK_METHOD(void,
-              ShowItemInFolder,
-              (const HoldingSpaceItem& item, SuccessCallback callback),
-              (override));
-  MOCK_METHOD(void,
-              PinFiles,
-              (const std::vector<base::FilePath>& file_paths),
-              (override));
-  MOCK_METHOD(void,
-              PinItems,
-              (const std::vector<const HoldingSpaceItem*>& items),
-              (override));
-  MOCK_METHOD(void,
-              UnpinItems,
-              (const std::vector<const HoldingSpaceItem*>& items),
-              (override));
-};
 
 // Waiters ---------------------------------------------------------------------
 
@@ -955,9 +911,12 @@ INSTANTIATE_TEST_SUITE_P(
     All,
     HoldingSpaceTrayDownloadsSectionTest,
     ::testing::Values(HoldingSpaceItem::Type::kArcDownload,
+                      HoldingSpaceItem::Type::kDiagnosticsLog,
                       HoldingSpaceItem::Type::kDownload,
+                      HoldingSpaceItem::Type::kLacrosDownload,
                       HoldingSpaceItem::Type::kNearbyShare,
-                      HoldingSpaceItem::Type::kPrintedPdf));
+                      HoldingSpaceItem::Type::kPrintedPdf,
+                      HoldingSpaceItem::Type::kScan));
 
 // Tests how download chips are updated during item addition, removal and
 // initialization.

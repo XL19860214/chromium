@@ -18,6 +18,7 @@
 #include "chromecast/base/chromecast_switches.h"
 #include "chromecast/base/metrics/cast_metrics_helper.h"
 #include "chromecast/browser/cast_browser_process.h"
+#include "chromecast/browser/cast_navigation_ui_data.h"
 #include "chromecast/browser/devtools/remote_debugging_server.h"
 #include "chromecast/common/mojom/activity_url_filter.mojom.h"
 #include "chromecast/common/mojom/queryable_data_store.mojom.h"
@@ -329,6 +330,14 @@ void CastWebContentsImpl::ClearRenderWidgetHostView() {
   }
 }
 
+void CastWebContentsImpl::SetAppProperties(const std::string& session_id,
+                                           bool is_audio_app) {
+  if (!web_contents_)
+    return;
+  shell::CastNavigationUIData::SetAppPropertiesForWebContents(
+      web_contents_, session_id, is_audio_app);
+}
+
 on_load_script_injector::OnLoadScriptInjectorHost<std::string>*
 CastWebContentsImpl::script_injector() {
   return &script_injector_;
@@ -634,14 +643,17 @@ void CastWebContentsImpl::ReadyToCommitNavigation(
   // Skip injecting bindings scripts if |navigation_handle| is not
   // 'current' main frame navigation, e.g. another DidStartNavigation is
   // emitted. Also skip injecting for same document navigation and error page.
-  if (navigation_handle != active_navigation_ ||
-      navigation_handle->IsErrorPage()) {
-    return;
+  if (navigation_handle == active_navigation_ &&
+      !navigation_handle->IsErrorPage()) {
+    // Injects registered bindings script into the main frame.
+    script_injector_.InjectScriptsForURL(
+        navigation_handle->GetURL(), navigation_handle->GetRenderFrameHost());
   }
 
-  // Injects registered bindings script into the main frame.
-  script_injector_.InjectScriptsForURL(navigation_handle->GetURL(),
-                                       navigation_handle->GetRenderFrameHost());
+  // Notifies observers that the navigation of the main frame is ready.
+  for (Observer& observer : observer_list_) {
+    observer.MainFrameReadyToCommitNavigation(navigation_handle);
+  }
 }
 
 void CastWebContentsImpl::DidFinishNavigation(

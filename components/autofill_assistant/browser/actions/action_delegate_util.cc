@@ -195,9 +195,10 @@ void PerformWithTextValue(
         perform,
     const ElementFinder::Result& element,
     base::OnceCallback<void(const ClientStatus&)> done) {
-  ResolveTextValue(text_value, element, delegate,
-                   base::BindOnce(&OnResolveTextValue, std::move(perform),
-                                  element, std::move(done)));
+  user_data::ResolveTextValue(
+      text_value, element, delegate,
+      base::BindOnce(&OnResolveTextValue, std::move(perform), element,
+                     std::move(done)));
 }
 
 void PerformWithElementValue(
@@ -322,7 +323,7 @@ void PerformSendKeyboardInput(
         base::BindOnce(&WebController::FocusField,
                        delegate->GetWebController()->GetWeakPtr()));
   } else {
-    AddClickOrTapSequence(delegate, ClickType::CLICK, /* on_top=*/SKIP_STEP,
+    AddClickOrTapSequence(delegate, ClickType::TAP, /* on_top=*/SKIP_STEP,
                           actions.get());
   }
   actions->emplace_back(base::BindOnce(

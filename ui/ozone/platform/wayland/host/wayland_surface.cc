@@ -14,10 +14,24 @@
 #include "ui/gfx/native_widget_types.h"
 #include "ui/ozone/platform/wayland/common/wayland_util.h"
 #include "ui/ozone/platform/wayland/host/wayland_connection.h"
+#include "ui/ozone/platform/wayland/host/wayland_output.h"
 #include "ui/ozone/platform/wayland/host/wayland_subsurface.h"
 #include "ui/ozone/platform/wayland/host/wayland_window.h"
 
 namespace ui {
+
+WaylandSurface::ExplicitReleaseInfo::ExplicitReleaseInfo(
+    wl::Object<zwp_linux_buffer_release_v1>&& linux_buffer_release,
+    wl_buffer* buffer)
+    : linux_buffer_release(std::move(linux_buffer_release)), buffer(buffer) {}
+
+WaylandSurface::ExplicitReleaseInfo::~ExplicitReleaseInfo() = default;
+
+WaylandSurface::ExplicitReleaseInfo::ExplicitReleaseInfo(
+    ExplicitReleaseInfo&&) = default;
+
+WaylandSurface::ExplicitReleaseInfo&
+WaylandSurface::ExplicitReleaseInfo::operator=(ExplicitReleaseInfo&&) = default;
 
 WaylandSurface::WaylandSurface(WaylandConnection* connection,
                                WaylandWindow* root_window)
@@ -86,6 +100,7 @@ void WaylandSurface::AttachBuffer(wl_buffer* buffer) {
   // (0, 0). If this changes, then the calculation in DamageBuffer will also
   // need to be updated.
   wl_surface_attach(surface_.get(), buffer, 0, 0);
+  buffer_attached_since_last_commit_ = buffer;
   connection_->ScheduleFlush();
 }
 
@@ -159,7 +174,25 @@ void WaylandSurface::UpdateBufferDamageRegion(
 }
 
 void WaylandSurface::Commit() {
+  if (surface_sync_ && buffer_attached_since_last_commit_) {
+    auto* linux_buffer_release =
+        zwp_linux_surface_synchronization_v1_get_release(surface_sync_.get());
+
+    static struct zwp_linux_buffer_release_v1_listener release_listener = {
+        &WaylandSurface::FencedRelease,
+        &WaylandSurface::ImmediateRelease,
+    };
+    zwp_linux_buffer_release_v1_add_listener(linux_buffer_release,
+                                             &release_listener, this);
+
+    linux_buffer_releases_.emplace(
+        linux_buffer_release,
+        ExplicitReleaseInfo(
+            wl::Object<zwp_linux_buffer_release_v1>(linux_buffer_release),
+            buffer_attached_since_last_commit_));
+  }
   wl_surface_commit(surface_.get());
+  buffer_attached_since_last_commit_ = nullptr;
   connection_->ScheduleFlush();
 }
 
@@ -173,23 +206,22 @@ void WaylandSurface::SetBufferTransform(gfx::OverlayTransform transform) {
   wl_surface_set_buffer_transform(surface_.get(), wl_transform);
 }
 
-void WaylandSurface::SetBufferScale(int32_t new_scale, bool update_bounds) {
+void WaylandSurface::SetBufferScale(int32_t new_scale) {
   DCHECK_GT(new_scale, 0);
 
   if (new_scale == buffer_scale_)
     return;
 
   buffer_scale_ = new_scale;
-  // As per specification, wp_viewporter interface disconnects the direct
-  // relationship between the buffer and the surface size. So, no need to send
-  // |buffer_scale_| to compositor if wp_viewporter interface is available.
-  if (viewport() && !display_size_px_.IsEmpty()) {
+  wl_surface_set_buffer_scale(surface_.get(), buffer_scale_);
+
+  if (!display_size_px_.IsEmpty()) {
     gfx::Size viewport_dst =
         gfx::ScaleToCeiledSize(display_size_px_, 1.f / buffer_scale_);
+    if (viewport()) {
       wp_viewport_set_destination(viewport(), viewport_dst.width(),
                                   viewport_dst.height());
-  } else {
-    wl_surface_set_buffer_scale(surface_.get(), buffer_scale_);
+    }
   }
 
   connection_->ScheduleFlush();
@@ -233,9 +265,12 @@ wl::Object<wl_region> WaylandSurface::CreateAndAddRegion(
   // Only root_surface and primary_subsurface should use |window_shape_in_dips|.
   // Do not use non empty |window_shape_in_dips| if |region_px| is empty, i.e.
   // this surface is transluscent.
+  bool is_primary_or_root =
+      root_window_->root_surface() == this ||
+      (root_window()->primary_subsurface() &&
+       root_window()->primary_subsurface()->wayland_surface() == this);
   if (window_shape_in_dips.has_value() && !region_px.IsEmpty() &&
-      root_window_->root_surface() != this &&
-      root_window()->primary_subsurface()->wayland_surface() != this) {
+      is_primary_or_root) {
     for (const auto& rect : window_shape_in_dips.value())
       wl_region_add(region.get(), rect.x(), rect.y(), rect.width(),
                     rect.height());
@@ -296,20 +331,69 @@ wl::Object<wl_subsurface> WaylandSurface::CreateSubsurface(
   return subsurface;
 }
 
+void WaylandSurface::ExplicitRelease(
+    struct zwp_linux_buffer_release_v1* linux_buffer_release,
+    absl::optional<int32_t> fence) {
+  auto iter = linux_buffer_releases_.find(linux_buffer_release);
+  DCHECK(iter != linux_buffer_releases_.end());
+  DCHECK(iter->second.buffer);
+  if (!explicit_release_callback_.is_null())
+    explicit_release_callback_.Run(iter->second.buffer, fence);
+  linux_buffer_releases_.erase(iter);
+}
+
 // static
 void WaylandSurface::Enter(void* data,
                            struct wl_surface* wl_surface,
                            struct wl_output* output) {
-  if (auto* root_window = static_cast<WaylandSurface*>(data)->root_window_)
-    root_window->AddEnteredOutputId(output);
+  auto* const surface = static_cast<WaylandSurface*>(data);
+  DCHECK(surface);
+
+  surface->entered_outputs_.emplace_back(
+      static_cast<WaylandOutput*>(wl_output_get_user_data(output)));
+
+  if (surface->root_window_)
+    surface->root_window_->OnEnteredOutputIdAdded();
 }
 
 // static
 void WaylandSurface::Leave(void* data,
                            struct wl_surface* wl_surface,
                            struct wl_output* output) {
-  if (auto* root_window = static_cast<WaylandSurface*>(data)->root_window_)
-    root_window->RemoveEnteredOutputId(output);
+  auto* const surface = static_cast<WaylandSurface*>(data);
+  DCHECK(surface);
+
+  auto entered_outputs_it_ = std::find(
+      surface->entered_outputs_.begin(), surface->entered_outputs_.end(),
+      static_cast<WaylandOutput*>(wl_output_get_user_data(output)));
+  // Workaround: when a user switches physical output between two displays,
+  // a surface does not necessarily receive enter events immediately or until
+  // a user resizes/moves it.  This means that switching output between
+  // displays in a single output mode results in leave events, but the surface
+  // might not have received enter event before.  Thus, remove the id of the
+  // output that the surface leaves only if it was stored before.
+  if (entered_outputs_it_ != surface->entered_outputs_.end())
+    surface->entered_outputs_.erase(entered_outputs_it_);
+
+  if (surface->root_window_)
+    surface->root_window_->OnEnteredOutputIdRemoved();
+}
+
+// static
+void WaylandSurface::FencedRelease(
+    void* data,
+    struct zwp_linux_buffer_release_v1* linux_buffer_release,
+    int32_t fence) {
+  static_cast<WaylandSurface*>(data)->ExplicitRelease(linux_buffer_release,
+                                                      fence);
+}
+
+// static
+void WaylandSurface::ImmediateRelease(
+    void* data,
+    struct zwp_linux_buffer_release_v1* linux_buffer_release) {
+  static_cast<WaylandSurface*>(data)->ExplicitRelease(linux_buffer_release,
+                                                      absl::nullopt);
 }
 
 }  // namespace ui

@@ -40,12 +40,13 @@ class SharesheetBubbleView : public views::BubbleDialogDelegateView {
 
   // |delivered_callback| is run to inform the caller whether something failed,
   // or the intent has been delivered to a target selected by the user.
+  // |close_callback| is run to inform the caller when the bubble is closed.
   void ShowBubble(std::vector<TargetInfo> targets,
                   apps::mojom::IntentPtr intent,
                   ::sharesheet::DeliveredCallback delivered_callback);
-  void ShowNearbyShareBubble(
-      apps::mojom::IntentPtr intent,
-      ::sharesheet::DeliveredCallback delivered_callback);
+  void ShowNearbyShareBubble(apps::mojom::IntentPtr intent,
+                             ::sharesheet::DeliveredCallback delivered_callback,
+                             ::sharesheet::CloseCallback close_callback);
   void ShowActionView();
   void ResizeBubble(const int& width, const int& height);
   void CloseBubble();
@@ -90,6 +91,7 @@ class SharesheetBubbleView : public views::BubbleDialogDelegateView {
   std::u16string active_target_;
   apps::mojom::IntentPtr intent_;
   ::sharesheet::DeliveredCallback delivered_callback_;
+  ::sharesheet::CloseCallback close_callback_;
 
   int width_ = 0;
   int height_ = 0;
@@ -102,11 +104,14 @@ class SharesheetBubbleView : public views::BubbleDialogDelegateView {
 
   views::View* main_view_ = nullptr;
   SharesheetHeaderView* header_view_ = nullptr;
+  views::View* footer_view_ = nullptr;
   views::View* default_view_ = nullptr;
   views::View* expanded_view_ = nullptr;
   views::View* share_action_view_ = nullptr;
-  // Separator that appears above the expand button.
-  views::Separator* expand_button_separator_ = nullptr;
+  // Separator that appears between the |header_view_| and the |body_view|.
+  views::Separator* header_body_separator_ = nullptr;
+  // Separator that appears between the |body_view| and the |footer_view_|.
+  views::Separator* body_footer_separator_ = nullptr;
   // Separator between the default_view and the expanded_view.
   views::Separator* expanded_view_separator_ = nullptr;
   views::View* parent_view_ = nullptr;

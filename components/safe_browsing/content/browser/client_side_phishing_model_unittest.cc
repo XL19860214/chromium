@@ -4,10 +4,21 @@
 
 #include "components/safe_browsing/content/browser/client_side_phishing_model.h"
 
+#include <string>
+#include <utility>
+
+#include "base/bind.h"
+#include "base/files/file.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/logging.h"
+#include "base/memory/read_only_shared_memory_region.h"
+#include "base/memory/shared_memory_mapping.h"
 #include "base/run_loop.h"
 #include "base/test/scoped_command_line.h"
+#include "base/test/scoped_feature_list.h"
+#include "build/build_config.h"
+#include "components/safe_browsing/core/fbs/client_model_generated.h"
+#include "components/safe_browsing/core/features.h"
 #include "components/safe_browsing/core/proto/client_model.pb.h"
 #include "content/public/test/browser_task_environment.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -20,6 +31,27 @@ void ResetClientSidePhishingModel() {
   ClientSidePhishingModel::GetInstance()->SetModelStrForTesting("");
   ClientSidePhishingModel::GetInstance()->SetVisualTfLiteModelForTesting(
       base::File());
+  ClientSidePhishingModel::GetInstance()->ClearMappedRegionForTesting();
+  ClientSidePhishingModel::GetInstance()->SetModelTypeForTesting(
+      CSDModelType::kNone);
+}
+
+std::string CreateFlatBufferString() {
+  flatbuffers::FlatBufferBuilder builder(1024);
+  flat::ClientSideModelBuilder csd_model_builder(builder);
+  builder.Finish(csd_model_builder.Finish());
+  return std::string(reinterpret_cast<char*>(builder.GetBufferPointer()),
+                     builder.GetSize());
+}
+
+void GetFlatBufferStringFromMappedMemory(
+    base::ReadOnlySharedMemoryRegion region,
+    std::string* output) {
+  ASSERT_TRUE(region.IsValid());
+  base::ReadOnlySharedMemoryMapping mapping = region.Map();
+  ASSERT_TRUE(mapping.IsValid());
+  *output = std::string(reinterpret_cast<const char*>(mapping.memory()),
+                        mapping.size());
 }
 
 }  // namespace
@@ -40,7 +72,7 @@ TEST(ClientSidePhishingModelTest, NotifiesOnUpdate) {
               run_loop.QuitClosure(), &called));
 
   ClientSideModel model;
-  model.set_max_words_per_term(0);  // Required field
+  model.set_max_words_per_term(0);  // Required field.
   ClientSidePhishingModel::GetInstance()->PopulateFromDynamicUpdate(
       model.SerializeAsString(), base::File());
 
@@ -56,6 +88,17 @@ TEST(ClientSidePhishingModelTest, RejectsInvalidProto) {
   ResetClientSidePhishingModel();
   ClientSidePhishingModel::GetInstance()->PopulateFromDynamicUpdate(
       "bad proto", base::File());
+  EXPECT_FALSE(ClientSidePhishingModel::GetInstance()->IsEnabled());
+}
+
+TEST(ClientSidePhishingModelTest, RejectsInvalidFlatbuffer) {
+  ResetClientSidePhishingModel();
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitWithFeatures(
+      /*enabled_features=*/{kClientSideDetectionModelIsFlatBuffer},
+      /*disabled_features=*/{});
+  ClientSidePhishingModel::GetInstance()->PopulateFromDynamicUpdate(
+      "bad flatbuffer", base::File());
   EXPECT_FALSE(ClientSidePhishingModel::GetInstance()->IsEnabled());
 }
 
@@ -76,12 +119,12 @@ TEST(ClientSidePhishingModelTest, NotifiesForFile) {
 
   base::ScopedTempDir temp_dir;
   ASSERT_TRUE(temp_dir.CreateUniqueTempDir());
-  base::FilePath file_path =
+  const base::FilePath file_path =
       temp_dir.GetPath().AppendASCII("visual_model.tflite");
   base::File file(file_path, base::File::FLAG_OPEN_ALWAYS |
                                  base::File::FLAG_READ |
                                  base::File::FLAG_WRITE);
-  std::string file_contents = "visual model file";
+  const std::string file_contents = "visual model file";
   file.WriteAtCurrentPos(file_contents.data(), file_contents.size());
 
   ClientSidePhishingModel::GetInstance()->PopulateFromDynamicUpdate(
@@ -123,15 +166,15 @@ TEST(ClientSidePhishingModelTest, DoesNotNotifyOnBadFollowingUpdate) {
   content::BrowserTaskEnvironment task_environment;
   base::RunLoop run_loop;
 
-  // Perform a valid update
+  // Perform a valid update.
   base::ScopedTempDir temp_dir;
   ASSERT_TRUE(temp_dir.CreateUniqueTempDir());
-  base::FilePath file_path =
+  const base::FilePath file_path =
       temp_dir.GetPath().AppendASCII("visual_model.tflite");
   base::File file(file_path, base::File::FLAG_OPEN_ALWAYS |
                                  base::File::FLAG_READ |
                                  base::File::FLAG_WRITE);
-  std::string file_contents = "visual model file";
+  const std::string file_contents = "visual model file";
   file.WriteAtCurrentPos(file_contents.data(), file_contents.size());
 
   ClientSidePhishingModel::GetInstance()->PopulateFromDynamicUpdate(
@@ -139,7 +182,7 @@ TEST(ClientSidePhishingModelTest, DoesNotNotifyOnBadFollowingUpdate) {
 
   run_loop.RunUntilIdle();
 
-  // Perform an invalid update
+  // Perform an invalid update.
   bool called = false;
   base::CallbackListSubscription subscription =
       ClientSidePhishingModel::GetInstance()->RegisterCallback(
@@ -159,10 +202,11 @@ TEST(ClientSidePhishingModelTest, DoesNotNotifyOnBadFollowingUpdate) {
   EXPECT_TRUE(ClientSidePhishingModel::GetInstance()->IsEnabled());
 }
 
-TEST(ClientSidePhishingModelTest, CanOverrideWithFlag) {
+TEST(ClientSidePhishingModelTest, CanOverrideProtoWithFlag) {
+  ResetClientSidePhishingModel();
   base::ScopedTempDir temp_dir;
   ASSERT_TRUE(temp_dir.CreateUniqueTempDir());
-  base::FilePath file_path =
+  const base::FilePath file_path =
       temp_dir.GetPath().AppendASCII("overridden_model.proto");
   base::File file(file_path, base::File::FLAG_OPEN_ALWAYS |
                                  base::File::FLAG_READ |
@@ -170,7 +214,7 @@ TEST(ClientSidePhishingModelTest, CanOverrideWithFlag) {
   ClientSideModel model_proto;
   model_proto.set_version(123);
   model_proto.set_max_words_per_term(0);  // Required field
-  std::string file_contents = model_proto.SerializeAsString();
+  const std::string file_contents = model_proto.SerializeAsString();
   file.WriteAtCurrentPos(file_contents.data(), file_contents.size());
 
   base::test::ScopedCommandLine command_line;
@@ -195,6 +239,152 @@ TEST(ClientSidePhishingModelTest, CanOverrideWithFlag) {
 
   EXPECT_EQ(ClientSidePhishingModel::GetInstance()->GetModelStr(),
             file_contents);
+  EXPECT_EQ(ClientSidePhishingModel::GetInstance()->GetModelType(),
+            CSDModelType::kProtobuf);
+  EXPECT_TRUE(called);
+}
+
+TEST(ClientSidePhishingModelTest, CanOverrideFlatBufferWithFlag) {
+  ResetClientSidePhishingModel();
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitWithFeatures(
+      /*enabled_features=*/{kClientSideDetectionModelIsFlatBuffer},
+      /*disabled_features=*/{});
+  base::ScopedTempDir temp_dir;
+  ASSERT_TRUE(temp_dir.CreateUniqueTempDir());
+  const base::FilePath file_path =
+      temp_dir.GetPath().AppendASCII("overridden_model.fb");
+  base::File file(file_path, base::File::FLAG_OPEN_ALWAYS |
+                                 base::File::FLAG_READ |
+                                 base::File::FLAG_WRITE);
+
+  const std::string file_contents = CreateFlatBufferString();
+  file.WriteAtCurrentPos(file_contents.data(), file_contents.size());
+
+  base::test::ScopedCommandLine command_line;
+  command_line.GetProcessCommandLine()->AppendSwitchPath(
+      "csd-model-override-path", file_path);
+
+  content::BrowserTaskEnvironment task_environment;
+  base::RunLoop run_loop;
+  bool called = false;
+  base::CallbackListSubscription subscription =
+      ClientSidePhishingModel::GetInstance()->RegisterCallback(
+          base::BindRepeating(
+              [](base::RepeatingClosure quit_closure, bool* called) {
+                *called = true;
+                std::move(quit_closure).Run();
+              },
+              run_loop.QuitClosure(), &called));
+
+  ClientSidePhishingModel::GetInstance()->MaybeOverrideModel();
+
+  run_loop.Run();
+
+  std::string model_str_from_shared_mem;
+  ASSERT_NO_FATAL_FAILURE(GetFlatBufferStringFromMappedMemory(
+      ClientSidePhishingModel::GetInstance()->GetModelSharedMemoryRegion(),
+      &model_str_from_shared_mem));
+  EXPECT_EQ(model_str_from_shared_mem, file_contents);
+  EXPECT_EQ(ClientSidePhishingModel::GetInstance()->GetModelType(),
+            CSDModelType::kFlatbuffer);
+  EXPECT_TRUE(called);
+}
+
+TEST(ClientSidePhishingModelTest, AcceptsValidFlatbufferIfFeatureEnabled) {
+  ResetClientSidePhishingModel();
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitWithFeatures(
+      /*enabled_features=*/{kClientSideDetectionModelIsFlatBuffer},
+      /*disabled_features=*/{});
+  content::BrowserTaskEnvironment task_environment;
+  base::RunLoop run_loop;
+  bool called = false;
+  base::CallbackListSubscription subscription =
+      ClientSidePhishingModel::GetInstance()->RegisterCallback(
+          base::BindRepeating(
+              [](base::RepeatingClosure quit_closure, bool* called) {
+                *called = true;
+                std::move(quit_closure).Run();
+              },
+              run_loop.QuitClosure(), &called));
+
+  const std::string model_str = CreateFlatBufferString();
+  ClientSidePhishingModel::GetInstance()->PopulateFromDynamicUpdate(
+      model_str, base::File());
+  run_loop.Run();
+
+  EXPECT_TRUE(ClientSidePhishingModel::GetInstance()->IsEnabled());
+  std::string model_str_from_shared_mem;
+  ASSERT_NO_FATAL_FAILURE(GetFlatBufferStringFromMappedMemory(
+      ClientSidePhishingModel::GetInstance()->GetModelSharedMemoryRegion(),
+      &model_str_from_shared_mem));
+  EXPECT_EQ(model_str, model_str_from_shared_mem);
+  EXPECT_EQ(ClientSidePhishingModel::GetInstance()->GetModelType(),
+            CSDModelType::kFlatbuffer);
+  EXPECT_TRUE(called);
+}
+
+TEST(ClientSidePhishingModelTest, FlatbufferonFollowingUpdate) {
+  ResetClientSidePhishingModel();
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitWithFeatures(
+      /*enabled_features=*/{kClientSideDetectionModelIsFlatBuffer},
+      /*disabled_features=*/{});
+  content::BrowserTaskEnvironment task_environment;
+  base::RunLoop run_loop;
+
+  const std::string model_str1 = CreateFlatBufferString();
+  ClientSidePhishingModel::GetInstance()->PopulateFromDynamicUpdate(
+      model_str1, base::File());
+
+  run_loop.RunUntilIdle();
+  EXPECT_TRUE(ClientSidePhishingModel::GetInstance()->IsEnabled());
+  std::string model_str_from_shared_mem1;
+  ASSERT_NO_FATAL_FAILURE(GetFlatBufferStringFromMappedMemory(
+      ClientSidePhishingModel::GetInstance()->GetModelSharedMemoryRegion(),
+      &model_str_from_shared_mem1));
+  EXPECT_EQ(model_str1, model_str_from_shared_mem1);
+  EXPECT_EQ(ClientSidePhishingModel::GetInstance()->GetModelType(),
+            CSDModelType::kFlatbuffer);
+
+  // Should be able to write to memory with WritableSharedMemoryMapping field.
+  void* memory_addr = ClientSidePhishingModel::GetInstance()
+                          ->GetFlatBufferMemoryAddressForTesting();
+  EXPECT_EQ(memset(memory_addr, 'G', 1), memory_addr);
+
+  bool called = false;
+  base::CallbackListSubscription subscription =
+      ClientSidePhishingModel::GetInstance()->RegisterCallback(
+          base::BindRepeating(
+              [](base::RepeatingClosure quit_closure, bool* called) {
+                *called = true;
+                std::move(quit_closure).Run();
+              },
+              run_loop.QuitClosure(), &called));
+
+  const std::string model_str2 = CreateFlatBufferString();
+  ClientSidePhishingModel::GetInstance()->PopulateFromDynamicUpdate(
+      model_str2, base::File());
+
+  run_loop.RunUntilIdle();
+  EXPECT_TRUE(called);
+  EXPECT_TRUE(ClientSidePhishingModel::GetInstance()->IsEnabled());
+  std::string model_str_from_shared_mem2;
+  ASSERT_NO_FATAL_FAILURE(GetFlatBufferStringFromMappedMemory(
+      ClientSidePhishingModel::GetInstance()->GetModelSharedMemoryRegion(),
+      &model_str_from_shared_mem2));
+  EXPECT_EQ(model_str2, model_str_from_shared_mem2);
+  EXPECT_EQ(ClientSidePhishingModel::GetInstance()->GetModelType(),
+            CSDModelType::kFlatbuffer);
+
+  // Mapping should be undone automatically, even with a region copy lying
+  // around. Death tests misbehave on Android, or the memory may be re-mapped.
+  // See https://crbug.com/815537 and base/test/gtest_util.h.
+  // Can remove this if flaky.
+#if defined(GTEST_HAS_DEATH_TEST) && !defined(OS_ANDROID)
+  EXPECT_DEATH_IF_SUPPORTED(memset(memory_addr, 'G', 1), "");
+#endif
 }
 
 }  // namespace safe_browsing

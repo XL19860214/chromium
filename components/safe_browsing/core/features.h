@@ -40,6 +40,9 @@ extern const base::Feature kCaptureInlineJavascriptForGoogleAds;
 // Enables client side detection on Android.
 extern const base::Feature kClientSideDetectionForAndroid;
 
+// The client side detection model is a flatbuffer.
+extern const base::Feature kClientSideDetectionModelIsFlatBuffer;
+
 // Determines the experimental version of client side detection model, for
 // Desktop.
 extern const base::Feature kClientSideDetectionModelVersion;
@@ -83,8 +86,12 @@ extern const base::Feature kPasswordProtectionWithToken;
 // scanning.
 extern const base::Feature kPromptEsbForDeepScanning;
 
-// Controls whether we are performing enterprise download checks for users with
-// the appropriate policies enabled.
+// Contros whether users will see an account compromise specific warning
+// when Safe Browsing determines a file is associated with stealing cookies.
+extern const base::Feature kSafeBrowsingCTDownloadWarning;
+
+// Controls whether we are performing enterprise download checks for users
+// with the appropriate policies enabled.
 extern const base::Feature kSafeBrowsingEnterpriseCsd;
 
 // Controls whether we are disabling consumer download checks for users using
@@ -135,6 +142,11 @@ extern const base::Feature kUseNewDownloadWarnings;
 // Controls whether we include visual features in password protection pings on
 // Android.
 extern const base::Feature kVisualFeaturesInPasswordProtectionAndroid;
+
+// Controls the behavior of visual features in CSD pings. This feature is
+// checked for the final size of the visual features and the minimum size of
+// the screen.
+extern const base::Feature kVisualFeaturesSizes;
 
 // Controls whether the delayed warning experiment is enabled.
 extern const base::Feature kDelayedWarnings;

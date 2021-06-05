@@ -1,0 +1,29 @@
+// Copyright 2021 The Chromium Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
+
+#ifndef CHROME_BROWSER_ENTERPRISE_CONNECTORS_FILE_SYSTEM_TEST_HELPER_H_
+#define CHROME_BROWSER_ENTERPRISE_CONNECTORS_FILE_SYSTEM_TEST_HELPER_H_
+
+#include "base/files/scoped_temp_dir.h"
+#include "content/public/test/fake_download_item.h"
+
+namespace enterprise_connectors {
+
+// 1994-04-27 00:00:00.001 GMT+2 (South Africa Standard Time)
+const base::Time::Exploded kTestDateTime = {1994, 4, 2, 27, 0, 0, 0, 1};
+
+class DownloadItemForTest : public content::FakeDownloadItem {
+ public:
+  explicit DownloadItemForTest(base::FilePath::StringPieceType file_name,
+                               base::Time::Exploded start_time = kTestDateTime);
+  const base::FilePath& GetFullPath() const override;
+
+ protected:
+  base::ScopedTempDir tmp_dir_;
+  base::FilePath file_path_;
+};
+
+}  // namespace enterprise_connectors
+
+#endif  // CHROME_BROWSER_ENTERPRISE_CONNECTORS_FILE_SYSTEM_TEST_HELPER_H_

@@ -6,9 +6,9 @@
 
 #include <stddef.h>
 
+#include "base/cxx17_backports.h"
 #include "base/logging.h"
 #include "base/run_loop.h"
-#include "base/stl_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/task_environment.h"
 #include "build/build_config.h"
@@ -682,6 +682,29 @@ TEST(TextEliderTest, FormatOriginForSecurityDisplay) {
       url_formatter::SchemeDisplay::OMIT_CRYPTOGRAPHIC);
   EXPECT_EQ(std::u16string(), formatted_omit_scheme)
       << "Explicitly test the url::Origin which takes an empty, invalid URL";
+}
+
+TEST(TextEliderTest, FormatUrlForDisplayOmitSchemePathAndTrivialSubdomains) {
+  EXPECT_EQ(
+      u"google.com",
+      url_formatter::FormatUrlForDisplayOmitSchemePathAndTrivialSubdomains(
+          GURL("http://user:pass@google.com/path")));
+  EXPECT_EQ(
+      u"chrome://version",
+      url_formatter::FormatUrlForDisplayOmitSchemePathAndTrivialSubdomains(
+          GURL("chrome://version")));
+  EXPECT_EQ(
+      u"äää.de",
+      url_formatter::FormatUrlForDisplayOmitSchemePathAndTrivialSubdomains(
+          GURL("https://äää.de")));
+  EXPECT_EQ(
+      u"xn--4caaa.com",
+      url_formatter::FormatUrlForDisplayOmitSchemePathAndTrivialSubdomains(
+          GURL("https://äää.com")));
+  EXPECT_EQ(
+      u"مثال.إختبار",
+      url_formatter::FormatUrlForDisplayOmitSchemePathAndTrivialSubdomains(
+          GURL("https://xn--mgbh0fb.xn--kgbechtv/")));
 }
 
 }  // namespace

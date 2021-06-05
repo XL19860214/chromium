@@ -37,6 +37,7 @@
 #include "ios/chrome/app/application_mode.h"
 #import "ios/chrome/app/chrome_overlay_window.h"
 #import "ios/chrome/app/deferred_initialization_runner.h"
+#import "ios/chrome/app/tests_hook.h"
 #include "ios/chrome/browser/application_context.h"
 #include "ios/chrome/browser/browser_state/chrome_browser_state.h"
 #include "ios/chrome/browser/browsing_data/browsing_data_remove_mask.h"
@@ -72,7 +73,6 @@
 #import "ios/chrome/browser/ui/authentication/signed_in_accounts_view_controller.h"
 #import "ios/chrome/browser/ui/authentication/signin/signin_coordinator.h"
 #import "ios/chrome/browser/ui/authentication/signin/signin_utils.h"
-#import "ios/chrome/browser/ui/authentication/signin/user_signin/policy_signout_commands.h"
 #import "ios/chrome/browser/ui/authentication/signin_notification_infobar_delegate.h"
 #import "ios/chrome/browser/ui/browser_view/browser_view_controller.h"
 #import "ios/chrome/browser/ui/commands/browser_commands.h"
@@ -80,12 +80,10 @@
 #import "ios/chrome/browser/ui/commands/command_dispatcher.h"
 #import "ios/chrome/browser/ui/commands/omnibox_commands.h"
 #import "ios/chrome/browser/ui/commands/open_new_tab_command.h"
+#import "ios/chrome/browser/ui/commands/policy_signout_commands.h"
 #import "ios/chrome/browser/ui/commands/show_signin_command.h"
 #import "ios/chrome/browser/ui/default_promo/default_browser_promo_non_modal_scheduler.h"
 #import "ios/chrome/browser/ui/default_promo/default_browser_utils.h"
-#import "ios/chrome/browser/ui/first_run/first_run_coordinator.h"
-#import "ios/chrome/browser/ui/first_run/first_run_screen_provider.h"
-#import "ios/chrome/browser/ui/first_run/first_run_util.h"
 #import "ios/chrome/browser/ui/first_run/location_permissions_commands.h"
 #import "ios/chrome/browser/ui/first_run/location_permissions_coordinator.h"
 #import "ios/chrome/browser/ui/first_run/location_permissions_field_trial.h"
@@ -184,7 +182,6 @@ const char kMultiWindowOpenInNewWindowHistogram[] =
 }  // namespace
 
 @interface SceneController () <AppStateObserver,
-                               FirstRunCoordinatorDelegate,
                                LocationPermissionsCommands,
                                PolicyWatcherBrowserAgentObserving,
                                SettingsNavigationControllerDelegate,
@@ -267,15 +264,10 @@ const char kMultiWindowOpenInNewWindowHistogram[] =
 @property(nonatomic, weak)
     WelcomeToChromeViewController* welcomeToChromeController;
 
-// Coordinator of the new first run UI.
-@property(nonatomic, strong) FirstRunCoordinator* firstRunCoordinator;
-
 @end
 
-@implementation SceneController {
-  // UI blocker used while FRE is shown in the scene controlled by this object.
-  std::unique_ptr<ScopedUIBlocker> _firstRunUIBlocker;
-}
+@implementation SceneController
+
 @synthesize startupParameters = _startupParameters;
 @synthesize startupParametersAreBeingHandled =
     _startupParametersAreBeingHandled;
@@ -381,6 +373,10 @@ const char kMultiWindowOpenInNewWindowHistogram[] =
   }
 }
 
+- (BOOL)isPresentingSigninView {
+  return self.signinCoordinator != nil;
+}
+
 #pragma mark - SceneStateObserver
 
 - (void)sceneState:(SceneState*)sceneState
@@ -390,7 +386,7 @@ const char kMultiWindowOpenInNewWindowHistogram[] =
 }
 
 - (void)handleExternalIntents {
-  if (self.sceneState.appState.startupInformation.isPresentingFirstRunUI ||
+  if (self.sceneState.appState.initStage <= InitStageFirstRun ||
       self.sceneState.presentingModalOverlay) {
     return;
   }
@@ -420,7 +416,8 @@ const char kMultiWindowOpenInNewWindowHistogram[] =
                  connectionInformation:self
                     startupInformation:self.sceneState.appState
                                            .startupInformation
-                     interfaceProvider:self.interfaceProvider];
+                     interfaceProvider:self.interfaceProvider
+                             initStage:self.sceneState.appState.initStage];
     }
 
     // See if this scene launched as part of a multiwindow URL opening.
@@ -457,7 +454,8 @@ const char kMultiWindowOpenInNewWindowHistogram[] =
                       tabOpener:self
           connectionInformation:self
              startupInformation:self.sceneState.appState.startupInformation
-                   browserState:self.currentInterface.browserState];
+                   browserState:self.currentInterface.browserState
+                      initStage:self.sceneState.appState.initStage];
     }
     self.sceneState.connectionOptions = nil;
   }
@@ -480,8 +478,9 @@ const char kMultiWindowOpenInNewWindowHistogram[] =
                        connectionInformation:self
                           startupInformation:self.sceneState.appState
                                                  .startupInformation
-                                browserState:self.currentInterface
-                                                 .browserState];
+                                browserState:self.currentInterface.browserState
+                                   initStage:self.sceneState.appState
+                                                 .initStage];
 
     // Show a toast if the browser is opened in an unexpected mode.
     if (self.startupParameters.isUnexpectedMode) {
@@ -595,7 +594,8 @@ const char kMultiWindowOpenInNewWindowHistogram[] =
                          tabOpener:self
              connectionInformation:self
                 startupInformation:self.sceneState.appState.startupInformation
-                 interfaceProvider:self.interfaceProvider];
+                 interfaceProvider:self.interfaceProvider
+                         initStage:self.sceneState.appState.initStage];
 }
 
 - (void)sceneState:(SceneState*)sceneState
@@ -606,7 +606,8 @@ const char kMultiWindowOpenInNewWindowHistogram[] =
   }
   BOOL sceneIsActive =
       self.sceneState.activationLevel >= SceneActivationLevelForegroundActive;
-  if (self.sceneState.appState.startupInformation.isPresentingFirstRunUI ||
+  // TODO(crbug.com/1210542): Review this stage threshold; works for now.
+  if (self.sceneState.appState.initStage <= InitStageFirstRun ||
       self.sceneState.presentingModalOverlay) {
     sceneIsActive = NO;
   }
@@ -626,7 +627,8 @@ const char kMultiWindowOpenInNewWindowHistogram[] =
                     tabOpener:self
         connectionInformation:self
            startupInformation:self.sceneState.appState.startupInformation
-                 browserState:self.currentInterface.browserState];
+                 browserState:self.currentInterface.browserState
+                    initStage:self.sceneState.appState.initStage];
   }
 
   if (sceneIsActive) {
@@ -662,7 +664,7 @@ const char kMultiWindowOpenInNewWindowHistogram[] =
 // in one place.
 - (void)transitionToSceneActivationLevel:(SceneActivationLevel)level
                             appInitStage:(InitStage)appInitStage {
-  if (appInitStage < InitStageFinal) {
+  if (appInitStage < InitStageNormalUI) {
     // Nothing per-scene should happen before the app completes the global
     // setup, like executing Safe mode, or creating the main BrowserState.
     return;
@@ -805,12 +807,16 @@ const char kMultiWindowOpenInNewWindowHistogram[] =
   // Create and start the BVC.
   [self.browserViewWrangler createMainCoordinatorAndInterface];
 
-  // Start observing PolicyWatcherBrowserAgent so it can start monitoring
-  // UI-impacting policy changes.
+  // Now that the main browser's command dispatcher is created and the newly
+  // started UI coordinators have registered with it, inject it into the
+  // PolicyWatcherBrowserAgent so it can start monitoring UI-impacting policy
+  // changes.
   PolicyWatcherBrowserAgent* policyWatcherAgent =
       PolicyWatcherBrowserAgent::FromBrowser(self.mainInterface.browser);
+  id<PolicySignoutPromptCommands> handler =
+      HandlerForProtocol(mainCommandDispatcher, PolicySignoutPromptCommands);
   policyWatcherAgent->AddObserver(_policyWatcherObserverBridge.get());
-  policyWatcherAgent->Initialize();
+  policyWatcherAgent->Initialize(handler);
 
   if (@available(iOS 14, *)) {
     if (base::ios::IsSceneStartupSupported() &&
@@ -824,7 +830,8 @@ const char kMultiWindowOpenInNewWindowHistogram[] =
 
   // Only create the restoration helper if the session with the current session
   // id was backed up successfully.
-  if (self.sceneState.appState.sessionRestorationRequired) {
+  if (self.sceneState.appState.sessionRestorationRequired &&
+      !self.sceneState.appState.startupInformation.isFirstRun) {
     Browser* mainBrowser = self.mainInterface.browser;
     if (!base::ios::IsMultiwindowSupported() ||
         [CrashRestoreHelper
@@ -906,10 +913,7 @@ const char kMultiWindowOpenInNewWindowHistogram[] =
 
   [self.mainCoordinator setActivePage:[self activePage]];
 
-  // Decide if the First Run UI needs to run.
-  const bool firstRun = ShouldPresentFirstRunExperience();
-
-  if (!firstRun) {
+  if (!self.sceneState.appState.startupInformation.isFirstRun) {
     [self reconcileEulaAsAccepted];
   }
 
@@ -938,9 +942,9 @@ const char kMultiWindowOpenInNewWindowHistogram[] =
     [self finishActivatingBrowserDismissingTabSwitcher:YES];
   }
 
-  // If this is first run, or if this web state list should have an NTP created
-  // when it activates, then create that tab.
-  if (firstRun || [self shouldOpenNTPTabOnActivationOfBrowser:browser]) {
+  // If this web state list should have an NTP created when it activates, then
+  // create that tab.
+  if ([self shouldOpenNTPTabOnActivationOfBrowser:browser]) {
     OpenNewTabCommand* command = [OpenNewTabCommand
         commandWithIncognito:self.currentInterface.incognito];
     command.userInitiated = NO;
@@ -949,18 +953,12 @@ const char kMultiWindowOpenInNewWindowHistogram[] =
         browser->GetCommandDispatcher(), ApplicationCommands);
     [applicationHandler openURLInNewTab:command];
   }
+  [self maybeShowDefaultBrowserPromo];
+}
 
-  // If this is first run, show the first run UI on top of the new tab.
-  // If this isn't first run, check if the sign-in promo needs to display.
-  if (firstRun && launchMode != ApplicationMode::INCOGNITO &&
-      !self.sceneState.appState.startupInformation.isPresentingFirstRunUI) {
-    if (base::FeatureList::IsEnabled(kEnableFREUIModuleIOS)) {
-      [self showFirstRunUI];
-    } else {
-      [self showLegacyFirstRunUI];
-    }
-    // Do not ever show the 'restore' infobar during first run.
-    self.sceneState.appState.startupInformation.restoreHelper = nil;
+- (void)maybeShowDefaultBrowserPromo {
+  if (self.sceneState.appState.startupInformation.isFirstRun) {
+    return;
   }
 
   // If skipping first run, not in Safe Mode, no post opening action and the
@@ -970,10 +968,9 @@ const char kMultiWindowOpenInNewWindowHistogram[] =
   if (self.startupParameters) {
     postOpeningAction = self.startupParameters.postOpeningAction;
   }
-  if (!firstRun && self.sceneState.appState.initStage > InitStageSafeMode &&
-      postOpeningAction == NO_ACTION &&
+  if (postOpeningAction == NO_ACTION &&
       !self.sceneState.appState.postCrashLaunch &&
-      !IsChromeLikelyDefaultBrowser() && !UserInPromoCooldown()) {
+      !IsChromeLikelyDefaultBrowser()) {
     // Show the Default Browser promo UI if the user's past behavior fits
     // the categorization of potentially interested users or if the user is
     // signed in. Do not show if it is determined that Chrome is already the
@@ -1002,7 +999,7 @@ const char kMultiWindowOpenInNewWindowHistogram[] =
         !HasUserInteractedWithTailoredFullscreenPromoBefore() &&
         (isMadeForIOSPromoEligible || isAllTabsPromoEligible ||
          isStaySafePromoEligible);
-    if (isTailoredPromoEligibleUser) {
+    if (isTailoredPromoEligibleUser && !UserInPromoCooldown()) {
       self.sceneState.appState.shouldShowDefaultBrowserPromo = YES;
       self.sceneState.appState.defaultBrowserPromoTypeToShow =
           MostRecentInterestDefaultPromoType(!isSignedIn);
@@ -1014,7 +1011,8 @@ const char kMultiWindowOpenInNewWindowHistogram[] =
     BOOL isGeneralPromoEligibleUser =
         !HasUserInteractedWithFullscreenPromoBefore() &&
         (IsLikelyInterestedDefaultBrowserUser(DefaultPromoTypeGeneral) ||
-         isSignedIn);
+         isSignedIn) &&
+        !UserInPromoCooldown();
     if (isGeneralPromoEligibleUser ||
         ShouldShowRemindMeLaterDefaultBrowserFullscreenPromo()) {
       self.sceneState.appState.shouldShowDefaultBrowserPromo = YES;
@@ -1157,70 +1155,11 @@ const char kMultiWindowOpenInNewWindowHistogram[] =
 
 #pragma mark - First Run
 
-// Initializes the first run UI and presents it to the user.
-- (void)showLegacyFirstRunUI {
-  DCHECK(!self.signinCoordinator);
-  DCHECK(!_firstRunUIBlocker);
-  _firstRunUIBlocker = std::make_unique<ScopedUIBlocker>(self.sceneState);
-  // Register for the first run dismissal notification to reset
-  // |sceneState.presentingFirstRunUI| flag;
-  [[NSNotificationCenter defaultCenter]
-      addObserver:self
-         selector:@selector(handleFirstRunUIWillFinish)
-             name:kChromeFirstRunUIWillFinishNotification
-           object:nil];
-  [[NSNotificationCenter defaultCenter]
-      addObserver:self
-         selector:@selector(handleFirstRunUIDidFinish)
-             name:kChromeFirstRunUIDidFinishNotification
-           object:nil];
-
-  Browser* browser = self.mainInterface.browser;
-  id<ApplicationCommands, BrowsingDataCommands> welcomeHandler =
-      static_cast<id<ApplicationCommands, BrowsingDataCommands>>(
-          browser->GetCommandDispatcher());
-
-  WelcomeToChromeViewController* welcomeToChrome =
-      [[WelcomeToChromeViewController alloc]
-          initWithBrowser:browser
-                presenter:self.mainInterface.bvc
-               dispatcher:welcomeHandler];
-  self.welcomeToChromeController = welcomeToChrome;
-  UINavigationController* navController =
-      [[OrientationLimitingNavigationController alloc]
-          initWithRootViewController:welcomeToChrome];
-  [navController setModalTransitionStyle:UIModalTransitionStyleCrossDissolve];
-  navController.modalPresentationStyle = UIModalPresentationFullScreen;
-  CGRect appFrame = [[UIScreen mainScreen] bounds];
-  [[navController view] setFrame:appFrame];
-  self.sceneState.presentingFirstRunUI = YES;
-  [self.mainInterface.viewController presentViewController:navController
-                                                  animated:NO
-                                                completion:nil];
-}
-
-// Shows the first run UI.
-- (void)showFirstRunUI {
-  DCHECK(!_firstRunUIBlocker);
-  _firstRunUIBlocker = std::make_unique<ScopedUIBlocker>(self.sceneState);
-
-  FirstRunScreenProvider* provider = [[FirstRunScreenProvider alloc] init];
-
-  self.firstRunCoordinator = [[FirstRunCoordinator alloc]
-      initWithBaseViewController:self.mainInterface.bvc
-                         browser:self.mainInterface.browser
-                   syncPresenter:self.mainInterface.bvc
-                  screenProvider:provider];
-  self.firstRunCoordinator.delegate = self;
-  self.sceneState.presentingFirstRunUI = YES;
-  [self.firstRunCoordinator start];
-}
-
 // Sets a LocalState pref marking the TOS EULA as accepted.
 // If this function is called, the EULA flag is not set but the FRE was not
 // displayed.
 // This can only happen if the EULA flag has not been set correctly on a
-// previous
+// previous session.
 - (void)reconcileEulaAsAccepted {
   static dispatch_once_t once_token = 0;
   dispatch_once(&once_token, ^{
@@ -1232,44 +1171,6 @@ const char kMultiWindowOpenInNewWindowHistogram[] =
       base::UmaHistogramBoolean("IOS.ReconcileEULAPref", true);
     }
   });
-}
-
-- (void)handleFirstRunUIWillFinish {
-  DCHECK(self.sceneState.presentingFirstRunUI);
-  _firstRunUIBlocker.reset();
-  self.sceneState.presentingFirstRunUI = NO;
-  [[NSNotificationCenter defaultCenter]
-      removeObserver:self
-                name:kChromeFirstRunUIWillFinishNotification
-              object:nil];
-  if (self.sceneState.activationLevel >= SceneActivationLevelForegroundActive) {
-    [self handleExternalIntents];
-  }
-}
-
-// Handles the notification that first run modal dialog UI completed.
-- (void)handleFirstRunUIDidFinish {
-  [[NSNotificationCenter defaultCenter]
-      removeObserver:self
-                name:kChromeFirstRunUIDidFinishNotification
-              object:nil];
-
-  self.welcomeToChromeController = nil;
-
-  if (!location_permissions_field_trial::IsInRemoveFirstRunPromptGroup() &&
-      !location_permissions_field_trial::IsInFirstRunModalGroup()) {
-    [self logLocationPermissionsExperimentForGroupShown:
-              LocationPermissionsUI::kFirstRunPromptNotShown];
-    // As soon as First Run has finished, give OmniboxGeolocationController an
-    // opportunity to present the iOS system location alert.
-    [[OmniboxGeolocationController sharedInstance] triggerSystemPrompt];
-  } else if (location_permissions_field_trial::
-                 IsInRemoveFirstRunPromptGroup()) {
-    // If in RemoveFirstRunPrompt group, the system prompt will be delayed until
-    // the site requests location information.
-    [[OmniboxGeolocationController sharedInstance]
-        systemPromptSkippedForNewUser];
-  }
 }
 
 // Presents the sign-in upgrade promo if is relevant and possible.
@@ -2706,7 +2607,7 @@ const char kMultiWindowOpenInNewWindowHistogram[] =
 - (void)startSigninCoordinatorWithCompletion:
     (signin_ui::CompletionCallback)completion {
   DCHECK(self.signinCoordinator);
-  if (!signin::IsSigninAllowed(
+  if (!signin::IsSigninAllowedByPolicy(
           self.signinCoordinator.browser->GetBrowserState()->GetPrefs())) {
     completion(/*success=*/NO);
     [self.signinCoordinator stop];
@@ -2883,7 +2784,8 @@ const char kMultiWindowOpenInNewWindowHistogram[] =
   DCHECK(URLsToOpen.count == URLContexts.count || URLContexts.count == 1);
   BOOL active =
       _sceneState.activationLevel >= SceneActivationLevelForegroundActive;
-  if (self.sceneState.appState.startupInformation.isPresentingFirstRunUI ||
+  // TODO(crbug.com/1210542): Review this stage threshold; works for now.
+  if (self.sceneState.appState.initStage <= InitStageFirstRun ||
       self.sceneState.presentingModalOverlay) {
     active = NO;
   }
@@ -2894,7 +2796,8 @@ const char kMultiWindowOpenInNewWindowHistogram[] =
                     tabOpener:self
         connectionInformation:self
            startupInformation:self.sceneState.appState.startupInformation
-                  prefService:self.currentInterface.browserState->GetPrefs()];
+                  prefService:self.currentInterface.browserState->GetPrefs()
+                    initStage:self.sceneState.appState.initStage];
   }
 }
 
@@ -3077,93 +2980,21 @@ const char kMultiWindowOpenInNewWindowHistogram[] =
       self.incognitoInterface.bvc;
 }
 
-#pragma mark - FirstRunCoordinatorDelegate
-
-- (void)willFinishPresentingScreens {
-  // Reset |sceneState.presentingFirstRunUI| flag.
-  [self handleFirstRunUIWillFinish];
-
-  [self.firstRunCoordinator stop];
-}
-
-- (void)didFinishPresentingScreensWithSubsequentActionsTriggered:
-    (BOOL)actionsTriggered {
-  // Triggers all the events after the first run is dismissed. Note that the
-  // below logic should be removed after the new first run UI supports location
-  // permission page.
-  if (!location_permissions_field_trial::IsInRemoveFirstRunPromptGroup() &&
-      !location_permissions_field_trial::IsInFirstRunModalGroup()) {
-    [self logLocationPermissionsExperimentForGroupShown:
-              LocationPermissionsUI::kFirstRunPromptNotShown];
-    // As soon as First Run has finished, give OmniboxGeolocationController an
-    // opportunity to present the iOS system location alert.
-    [[OmniboxGeolocationController sharedInstance] triggerSystemPrompt];
-  } else if (location_permissions_field_trial::
-                 IsInRemoveFirstRunPromptGroup()) {
-    // If in RemoveFirstRunPrompt group, the system prompt will be delayed until
-    // the site requests location information.
-    [[OmniboxGeolocationController sharedInstance]
-        systemPromptSkippedForNewUser];
-  }
-
-  // Only show the location permission if no additional actions were taken.
-  if (!actionsTriggered &&
-      location_permissions_field_trial::IsInFirstRunModalGroup()) {
-    id<ApplicationCommands> handler = static_cast<id<ApplicationCommands>>(
-        self.mainInterface.browser->GetCommandDispatcher());
-    [handler showLocationPermissionsFromViewController:self.mainInterface.bvc];
-  }
-}
+#pragma mark - Test hooks
 
 #pragma mark - PolicyWatcherBrowserAgentObserving
 
 - (void)policyWatcherBrowserAgentNotifySignInDisabled:
     (PolicyWatcherBrowserAgent*)policyWatcher {
-  auto signOut = ^{
-    [self signOutIfNeeded];
+  auto signinInterrupted = ^{
+    policyWatcher->SignInUIDismissed();
   };
 
   if (self.signinCoordinator) {
-    [self interruptSigninCoordinatorAnimated:YES completion:signOut];
+    [self interruptSigninCoordinatorAnimated:YES completion:signinInterrupted];
     UMA_HISTOGRAM_BOOLEAN(
         "Enterprise.BrowserSigninIOS.SignInInterruptedByPolicy", true);
-  } else if (self.sceneState.presentingFirstRunUI &&
-             self.welcomeToChromeController) {
-    [self.welcomeToChromeController
-        interruptSigninCoordinatorWithCompletion:signOut];
-  } else {
-    signOut();
   }
-}
-
-// TODO(crbug.com/1205793): Move this method to the BrowserAgent.
-- (void)signOutIfNeeded {
-  AuthenticationService* service =
-      AuthenticationServiceFactory::GetForBrowserState(
-          self.mainInterface.browser->GetBrowserState());
-  if (self.mainInterface.browser->GetBrowserState()->GetPrefs()->GetBoolean(
-          prefs::kSigninAllowed) ||
-      !service->IsAuthenticated()) {
-    return;
-  }
-
-  UMA_HISTOGRAM_BOOLEAN("Enterprise.BrowserSigninIOS.SignedOutByPolicy", true);
-  // Sign the user out, but keep synced data (bookmarks, passwords, etc)
-  // locally to be consistent with the policy's behavior on other platforms.
-  service->SignOut(
-      signin_metrics::ProfileSignout::SIGNOUT_PREF_CHANGED,
-      /*force_clear_browsing_data=*/false, ^{
-        BOOL sceneIsActive = self.sceneState.activationLevel >=
-                             SceneActivationLevelForegroundActive;
-        if (sceneIsActive) {
-          id<PolicySignoutPromptCommands> handler = HandlerForProtocol(
-              self.mainInterface.browser->GetCommandDispatcher(),
-              PolicySignoutPromptCommands);
-          [handler showPolicySignoutPrompt];
-        } else {
-          self.sceneState.appState.shouldShowPolicySignoutPrompt = YES;
-        }
-      });
 }
 
 @end

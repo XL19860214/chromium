@@ -2,7 +2,9 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-if (!is_android) {
+import("//build/config/ui.gni")
+
+if (toolkit_views) {
   static_library("live_caption") {
     sources = [
       "views/caption_bubble.cc",
@@ -24,11 +26,26 @@ if (!is_android) {
       "//ui/views",
     ]
   }
-}  # !is_android
+}  # toolkit_views
 
 source_set("constants") {
   sources = [
     "pref_names.cc",
     "pref_names.h",
+  ]
+}
+
+source_set("utils") {
+  sources = [
+    "caption_util.cc",
+    "caption_util.h",
+  ]
+
+  deps = [
+    ":constants",
+    "//base",
+    "//components/prefs",
+    "//ui/base",
+    "//ui/native_theme",
   ]
 }

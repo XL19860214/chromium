@@ -455,8 +455,8 @@ bool CompositorAnimations::CompositorPropertyAnimationsHaveNoEffect(
   bool any_compositor_properties_present = false;
 
   const auto& keyframe_effect = To<KeyframeEffectModelBase>(effect);
-  PropertyHandleSet properties = keyframe_effect.Properties();
-  for (const auto& property : properties) {
+  const auto& groups = keyframe_effect.GetPropertySpecificKeyframeGroups();
+  for (const PropertyHandle& property : groups.Keys()) {
     if (!CompositedAnimationRequiresProperties(property))
       continue;
 
@@ -697,9 +697,20 @@ bool CompositorAnimations::ConvertTimingForCompositor(
   DCHECK(animation_playback_rate);
   double delay =
       animation_playback_rate > 0 ? timing.start_delay.InSecondsF() : 0;
-  out.scaled_time_offset =
-      -base::TimeDelta::FromSecondsD(delay / animation_playback_rate) +
-      time_offset;
+
+  base::TimeDelta scaled_delay =
+      base::TimeDelta::FromSecondsD(delay / animation_playback_rate);
+
+  // Arithmetic operations involving a value that is effectively +/-infinity
+  // result in a value that is +/-infinity or undefined. Check before computing
+  // the scaled time offset to guard against the following:
+  //     infinity - infinity or
+  //     -infinity + infinity
+  // The result of either of these edge cases is undefined.
+  if (scaled_delay.is_max() || scaled_delay.is_min())
+    return false;
+
+  out.scaled_time_offset = -scaled_delay + time_offset;
   // Delay is effectively +/- infinity.
   if (out.scaled_time_offset.is_max() || out.scaled_time_offset.is_min())
     return false;

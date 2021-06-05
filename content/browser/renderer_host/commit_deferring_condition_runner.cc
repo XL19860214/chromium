@@ -4,6 +4,7 @@
 
 #include "content/browser/renderer_host/commit_deferring_condition_runner.h"
 
+#include "content/browser/prerender/prerender_commit_deferring_condition.h"
 #include "content/browser/renderer_host/back_forward_cache_commit_deferring_condition.h"
 #include "content/browser/renderer_host/commit_deferring_condition.h"
 #include "content/browser/renderer_host/navigation_request.h"
@@ -16,7 +17,6 @@ std::unique_ptr<CommitDeferringConditionRunner>
 CommitDeferringConditionRunner::Create(NavigationRequest& navigation_request) {
   auto runner =
       base::WrapUnique(new CommitDeferringConditionRunner(navigation_request));
-  runner->RegisterDeferringConditions(navigation_request);
   return runner;
 }
 
@@ -35,6 +35,10 @@ void CommitDeferringConditionRunner::AddConditionForTesting(
   AddCondition(std::move(condition));
 }
 
+bool CommitDeferringConditionRunner::is_deferred_for_testing() const {
+  return is_deferred_;
+}
+
 void CommitDeferringConditionRunner::ResumeProcessing() {
   DCHECK(is_deferred_);
   is_deferred_ = false;
@@ -49,6 +53,8 @@ void CommitDeferringConditionRunner::ResumeProcessing() {
 
 void CommitDeferringConditionRunner::RegisterDeferringConditions(
     NavigationRequest& navigation_request) {
+  DCHECK_GE(navigation_request.state(), NavigationRequest::WILL_START_REQUEST);
+
   // Let WebContents add deferring conditions.
   std::vector<std::unique_ptr<CommitDeferringCondition>> delegate_conditions =
       navigation_request.GetDelegate()
@@ -57,6 +63,9 @@ void CommitDeferringConditionRunner::RegisterDeferringConditions(
     DCHECK(condition);
     AddCondition(std::move(condition));
   }
+
+  AddCondition(
+      PrerenderCommitDeferringCondition::MaybeCreate(navigation_request));
 
   // The BFCache deferring condition should run after all other conditions
   // since it'll disable eviction on a cached renderer.
@@ -72,8 +81,9 @@ void CommitDeferringConditionRunner::ProcessConditions() {
     auto resume_closure =
         base::BindOnce(&CommitDeferringConditionRunner::ResumeProcessing,
                        weak_factory_.GetWeakPtr());
-    if (!(*conditions_.begin())
-             ->WillCommitNavigation(std::move(resume_closure))) {
+    CommitDeferringCondition* condition = (*conditions_.begin()).get();
+    if (condition->WillCommitNavigation(std::move(resume_closure)) ==
+        CommitDeferringCondition::kDefer) {
       is_deferred_ = true;
       return;
     }

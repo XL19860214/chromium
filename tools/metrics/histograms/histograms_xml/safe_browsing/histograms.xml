@@ -67,7 +67,7 @@ reviews. Googlers can read more about this at go/gwsq-gerrit.
 </variants>
 
 <histogram name="SafeBrowsing.AdvancedProtection.APTokenFetchStatus"
-    enum="GoogleServiceAuthError" expires_after="2021-09-19">
+    enum="GoogleServiceAuthError" expires_after="2021-11-21">
   <owner>drubery@chromium.org</owner>
   <owner>chrome-safebrowsing-alerts@google.com</owner>
   <summary>
@@ -80,7 +80,7 @@ reviews. Googlers can read more about this at go/gwsq-gerrit.
 </histogram>
 
 <histogram name="SafeBrowsing.AdvancedProtection.TokenFetchStatus"
-    enum="GoogleServiceAuthError" expires_after="2021-09-19">
+    enum="GoogleServiceAuthError" expires_after="2021-11-21">
   <owner>drubery@chromium.org</owner>
   <owner>chrome-safebrowsing-alerts@google.com</owner>
   <summary>
@@ -882,6 +882,9 @@ reviews. Googlers can read more about this at go/gwsq-gerrit.
 
 <histogram name="SafeBrowsing.Interstitial.Type" enum="InterstitialTypeEnum"
     expires_after="2021-07-07">
+  <obsolete>
+    Removed from the code May 2021.
+  </obsolete>
   <owner>ntfschr@chromium.org</owner>
   <owner>src/android_webview/OWNERS</owner>
   <summary>
@@ -901,7 +904,7 @@ reviews. Googlers can read more about this at go/gwsq-gerrit.
 </histogram>
 
 <histogram name="SafeBrowsing.NavigationObserver.AppendRecentNavigationsTime"
-    units="ms" expires_after="2021-09-19">
+    units="ms" expires_after="2021-11-21">
   <owner>xinghuilu@chromium.org</owner>
   <owner>chrome-safebrowsing-alerts@google.com</owner>
   <summary>
@@ -912,7 +915,7 @@ reviews. Googlers can read more about this at go/gwsq-gerrit.
 
 <histogram
     name="SafeBrowsing.NavigationObserver.IdentifyReferrerChainByEventURLTime"
-    units="ms" expires_after="2021-09-19">
+    units="ms" expires_after="2021-11-21">
   <owner>xinghuilu@chromium.org</owner>
   <owner>chrome-safebrowsing-alerts@google.com</owner>
   <summary>
@@ -923,7 +926,7 @@ reviews. Googlers can read more about this at go/gwsq-gerrit.
 
 <histogram
     name="SafeBrowsing.NavigationObserver.IdentifyReferrerChainByWebContentsTime"
-    units="ms" expires_after="2021-09-19">
+    units="ms" expires_after="2021-11-21">
   <owner>xinghuilu@chromium.org</owner>
   <owner>chrome-safebrowsing-alerts@google.com</owner>
   <summary>
@@ -1096,6 +1099,32 @@ reviews. Googlers can read more about this at go/gwsq-gerrit.
   </summary>
 </histogram>
 
+<histogram
+    name="SafeBrowsing.RendererThrottle.IsCheckCompletedOnProcessResponse"
+    enum="BooleanCompleted" expires_after="2022-05-26">
+  <owner>xinghuilu@chromium.org</owner>
+  <owner>chrome-safebrowsing-alerts@google.com</owner>
+  <summary>
+    Logs whether the Safe Browsing check is completed when the renderer URL
+    loader starts to process a response. If not, the renderer URL loader will be
+    deferred until the Safe Browsing check is completed. Logs each time the
+    renderer URL loader dispatches WillProcessResponse() and the Safe Browsing
+    check doesn't block the URL.
+  </summary>
+</histogram>
+
+<histogram name="SafeBrowsing.RendererThrottle.TotalDelay" units="ms"
+    expires_after="2022-05-26">
+  <owner>xinghuilu@chromium.org</owner>
+  <owner>chrome-safebrowsing-alerts@google.com</owner>
+  <summary>
+    Logs the latency between when the renderer URL loader was deferred by Safe
+    Browsing check and when the check is completed. Logs each time the renderer
+    URL loader was deferred by Safe Browsing check and the Safe Browsing check
+    doesn't block the URL.
+  </summary>
+</histogram>
+
 <histogram name="SafeBrowsing.RT.AllowlistSizeTooSmall"
     enum="BooleanUnavailable" expires_after="2022-01-12">
   <owner>xinghuilu@chromium.org</owner>
@@ -1132,7 +1161,7 @@ reviews. Googlers can read more about this at go/gwsq-gerrit.
 </histogram>
 
 <histogram name="SafeBrowsing.RT.CacheManager.CleanUpTime" units="ms"
-    expires_after="2021-09-17">
+    expires_after="2021-11-21">
   <owner>xinghuilu@chromium.org</owner>
   <owner>chrome-safebrowsing-alerts@google.com</owner>
   <summary>
@@ -1881,7 +1910,7 @@ and applied correctly. -->
 </histogram>
 
 <histogram name="SafeBrowsing.V4Update.Network.Result"
-    enum="CombinedHttpResponseAndNetErrorCode" expires_after="2021-09-26">
+    enum="CombinedHttpResponseAndNetErrorCode" expires_after="2021-11-28">
   <owner>vakh@chromium.org</owner>
   <owner>chrome-safebrowsing-alerts@google.com</owner>
   <summary>
@@ -1906,7 +1935,7 @@ risk. -->
 </histogram>
 
 <histogram name="SafeBrowsing.V4Update.ResponseSizeKB" units="KB"
-    expires_after="2021-09-26">
+    expires_after="2021-11-28">
   <owner>vakh@chromium.org</owner>
   <owner>chrome-safebrowsing-alerts@google.com</owner>
   <summary>
@@ -1929,7 +1958,7 @@ failing to fetch the updates which puts users' security at risk. -->
 </histogram>
 
 <histogram name="SafeBrowsing.WebView.AppOptIn" enum="SafeBrowsingAppOptIn"
-    expires_after="2021-07-07">
+    expires_after="2022-06-01">
   <owner>ntfschr@chromium.org</owner>
   <owner>src/android_webview/OWNERS</owner>
   <summary>
@@ -1941,6 +1970,9 @@ failing to fetch the updates which puts users' security at risk. -->
 
 <histogram name="SafeBrowsing.WebView.UserOptIn" enum="SafeBrowsingUserOptIn"
     expires_after="2021-07-07">
+  <obsolete>
+    Removed from the code May 2021.
+  </obsolete>
   <owner>ntfschr@chromium.org</owner>
   <owner>src/android_webview/OWNERS</owner>
   <summary>
@@ -1953,6 +1985,9 @@ failing to fetch the updates which puts users' security at risk. -->
 
 <histogram name="SafeBrowsing.WebView.Viewable" enum="BooleanVisible"
     expires_after="2021-07-07">
+  <obsolete>
+    Removed from the code May 2021.
+  </obsolete>
   <owner>ntfschr@chromium.org</owner>
   <owner>src/android_webview/OWNERS</owner>
   <summary>
@@ -1980,7 +2015,7 @@ failing to fetch the updates which puts users' security at risk. -->
 </histogram>
 
 <histogram name="SafeBrowsingBinaryUploadRequest.DlpResult"
-    enum="BooleanSuccess" expires_after="2021-09-19">
+    enum="BooleanSuccess" expires_after="2021-11-21">
   <owner>drubery@chromium.org</owner>
   <owner>chrome-safebrowsing-alerts@google.com</owner>
   <summary>
@@ -1991,7 +2026,7 @@ failing to fetch the updates which puts users' security at risk. -->
 </histogram>
 
 <histogram name="SafeBrowsingBinaryUploadRequest.Duration" units="ms"
-    expires_after="2021-09-19">
+    expires_after="2021-11-21">
   <owner>drubery@chromium.org</owner>
   <owner>chrome-safebrowsing-alerts@google.com</owner>
   <summary>
@@ -2002,7 +2037,7 @@ failing to fetch the updates which puts users' security at risk. -->
 </histogram>
 
 <histogram name="SafeBrowsingBinaryUploadRequest.MalwareResult"
-    enum="BooleanSuccess" expires_after="2021-09-19">
+    enum="BooleanSuccess" expires_after="2021-11-21">
   <owner>drubery@chromium.org</owner>
   <owner>chrome-safebrowsing-alerts@google.com</owner>
   <summary>
@@ -2028,7 +2063,7 @@ failing to fetch the updates which puts users' security at risk. -->
 </histogram>
 
 <histogram name="SafeBrowsingBinaryUploadRequest.Result"
-    enum="SafeBrowsingBinaryUploadResult" expires_after="2021-09-19">
+    enum="SafeBrowsingBinaryUploadResult" expires_after="2021-11-21">
   <owner>drubery@chromium.org</owner>
   <owner>chrome-safebrowsing-alerts@google.com</owner>
   <summary>
@@ -2039,7 +2074,7 @@ failing to fetch the updates which puts users' security at risk. -->
 </histogram>
 
 <histogram name="SafeBrowsingBinaryUploadRequest.TimeToGetFCMToken" units="ms"
-    expires_after="2021-09-19">
+    expires_after="2021-11-21">
   <owner>drubery@chromium.org</owner>
   <owner>chrome-safebrowsing-alerts@google.com</owner>
   <summary>
@@ -2061,45 +2096,57 @@ failing to fetch the updates which puts users' security at risk. -->
 </histogram>
 
 <histogram name="SafeBrowsingFCMService.IncomingMessageHasKey" enum="Boolean"
-    expires_after="M90">
+    expires_after="M95">
   <owner>drubery@chromium.org</owner>
   <owner>chrome-safebrowsing-alerts@google.com</owner>
   <summary>
     Whether the incoming message has the expected key. Recorded on every FCM
     message received by the Safe Browsing FCM handler.
+
+    Warning: This histogram was expired in M91 and restored in M92. Data may be
+    missing in M91.
   </summary>
 </histogram>
 
 <histogram name="SafeBrowsingFCMService.IncomingMessageHasValidToken"
-    enum="Boolean" expires_after="M90">
+    enum="Boolean" expires_after="M95">
   <owner>drubery@chromium.org</owner>
   <owner>chrome-safebrowsing-alerts@google.com</owner>
   <summary>
     Whether the incoming message has a token that was previously registered with
     the FCM handler. Recorded on every FCM message received by the Safe Browsing
     FCM handler.
+
+    Warning: This histogram was expired in M91 and restored in M92. Data may be
+    missing in M91.
   </summary>
 </histogram>
 
 <histogram name="SafeBrowsingFCMService.IncomingMessageParsedBase64"
-    enum="BooleanSuccess" expires_after="M90">
+    enum="BooleanSuccess" expires_after="M95">
   <owner>drubery@chromium.org</owner>
   <owner>chrome-safebrowsing-alerts@google.com</owner>
   <summary>
     Whether the incoming message was successfully parsed as valid base64-encoded
     data. Recorded on every FCM message received by the Safe Browsing FCM
     handler.
+
+    Warning: This histogram was expired in M91 and restored in M92. Data may be
+    missing in M91.
   </summary>
 </histogram>
 
 <histogram name="SafeBrowsingFCMService.IncomingMessageParsedProto"
-    enum="BooleanSuccess" expires_after="M90">
+    enum="BooleanSuccess" expires_after="M95">
   <owner>drubery@chromium.org</owner>
   <owner>chrome-safebrowsing-alerts@google.com</owner>
   <summary>
     Whether the incoming message was successfully parsed as a valid
     base64-encoded serialized proto. Recorded on every FCM message received by
     the Safe Browsing FCM handler.
+
+    Warning: This histogram was expired in M91 and restored in M92. Data may be
+    missing in M91.
   </summary>
 </histogram>
 

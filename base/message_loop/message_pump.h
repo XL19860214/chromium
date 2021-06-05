@@ -60,6 +60,11 @@ class BASE_EXPORT MessagePump {
       // isn't null nor max. MessagePump impls should use remaining_delay()
       // instead of resampling Now() if they wish to sleep for a TimeDelta.
       TimeTicks recent_now;
+
+      // If true, native messages should be processed before executing more work
+      // from the Delegate. This is an optional hint; not all message pumpls
+      // implement this.
+      bool yield_to_native = false;
     };
 
     // Executes an immediate task or a ripe delayed task. Returns information
@@ -140,7 +145,7 @@ class BASE_EXPORT MessagePump {
   //   for (;;) {
   //     bool did_native_work = false;
   //     {
-  //       auto scoped_do_work = state_->delegate->BeginWorkItem();
+  //       auto scoped_do_work_item = state_->delegate->BeginWorkItem();
   //       did_native_work = DoNativeWork();
   //     }
   //     if (should_quit_)

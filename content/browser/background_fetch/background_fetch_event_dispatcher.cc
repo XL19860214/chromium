@@ -20,6 +20,7 @@
 #include "content/browser/service_worker/service_worker_version.h"
 #include "content/common/background_fetch/background_fetch_types.h"
 #include "content/public/browser/browser_thread.h"
+#include "third_party/blink/public/common/storage_key/storage_key.h"
 
 namespace content {
 
@@ -272,7 +273,7 @@ void BackgroundFetchEventDispatcher::LoadServiceWorkerRegistrationForDispatch(
     ServiceWorkerLoadedCallback loaded_callback) {
   service_worker_context_->FindReadyRegistrationForId(
       registration_id.service_worker_registration_id(),
-      registration_id.origin(),
+      blink::StorageKey(registration_id.origin()),
       base::BindOnce(
           &BackgroundFetchEventDispatcher::StartActiveWorkerForDispatch, event,
           std::move(finished_closure), std::move(loaded_callback)));

@@ -4,16 +4,17 @@
 
 #include "chrome/browser/ui/autofill/address_editor_controller.h"
 
+#include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/autofill/personal_data_manager_factory.h"
 #include "chrome/browser/autofill/validation_rules_storage_factory.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/net/system_network_context_manager.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/grit/generated_resources.h"
 #include "components/autofill/core/browser/autofill_address_util.h"
 #include "components/autofill/core/browser/geo/address_i18n.h"
 #include "components/autofill/core/browser/geo/autofill_country.h"
 #include "components/autofill/core/browser/ui/country_combobox_model.h"
-#include "components/strings/grit/components_strings.h"
 #include "content/public/browser/web_contents.h"
 #include "third_party/libaddressinput/chromium/chrome_metadata_source.h"
 #include "third_party/libaddressinput/messages.h"
@@ -88,23 +89,33 @@ void AddressEditorController::UpdateEditorFields() {
     }
   }
   // Always add phone number and email at the end.
-  // TODO(crbug.com/1167060): use internationalized strings for both fields.
-  // Phone number is using a payment string, and the email is using an
-  // non-internationalized string.
   editor_fields_.emplace_back(
       autofill::PHONE_HOME_WHOLE_NUMBER,
-      l10n_util::GetStringUTF16(IDS_AUTOFILL_FIELD_LABEL_PHONE),
+      l10n_util::GetStringUTF16(IDS_SETTINGS_AUTOFILL_ADDRESSES_PHONE),
       EditorField::LengthHint::HINT_SHORT,
       EditorField::ControlType::TEXTFIELD_NUMBER);
 
-  editor_fields_.emplace_back(autofill::EMAIL_ADDRESS, u"Email",
-                              EditorField::LengthHint::HINT_LONG,
-                              EditorField::ControlType::TEXTFIELD);
+  editor_fields_.emplace_back(
+      autofill::EMAIL_ADDRESS,
+      l10n_util::GetStringUTF16(IDS_SETTINGS_AUTOFILL_ADDRESSES_EMAIL),
+      EditorField::LengthHint::HINT_LONG, EditorField::ControlType::TEXTFIELD);
 }
 
 void AddressEditorController::SetProfileInfo(autofill::ServerFieldType type,
                                              const std::u16string& value) {
-  profile_to_edit_.SetInfo(type, value, locale_);
+  // Since the countries combobox contains the country names, not the country
+  // codes, and hence we should use SetInfo() to make sure they get converted to
+  // country codes.
+  if (type == autofill::ADDRESS_HOME_COUNTRY) {
+    profile_to_edit_.SetInfoWithVerificationStatus(
+        type, value, locale_,
+        autofill::structured_address::VerificationStatus::kUserVerified);
+    return;
+  }
+
+  profile_to_edit_.SetRawInfoWithVerificationStatus(
+      type, value,
+      autofill::structured_address::VerificationStatus::kUserVerified);
 }
 
 std::u16string AddressEditorController::GetProfileInfo(

@@ -11,7 +11,6 @@
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/run_loop.h"
-#include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/task_environment.h"
@@ -22,8 +21,6 @@
 #include "components/password_manager/core/browser/password_store_change.h"
 #include "components/password_manager/core/browser/password_store_consumer.h"
 #include "components/password_manager/core/browser/password_store_origin_unittest.h"
-#include "components/prefs/pref_service.h"
-#include "components/prefs/testing_pref_service.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -82,6 +79,10 @@ class PasswordStoreImplTestDelegate {
       std::unique_ptr<LoginDatabase> database);
   ~PasswordStoreImplTestDelegate();
 
+  PasswordStoreImplTestDelegate(const PasswordStoreImplTestDelegate&) = delete;
+  PasswordStoreImplTestDelegate operator=(
+      const PasswordStoreImplTestDelegate&) = delete;
+
   PasswordStoreImpl* store() { return store_.get(); }
 
   void FinishAsyncProcessing();
@@ -99,10 +100,7 @@ class PasswordStoreImplTestDelegate {
   base::test::TaskEnvironment task_environment_{
       base::test::TaskEnvironment::MainThreadType::UI};
   base::ScopedTempDir temp_dir_;
-  TestingPrefServiceSimple prefs_;
   scoped_refptr<PasswordStoreImpl> store_;
-
-  DISALLOW_COPY_AND_ASSIGN(PasswordStoreImplTestDelegate);
 };
 
 PasswordStoreImplTestDelegate::PasswordStoreImplTestDelegate() {
@@ -143,7 +141,7 @@ PasswordStoreImplTestDelegate::CreateInitializedStore(
     std::unique_ptr<LoginDatabase> database) {
   scoped_refptr<PasswordStoreImpl> store(
       new PasswordStoreImpl(std::move(database)));
-  store->Init(&prefs_);
+  store->Init(/*prefs=*/nullptr);
 
   return store;
 }

@@ -104,6 +104,7 @@
 #include "third_party/blink/public/mojom/frame/media_player_action.mojom-blink.h"
 #include "third_party/blink/public/mojom/frame/tree_scope_type.mojom-blink.h"
 #include "third_party/blink/public/mojom/permissions_policy/permissions_policy.mojom-blink.h"
+#include "third_party/blink/public/mojom/portal/portal.mojom-blink.h"
 #include "third_party/blink/public/platform/interface_registry.h"
 #include "third_party/blink/public/platform/task_type.h"
 #include "third_party/blink/public/platform/web_double_size.h"
@@ -688,11 +689,20 @@ WebLocalFrame* WebLocalFrameImpl::ToWebLocalFrame() {
   return this;
 }
 
+const WebLocalFrame* WebLocalFrameImpl::ToWebLocalFrame() const {
+  return this;
+}
+
 bool WebLocalFrameImpl::IsWebRemoteFrame() const {
   return false;
 }
 
 WebRemoteFrame* WebLocalFrameImpl::ToWebRemoteFrame() {
+  NOTREACHED();
+  return nullptr;
+}
+
+const WebRemoteFrame* WebLocalFrameImpl::ToWebRemoteFrame() const {
   NOTREACHED();
   return nullptr;
 }
@@ -849,15 +859,6 @@ void WebLocalFrameImpl::SetAdEvidence(
     const blink::FrameAdEvidence& ad_evidence) {
   DCHECK(GetFrame());
   GetFrame()->SetAdEvidence(ad_evidence);
-
-  // TODO(alexmt): Remove when AdFrameType is replaced.
-  blink::mojom::AdFrameType ad_frame_type = blink::mojom::AdFrameType::kNonAd;
-  if (ad_evidence.IndicatesAdSubframe()) {
-    ad_frame_type = ad_evidence.parent_is_ad()
-                        ? blink::mojom::AdFrameType::kChildAd
-                        : blink::mojom::AdFrameType::kRootAd;
-  }
-  GetFrame()->SetIsAdSubframe(ad_frame_type);
 }
 
 const absl::optional<blink::FrameAdEvidence>& WebLocalFrameImpl::AdEvidence() {
@@ -1072,6 +1073,14 @@ int32_t WebLocalFrameImpl::GetScriptContextWorldId(
     v8::Local<v8::Context> script_context) const {
   DCHECK_EQ(this, FrameForContext(script_context));
   return DOMWrapperWorld::World(script_context).GetWorldId();
+}
+
+v8::Local<v8::Context> WebLocalFrameImpl::GetScriptContextFromWorldId(
+    v8::Isolate* isolate,
+    int world_id) const {
+  scoped_refptr<DOMWrapperWorld> world =
+      DOMWrapperWorld::EnsureIsolatedWorld(isolate, world_id);
+  return ToScriptState(GetFrame(), *world)->GetContext();
 }
 
 v8::Local<v8::Object> WebLocalFrameImpl::GlobalProxy() const {
@@ -1912,10 +1921,8 @@ WebLocalFrameImpl* WebLocalFrameImpl::CreateProvisional(
   DCHECK(name.IsEmpty() || name.Equals(previous_frame->Tree().GetName()));
   auto* web_frame = MakeGarbageCollected<WebLocalFrameImpl>(
       base::PassKey<WebLocalFrameImpl>(),
-      previous_web_frame->InShadowTree()
-          ? mojom::blink::TreeScopeType::kShadow
-          : mojom::blink::TreeScopeType::kDocument,
-      client, interface_registry, frame_token);
+      previous_web_frame->GetTreeScopeType(), client, interface_registry,
+      frame_token);
   network::mojom::blink::WebSandboxFlags sandbox_flags =
       network::mojom::blink::WebSandboxFlags::kNone;
   PermissionsPolicyFeatureState feature_state;

@@ -7,6 +7,7 @@
 
 #include "base/macros.h"
 #include "testing/gmock/include/gmock/gmock.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/platform_window/platform_window_delegate.h"
 
@@ -31,6 +32,7 @@ class MockPlatformWindowDelegate : public PlatformWindowDelegate {
   MOCK_METHOD1(OnActivationChanged, void(bool active));
   MOCK_METHOD0(GetMinimumSizeForWindow, absl::optional<gfx::Size>());
   MOCK_METHOD0(GetMaximumSizeForWindow, absl::optional<gfx::Size>());
+  MOCK_METHOD0(GetMenuType, absl::optional<MenuType>());
   MOCK_METHOD0(OnMouseEnter, void());
 
  private:

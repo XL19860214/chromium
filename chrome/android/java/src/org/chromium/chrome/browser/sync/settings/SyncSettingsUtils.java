@@ -4,6 +4,7 @@
 package org.chromium.chrome.browser.sync.settings;
 
 import android.app.Activity;
+import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentSender;
@@ -22,6 +23,7 @@ import androidx.preference.PreferenceFragmentCompat;
 import org.chromium.base.BuildInfo;
 import org.chromium.base.IntentUtils;
 import org.chromium.base.Log;
+import org.chromium.base.Promise;
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.metrics.RecordUserAction;
 import org.chromium.chrome.R;
@@ -29,7 +31,6 @@ import org.chromium.chrome.browser.IntentHandler;
 import org.chromium.chrome.browser.LaunchIntentDispatcher;
 import org.chromium.chrome.browser.browserservices.intents.BrowserServicesIntentDataProvider.CustomTabsUiType;
 import org.chromium.chrome.browser.customtabs.CustomTabIntentDataProvider;
-import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.signin.services.IdentityServicesProvider;
 import org.chromium.chrome.browser.sync.ProfileSyncService;
@@ -38,7 +39,6 @@ import org.chromium.components.signin.base.CoreAccountInfo;
 import org.chromium.components.signin.base.GoogleServiceAuthError;
 import org.chromium.components.sync.KeyRetrievalTriggerForUMA;
 import org.chromium.components.sync.StopSource;
-import org.chromium.ui.UiUtils;
 import org.chromium.ui.widget.Toast;
 
 import java.lang.annotation.Retention;
@@ -54,8 +54,10 @@ public class SyncSettingsUtils {
 
     @IntDef({SyncError.NO_ERROR, SyncError.ANDROID_SYNC_DISABLED, SyncError.AUTH_ERROR,
             SyncError.PASSPHRASE_REQUIRED, SyncError.TRUSTED_VAULT_KEY_REQUIRED_FOR_EVERYTHING,
-            SyncError.TRUSTED_VAULT_KEY_REQUIRED_FOR_PASSWORDS, SyncError.CLIENT_OUT_OF_DATE,
-            SyncError.SYNC_SETUP_INCOMPLETE, SyncError.OTHER_ERRORS})
+            SyncError.TRUSTED_VAULT_KEY_REQUIRED_FOR_PASSWORDS,
+            SyncError.TRUSTED_VAULT_RECOVERABILITY_DEGRADED_FOR_EVERYTHING,
+            SyncError.TRUSTED_VAULT_RECOVERABILITY_DEGRADED_FOR_PASSWORDS,
+            SyncError.CLIENT_OUT_OF_DATE, SyncError.SYNC_SETUP_INCOMPLETE, SyncError.OTHER_ERRORS})
     @Retention(RetentionPolicy.SOURCE)
     public @interface SyncError {
         int NO_ERROR = -1;
@@ -64,8 +66,10 @@ public class SyncSettingsUtils {
         int PASSPHRASE_REQUIRED = 2;
         int TRUSTED_VAULT_KEY_REQUIRED_FOR_EVERYTHING = 3;
         int TRUSTED_VAULT_KEY_REQUIRED_FOR_PASSWORDS = 4;
-        int CLIENT_OUT_OF_DATE = 5;
-        int SYNC_SETUP_INCOMPLETE = 6;
+        int TRUSTED_VAULT_RECOVERABILITY_DEGRADED_FOR_EVERYTHING = 5;
+        int TRUSTED_VAULT_RECOVERABILITY_DEGRADED_FOR_PASSWORDS = 6;
+        int CLIENT_OUT_OF_DATE = 7;
+        int SYNC_SETUP_INCOMPLETE = 8;
         int OTHER_ERRORS = 128;
     }
 
@@ -113,6 +117,13 @@ public class SyncSettingsUtils {
                     : SyncError.TRUSTED_VAULT_KEY_REQUIRED_FOR_PASSWORDS;
         }
 
+        if (profileSyncService.isEngineInitialized()
+                && profileSyncService.isTrustedVaultRecoverabilityDegraded()) {
+            return profileSyncService.isEncryptEverythingEnabled()
+                    ? SyncError.TRUSTED_VAULT_RECOVERABILITY_DEGRADED_FOR_EVERYTHING
+                    : SyncError.TRUSTED_VAULT_RECOVERABILITY_DEGRADED_FOR_PASSWORDS;
+        }
+
         if (!profileSyncService.isFirstSetupComplete()) {
             return SyncError.SYNC_SETUP_INCOMPLETE;
         }
@@ -142,11 +153,12 @@ public class SyncSettingsUtils {
                 return context.getString(R.string.hint_sync_retrieve_keys_for_everything);
             case SyncError.TRUSTED_VAULT_KEY_REQUIRED_FOR_PASSWORDS:
                 return context.getString(R.string.hint_sync_retrieve_keys_for_passwords);
+            case SyncError.TRUSTED_VAULT_RECOVERABILITY_DEGRADED_FOR_EVERYTHING:
+                return context.getString(R.string.hint_sync_recoverability_degraded_for_everything);
+            case SyncError.TRUSTED_VAULT_RECOVERABILITY_DEGRADED_FOR_PASSWORDS:
+                return context.getString(R.string.hint_sync_recoverability_degraded_for_passwords);
             case SyncError.SYNC_SETUP_INCOMPLETE:
-                return context.getString(
-                        ChromeFeatureList.isEnabled(ChromeFeatureList.MOBILE_IDENTITY_CONSISTENCY)
-                                ? R.string.hint_sync_settings_not_confirmed_description
-                                : R.string.hint_sync_settings_not_confirmed_description_legacy);
+                return context.getString(R.string.hint_sync_settings_not_confirmed_description);
             case SyncError.NO_ERROR:
             default:
                 return null;
@@ -169,6 +181,8 @@ public class SyncSettingsUtils {
                 return context.getString(R.string.passphrase_required_error_card_button);
             case SyncError.TRUSTED_VAULT_KEY_REQUIRED_FOR_EVERYTHING:
             case SyncError.TRUSTED_VAULT_KEY_REQUIRED_FOR_PASSWORDS:
+            case SyncError.TRUSTED_VAULT_RECOVERABILITY_DEGRADED_FOR_EVERYTHING:
+            case SyncError.TRUSTED_VAULT_RECOVERABILITY_DEGRADED_FOR_PASSWORDS:
                 return context.getString(R.string.trusted_vault_error_card_button);
             case SyncError.SYNC_SETUP_INCOMPLETE:
                 return context.getString(R.string.sync_promo_turn_on_sync);
@@ -180,17 +194,13 @@ public class SyncSettingsUtils {
 
     /**
      * Return a short summary of the current sync status.
-     * TODO(https://crbug.com/1129930): Refactor this method
      */
     public static String getSyncStatusSummary(Context context) {
         if (!IdentityServicesProvider.get()
                         .getIdentityManager(Profile.getLastUsedRegularProfile())
                         .hasPrimaryAccount()) {
-            if (ChromeFeatureList.isEnabled(ChromeFeatureList.MOBILE_IDENTITY_CONSISTENCY)) {
-                // There is no account with sync consent available.
-                return context.getString(R.string.sync_is_disabled);
-            }
-            return "";
+            // There is no account with sync consent available.
+            return context.getString(R.string.sync_is_disabled);
         }
 
         ProfileSyncService profileSyncService = ProfileSyncService.get();
@@ -207,9 +217,7 @@ public class SyncSettingsUtils {
         }
 
         if (!profileSyncService.isFirstSetupComplete()) {
-            return ChromeFeatureList.isEnabled(ChromeFeatureList.MOBILE_IDENTITY_CONSISTENCY)
-                    ? context.getString(R.string.sync_settings_not_confirmed)
-                    : context.getString(R.string.sync_settings_not_confirmed_legacy);
+            return context.getString(R.string.sync_settings_not_confirmed);
         }
 
         if (profileSyncService.getAuthError() != GoogleServiceAuthError.State.NONE) {
@@ -226,9 +234,7 @@ public class SyncSettingsUtils {
         }
 
         if (!profileSyncService.isSyncRequested()) {
-            return ChromeFeatureList.isEnabled(ChromeFeatureList.MOBILE_IDENTITY_CONSISTENCY)
-                    ? context.getString(R.string.sync_data_types_off)
-                    : context.getString(R.string.sync_is_disabled);
+            return context.getString(R.string.sync_data_types_off);
         }
 
         if (!profileSyncService.isSyncFeatureActive()) {
@@ -239,7 +245,8 @@ public class SyncSettingsUtils {
             return context.getString(R.string.sync_need_passphrase);
         }
 
-        if (profileSyncService.isTrustedVaultKeyRequiredForPreferredDataTypes()) {
+        if (profileSyncService.isTrustedVaultKeyRequiredForPreferredDataTypes()
+                || profileSyncService.isTrustedVaultRecoverabilityDegraded()) {
             return profileSyncService.isEncryptEverythingEnabled()
                     ? context.getString(R.string.sync_error_card_title)
                     : context.getString(R.string.password_sync_error_summary);
@@ -279,40 +286,25 @@ public class SyncSettingsUtils {
      * Returns an icon that represents the current sync state.
      */
     public static @Nullable Drawable getSyncStatusIcon(Context context) {
-        boolean useNewIcon =
-                ChromeFeatureList.isEnabled(ChromeFeatureList.MOBILE_IDENTITY_CONSISTENCY);
-
         if (!IdentityServicesProvider.get()
                         .getIdentityManager(Profile.getLastUsedRegularProfile())
                         .hasPrimaryAccount()) {
-            return useNewIcon ? AppCompatResources.getDrawable(context, R.drawable.ic_sync_off_48dp)
-                              : null;
+            return AppCompatResources.getDrawable(context, R.drawable.ic_sync_off_48dp);
         }
 
         ProfileSyncService profileSyncService = ProfileSyncService.get();
         if (profileSyncService == null || !profileSyncService.isSyncRequested()) {
-            return useNewIcon
-                    ? AppCompatResources.getDrawable(context, R.drawable.ic_sync_off_48dp)
-                    : UiUtils.getTintedDrawable(context, R.drawable.ic_sync_green_legacy_40dp,
-                            R.color.default_icon_color);
+            return AppCompatResources.getDrawable(context, R.drawable.ic_sync_off_48dp);
         }
         if (profileSyncService.isSyncDisabledByEnterprisePolicy()) {
-            return useNewIcon
-                    ? AppCompatResources.getDrawable(context, R.drawable.ic_sync_off_48dp)
-                    : UiUtils.getTintedDrawable(context, R.drawable.ic_sync_error_legacy_40dp,
-                            R.color.default_icon_color);
+            return AppCompatResources.getDrawable(context, R.drawable.ic_sync_off_48dp);
         }
 
         if (getSyncError() != SyncError.NO_ERROR) {
-            return useNewIcon
-                    ? AppCompatResources.getDrawable(context, R.drawable.ic_sync_error_48dp)
-                    : UiUtils.getTintedDrawable(
-                            context, R.drawable.ic_sync_error_legacy_40dp, R.color.default_red);
+            return AppCompatResources.getDrawable(context, R.drawable.ic_sync_error_48dp);
         }
 
-        return useNewIcon ? AppCompatResources.getDrawable(context, R.drawable.ic_sync_on_48dp)
-                          : UiUtils.getTintedDrawable(context, R.drawable.ic_sync_green_legacy_40dp,
-                                  R.color.default_green);
+        return AppCompatResources.getDrawable(context, R.drawable.ic_sync_on_48dp);
     }
 
     /**
@@ -395,6 +387,39 @@ public class SyncSettingsUtils {
     }
 
     /**
+     * Upon promise completion, opens a dialog by starting the intent representing a user action
+     * required for managing a trusted vault.
+     *
+     * @param fragment Fragment to use when starting the dialog.
+     * @param accountInfo Account representing the user.
+     * @param requestCode Arbitrary request code that upon completion will be passed back via
+     *         Fragment.onActivityResult().
+     * @param pendingIntentPromise promise that provides the intent to be started.
+     */
+    private static void openTrustedVaultDialogForPendingIntent(Fragment fragment,
+            CoreAccountInfo accountInfo, int requestCode,
+            Promise<PendingIntent> pendingIntentPromise) {
+        pendingIntentPromise.then(
+                (pendingIntent)
+                        -> {
+                    try {
+                        fragment.startIntentSenderForResult(pendingIntent.getIntentSender(),
+                                requestCode,
+                                /* fillInIntent */ null, /* flagsMask */ 0,
+                                /* flagsValues */ 0, /* extraFlags */ 0,
+                                /* options */ null);
+                    } catch (IntentSender.SendIntentException exception) {
+                        Log.w(TAG, "Error sending trusted vault intent for code ", requestCode,
+                                ": ", exception);
+                    }
+                },
+                (exception) -> {
+                    Log.e(TAG, "Error opening trusted vault dialog for code ", requestCode, ": ",
+                            exception);
+                });
+    }
+
+    /**
      * Displays a UI that allows the user to reauthenticate and retrieve the sync encryption keys
      * from a trusted vault.
      *
@@ -406,24 +431,37 @@ public class SyncSettingsUtils {
     public static void openTrustedVaultKeyRetrievalDialog(
             Fragment fragment, CoreAccountInfo accountInfo, int requestCode) {
         ProfileSyncService.get().recordKeyRetrievalTrigger(KeyRetrievalTriggerForUMA.SETTINGS);
-        TrustedVaultClient.get()
-                .createKeyRetrievalIntent(accountInfo)
-                .then(
-                        (pendingIntent)
-                                -> {
-                            try {
-                                fragment.startIntentSenderForResult(pendingIntent.getIntentSender(),
-                                        requestCode,
-                                        /* fillInIntent */ null, /* flagsMask */ 0,
-                                        /* flagsValues */ 0, /* extraFlags */ 0,
-                                        /* options */ null);
-                            } catch (IntentSender.SendIntentException exception) {
-                                Log.w(TAG, "Error sending key retrieval intent: ", exception);
-                            }
-                        },
-                        (exception) -> {
-                            Log.e(TAG, "Error opening key retrieval dialog: ", exception);
-                        });
+        openTrustedVaultDialogForPendingIntent(fragment, accountInfo, requestCode,
+                TrustedVaultClient.get().createKeyRetrievalIntent(accountInfo));
+    }
+
+    /**
+     * Displays a UI that allows the user to improve recoverability of the trusted vault data,
+     * typically involving reauthentication.
+     *
+     * @param fragment Fragment to use when starting the dialog.
+     * @param accountInfo Account representing the user.
+     * @param requestCode Arbitrary request code that upon completion will be passed back via
+     *         Fragment.onActivityResult().
+     */
+    public static void openTrustedVaultRecoverabilityDegradedDialog(
+            Fragment fragment, CoreAccountInfo accountInfo, int requestCode) {
+        openTrustedVaultDialogForPendingIntent(fragment, accountInfo, requestCode,
+                TrustedVaultClient.get().createRecoverabilityDegradedIntent(accountInfo));
+    }
+
+    /**
+     * Displays a UI that allows the user to opt in into the trusted vault passphrase type.
+     *
+     * @param fragment Fragment to use when starting the dialog.
+     * @param accountInfo Account representing the user.
+     * @param requestCode Arbitrary request code that upon completion will be passed back via
+     *         Fragment.onActivityResult().
+     */
+    public static void openTrustedVaultOptInDialog(
+            Fragment fragment, CoreAccountInfo accountInfo, int requestCode) {
+        openTrustedVaultDialogForPendingIntent(fragment, accountInfo, requestCode,
+                TrustedVaultClient.get().createOptInIntent(accountInfo));
     }
 
     /**

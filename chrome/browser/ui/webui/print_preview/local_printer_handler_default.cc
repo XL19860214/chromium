@@ -21,6 +21,7 @@
 #include "chrome/browser/ui/webui/print_preview/printer_handler.h"
 #include "chrome/common/printing/printer_capabilities.h"
 #include "chrome/services/printing/public/mojom/print_backend_service.mojom.h"
+#include "components/device_event_log/device_event_log.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "printing/mojom/print.mojom.h"
@@ -61,15 +62,16 @@ scoped_refptr<base::TaskRunner> CreatePrinterHandlerTaskRunner() {
 
 void OnDidGetDefaultPrinterName(
     PrinterHandler::DefaultPrinterCallback callback,
-    const absl::optional<std::string>& printer_name) {
-  if (!printer_name.has_value()) {
-    LOG(WARNING) << "Failure getting default printer";
+    mojom::DefaultPrinterNameResultPtr printer_name) {
+  if (printer_name->is_result_code()) {
+    PRINTER_LOG(ERROR) << "Failure getting default printer, result: "
+                       << printer_name->get_result_code();
     std::move(callback).Run(std::string());
     return;
   }
 
-  VLOG(1) << "Default Printer: " << printer_name.value();
-  std::move(callback).Run(printer_name.value());
+  VLOG(1) << "Default Printer: " << printer_name->get_default_printer_name();
+  std::move(callback).Run(printer_name->get_default_printer_name());
 }
 
 void OnDidEnumeratePrinters(
@@ -77,8 +79,8 @@ void OnDidEnumeratePrinters(
     PrinterHandler::GetPrintersDoneCallback done_callback,
     mojom::PrinterListResultPtr printer_list) {
   if (printer_list->is_result_code()) {
-    LOG(WARNING) << "Failure enumerating local printers, result: "
-                 << printer_list->get_result_code();
+    PRINTER_LOG(ERROR) << "Failure enumerating local printers, result: "
+                       << printer_list->get_result_code();
   }
 
   ConvertPrinterListForCallback(
@@ -149,7 +151,11 @@ PrinterList LocalPrinterHandlerDefault::EnumeratePrintersAsync(
       PrintBackend::CreateInstance(locale));
 
   PrinterList printer_list;
-  print_backend->EnumeratePrinters(&printer_list);
+  mojom::ResultCode result = print_backend->EnumeratePrinters(&printer_list);
+  if (result != mojom::ResultCode::kSuccess) {
+    PRINTER_LOG(ERROR) << "Failure enumerating local printers, result: "
+                       << result;
+  }
   return printer_list;
 }
 
@@ -197,7 +203,14 @@ std::string LocalPrinterHandlerDefault::GetDefaultPrinterAsync(
   scoped_refptr<PrintBackend> print_backend(
       PrintBackend::CreateInstance(locale));
 
-  std::string default_printer = print_backend->GetDefaultPrinterName();
+  std::string default_printer;
+  mojom::ResultCode result =
+      print_backend->GetDefaultPrinterName(default_printer);
+  if (result != mojom::ResultCode::kSuccess) {
+    PRINTER_LOG(ERROR) << "Failure getting default printer name, result: "
+                       << result;
+    return std::string();
+  }
   VLOG(1) << "Default Printer: " << default_printer;
   return default_printer;
 }

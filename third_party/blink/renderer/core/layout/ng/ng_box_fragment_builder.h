@@ -6,6 +6,7 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_NG_NG_BOX_FRAGMENT_BUILDER_H_
 
 #include "base/dcheck_is_on.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/renderer/core/layout/geometry/box_sides.h"
 #include "third_party/blink/renderer/core/layout/geometry/physical_rect.h"
 #include "third_party/blink/renderer/core/layout/ng/geometry/ng_box_strut.h"
@@ -232,6 +233,12 @@ class CORE_EXPORT NGBoxFragmentBuilder final
   // the sum of the block-size of all previous fragments PLUS the one we're
   // building now.
   void SetConsumedBlockSize(LayoutUnit size) { consumed_block_size_ = size; }
+
+  // Set how much to adjust |consumed_block_size_| for legacy write-back. See
+  // NGBlockBreakToken::ConsumedBlockSizeForLegacy() for more details.
+  void SetConsumedBlockSizeLegacyAdjustment(LayoutUnit adjustment) {
+    consumed_block_size_legacy_adjustment_ = adjustment;
+  }
 
   // Set how much of the column block-size we've used so far. This will be used
   // to determine the block-size of any new columns added by descendant
@@ -535,6 +542,8 @@ class CORE_EXPORT NGBoxFragmentBuilder final
     grid_data_ = std::move(grid_data);
   }
 
+  const NGGridData& GetNGGridData() const { return *grid_data_.get(); }
+
   // The |NGFragmentItemsBuilder| for the inline formatting context of this box.
   NGFragmentItemsBuilder* ItemsBuilder() { return items_builder_; }
   void SetItemsBuilder(NGFragmentItemsBuilder* builder) {
@@ -639,6 +648,7 @@ class CORE_EXPORT NGBoxFragmentBuilder final
   bool is_at_block_end_ = false;
   bool has_violating_break_ = false;
   LayoutUnit consumed_block_size_;
+  LayoutUnit consumed_block_size_legacy_adjustment_;
   LayoutUnit block_offset_for_additional_columns_;
   unsigned sequence_number_ = 0;
 

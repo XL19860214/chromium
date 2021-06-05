@@ -38,6 +38,10 @@
 #include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_utils.h"
 
+#if defined(USE_OZONE)
+#include "ui/events/ozone/layout/keyboard_layout_engine_test_utils.h"
+#endif
+
 namespace views {
 namespace {
 
@@ -69,6 +73,7 @@ class EditableComboboxTest : public ViewsTestBase {
  public:
   EditableComboboxTest() { views::test::DisableMenuClosureAnimations(); }
 
+  void SetUp() override;
   void TearDown() override;
 
   // Initializes the combobox with the given number of items.
@@ -129,6 +134,17 @@ class EditableComboboxTest : public ViewsTestBase {
  private:
   DISALLOW_COPY_AND_ASSIGN(EditableComboboxTest);
 };
+
+void EditableComboboxTest::SetUp() {
+  ViewsTestBase::SetUp();
+
+#if defined(USE_OZONE)
+  // TODO(crbug.com/1209477): Wayland bots use Weston with Headless backend that
+  // sets up XkbKeyboardLayoutEngine differently. When that is fixed, remove the
+  // workaround below.
+  ui::WaitUntilLayoutEngineIsReadyForTest();
+#endif
+}
 
 void EditableComboboxTest::TearDown() {
   if (IsMenuOpen()) {
@@ -569,15 +585,9 @@ TEST_F(EditableComboboxTest, ClickOnMenuItemSelectsItAndClosesMenu) {
   EXPECT_EQ(u"item[0]", combobox_->GetText());
 }
 
-// This is failing on Linux (Ozone Wayland). https://crbug.com/1204302.
-#if defined(OS_LINUX)
-#define MAYBE_SpaceIsReflectedInTextfield DISABLED_SpaceIsReflectedInTextfield
-#else
-#define MAYBE_SpaceIsReflectedInTextfield SpaceIsReflectedInTextfield
-#endif
 // This is different from the regular read-only Combobox, where SPACE
 // opens/closes the menu.
-TEST_F(EditableComboboxTest, MAYBE_SpaceIsReflectedInTextfield) {
+TEST_F(EditableComboboxTest, SpaceIsReflectedInTextfield) {
   InitEditableCombobox();
   combobox_->GetTextfieldForTest()->RequestFocus();
   SendKeyEvent(ui::VKEY_A);

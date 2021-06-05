@@ -34,8 +34,6 @@ class COMPONENT_EXPORT(UI_BASE_IME_CHROMEOS) InputMethodChromeOS
   explicit InputMethodChromeOS(internal::InputMethodDelegate* delegate);
   ~InputMethodChromeOS() override;
 
-  using AckCallback = base::OnceCallback<void(bool)>;
-
   // Overridden from InputMethod:
   ui::EventDispatchDetails DispatchKeyEvent(ui::KeyEvent* event) override;
   void OnTextInputTypeChanged(const TextInputClient* client) override;
@@ -67,6 +65,8 @@ class COMPONENT_EXPORT(UI_BASE_IME_CHROMEOS) InputMethodChromeOS
   gfx::Range GetAutocorrectRange() override;
   gfx::Rect GetAutocorrectCharacterBounds() override;
   bool SetAutocorrectRange(const gfx::Range& range) override;
+  absl::optional<GrammarFragment> GetGrammarFragment(
+      const gfx::Range& range) override;
   bool ClearGrammarFragments(const gfx::Range& range) override;
   bool AddGrammarFragments(
       const std::vector<GrammarFragment>& fragments) override;
@@ -145,6 +145,21 @@ class COMPONENT_EXPORT(UI_BASE_IME_CHROMEOS) InputMethodChromeOS
 
   // Hides the composition text.
   void HidePreeditText();
+
+  // Whether the focused text input client supports inline composition.
+  bool CanComposeInline() const;
+
+  // Check whether text entered into the focused text input client should be
+  // used to improve typing suggestions for the user.
+  bool GetClientShouldDoLearning() const;
+
+  // Gets the text input flags of the focused text input client. Returns
+  // 0 if there is no focused client.
+  int GetTextInputFlags() const;
+
+  // Gets the text input mode of the focused text input client. Returns
+  // ui::TEXT_INPUT_MODE_DEFAULT if there is no focused client.
+  TextInputMode GetTextInputMode() const;
 
   // Called from the engine when it completes processing.
   void ProcessKeyEventDone(ui::KeyEvent* event, bool is_handled);

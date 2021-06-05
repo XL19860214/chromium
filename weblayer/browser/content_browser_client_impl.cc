@@ -344,7 +344,7 @@ bool ContentBrowserClientImpl::AllowSharedWorker(
     const GURL& site_for_cookies,
     const absl::optional<url::Origin>& top_frame_origin,
     const std::string& name,
-    const storage::StorageKey& storage_key,
+    const blink::StorageKey& storage_key,
     content::BrowserContext* context,
     int render_process_id,
     int render_frame_id) {
@@ -1127,6 +1127,14 @@ ContentBrowserClientImpl::CreateLoginDelegate(
 std::unique_ptr<content::TtsEnvironmentAndroid>
 ContentBrowserClientImpl::CreateTtsEnvironmentAndroid() {
   return std::make_unique<TtsEnvironmentAndroidImpl>();
+}
+
+bool ContentBrowserClientImpl::
+    ShouldObserveContainerViewLocationForDialogOverlays() {
+  // Observe location changes of the container view as WebLayer might be
+  // embedded in a scrollable container and we need to update the position of
+  // any DialogOverlays.
+  return true;
 }
 
 #endif  // OS_ANDROID

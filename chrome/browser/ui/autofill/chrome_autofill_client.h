@@ -24,7 +24,6 @@
 #include "components/signin/public/identity_manager/account_info.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "content/public/browser/web_contents_user_data.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 
 #if defined(OS_ANDROID)
 #include "chrome/browser/autofill/android/save_address_profile_flow_manager.h"
@@ -150,8 +149,8 @@ class ChromeAutofillClient
   void HideAutofillPopup(PopupHidingReason reason) override;
   void ShowOfferNotificationIfApplicable(
       const AutofillOfferData* offer) override;
-  void ShowVirtualCardManualFallbackBubble(const CreditCard* card,
-                                           const std::u16string& cvc) override;
+  void OnVirtualCardFetched(const CreditCard* card,
+                            const std::u16string& cvc) override;
   bool IsAutofillAssistantShowing() override;
   bool IsAutocompleteEnabled() override;
   void PropagateAutofillPredictions(
@@ -190,7 +189,6 @@ class ChromeAutofillClient
   explicit ChromeAutofillClient(content::WebContents* web_contents);
 
   Profile* GetProfile() const;
-  absl::optional<AccountInfo> GetAccountInfo();
   bool IsMultipleAccountUser();
   std::u16string GetAccountHolderName();
 

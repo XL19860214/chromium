@@ -38,6 +38,7 @@
 #include "content/public/browser/page_navigator.h"
 #include "content/public/browser/quota_permission_context.h"
 #include "content/public/browser/sms_fetcher.h"
+#include "content/public/browser/speculation_host_delegate.h"
 #include "content/public/browser/url_loader_request_interceptor.h"
 #include "content/public/browser/vpn_service_proxy.h"
 #include "content/public/browser/web_contents.h"
@@ -240,6 +241,10 @@ bool ContentBrowserClient::MayReuseHost(RenderProcessHost* process_host) {
   return true;
 }
 
+size_t ContentBrowserClient::GetProcessCountToIgnoreForLimit() {
+  return 0;
+}
+
 bool ContentBrowserClient::ShouldTryToUseExistingProcessHost(
     BrowserContext* browser_context,
     const GURL& url) {
@@ -358,7 +363,7 @@ bool ContentBrowserClient::AllowSharedWorker(
     const GURL& site_for_cookies,
     const absl::optional<url::Origin>& top_frame_origin,
     const std::string& name,
-    const storage::StorageKey& storage_key,
+    const blink::StorageKey& storage_key,
     BrowserContext* context,
     int render_process_id,
     int render_frame_id) {
@@ -815,6 +820,13 @@ void ContentBrowserClient::CreateWebSocket(
   NOTREACHED();
 }
 
+void ContentBrowserClient::WillCreateWebTransport(
+    RenderFrameHost* frame,
+    const GURL& url,
+    WillCreateWebTransportCallback callback) {
+  std::move(callback).Run(absl::nullopt);
+}
+
 bool ContentBrowserClient::WillCreateRestrictedCookieManager(
     network::mojom::RestrictedCookieManagerRole role,
     BrowserContext* browser_context,
@@ -1074,6 +1086,11 @@ std::unique_ptr<TtsEnvironmentAndroid>
 ContentBrowserClient::CreateTtsEnvironmentAndroid() {
   return nullptr;
 }
+
+bool ContentBrowserClient::
+    ShouldObserveContainerViewLocationForDialogOverlays() {
+  return false;
+}
 #endif
 
 base::flat_set<std::string>
@@ -1216,6 +1233,20 @@ bool ContentBrowserClient::SuppressDifferentOriginSubframeJSDialogs(
     BrowserContext* browser_context) {
   return base::FeatureList::IsEnabled(
       features::kSuppressDifferentOriginSubframeJSDialogs);
+}
+
+std::unique_ptr<SpeculationHostDelegate>
+ContentBrowserClient::CreateSpeculationHostDelegate(
+    RenderFrameHost& render_frame_host) {
+  return nullptr;
+}
+
+void ContentBrowserClient::ShowDirectSocketsConnectionDialog(
+    content::RenderFrameHost* owner,
+    const std::string& address,
+    base::OnceCallback<void(bool, const std::string&, const std::string&)>
+        callback) {
+  std::move(callback).Run(false, std::string(), std::string());
 }
 
 }  // namespace content

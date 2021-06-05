@@ -3,22 +3,38 @@
 // found in the LICENSE file.
 
 import 'chrome://resources/cr_elements/cr_button/cr_button.m.js';
+import './onboarding_choose_destination_page.js';
+import './onboarding_choose_wp_disable_method_page.js';
+import './onboarding_enter_rsu_wp_disable_code_page.js';
 import './onboarding_landing_page.js';
+import './onboarding_select_components_page.js';
 import './onboarding_update_page.js';
+import './onboarding_wait_for_manual_wp_disable_page.js';
 import './shimless_rma_shared_css.js';
 
+import {assert} from 'chrome://resources/js/assert.m.js';
 import {html, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
 import {getShimlessRmaService} from './mojo_interface_provider.js';
-import {CurrentState, NextState, PrevState, RmadErrorCode, RmaState, ShimlessRmaServiceInterface} from './shimless_rma_types.js'
+import {RmadErrorCode, RmaState, ShimlessRmaServiceInterface, StateResult} from './shimless_rma_types.js'
+
+/**
+ * Enum for button states.
+ * @enum {string}
+ */
+export const ButtonState = {
+  VISIBLE: 'visible',
+  DISABLED: 'disable',
+  HIDDEN: 'hidden'
+};
 
 /**
  * @typedef {{
  *  componentIs: string,
- *  btnNext: string,
- *  btnNextLabel: string,
- *  btnCancel: string,
- *  btnBack: string,
+ *  buttonNext: !ButtonState,
+ *  buttonNextLabel: string,
+ *  buttonCancel: !ButtonState,
+ *  buttonBack: !ButtonState,
  * }}
  */
 let PageInfo;
@@ -27,9 +43,56 @@ let PageInfo;
  * @type {!Object<!RmaState, !PageInfo>}
  */
 const StateComponentMapping = {
-  [RmaState.kUnknown]: {componentIs: 'badcomponent'},
-  [RmaState.kWelcomeScreen]: {componentIs: 'onboarding-landing-page'},
-  [RmaState.kUpdateChrome]: {componentIs: 'onboarding-update-page'},
+  [RmaState.kUnknown]: {
+    componentIs: 'badcomponent',
+    buttonNext: ButtonState.HIDDEN,
+    buttonCancel: ButtonState.VISIBLE,
+    buttonBack: ButtonState.HIDDEN,
+  },
+  [RmaState.kWelcomeScreen]: {
+    componentIs: 'onboarding-landing-page',
+    buttonNext: ButtonState.VISIBLE,
+    buttonCancel: ButtonState.VISIBLE,
+    buttonBack: ButtonState.HIDDEN,
+  },
+  // TODO(joonbug): update to correct RmaState
+  [RmaState.kChooseDestination]: {
+    componentIs: 'onboarding-choose-destination-page',
+    buttonNext: ButtonState.HIDDEN,
+    buttonCancel: ButtonState.VISIBLE,
+    buttonBack: ButtonState.VISIBLE,
+  },
+  [RmaState.kChooseWriteProtectDisableMethod]: {
+    componentIs: 'onboarding-choose-wp-disable-method-page',
+    buttonNext: ButtonState.VISIBLE,
+    buttonCancel: ButtonState.VISIBLE,
+    buttonBack: ButtonState.VISIBLE,
+  },
+  [RmaState.kWaitForManualWPDisable]: {
+    componentIs: 'onboarding-wait-for-manual-wp-disable-page',
+    buttonNext: ButtonState.VISIBLE,
+    buttonCancel: ButtonState.HIDDEN,
+    buttonBack: ButtonState.VISIBLE,
+  },
+  [RmaState.kUpdateChrome]: {
+    componentIs: 'onboarding-update-page',
+    buttonNext: ButtonState.VISIBLE,
+    buttonCancel: ButtonState.VISIBLE,
+    buttonBack: ButtonState.VISIBLE,
+  },
+  [RmaState.kSelectComponents]: {
+    componentIs: 'onboarding-select-components-page',
+    buttonNext: ButtonState.HIDDEN,
+    buttonCancel: ButtonState.VISIBLE,
+    buttonBack: ButtonState.VISIBLE,
+  },
+  [RmaState.kEnterRSUWPDisableCode]: {
+    componentIs: 'onboarding-enter-rsu-wp-disable-code-page',
+    buttonNext: ButtonState.HIDDEN,
+    buttonCancel: ButtonState.HIDDEN,
+    buttonBack: ButtonState.VISIBLE,
+  },
+
 };
 
 /**
@@ -53,17 +116,25 @@ export class ShimlessRmaElement extends PolymerElement {
        * @type {PageInfo}
        */
       currentPage_: {
+        reflectToAttribute: true,
         type: Object,
         value: {},
       },
-      /**
-       * @private
-       * @type {ShimlessRmaServiceInterface}
-       */
+
+      /** @private {ShimlessRmaServiceInterface} */
       shimlessRmaService_: {
         type: Object,
         value: {},
       },
+
+      /**
+       * Initial state to cancel to
+       * @private {?RmaState}
+       */
+      initialState_: {
+        type: Object,
+        value: null,
+      }
     };
   }
 
@@ -71,7 +142,13 @@ export class ShimlessRmaElement extends PolymerElement {
   ready() {
     super.ready();
     this.shimlessRmaService_ = getShimlessRmaService();
-    this.fetchState_().then((state) => this.loadState_(state));
+
+    // Get the initial state.
+    this.fetchState_().then((stateResult) => {
+      // TODO(gavindodd): Handle stateResult.error
+      this.initialState_ = stateResult.state;
+      this.loadState_(stateResult.state);
+    });
   }
 
   /** @private */
@@ -91,30 +168,12 @@ export class ShimlessRmaElement extends PolymerElement {
 
   /**
    * @private
-   * @param { !CurrentState } state
+   * @param {!RmaState} state
    */
   loadState_(state) {
-    const pageInfo = StateComponentMapping[state.currentState];
-    this.currentPage_ = pageInfo;
-    // TODO(joonbug): Load component
-  }
+    const pageInfo = StateComponentMapping[state];
+    assert(pageInfo);
 
-  /**
-   * @private
-   * @param { !NextState } state
-   */
-  loadNextState_(state) {
-    const pageInfo = StateComponentMapping[state.nextState];
-    this.currentPage_ = pageInfo;
-    // TODO(joonbug): Load component
-  }
-
-  /**
-   * @private
-   * @param { !PrevState } state
-   */
-  loadPrevState_(state) {
-    const pageInfo = StateComponentMapping[state.prevState];
     this.currentPage_ = pageInfo;
     this.showComponent_(pageInfo.componentIs);
   }
@@ -162,33 +221,52 @@ export class ShimlessRmaElement extends PolymerElement {
   }
 
   /** @protected */
-  isBtnHidden_(btn) {
-    return btn === 'hidden';
+  isButtonHidden_(button) {
+    return button === 'hidden';
   }
 
   /** @protected */
-  isBtnDisabled_(btn) {
-    return btn === 'disabled';
+  isButtonDisabled_(button) {
+    return button === 'disabled';
+  }
+
+  /**
+   * @param {string} buttonName
+   * @param {!ButtonState} buttonState
+   */
+  updateButtonState(buttonName, buttonState) {
+    assert(this.currentPage_.hasOwnProperty(buttonName));
+    this.set(`currentPage_.${buttonName}`, buttonState);
   }
 
   /** @protected */
-  onBackBtnClicked_() {
-    // TODO(joonbug): fill with action
-    this.fetchPrevState_().then((state) => this.loadPrevState_(state));
-    return;
+  onBackButtonClicked_() {
+    this.fetchPrevState_().then(
+        (stateResult) => this.loadState_(stateResult.state));
   }
 
   /** @protected */
-  onNextBtnClicked_() {
-    // TODO(joonbug): fill with action
-    this.fetchNextState_().then((state) => this.loadNextState_(state));
-    return;
+  onNextButtonClicked_() {
+    const page = this.shadowRoot.querySelector(this.currentPage_.componentIs);
+    assert(page);
+
+    // Acquire promise to check whether current page is ready for next page.
+    const prepPageAdvance =
+        page.onNextButtonClick || (() => Promise.resolve(undefined));
+    assert(typeof prepPageAdvance === 'function');
+
+    // TODO(gavindodd): Handle stateResult.error
+    prepPageAdvance()
+        .then(
+            (stateResult) => !!stateResult ? Promise.resolve(stateResult) :
+                                             this.fetchNextState_())
+        .then((stateResult) => this.loadState_(stateResult.state))
+        .catch((err) => void 0);
   }
 
   /** @protected */
-  onCancelBtnClicked_() {
-    // TODO(joonbug): fill with action
-    return;
+  onCancelButtonClicked_() {
+    this.loadState_(assert(this.initialState_));
   }
 };
 

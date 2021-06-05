@@ -22,6 +22,7 @@ import org.chromium.components.signin.AccountsChangeObserver;
 import org.chromium.components.signin.ProfileDataSource;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -70,19 +71,19 @@ public class FakeAccountManagerFacade implements AccountManagerFacade {
     }
 
     @Override
-    public boolean isCachePopulated() {
-        return true;
-    }
-
-    @Override
-    public List<Account> tryGetGoogleAccounts() {
+    public Optional<List<Account>> getGoogleAccounts() {
         List<Account> accounts = new ArrayList<>();
         synchronized (mLock) {
             for (AccountHolder accountHolder : mAccountHolders) {
                 accounts.add(accountHolder.getAccount());
             }
         }
-        return accounts;
+        return Optional.of(accounts);
+    }
+
+    @Override
+    public List<Account> tryGetGoogleAccounts() {
+        return getGoogleAccounts().or(Collections.emptyList());
     }
 
     @Override
@@ -121,7 +122,7 @@ public class FakeAccountManagerFacade implements AccountManagerFacade {
     public void checkChildAccountStatus(Account account, ChildAccountStatusListener listener) {}
 
     @Override
-    public Optional<Boolean> isAccountSubjectToMinorModeRestrictions(Account account) {
+    public Optional<Boolean> canOfferExtendedSyncPromos(Account account) {
         return Optional.absent();
     }
 
@@ -135,11 +136,6 @@ public class FakeAccountManagerFacade implements AccountManagerFacade {
     @Override
     public String getAccountGaiaId(String accountEmail) {
         return "gaia-id-" + accountEmail.replace("@", "_at_");
-    }
-
-    @Override
-    public boolean isGooglePlayServicesAvailable() {
-        return true;
     }
 
     /**

@@ -25,10 +25,14 @@
 #include "chrome/browser/ash/login/demo_mode/demo_setup_controller.h"
 #include "chrome/browser/ash/login/enrollment/auto_enrollment_controller.h"
 #include "chrome/browser/ash/login/enrollment/enrollment_screen.h"
+// TODO(https://crbug.com/1164001): move to forward declaration
+#include "chrome/browser/ash/login/helper.h"
 #include "chrome/browser/ash/login/screen_manager.h"
 #include "chrome/browser/ash/login/screens/active_directory_login_screen.h"
 #include "chrome/browser/ash/login/screens/arc_terms_of_service_screen.h"
 #include "chrome/browser/ash/login/screens/assistant_optin_flow_screen.h"
+// TODO(https://crbug.com/1164001): move to forward declaration
+#include "chrome/browser/ash/login/screens/base_screen.h"
 #include "chrome/browser/ash/login/screens/demo_preferences_screen.h"
 #include "chrome/browser/ash/login/screens/demo_setup_screen.h"
 #include "chrome/browser/ash/login/screens/edu_coexistence_login_screen.h"
@@ -49,6 +53,7 @@
 #include "chrome/browser/ash/login/screens/multidevice_setup_screen.h"
 #include "chrome/browser/ash/login/screens/network_screen.h"
 #include "chrome/browser/ash/login/screens/offline_login_screen.h"
+#include "chrome/browser/ash/login/screens/os_install_screen.h"
 #include "chrome/browser/ash/login/screens/packaged_license_screen.h"
 #include "chrome/browser/ash/login/screens/parental_handoff_screen.h"
 #include "chrome/browser/ash/login/screens/pin_setup_screen.h"
@@ -59,24 +64,21 @@
 #include "chrome/browser/ash/login/screens/update_screen.h"
 #include "chrome/browser/ash/login/screens/user_creation_screen.h"
 #include "chrome/browser/ash/login/screens/welcome_screen.h"
-// TODO(https://crbug.com/1164001): move LoginDisplayHost to forward
-// declaration when moved to chrome/browser/ash/.
-#include "chrome/browser/ash/login/ui/login_display_host.h"
 #include "chrome/browser/chromeos/policy/enrollment_config.h"
+// TODO(https://crbug.com/1164001): move to forward declaration.
+#include "chromeos/geolocation/geoposition.h"
+// TODO(https://crbug.com/1164001): move to forward declaration.
+#include "chromeos/geolocation/simple_geolocation_provider.h"
+// TODO(https://crbug.com/1164001): move to forward declaration.
+#include "chromeos/timezone/timezone_provider.h"
+// TODO(https://crbug.com/1164001): move to forward declaration.
+#include "chromeos/timezone/timezone_request.h"
 #include "components/account_id/account_id.h"
 
 class PrefService;
 
-namespace chromeos {
-
-namespace login {
-class NetworkStateHelper;
-}  // namespace login
-
-struct Geoposition;
-class SimpleGeolocationProvider;
-class TimeZoneProvider;
-struct TimeZoneResponseData;
+namespace ash {
+class ErrorScreen;
 
 // Class that manages control flow between wizard screens. Wizard controller
 // interacts with screen controllers to move the user between screens.
@@ -173,7 +175,6 @@ class WizardController {
 
   // Advances to login/update screen. Should be used in for testing only.
   void SkipToLoginForTesting();
-  void SkipToUpdateForTesting();
 
   // Skip update, go straight to enrollment after EULA is accepted.
   void SkipUpdateEnrollAfterEula();
@@ -274,7 +275,7 @@ class WizardController {
   void ShowHIDDetectionScreen();
   void ShowDeviceDisabledScreen();
   void ShowEncryptionMigrationScreen();
-  void ShowSupervisionTransitionScreen();
+  void ShowManagementTransitionScreen();
   void ShowUpdateRequiredScreen();
   void ShowAssistantOptInFlowScreen();
   void ShowMultiDeviceSetupScreen();
@@ -284,6 +285,7 @@ class WizardController {
   void ShowPackagedLicenseScreen();
   void ShowEduCoexistenceLoginScreen();
   void ShowParentalHandoffScreen();
+  void ShowOsInstallScreen();
 
   // Shows images login screen.
   void ShowLoginScreen();
@@ -338,7 +340,7 @@ class WizardController {
   void OnMarketingOptInScreenExit(MarketingOptInScreen::Result result);
   void OnResetScreenExit();
   void OnDeviceModificationCanceled();
-  void OnSupervisionTransitionScreenExit();
+  void OnManagementTransitionScreenExit();
   void OnUpdateRequiredScreenExit();
   void OnOobeFlowFinished();
   void OnPackagedLicenseScreenExit(PackagedLicenseScreen::Result result);
@@ -496,7 +498,7 @@ class WizardController {
   friend class WizardControllerOobeConfigurationTest;
   friend class WizardControllerOobeResumeTest;
   friend class WizardControllerScreenPriorityTest;
-  friend class WizardControllerSupervisionTransitionOobeTest;
+  friend class WizardControllerManagementTransitionOobeTest;
 
   base::CallbackListSubscription accessibility_subscription_;
 
@@ -526,10 +528,12 @@ class WizardController {
   DISALLOW_COPY_AND_ASSIGN(WizardController);
 };
 
-}  // namespace chromeos
+}  // namespace ash
 
 // TODO(https://crbug.com/1164001): remove after //chrome/browser/chromeos
 // source migration is finished.
-using ::chromeos::WizardController;
+namespace chromeos {
+using ::ash::WizardController;
+}
 
 #endif  // CHROME_BROWSER_ASH_LOGIN_WIZARD_CONTROLLER_H_

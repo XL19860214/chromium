@@ -50,6 +50,7 @@
 #include "chrome/browser/ui/views/media_router/cast_toolbar_button.h"
 #include "chrome/browser/ui/views/page_action/page_action_icon_container.h"
 #include "chrome/browser/ui/views/page_action/page_action_icon_controller.h"
+#include "chrome/browser/ui/views/send_tab_to_self/send_tab_to_self_toolbar_button_view.h"
 #include "chrome/browser/ui/views/tabs/tab_strip.h"
 #include "chrome/browser/ui/views/toolbar/app_menu.h"
 #include "chrome/browser/ui/views/toolbar/back_forward_button.h"
@@ -72,6 +73,7 @@
 #include "components/omnibox/browser/omnibox_view.h"
 #include "components/prefs/pref_service.h"
 #include "components/reading_list/features/reading_list_switches.h"
+#include "components/send_tab_to_self/features.h"
 #include "components/signin/public/base/signin_buildflags.h"
 #include "components/strings/grit/components_strings.h"
 #include "content/public/browser/render_view_host.h"
@@ -174,6 +176,8 @@ ToolbarView::ToolbarView(Browser* browser, BrowserView* browser_view)
     for (const auto& view_and_command : GetViewCommandMap())
       chrome::AddCommandObserver(browser_, view_and_command.second, this);
   }
+  views::FocusRing::SetBackgroundColorIdForSubtree(
+      this, ThemeProperties::COLOR_TOOLBAR);
 }
 
 ToolbarView::~ToolbarView() {
@@ -251,6 +255,14 @@ void ToolbarView::Init() {
     media_button = std::make_unique<MediaToolbarButtonView>(browser_view_);
   }
 
+  std::unique_ptr<send_tab_to_self::SendTabToSelfToolbarButtonView>
+      send_tab_to_self_button;
+  if (base::FeatureList::IsEnabled(send_tab_to_self::kSendTabToSelfV2)) {
+    send_tab_to_self_button =
+        std::make_unique<send_tab_to_self::SendTabToSelfToolbarButtonView>(
+            browser_view_);
+  }
+
   std::unique_ptr<ToolbarAccountIconContainerView>
       toolbar_account_icon_container;
   bool show_avatar_toolbar_button = true;
@@ -288,9 +300,6 @@ void ToolbarView::Init() {
   home_ = AddChildView(std::move(home));
   location_bar_ = AddChildView(std::move(location_bar));
 
-  if (read_later_button)
-    read_later_button_ = AddChildView(std::move(read_later_button));
-
   if (extensions_container)
     extensions_container_ = AddChildView(std::move(extensions_container));
 
@@ -299,7 +308,7 @@ void ToolbarView::Init() {
     if (ChromeLabsButton::ShouldShowButton(chrome_labs_model_.get(),
                                            browser_->profile())) {
       chrome_labs_button_ = AddChildView(std::make_unique<ChromeLabsButton>(
-          browser_, chrome_labs_model_.get()));
+          browser_view_, chrome_labs_model_.get()));
 
       show_chrome_labs_button_.Init(
           chrome_labs_prefs::kBrowserLabsEnabled,
@@ -318,6 +327,12 @@ void ToolbarView::Init() {
 
   if (media_button)
     media_button_ = AddChildView(std::move(media_button));
+
+  if (send_tab_to_self_button)
+    send_tab_to_self_button_ = AddChildView(std::move(send_tab_to_self_button));
+
+  if (read_later_button)
+    read_later_button_ = AddChildView(std::move(read_later_button));
 
   if (toolbar_account_icon_container) {
     toolbar_account_icon_container_ =

@@ -38,6 +38,7 @@
 <translation id="3227137524299004712">Mikrofon</translation>
 <translation id="3240426699337459095">Link je kopiran</translation>
 <translation id="3259149966178251584">Rezolucija kamere</translation>
+<translation id="3448774564454087943">Videozapis nije sačuvan jer je prekratak</translation>
 <translation id="3517926952904427380">Snimanje uspravne fotografije nije uspjelo</translation>
 <translation id="3569311554794739032">Želite li zaista ukloniti fajl <ph name="FILE" />?</translation>
 <translation id="3733597664308256288">Dostupne su dodatne kontrole kamere. Da im pristupite, pritisnite Pretraživanje + strelicu udesno.</translation>
@@ -76,6 +77,7 @@ Ako se vaše povratne informacije odnose na kvalitet slike ili videozapisa, pril
 <translation id="6420689864531458495">(<ph name="ASPECT_RATIO_WIDTH" />:<ph name="ASPECT_RATIO_HEIGHT" /> – <ph name="WIDTH" />x<ph name="HEIGHT" />) <ph name="MEGAPIXEL" /> megapiksela</translation>
 <translation id="6681668084120808868">Snimi fotografiju</translation>
 <translation id="6778482348691154169">Nije moguće snimiti fotografiju</translation>
+<translation id="695140971690006676">Vrati sve na zadano</translation>
 <translation id="6965382102122355670">Uredu</translation>
 <translation id="698156982839284926">3 sekunde</translation>
 <translation id="712848772518857951">Jeste li sigurni da želite ukloniti sljedeći broj stavki: <ph name="COUNT" />?</translation>

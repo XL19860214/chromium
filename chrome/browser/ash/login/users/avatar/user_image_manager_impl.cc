@@ -122,11 +122,7 @@ int UserImageManager::ImageIndexToHistogramIndex(int image_index) {
     case user_manager::User::USER_IMAGE_PROFILE:
       return default_user_image::kHistogramImageFromProfile;
     default:
-      // Create a gap in histogram values for
-      // [kHistogramImageExternal and kHistogramImageFromProfile] block to fit.
-      if (image_index < default_user_image::kHistogramImageExternal)
-        return image_index;
-      return image_index + default_user_image::kHistogramSpecialImagesCount;
+      return image_index + default_user_image::kHistogramSpecialImagesMaxCount;
   }
 }
 
@@ -218,7 +214,7 @@ class UserImageManagerImpl::Job {
   // Notifies the `parent_` that the Job is done.
   void NotifyJobDone();
 
-  const std::string& user_id() const { return parent_->user_id(); }
+  const AccountId& account_id() const { return parent_->account_id_; }
 
   UserImageManagerImpl* parent_;
 
@@ -409,9 +405,10 @@ void UserImageManagerImpl::Job::SaveImageAndUpdateLocalState(
 
   base::FilePath user_data_dir;
   base::PathService::Get(chrome::DIR_USER_DATA, &user_data_dir);
-  // TODO(crbug.com/670557): Use GetAccountIdKey() instead of user_id().
-  image_path_ = user_data_dir.AppendASCII(
-      user_id() + ChooseExtensionFromImageFormat(image_format));
+  // TODO(crbug.com/670557): Use GetAccountIdKey() instead of GetUserEmail().
+  image_path_ =
+      user_data_dir.AppendASCII(account_id().GetUserEmail() +
+                                ChooseExtensionFromImageFormat(image_format));
 
   // The old image file should be removed if the path is different. This
   // can happen if the user image format is changed from JPEG to PNG or
@@ -424,7 +421,7 @@ void UserImageManagerImpl::Job::SaveImageAndUpdateLocalState(
       local_state->GetDictionary(kUserImageProperties);
   if (prefs_images) {
     const base::DictionaryValue* image_properties = nullptr;
-    prefs_images->GetDictionaryWithoutPathExpansion(user_id(),
+    prefs_images->GetDictionaryWithoutPathExpansion(account_id().GetUserEmail(),
                                                     &image_properties);
     if (image_properties) {
       std::string value;
@@ -449,8 +446,7 @@ void UserImageManagerImpl::Job::OnSaveImageDone(bool success) {
 void UserImageManagerImpl::Job::UpdateLocalState() {
   // Ignore if data stored or cached outside the user's cryptohome is to be
   // treated as ephemeral.
-  if (parent_->user_manager_->IsUserNonCryptohomeDataEphemeral(
-          AccountId::FromUserEmail(user_id())))
+  if (parent_->user_manager_->IsUserNonCryptohomeDataEphemeral(account_id()))
     return;
 
   std::unique_ptr<base::DictionaryValue> entry(new base::DictionaryValue);
@@ -462,7 +458,8 @@ void UserImageManagerImpl::Job::UpdateLocalState() {
                std::make_unique<base::Value>(image_url_.spec()));
   DictionaryPrefUpdate update(g_browser_process->local_state(),
                               kUserImageProperties);
-  update->SetKey(user_id(), base::Value::FromUniquePtrValue(std::move(entry)));
+  update->SetKey(account_id().GetUserEmail(),
+                 base::Value::FromUniquePtrValue(std::move(entry)));
 
   parent_->user_manager_->NotifyLocalStateChanged();
 }
@@ -472,9 +469,9 @@ void UserImageManagerImpl::Job::NotifyJobDone() {
 }
 
 UserImageManagerImpl::UserImageManagerImpl(
-    const std::string& user_id,
+    const AccountId& account_id,
     user_manager::UserManager* user_manager)
-    : UserImageManager(user_id),
+    : UserImageManager(account_id),
       user_manager_(user_manager),
       downloading_profile_image_(false),
       profile_image_requested_(false),
@@ -495,7 +492,8 @@ void UserImageManagerImpl::LoadUserImage() {
   user_manager::User* user = GetUserAndModify();
 
   const base::DictionaryValue* image_properties = nullptr;
-  prefs_images->GetDictionaryWithoutPathExpansion(user_id(), &image_properties);
+  prefs_images->GetDictionaryWithoutPathExpansion(account_id_.GetUserEmail(),
+                                                  &image_properties);
 
   // If the user image for `user_id` is managed by policy and the policy-set
   // image is being loaded and persisted right now, let that job continue. It
@@ -562,8 +560,13 @@ void UserImageManagerImpl::UserLoggedIn(bool user_is_new, bool user_is_local) {
       DownloadProfileImage();
     }
   } else {
+    // Although UserImage.LoggedIn3 is an enumerated histogram, we intentionally
+    // use UmaHistogramExactLinear() to emit the metric rather than
+    // UmaHistogramEnumeration(). This is because the enums.xml values
+    // correspond to (a) special constants and (b) indexes of an array
+    // containing resource IDs.
     base::UmaHistogramExactLinear(
-        "UserImage.LoggedIn2", ImageIndexToHistogramIndex(user->image_index()),
+        "UserImage.LoggedIn3", ImageIndexToHistogramIndex(user->image_index()),
         default_user_image::kHistogramImagesCount + 1);
   }
 
@@ -738,7 +741,7 @@ void UserImageManagerImpl::OnProfileDownloadSuccess(
   DCHECK_EQ(downloader, profile_downloader.get());
 
   user_manager_->UpdateUserAccountData(
-      AccountId::FromUserEmail(user_id()),
+      account_id_,
       user_manager::UserManager::UserAccountData(
           downloader->GetProfileFullName(), downloader->GetProfileGivenName(),
           downloader->GetProfileLocale()));
@@ -849,7 +852,8 @@ void UserImageManagerImpl::DeleteUserImageAndLocalStateEntry(
   DictionaryPrefUpdate update(g_browser_process->local_state(),
                               prefs_dict_root);
   const base::DictionaryValue* image_properties;
-  if (!update->GetDictionaryWithoutPathExpansion(user_id(), &image_properties))
+  if (!update->GetDictionaryWithoutPathExpansion(account_id_.GetUserEmail(),
+                                                 &image_properties))
     return;
 
   std::string image_path;
@@ -859,7 +863,7 @@ void UserImageManagerImpl::DeleteUserImageAndLocalStateEntry(
         FROM_HERE, base::BindOnce(base::GetDeleteFileCallback(),
                                   base::FilePath(image_path)));
   }
-  update->RemoveKey(user_id());
+  update->RemoveKey(account_id_.GetUserEmail());
 }
 
 void UserImageManagerImpl::OnJobChangedUserImage() {
@@ -887,11 +891,11 @@ void UserImageManagerImpl::TryToCreateImageSyncObserver() {
 }
 
 const user_manager::User* UserImageManagerImpl::GetUser() const {
-  return user_manager_->FindUser(AccountId::FromUserEmail(user_id()));
+  return user_manager_->FindUser(account_id_);
 }
 
 user_manager::User* UserImageManagerImpl::GetUserAndModify() const {
-  return user_manager_->FindUserAndModify(AccountId::FromUserEmail(user_id()));
+  return user_manager_->FindUserAndModify(account_id_);
 }
 
 bool UserImageManagerImpl::IsUserLoggedInAndHasGaiaAccount() const {

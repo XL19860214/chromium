@@ -14,7 +14,7 @@ import {html, Polymer} from 'chrome://resources/polymer/v3_0/polymer/polymer_bun
 // with |optimize_webui="true"|.
 import {CrSettingsPrefs, HatsBrowserProxyImpl, loadTimeData, MetricsBrowserProxy, MetricsBrowserProxyImpl, OpenWindowProxyImpl, PrefsBehavior} from '../settings.js';
 
-import {PrivacySandboxBrowserProxy, PrivacySandboxBrowserProxyImpl} from './privacy_sandbox_browser_proxy.js';
+import {FlocIdentifier, PrivacySandboxBrowserProxy, PrivacySandboxBrowserProxyImpl} from './privacy_sandbox_browser_proxy.js';
 
 Polymer({
   is: 'privacy-sandbox-app',
@@ -32,9 +32,13 @@ Polymer({
       value: () => loadTimeData.getBoolean('privacySandboxSettings2Enabled'),
     },
 
-    /** @private */
-    flocId_: String,
+    /** @private {!FlocIdentifier} */
+    flocId_: {
+      type: Object,
+    },
   },
+
+  observers: ['onFlocChanged_(prefs.generated.floc_enabled.*)'],
 
   /** @private {?MetricsBrowserProxy} */
   metricsBrowserProxy_: null,
@@ -77,6 +81,16 @@ Polymer({
   },
 
   /** @private */
+  apiToggleButtonClass_: function() {
+    return this.privacySandboxSettings2Enabled_ ? 'updated-toggle-button' : '';
+  },
+
+  /** @private */
+  onFlocChanged_: function() {
+    this.privacySandboxBrowserProxy_.getFlocId().then(id => this.flocId_ = id);
+  },
+
+  /** @private */
   onLearnMoreButtonClick_: function() {
     this.metricsBrowserProxy_.recordAction(
         'Settings.PrivacySandbox.OpenExplainer');
@@ -99,5 +113,16 @@ Polymer({
         privacySandboxApisEnabled ? 'Settings.PrivacySandbox.ApisEnabled' :
                                     'Settings.PrivacySandbox.ApisDisabled');
     this.setPrefValue('privacy_sandbox.manually_controlled', true);
+  },
+
+  /**
+   * @param {!Event} event
+   * @private
+   */
+  onFlocToggleButtonChange_(event) {
+    const flocEnabled = event.target.checked;
+    this.metricsBrowserProxy_.recordAction(
+        flocEnabled ? 'Settings.PrivacySandbox.FlocEnabled' :
+                      'Settings.PrivacySandbox.FlocDisabled');
   },
 });

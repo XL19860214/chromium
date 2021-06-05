@@ -28,6 +28,7 @@
 #include "ash/app_list/views/expand_arrow_view.h"
 #include "ash/app_list/views/folder_header_view.h"
 #include "ash/app_list/views/page_switcher.h"
+#include "ash/app_list/views/paged_apps_grid_view.h"
 #include "ash/app_list/views/result_selection_controller.h"
 #include "ash/app_list/views/search_box_view.h"
 #include "ash/app_list/views/search_result_container_view.h"
@@ -1580,14 +1581,14 @@ TEST_F(AppListViewFocusTest, SelectionHighlightFollowsChangingPage) {
 
   // Test that focus followed to the next page.
   EXPECT_EQ(view_model->view_at(test_api()->TilesPerPage()),
-            apps_grid_view()->GetSelectedView());
+            apps_grid_view()->selected_view());
 
   // Select the first page.
   apps_grid_view()->pagination_model()->SelectPage(0, false);
 
   // Test that focus followed.
   EXPECT_EQ(view_model->view_at(test_api()->TilesPerPage() - 1),
-            apps_grid_view()->GetSelectedView());
+            apps_grid_view()->selected_view());
 }
 
 // Tests that the selection highlight only shows up inside a folder if the
@@ -1638,7 +1639,7 @@ TEST_F(AppListViewFocusTest, SelectionGoesIntoFolderIfSelected) {
 
   // Test that the focused view is also selected.
   AppsGridView* items_grid_view = app_list_folder_view()->items_grid_view();
-  EXPECT_EQ(items_grid_view->GetSelectedView(), focused_view());
+  EXPECT_EQ(items_grid_view->selected_view(), focused_view());
   EXPECT_EQ(items_grid_view->view_model()->view_at(0), focused_view());
 
   // Hide the folder, expect that the folder is selected and focused.
@@ -1776,9 +1777,15 @@ TEST_F(AppListViewTest, UpwardMouseWheelScrollTransitionsToFullscreen) {
                       gfx::Vector2d(0, 30), ui::ET_MOUSEWHEEL);
   EXPECT_EQ(ash::AppListViewState::kFullscreenAllApps, view_->app_list_state());
 
+  // Scrolls inside or to the side of the apps grid should not dismiss.
   view_->HandleScroll(
       gfx::ToRoundedPoint(grid_bounds.left_center()) + gfx::Vector2d(-20, 0),
-      gfx::Vector2d(0, 30), ui::ET_MOUSEWHEEL);
+      gfx::Vector2d(0, -30), ui::ET_MOUSEWHEEL);
+  ASSERT_EQ(0, delegate_->dismiss_count());
+
+  // Scroll above the app list should dismiss.
+  view_->HandleScroll(gfx::Point(0, 0), gfx::Vector2d(0, -30),
+                      ui::ET_MOUSEWHEEL);
   ASSERT_EQ(1, delegate_->dismiss_count());
 }
 

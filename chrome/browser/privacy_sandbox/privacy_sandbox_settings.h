@@ -13,6 +13,7 @@
 #include "components/content_settings/core/common/content_settings.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "components/policy/core/common/policy_service.h"
+#include "components/prefs/pref_change_registrar.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
 #include "components/sync/driver/sync_service.h"
 #include "components/sync/driver/sync_service_observer.h"
@@ -78,6 +79,11 @@ class PrivacySandboxSettings : public KeyedService,
   // which case no history is eligible.
   base::Time FlocDataAccessibleSince() const;
 
+  // Returns a description of FLoC ready for display to the user. Correctly
+  // takes into account the FLoC feature parameters when determining the number
+  // of days between cohort calculations.
+  std::u16string GetFlocDescriptionForDisplay() const;
+
   // Returns the current FLoC cohort identifier for the associated profile in
   // string format suitable for direct display to the user. If the cohort is
   // not valid, the appropriate descriptive string is returned instead.
@@ -104,8 +110,23 @@ class PrivacySandboxSettings : public KeyedService,
   // the effective state of the Finch experiment, and the user's setting.
   std::u16string GetFlocStatusForDisplay() const;
 
-  // Returns whether the user's current FLoC ID is valid.
-  bool IsFlocIdValid() const;
+  // Returns whether the user's current FLoC ID can be reset. This requires that
+  // the FLoC feature be enabled and FLoC be enabled in preferences. It does not
+  // require that the current ID is valid, as resetting the ID also resets the
+  // compute timer, it should be available whenever FLoC is active.
+  bool IsFlocIdResettable() const;
+
+  // Sets the time when history is accessible for FLoC calculation to the
+  // current time and resets the time to the next FLoC id calculation
+  void ResetFlocId() const;
+
+  // Returns whether the FLoC preference is enabled. This should only be used
+  // for displaying the preference state to the user, and should *not* be used
+  // for determining whether FLoC is allowed or not.
+  bool IsFlocPrefEnabled() const;
+
+  // Sets the FLoC preference to |enabled|.
+  void SetFlocPrefEnabled(bool enabled) const;
 
   // Determines whether Conversion Measurement is allowable in a particular
   // context. Should be called at both impression & conversion. At each of these
@@ -152,15 +173,13 @@ class PrivacySandboxSettings : public KeyedService,
   // Gets invoked by the UI when the user manually changed the state of the API.
   void SetPrivacySandboxEnabled(bool enabled);
 
-  // Sets the time when history is accessible for FLoC calculation to the
-  // current time, optionally resetting the time to the next FLoC id calculation
-  // if |reset_calculate_timer| is true.
-  void SetFlocDataAccessibleFromNow(bool reset_calculate_timer) const;
-
   // Called when there's a broad cookies clearing action. For example, this
   // should be called on "Clear browsing data", but shouldn't be called on the
   // Clear-Site-Data header, as it's restricted to a specific site.
   void OnCookiesCleared();
+
+  // Called when a preference relevant to the the Privacy Sandbox is changed.
+  void OnPrivacySandboxPrefChanged();
 
   void AddObserver(Observer* observer);
   void RemoveObserver(Observer* observer);
@@ -254,6 +273,11 @@ class PrivacySandboxSettings : public KeyedService,
   // user out of the sandbox.
   void ReconcilePrivacySandboxPref();
 
+  // Sets the time when history is accessible for FLoC calculation to the
+  // current time, optionally resetting the time to the next FLoC id calculation
+  // if |reset_calculate_timer| is true.
+  void SetFlocDataAccessibleFromNow(bool reset_calculate_timer) const;
+
   // Stops any observation of services being performed by this class.
   void StopObserving();
 
@@ -280,6 +304,8 @@ class PrivacySandboxSettings : public KeyedService,
   base::ScopedObservation<signin::IdentityManager,
                           signin::IdentityManager::Observer>
       identity_manager_observer_{this};
+
+  PrefChangeRegistrar user_prefs_registrar_;
 
   // A manual record of whether policy_service_ is being observerd.
   // Unfortunately PolicyService does not support scoped observers.

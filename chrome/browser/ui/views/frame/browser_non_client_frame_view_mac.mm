@@ -13,6 +13,7 @@
 #include "chrome/browser/themes/theme_service_factory.h"
 #include "chrome/browser/ui/cocoa/fullscreen/fullscreen_menubar_tracker.h"
 #include "chrome/browser/ui/cocoa/fullscreen/fullscreen_toolbar_controller.h"
+#include "chrome/browser/ui/exclusive_access/exclusive_access_manager.h"
 #include "chrome/browser/ui/exclusive_access/fullscreen_controller.h"
 #include "chrome/browser/ui/layout_constants.h"
 #include "chrome/browser/ui/view_ids.h"
@@ -20,7 +21,7 @@
 #include "chrome/browser/ui/views/frame/browser_frame.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/browser/ui/views/frame/browser_view_layout.h"
-#include "chrome/browser/ui/views/frame/caption_button_placeholder_container_mac.h"
+#include "chrome/browser/ui/views/frame/caption_button_placeholder_container.h"
 #include "chrome/browser/ui/views/frame/tab_strip_region_view.h"
 #include "chrome/browser/ui/views/frame/window_controls_overlay_input_routing_mac.h"
 #include "chrome/browser/ui/views/tabs/tab_strip.h"
@@ -79,19 +80,10 @@ BrowserNonClientFrameViewMac::BrowserNonClientFrameViewMac(
           std::make_unique<WebAppFrameToolbarView>(frame, browser_view)));
 
       if (browser_view->IsWindowControlsOverlayEnabled()) {
-        caption_button_placeholder_container_ = AddChildView(
-            std::make_unique<CaptionButtonPlaceholderContainerMac>(this));
-        caption_buttons_overlay_input_routing_view_ =
-            std::make_unique<WindowControlsOverlayInputRoutingMac>(
-                this, caption_button_placeholder_container_,
-                remote_cocoa::mojom::WindowControlsOverlayNSViewType::
-                    kCaptionButtonContainer);
+        caption_button_placeholder_container_ =
+            AddChildView(std::make_unique<CaptionButtonPlaceholderContainer>());
 
-        web_app_frame_toolbar_overlay_routing_view_ =
-            std::make_unique<WindowControlsOverlayInputRoutingMac>(
-                this, web_app_frame_toolbar(),
-                remote_cocoa::mojom::WindowControlsOverlayNSViewType::
-                    kWebAppFrameToolbar);
+        AddRoutingForWindowControlsOverlayViews();
       }
     }
 
@@ -111,9 +103,6 @@ BrowserNonClientFrameViewMac::~BrowserNonClientFrameViewMac() {
     [fullscreen_toolbar_controller_ exitFullscreenMode];
 }
 
-SkColor BrowserNonClientFrameViewMac::GetTitlebarColor() const {
-  return GetFrameColor();
-}
 ///////////////////////////////////////////////////////////////////////////////
 // BrowserNonClientFrameViewMac, BrowserNonClientFrameView implementation:
 
@@ -258,6 +247,15 @@ bool BrowserNonClientFrameViewMac::ShouldHideTopUIForFullscreen() const {
 void BrowserNonClientFrameViewMac::UpdateThrobber(bool running) {
 }
 
+void BrowserNonClientFrameViewMac::PaintAsActiveChanged() {
+  UpdateCaptionButtonPlaceholderContainerBackground();
+  BrowserNonClientFrameView::PaintAsActiveChanged();
+}
+
+void BrowserNonClientFrameViewMac::UpdateFrameColor() {
+  UpdateCaptionButtonPlaceholderContainerBackground();
+  BrowserNonClientFrameView::UpdateFrameColor();
+}
 ///////////////////////////////////////////////////////////////////////////////
 // BrowserNonClientFrameViewMac, views::NonClientFrameView implementation:
 
@@ -316,6 +314,30 @@ void BrowserNonClientFrameViewMac::UpdateMinimumSize() {
   GetWidget()->OnSizeConstraintsChanged();
 }
 
+void BrowserNonClientFrameViewMac::WindowControlsOverlayEnabledChanged() {
+  if (browser_view()->IsWindowControlsOverlayEnabled()) {
+    caption_button_placeholder_container_ =
+        AddChildView(std::make_unique<CaptionButtonPlaceholderContainer>());
+    UpdateCaptionButtonPlaceholderContainerBackground();
+
+    AddRoutingForWindowControlsOverlayViews();
+
+    caption_buttons_overlay_input_routing_view_->Enable();
+    web_app_frame_toolbar_overlay_routing_view_->Enable();
+  } else {
+    caption_buttons_overlay_input_routing_view_->Disable();
+    web_app_frame_toolbar_overlay_routing_view_->Disable();
+
+    RemoveChildView(caption_button_placeholder_container_);
+    caption_button_placeholder_container_ = nullptr;
+
+    caption_buttons_overlay_input_routing_view_ = nullptr;
+    web_app_frame_toolbar_overlay_routing_view_ = nullptr;
+  }
+
+  web_app_frame_toolbar()->OnWindowControlsOverlayEnabledChanged();
+  frame()->client_view()->InvalidateLayout();
+}
 ///////////////////////////////////////////////////////////////////////////////
 // BrowserNonClientFrameViewMac, views::View implementation:
 
@@ -504,8 +526,9 @@ void BrowserNonClientFrameViewMac::LayoutWindowControlsOverlay() {
       GetWebAppFrameToolbarAvailableBounds(
           is_rtl, frame, 0, caption_button_container_bounds.width());
 
-  // Layout CaptionButtonDummyContainerMac which would have the traffic lights.
-  caption_button_placeholder_container_->LayoutForWindowControlsOverlay(
+  // Layout CaptionButtonPlaceholderContainer which would have the traffic
+  // lights.
+  caption_button_placeholder_container_->SetBoundsRect(
       caption_button_container_bounds);
 
   // Layout WebAppFrameToolbarView.
@@ -532,4 +555,26 @@ void BrowserNonClientFrameViewMac::LayoutWindowControlsOverlay() {
     }
     web_contents->UpdateWindowControlsOverlay(bounding_rect);
   }
+}
+
+void BrowserNonClientFrameViewMac::
+    UpdateCaptionButtonPlaceholderContainerBackground() {
+  if (caption_button_placeholder_container_) {
+    caption_button_placeholder_container_->SetBackground(
+        views::CreateSolidBackground(GetFrameColor()));
+  }
+}
+
+void BrowserNonClientFrameViewMac::AddRoutingForWindowControlsOverlayViews() {
+  caption_buttons_overlay_input_routing_view_ =
+      std::make_unique<WindowControlsOverlayInputRoutingMac>(
+          this, caption_button_placeholder_container_,
+          remote_cocoa::mojom::WindowControlsOverlayNSViewType::
+              kCaptionButtonContainer);
+
+  web_app_frame_toolbar_overlay_routing_view_ =
+      std::make_unique<WindowControlsOverlayInputRoutingMac>(
+          this, web_app_frame_toolbar(),
+          remote_cocoa::mojom::WindowControlsOverlayNSViewType::
+              kWebAppFrameToolbar);
 }

@@ -22,7 +22,6 @@
 #include "base/metrics/field_trial.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/user_metrics.h"
-#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
@@ -466,8 +465,9 @@ bool RenderViewHostImpl::CreateRenderView(
         std::move(local_frame_params));
   } else {
     params->main_frame = mojom::CreateMainFrameUnion::NewRemoteParams(
-        mojom::CreateRemoteMainFrameParams::New(main_rfph->GetFrameToken(),
-                                                proxy_route_id));
+        mojom::CreateRemoteMainFrameParams::New(
+            main_rfph->GetFrameToken(), proxy_route_id,
+            main_rfph->BindAndPassRemoteMainFrameInterfaces()));
   }
 
   params->session_storage_namespace_id =
@@ -771,11 +771,7 @@ bool RenderViewHostImpl::SuddenTerminationAllowed() {
 // RenderViewHostImpl, IPC message handlers:
 
 bool RenderViewHostImpl::OnMessageReceived(const IPC::Message& msg) {
-  // Crash reports trigerred by the IPC messages below should be associated
-  // with URL of the main frame.
-  ScopedActiveURL scoped_active_url(this);
-
-  return delegate_->OnMessageReceived(this, msg);
+  return false;
 }
 
 void RenderViewHostImpl::OnDidContentsPreferredSizeChange(
@@ -898,7 +894,7 @@ std::vector<viz::SurfaceId> RenderViewHostImpl::CollectSurfaceIdsForEviction() {
   if (!is_active())
     return {};
   RenderFrameHostImpl* rfh = static_cast<RenderFrameHostImpl*>(GetMainFrame());
-  if (!rfh || !rfh->IsCurrent())
+  if (!rfh || !rfh->IsActive())
     return {};
   FrameTreeNode* root = rfh->frame_tree_node();
   FrameTree* tree = root->frame_tree();

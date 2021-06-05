@@ -16,6 +16,7 @@
 #include "base/task/current_thread.h"
 #include "base/trace_event/trace_event.h"
 #include "ui/gfx/gpu_fence.h"
+#include "ui/gfx/gpu_fence_handle.h"
 #include "ui/gfx/linux/drm_util_linux.h"
 #include "ui/ozone/platform/wayland/host/wayland_connection.h"
 #include "ui/ozone/platform/wayland/host/wayland_drm.h"
@@ -45,15 +46,6 @@ uint32_t GetPresentationKindFlags(uint32_t flags) {
     presentation_flags |= gfx::PresentationFeedback::kZeroCopy;
 
   return presentation_flags;
-}
-
-base::TimeTicks GetPresentationFeedbackTimeStamp(uint32_t tv_sec_hi,
-                                                 uint32_t tv_sec_lo,
-                                                 uint32_t tv_nsec) {
-  const int64_t seconds = (static_cast<int64_t>(tv_sec_hi) << 32) + tv_sec_lo;
-  const int64_t microseconds = seconds * base::Time::kMicrosecondsPerSecond +
-                               tv_nsec / base::Time::kNanosecondsPerMicrosecond;
-  return base::TimeTicks() + base::TimeDelta::FromMicroseconds(microseconds);
 }
 
 std::string NumberToString(uint32_t number) {
@@ -110,7 +102,10 @@ class WaylandBufferManagerHost::Surface {
           WaylandBufferManagerHost* buffer_manager)
       : wayland_surface_(wayland_surface),
         connection_(connection),
-        buffer_manager_(buffer_manager) {}
+        buffer_manager_(buffer_manager) {
+    wayland_surface_->set_explicit_release_callback(base::BindRepeating(
+        &Surface::BufferExplicitRelease, weak_ptr_factory_.GetWeakPtr()));
+  }
   ~Surface() = default;
 
   bool CommitBuffer(
@@ -417,13 +412,6 @@ class WaylandBufferManagerHost::Surface {
         &feedback_listener, this);
   }
 
-  void SetupBufferReleaseListener(WaylandBuffer* buffer) {
-    static struct wl_buffer_listener buffer_listener = {
-        &Surface::BufferRelease,
-    };
-    wl_buffer_add_listener(buffer->wl_buffer.get(), &buffer_listener, this);
-  }
-
   WaylandBuffer* GetBuffer(uint32_t buffer_id) const {
     auto it = buffers_.find(buffer_id);
     return it != buffers_.end() ? it->second.get() : nullptr;
@@ -445,7 +433,8 @@ class WaylandBufferManagerHost::Surface {
     self->OnFrameCallback(callback);
   }
 
-  void OnRelease(struct wl_buffer* wl_buffer) {
+  void OnRelease(struct wl_buffer* wl_buffer,
+                 gfx::GpuFenceHandle release_fence) {
     DCHECK(wl_buffer);
 
     // Releases may not necessarily come in order, so search the submitted
@@ -461,19 +450,41 @@ class WaylandBufferManagerHost::Surface {
     // It's possible to be unable to find the released buffer in
     // |submitted_buffers_| due to the manual releasing in
     // ResetSurfaceContents().
-    if (buffer)
+    if (buffer) {
       buffer->released = true;
+      buffer->release_fence = std::move(release_fence);
+    }
 
     // A release means we may be able to send OnSubmission for previously
     // submitted buffers.
     MaybeProcessSubmittedBuffers();
   }
 
+  void SetupBufferReleaseListener(WaylandBuffer* buffer) {
+    static struct wl_buffer_listener buffer_listener = {
+        &Surface::BufferRelease,
+    };
+    wl_buffer_add_listener(buffer->wl_buffer.get(), &buffer_listener, this);
+  }
+
+  // Called when we receive an immediate or fenced release for a buffer, via
+  // the explicit synchronization protocol.
+  void BufferExplicitRelease(wl_buffer* wl_buffer,
+                             absl::optional<int32_t> fence) {
+    if (fence) {
+      gfx::GpuFenceHandle handle;
+      handle.owned_fd.reset(fence.value());
+      OnRelease(wl_buffer, std::move(handle));
+    } else {
+      OnRelease(wl_buffer, /*release_fence=*/gfx::GpuFenceHandle());
+    }
+  }
+
   // wl_buffer_listener
   static void BufferRelease(void* data, struct wl_buffer* wl_buffer) {
     Surface* self = static_cast<Surface*>(data);
     DCHECK(self);
-    self->OnRelease(wl_buffer);
+    self->OnRelease(wl_buffer, /*release_fence=*/gfx::GpuFenceHandle());
   }
 
   void MaybeProcessSubmittedBuffers() {
@@ -486,14 +497,16 @@ class WaylandBufferManagerHost::Surface {
     // if it is the first buffer submitted and it is destroyed before being
     // explicitly released. In that case, don't send an OnSubmission.
     if (submitted_buffers_.size() == 1u && !submitted_buffers_[0].acked)
-      ProcessOldestSubmittedBuffer();
+      ProcessOldestSubmittedBuffer(/*release_fence=*/gfx::GpuFenceHandle());
 
     // Buffers may be released out of order, but we need to provide the
     // guarantee that OnSubmission will be called in order of buffer submission.
     while (submitted_buffers_.size() >= 2) {
       auto* buffer0 = GetBuffer(submitted_buffers_[0].buffer_id);
       // Treat a buffer as released if it has been explicitly released or
-      // destroyed.
+      // destroyed. This includes if we have a release fence for it - in that
+      // case, the OnSubmission for the 2nd oldest buffer should contain the
+      // release fence for the oldest buffer.
       bool buffer0_released = !buffer0 || buffer0->released;
       // We can send OnSubmission for the 2nd oldest buffer if the oldest buffer
       // is released, or it's the same buffer.
@@ -504,11 +517,12 @@ class WaylandBufferManagerHost::Surface {
       DCHECK(submitted_buffers_[0].acked);
       DCHECK(!submitted_buffers_[1].acked);
       submitted_buffers_.erase(submitted_buffers_.begin());
-      ProcessOldestSubmittedBuffer();
+      ProcessOldestSubmittedBuffer(buffer0 ? std::move(buffer0->release_fence)
+                                           : gfx::GpuFenceHandle());
     }
   }
 
-  void ProcessOldestSubmittedBuffer() {
+  void ProcessOldestSubmittedBuffer(gfx::GpuFenceHandle release_fence) {
     DCHECK(wayland_surface_);
     DCHECK(!submitted_buffers_.empty());
 
@@ -519,7 +533,8 @@ class WaylandBufferManagerHost::Surface {
     // release because SwapCompletionCallback indicates to the client that the
     // previous buffer is available for reuse.
     buffer_manager_->OnSubmission(wayland_surface_->GetWidget(), buffer_id,
-                                  gfx::SwapResult::SWAP_ACK);
+                                  gfx::SwapResult::SWAP_ACK,
+                                  std::move(release_fence));
 
     // If presentation feedback is not supported, use a fake feedback. This
     // literally means there are no presentation feedback callbacks created.
@@ -616,10 +631,10 @@ class WaylandBufferManagerHost::Surface {
     DCHECK(self);
     self->OnPresentation(
         wp_presentation_feedback,
-        gfx::PresentationFeedback(
-            GetPresentationFeedbackTimeStamp(tv_sec_hi, tv_sec_lo, tv_nsec),
-            base::TimeDelta::FromNanoseconds(refresh),
-            GetPresentationKindFlags(flags)));
+        gfx::PresentationFeedback(self->connection_->ConvertPresentationTime(
+                                      tv_sec_hi, tv_sec_lo, tv_nsec),
+                                  base::TimeDelta::FromNanoseconds(refresh),
+                                  GetPresentationKindFlags(flags)));
   }
 
   static void FeedbackDiscarded(
@@ -715,6 +730,8 @@ class WaylandBufferManagerHost::Surface {
   // buffers to its surface. Otherwise, Wayland server will drop the connection
   // and send an error - "The surface has never been configured.".
   bool configured_ = false;
+
+  base::WeakPtrFactory<Surface> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(Surface);
 };
@@ -1250,14 +1267,15 @@ void WaylandBufferManagerHost::OnCreateBufferComplete(
   // be destroyed.
 }
 
-void WaylandBufferManagerHost::OnSubmission(
-    gfx::AcceleratedWidget widget,
-    uint32_t buffer_id,
-    const gfx::SwapResult& swap_result) {
+void WaylandBufferManagerHost::OnSubmission(gfx::AcceleratedWidget widget,
+                                            uint32_t buffer_id,
+                                            const gfx::SwapResult& swap_result,
+                                            gfx::GpuFenceHandle release_fence) {
   DCHECK(base::CurrentUIThread::IsSet());
 
   DCHECK(buffer_manager_gpu_associated_);
-  buffer_manager_gpu_associated_->OnSubmission(widget, buffer_id, swap_result);
+  buffer_manager_gpu_associated_->OnSubmission(widget, buffer_id, swap_result,
+                                               std::move(release_fence));
 }
 
 void WaylandBufferManagerHost::OnPresentation(

@@ -5,7 +5,7 @@
 #ifndef CONTENT_BROWSER_CONVERSIONS_STORABLE_CONVERSION_H_
 #define CONTENT_BROWSER_CONVERSIONS_STORABLE_CONVERSION_H_
 
-#include <string>
+#include <stdint.h>
 
 #include "content/common/content_export.h"
 #include "net/base/schemeful_site.h"
@@ -21,14 +21,15 @@ class CONTENT_EXPORT StorableConversion {
   // validated. At creation time, |conversion_data_| should already be stripped
   // to a lower entropy. |conversion_destination| should be filled by a
   // navigation origin known by the browser process.
-  StorableConversion(std::string conversion_data,
+  StorableConversion(uint64_t conversion_data,
                      net::SchemefulSite conversion_destination,
-                     url::Origin reporting_origin);
+                     url::Origin reporting_origin,
+                     uint64_t event_source_trigger_data);
   StorableConversion(const StorableConversion& other);
   StorableConversion& operator=(const StorableConversion& other) = delete;
   ~StorableConversion();
 
-  const std::string& conversion_data() const { return conversion_data_; }
+  uint64_t conversion_data() const { return conversion_data_; }
 
   const net::SchemefulSite& conversion_destination() const {
     return conversion_destination_;
@@ -36,10 +37,13 @@ class CONTENT_EXPORT StorableConversion {
 
   const url::Origin& reporting_origin() const { return reporting_origin_; }
 
+  uint64_t event_source_trigger_data() const {
+    return event_source_trigger_data_;
+  }
+
  private:
-  // Conversion data associated with conversion registration event. String
-  // representing a valid hexadecimal number.
-  std::string conversion_data_;
+  // Conversion data associated with conversion registration event.
+  uint64_t conversion_data_;
 
   // Schemeful site that this conversion event occurred on.
   net::SchemefulSite conversion_destination_;
@@ -47,6 +51,10 @@ class CONTENT_EXPORT StorableConversion {
   // Origin of the conversion redirect url, and the origin that will receive any
   // reports.
   url::Origin reporting_origin_;
+
+  // Event source trigger data specified in conversion redirect. Defaults to 0
+  // if not provided.
+  uint64_t event_source_trigger_data_;
 };
 
 }  // namespace content

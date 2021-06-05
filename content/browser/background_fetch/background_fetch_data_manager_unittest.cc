@@ -44,6 +44,7 @@
 #include "storage/browser/blob/blob_storage_context.h"
 #include "storage/browser/test/blob_test_utils.h"
 #include "testing/gmock/include/gmock/gmock.h"
+#include "third_party/blink/public/common/storage_key/storage_key.h"
 #include "third_party/blink/public/mojom/background_fetch/background_fetch.mojom.h"
 #include "third_party/blink/public/mojom/cache_storage/cache_storage.mojom.h"
 #include "third_party/blink/public/mojom/fetch/fetch_api_request.mojom.h"
@@ -448,9 +449,12 @@ class BackgroundFetchDataManagerTest
                      const std::string& value) {
     std::vector<std::string> data;
 
+    // TODO(crbug.com/1199077): Update this when BackgroundFetchTestBase
+    // implements StorageKey.
     base::RunLoop run_loop;
     embedded_worker_test_helper()->context_wrapper()->StoreRegistrationUserData(
-        service_worker_registration_id, origin(), {{key, value}},
+        service_worker_registration_id, blink::StorageKey(origin()),
+        {{key, value}},
         base::BindOnce(&DidStoreUserData, run_loop.QuitClosure()));
     run_loop.Run();
   }

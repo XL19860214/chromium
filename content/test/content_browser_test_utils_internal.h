@@ -90,6 +90,12 @@ std::vector<RenderFrameHostImpl*> CollectAllRenderFrameHosts(
 std::vector<RenderFrameHostImpl*>
 CollectAllRenderFrameHostsIncludingSpeculative(
     RenderFrameHostImpl* starting_rfh);
+// Returns the frames visited by |WebContentsImpl::ForEachRenderFrameHost|
+// in the same order.
+std::vector<RenderFrameHostImpl*> CollectAllRenderFrameHosts(
+    WebContentsImpl* web_contents);
+std::vector<RenderFrameHostImpl*>
+CollectAllRenderFrameHostsIncludingSpeculative(WebContentsImpl* web_contents);
 
 // Open a new popup passing no URL to window.open, which results in a blank page
 // and no last committed entry. Returns the newly created shell. Also saves the
@@ -616,6 +622,20 @@ class UserAgentInjector : public WebContentsObserver {
  private:
   blink::UserAgentOverride user_agent_override_;
   bool is_overriding_user_agent_ = true;
+};
+
+// Just like RenderFrameHostHolder but holds and gives access to a
+// RenderFrameHostImpl.
+class RenderFrameHostImplHolder : public RenderFrameHostWrapper {
+ public:
+  explicit RenderFrameHostImplHolder(RenderFrameHost* rfh);
+
+  // Returns the pointer or nullptr if the RFH has already been deleted.
+  RenderFrameHostImpl* get() const;
+
+  // Pointerish operators. Feel free to add more if you need them.
+  RenderFrameHostImpl& operator*() const;
+  RenderFrameHostImpl* operator->() const;
 };
 
 }  // namespace content

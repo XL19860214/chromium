@@ -70,7 +70,6 @@
 #include "chrome/browser/metrics/chrome_feature_list_creator.h"
 #include "chrome/browser/metrics/chrome_metrics_service_accessor.h"
 #include "chrome/browser/metrics/expired_histograms_array.h"
-#include "chrome/browser/metrics/renderer_uptime_tracker.h"
 #include "chrome/browser/metrics/thread_watcher.h"
 #include "chrome/browser/nacl_host/nacl_browser_delegate_impl.h"
 #include "chrome/browser/net/system_network_context_manager.h"
@@ -184,11 +183,13 @@
 #if defined(OS_ANDROID)
 #include "chrome/browser/flags/android/chrome_feature_list.h"
 #include "chrome/browser/metrics/thread_watcher_android.h"
+#include "chrome/browser/share/share_history.h"
 #include "chrome/browser/ui/page_info/chrome_page_info_client.h"
 #include "ui/base/resource/resource_bundle_android.h"
 #else
 #include "chrome/browser/resource_coordinator/tab_activity_watcher.h"
 #include "chrome/browser/resource_coordinator/tab_manager.h"
+#include "chrome/browser/resources_integrity.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/uma_browsing_activity_observer.h"
@@ -199,8 +200,11 @@
 
 #if !defined(OS_ANDROID) && !BUILDFLAG(IS_CHROMEOS_ASH)
 #include "chrome/browser/first_run/upgrade_util.h"
+#endif  // !defined(OS_ANDROID) && !BUILDFLAG(IS_CHROMEOS_ASH)
+
+#if !BUILDFLAG(IS_CHROMEOS_ASH)
 #include "components/enterprise/browser/controller/chrome_browser_cloud_management_controller.h"
-#endif
+#endif  // !BUILDFLAG(IS_CHROMEOS_ASH)
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "ash/constants/ash_switches.h"
@@ -316,10 +320,6 @@
 #include "components/spellcheck/browser/pref_names.h"
 #include "components/spellcheck/common/spellcheck_features.h"
 #endif  // defined(OS_WIN) && BUILDFLAG(USE_BROWSER_SPELLCHECKER)
-
-#if BUILDFLAG(ENABLE_PAK_FILE_INTEGRITY_CHECKS)
-#include "chrome/browser/resources_integrity.h"
-#endif
 
 namespace {
 
@@ -591,6 +591,15 @@ void ChromeBrowserMainParts::RecordBrowserStartupTime() {
 
 void ChromeBrowserMainParts::SetupOriginTrialsCommandLine(
     PrefService* local_state) {
+  // TODO(crbug.com/1211739): Temporary workaround to prevent an overly large
+  // config from crashing by exceeding command-line length limits. Set the limit
+  // to 1KB, which is far less than the known limits:
+  //  - Linux: kZygoteMaxMessageLength = 12288;
+  // This will still allow for critical updates to the public key or disabled
+  // features, but the disabled token list will be ignored.
+  const size_t kMaxAppendLength = 1024;
+  size_t appended_length = 0;
+
   base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
   if (!command_line->HasSwitch(embedder_support::kOriginTrialPublicKey)) {
     std::string new_public_key =
@@ -600,6 +609,9 @@ void ChromeBrowserMainParts::SetupOriginTrialsCommandLine(
           embedder_support::kOriginTrialPublicKey,
           local_state->GetString(
               embedder_support::prefs::kOriginTrialPublicKey));
+
+      // Public key is 32 bytes
+      appended_length += 32;
     }
   }
   if (!command_line->HasSwitch(
@@ -621,6 +633,7 @@ void ChromeBrowserMainParts::SetupOriginTrialsCommandLine(
         command_line->AppendSwitchASCII(
             embedder_support::kOriginTrialDisabledFeatures,
             override_disabled_features);
+        appended_length += override_disabled_features.length();
       }
     }
   }
@@ -638,9 +651,14 @@ void ChromeBrowserMainParts::SetupOriginTrialsCommandLine(
       if (!disabled_tokens.empty()) {
         const std::string disabled_token_switch =
             base::JoinString(disabled_tokens, "|");
-        command_line->AppendSwitchASCII(
-            embedder_support::kOriginTrialDisabledTokens,
-            disabled_token_switch);
+        // Do not append the disabled token list if will exceed a reasonable
+        // length. See above.
+        if (appended_length + disabled_token_switch.length() <=
+            kMaxAppendLength) {
+          command_line->AppendSwitchASCII(
+              embedder_support::kOriginTrialDisabledTokens,
+              disabled_token_switch);
+        }
       }
     }
   }
@@ -975,7 +993,6 @@ int ChromeBrowserMainParts::PreCreateThreadsImpl() {
       metrics::DesktopSessionDurationTracker::Get(),
       ui::TouchUiController::Get());
 #endif
-  metrics::RendererUptimeTracker::Initialize();
 
   // Add Site Isolation switches as dictated by policy.
   auto* command_line = base::CommandLine::ForCurrentProcess();
@@ -1105,9 +1122,7 @@ void ChromeBrowserMainParts::PreBrowserStart() {
   // Start the tab manager here so that we give the most amount of time for the
   // other services to start up before we start adjusting the oom priority.
   g_browser_process->GetTabManager()->Start();
-#endif
 
-#if BUILDFLAG(ENABLE_PAK_FILE_INTEGRITY_CHECKS)
   CheckPakFileIntegrity();
 #endif
 
@@ -1283,10 +1298,11 @@ int ChromeBrowserMainParts::PreMainMessageLoopRunImpl() {
     return chrome::RESULT_CODE_DOWNGRADE_AND_RELAUNCH;
   }
   downgrade_manager_.UpdateLastVersion(user_data_dir_);
-#endif
+#endif  // BUILDFLAG(ENABLE_DOWNGRADE_PROCESSING)
+#endif  // !defined(OS_ANDROID)
 
-#if !BUILDFLAG(IS_CHROMEOS_ASH) && !defined(OS_ANDROID)
-  // Initialize the chrome browser cloud management controller controller after
+#if !BUILDFLAG(IS_CHROMEOS_ASH)
+  // Initialize the chrome browser cloud management controller after
   // the browser process singleton is acquired to remove race conditions where
   // multiple browser processes start simultaneously.  The main
   // initialization of browser_policy_connector is performed inside
@@ -1300,17 +1316,20 @@ int ChromeBrowserMainParts::PreMainMessageLoopRunImpl() {
       ->Init(browser_process_->local_state(),
              browser_process_->system_network_context_manager()
                  ->GetSharedURLLoaderFactory());
+#endif  // !BUILDFLAG(IS_CHROMEOS_ASH)
 
+#if !defined(OS_ANDROID) && !BUILDFLAG(IS_CHROMEOS_ASH)
   // Wait for the chrome browser cloud management enrollment to finish.
-  // If no enrollment is needed, this function returns immediately.
-  // Abort the launch process if the enrollment fails.
+  // If enrollment is not mandatory, this function returns immediately.
+  // Abort the launch process if required enrollment fails.
   if (!browser_process_->browser_policy_connector()
            ->chrome_browser_cloud_management_controller()
            ->WaitUntilPolicyEnrollmentFinished()) {
     return chrome::RESULT_CODE_CLOUD_POLICY_ENROLLMENT_FAILED;
   }
-#endif
+#endif  // !defined(OS_ANDROID) && !BUILDFLAG(IS_CHROMEOS_ASH)
 
+#if !defined(OS_ANDROID)
   // Handle special early return paths (which couldn't be processed even earlier
   // as they require the process singleton to be held) first.
 
@@ -1560,6 +1579,11 @@ int ChromeBrowserMainParts::PreMainMessageLoopRunImpl() {
 // http://crbug.com/179143
 #if !defined(OS_ANDROID)
   // Start watching for a hang.
+  //
+  // TODO(b/184937096): Remove the below call and remove the function
+  // MetricsService::LogNeedForCleanShutdown() once this is moved earlier. It
+  // is being kept here for the time being for the control group of the
+  // extended Variations Safe Mode experiment.
   browser_process_->metrics_service()->LogNeedForCleanShutdown();
 #endif  // !defined(OS_ANDROID)
 
@@ -1758,6 +1782,9 @@ void ChromeBrowserMainParts::WillRunMainMessageLoop(
 
 void ChromeBrowserMainParts::OnFirstIdle() {
   startup_metric_utils::RecordBrowserMainLoopFirstIdle(base::TimeTicks::Now());
+#if defined(OS_ANDROID)
+  sharing::ShareHistory::CreateForProfile(profile_);
+#endif
 }
 
 void ChromeBrowserMainParts::PostMainMessageLoopRun() {

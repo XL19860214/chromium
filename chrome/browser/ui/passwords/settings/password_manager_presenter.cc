@@ -17,7 +17,6 @@
 #include "base/metrics/user_metrics.h"
 #include "base/metrics/user_metrics_action.h"
 #include "base/ranges/algorithm.h"
-#include "base/stl_util.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
@@ -28,7 +27,7 @@
 #include "chrome/browser/password_manager/password_store_utils.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/signin/identity_manager_factory.h"
-#include "chrome/browser/sync/profile_sync_service_factory.h"
+#include "chrome/browser/sync/sync_service_factory.h"
 #include "chrome/browser/ui/passwords/manage_passwords_view_utils.h"
 #include "chrome/browser/ui/passwords/settings/password_ui_view.h"
 #include "chrome/common/chrome_switches.h"
@@ -380,7 +379,7 @@ void PasswordManagerPresenter::MovePasswordsToAccountStore(
     const std::vector<std::string>& sort_keys,
     password_manager::PasswordManagerClient* client) {
   if (!client->GetPasswordFeatureManager()->IsOptedInForAccountStorage() ||
-      ProfileSyncServiceFactory::GetForProfile(password_view_->GetProfile())
+      SyncServiceFactory::GetForProfile(password_view_->GetProfile())
           ->IsSyncFeatureEnabled()) {
     return;
   }
@@ -427,9 +426,9 @@ void PasswordManagerPresenter::RequestPlaintextPassword(
   DCHECK(!it->second.empty());
   const auto& form = *it->second[0];
   syncer::SyncService* sync_service = nullptr;
-  if (ProfileSyncServiceFactory::HasSyncService(password_view_->GetProfile())) {
+  if (SyncServiceFactory::HasSyncService(password_view_->GetProfile())) {
     sync_service =
-        ProfileSyncServiceFactory::GetForProfile(password_view_->GetProfile());
+        SyncServiceFactory::GetForProfile(password_view_->GetProfile());
   }
   if (password_manager::sync_util::IsSyncAccountCredential(
           form, sync_service,

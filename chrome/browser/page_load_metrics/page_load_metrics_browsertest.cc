@@ -45,6 +45,7 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/browser_list.h"
+#include "chrome/browser/ui/browser_navigator.h"
 #include "chrome/browser/ui/browser_navigator_params.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
@@ -3053,8 +3054,9 @@ IN_PROC_BROWSER_TEST_F(PageLoadMetricsBrowserTest, FirstInputDelayFromClick) {
                                       1);
 }
 
+// Flaky on all platforms: https://crbug.com/1211028.
 // Tests that a portal activation records metrics.
-IN_PROC_BROWSER_TEST_F(PageLoadMetricsBrowserTest, PortalActivation) {
+IN_PROC_BROWSER_TEST_F(PageLoadMetricsBrowserTest, DISABLED_PortalActivation) {
   // We only record metrics for portals when the time is consistent across
   // processes.
   if (!base::TimeTicks::IsConsistentAcrossProcesses())

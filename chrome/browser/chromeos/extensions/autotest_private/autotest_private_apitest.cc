@@ -10,6 +10,7 @@
 #include "ash/public/cpp/test/shell_test_api.h"
 #include "base/macros.h"
 #include "base/test/bind.h"
+#include "base/test/scoped_feature_list.h"
 #include "build/build_config.h"
 #include "chrome/browser/ash/arc/arc_util.h"
 #include "chrome/browser/ash/arc/session/arc_session_manager.h"
@@ -27,6 +28,7 @@
 #include "components/arc/session/connection_holder.h"
 #include "components/arc/test/connection_holder_util.h"
 #include "components/arc/test/fake_app_instance.h"
+#include "components/feature_engagement/public/feature_constants.h"
 #include "components/policy/core/browser/browser_policy_connector.h"
 #include "components/policy/core/common/mock_configuration_policy_provider.h"
 #include "components/policy/core/common/policy_map.h"
@@ -85,9 +87,8 @@ class AutotestPrivateApiTest : public ExtensionApiTest {
 };
 
 IN_PROC_BROWSER_TEST_F(AutotestPrivateApiTest, AutotestPrivate) {
-  ASSERT_TRUE(
-      RunExtensionTest({.name = "autotest_private", .custom_arg = "default"},
-                       {.load_as_component = true}))
+  ASSERT_TRUE(RunExtensionTest("autotest_private", {.custom_arg = "default"},
+                               {.load_as_component = true}))
       << message_;
 }
 
@@ -126,25 +127,23 @@ IN_PROC_BROWSER_TEST_F(AutotestPrivateApiTest, AutotestPrivateArcEnabled) {
       true /* sync */));
   app_instance->SendRefreshPackageList(std::move(packages));
 
-  ASSERT_TRUE(
-      RunExtensionTest({.name = "autotest_private", .custom_arg = "arcEnabled"},
-                       {.load_as_component = true}))
+  ASSERT_TRUE(RunExtensionTest("autotest_private", {.custom_arg = "arcEnabled"},
+                               {.load_as_component = true}))
       << message_;
 
   arc::SetArcPlayStoreEnabledForProfile(profile(), false);
 }
 
 IN_PROC_BROWSER_TEST_F(AutotestPrivateApiTest, ScrollableShelfAPITest) {
-  ASSERT_TRUE(RunExtensionTest(
-      {.name = "autotest_private", .custom_arg = "scrollableShelf"},
-      {.load_as_component = true}))
+  ASSERT_TRUE(RunExtensionTest("autotest_private",
+                               {.custom_arg = "scrollableShelf"},
+                               {.load_as_component = true}))
       << message_;
 }
 
 IN_PROC_BROWSER_TEST_F(AutotestPrivateApiTest, ShelfAPITest) {
-  ASSERT_TRUE(
-      RunExtensionTest({.name = "autotest_private", .custom_arg = "shelf"},
-                       {.load_as_component = true}))
+  ASSERT_TRUE(RunExtensionTest("autotest_private", {.custom_arg = "shelf"},
+                               {.load_as_component = true}))
       << message_;
 }
 
@@ -180,9 +179,9 @@ class AutotestPrivateApiOverviewTest : public AutotestPrivateApiTest {
 };
 
 IN_PROC_BROWSER_TEST_F(AutotestPrivateApiOverviewTest, Default) {
-  ASSERT_TRUE(RunExtensionTest(
-      {.name = "autotest_private", .custom_arg = "overviewDefault"},
-      {.load_as_component = true}))
+  ASSERT_TRUE(RunExtensionTest("autotest_private",
+                               {.custom_arg = "overviewDefault"},
+                               {.load_as_component = true}))
       << message_;
 }
 
@@ -208,9 +207,9 @@ IN_PROC_BROWSER_TEST_F(AutotestPrivateApiOverviewTest, Drag) {
   const gfx::Point end_point(start_point.x() + 50, start_point.y());
   generator.MoveTouch(end_point);
 
-  ASSERT_TRUE(RunExtensionTest(
-      {.name = "autotest_private", .custom_arg = "overviewDrag"},
-      {.load_as_component = true}))
+  ASSERT_TRUE(RunExtensionTest("autotest_private",
+                               {.custom_arg = "overviewDrag"},
+                               {.load_as_component = true}))
       << message_;
 }
 
@@ -236,9 +235,9 @@ IN_PROC_BROWSER_TEST_F(AutotestPrivateApiOverviewTest, LeftSnapped) {
   generator.MoveTouch(end_point);
   generator.ReleaseTouch();
 
-  ASSERT_TRUE(RunExtensionTest(
-      {.name = "autotest_private", .custom_arg = "splitviewLeftSnapped"},
-      {.load_as_component = true}))
+  ASSERT_TRUE(RunExtensionTest("autotest_private",
+                               {.custom_arg = "splitviewLeftSnapped"},
+                               {.load_as_component = true}))
       << message_;
 }
 
@@ -273,9 +272,9 @@ class AutotestPrivateWithPolicyApiTest : public AutotestPrivateApiTest {
 
 // GetAllEnterprisePolicies Sanity check.
 IN_PROC_BROWSER_TEST_F(AutotestPrivateWithPolicyApiTest, PolicyAPITest) {
-  ASSERT_TRUE(RunExtensionTest(
-      {.name = "autotest_private", .custom_arg = "enterprisePolicies"},
-      {.load_as_component = true}))
+  ASSERT_TRUE(RunExtensionTest("autotest_private",
+                               {.custom_arg = "enterprisePolicies"},
+                               {.load_as_component = true}))
       << message_;
 }
 
@@ -324,9 +323,9 @@ IN_PROC_BROWSER_TEST_F(AutotestPrivateArcPerformanceTracing, Basic) {
       wm::ActivationChangeObserver::ActivationReason::ACTIVATION_CLIENT,
       arc_widget->GetNativeWindow(), arc_widget->GetNativeWindow());
 
-  ASSERT_TRUE(RunExtensionTest(
-      {.name = "autotest_private", .custom_arg = "arcPerformanceTracing"},
-      {.load_as_component = true}))
+  ASSERT_TRUE(RunExtensionTest("autotest_private",
+                               {.custom_arg = "arcPerformanceTracing"},
+                               {.load_as_component = true}))
       << message_;
 }
 
@@ -348,9 +347,9 @@ class AutotestPrivateStartStopTracing : public AutotestPrivateApiTest {
 };
 
 IN_PROC_BROWSER_TEST_F(AutotestPrivateStartStopTracing, StartStopTracing) {
-  ASSERT_TRUE(RunExtensionTest(
-      {.name = "autotest_private", .custom_arg = "startStopTracing"},
-      {.load_as_component = true}))
+  ASSERT_TRUE(RunExtensionTest("autotest_private",
+                               {.custom_arg = "startStopTracing"},
+                               {.load_as_component = true}))
       << message_;
 }
 
@@ -369,9 +368,9 @@ class AutotestPrivateSystemWebAppsTest : public AutotestPrivateApiTest {
 // TODO(crbug.com/1201545): Fix flakiness.
 IN_PROC_BROWSER_TEST_F(AutotestPrivateSystemWebAppsTest,
                        DISABLED_SystemWebApps) {
-  ASSERT_TRUE(RunExtensionTest(
-      {.name = "autotest_private", .custom_arg = "systemWebApps"},
-      {.load_as_component = true}))
+  ASSERT_TRUE(RunExtensionTest("autotest_private",
+                               {.custom_arg = "systemWebApps"},
+                               {.load_as_component = true}))
       << message_;
 }
 

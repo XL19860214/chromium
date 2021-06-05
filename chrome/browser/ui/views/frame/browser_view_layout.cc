@@ -7,7 +7,6 @@
 #include <algorithm>
 
 #include "base/observer_list.h"
-#include "base/stl_util.h"
 #include "base/trace_event/common/trace_event_common.h"
 #include "base/trace_event/trace_event.h"
 #include "build/build_config.h"
@@ -30,6 +29,7 @@
 #include "chrome/browser/ui/views/infobars/infobar_container_view.h"
 #include "chrome/browser/ui/views/tabs/tab_strip.h"
 #include "chrome/browser/ui/views/toolbar/toolbar_view.h"
+#include "chrome/browser/ui/web_applications/app_browser_controller.h"
 #include "components/web_modal/web_contents_modal_dialog_host.h"
 #include "ui/base/hit_test.h"
 #include "ui/gfx/geometry/point.h"
@@ -565,22 +565,7 @@ void BrowserViewLayout::LayoutSidePanelView(
                                     kSidePanelSeparatorWidth);
   }
 
-  gfx::Rect contents_separator_bounds = contents_separator_->bounds();
-  const int contents_separator_height = contents_separator_bounds.height();
-  // Raise the side panel bounds with the height of the contents separator to
-  // have it connected to the toolbar area (and not be spoofable by web
-  // content).
-  side_panel_bounds.set_y(side_panel_bounds.y() - contents_separator_height);
-  side_panel_bounds.set_height(side_panel_bounds.height() +
-                               contents_separator_height);
   side_panel->SetBoundsRect(side_panel_bounds);
-
-  // Resize the contents separator so that it separates the contents area only.
-  contents_separator_bounds.set_width(contents_container_bounds.width() + 1);
-  contents_separator_bounds.set_x(is_right_aligned
-                                      ? contents_container_bounds.x()
-                                      : contents_container_bounds.x() - 1);
-  contents_separator_->SetBoundsRect(contents_separator_bounds);
 
   // Adjust the side panel separator bounds based on the side panel bounds
   // calculated above.

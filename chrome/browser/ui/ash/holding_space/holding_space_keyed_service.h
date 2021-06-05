@@ -38,6 +38,7 @@ class FileSystemURL;
 
 namespace ash {
 
+class HoldingSpaceDownloadsDelegate;
 class HoldingSpaceKeyedServiceDelegate;
 
 // Browser context keyed service that:
@@ -83,6 +84,9 @@ class HoldingSpaceKeyedService : public crosapi::mojom::HoldingSpaceService,
   // files system URLs as GURLs.
   std::vector<GURL> GetPinnedFiles() const;
 
+  // Adds a diagnostics log item backed by the provided absolute file path.
+  void AddDiagnosticsLog(const base::FilePath& diagnostics_log_path);
+
   // Adds a download item of the specified `type` backed by the provided
   // absolute file path.
   // NOTE: `type` must refer to a download type.
@@ -93,6 +97,9 @@ class HoldingSpaceKeyedService : public crosapi::mojom::HoldingSpaceService,
 
   // Adds a nearby share item backed by the provided absolute file path.
   void AddNearbyShare(const base::FilePath& nearby_share_path);
+
+  // Adds a scanned item backed by the provided absolute file path.
+  void AddScan(const base::FilePath& file_path);
 
   // Adds a screen recording item backed by the provided absolute file path.
   void AddScreenRecording(const base::FilePath& screen_recording_path);
@@ -113,12 +120,15 @@ class HoldingSpaceKeyedService : public crosapi::mojom::HoldingSpaceService,
                      const base::FilePath& file_path,
                      const absl::optional<float>& progress = 1.f);
 
+  // Attempts to cancel/pause/resume the specified holding space `item`.
+  void CancelItem(const HoldingSpaceItem* item);
+  void PauseItem(const HoldingSpaceItem* item);
+  void ResumeItem(const HoldingSpaceItem* item);
+
   // Returns the `profile_` associated with this service.
   Profile* profile() { return profile_; }
 
-  const HoldingSpaceClient* client_for_testing() const {
-    return &holding_space_client_;
-  }
+  HoldingSpaceClient* client() { return &holding_space_client_; }
 
   const HoldingSpaceModel* model_for_testing() const {
     return &holding_space_model_;
@@ -168,6 +178,9 @@ class HoldingSpaceKeyedService : public crosapi::mojom::HoldingSpaceService,
   // each tasked with an independent area of responsibility on behalf of the
   // service. They operate autonomously of one another.
   std::vector<std::unique_ptr<HoldingSpaceKeyedServiceDelegate>> delegates_;
+
+  // The delegate, owned by `delegates_`, responsible for downloads.
+  HoldingSpaceDownloadsDelegate* downloads_delegate_ = nullptr;
 
   // This class supports any number of connections. This allows the client to
   // have multiple, potentially thread-affine, remotes.

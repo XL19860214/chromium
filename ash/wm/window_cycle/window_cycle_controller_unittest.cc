@@ -961,7 +961,7 @@ TEST_F(WindowCycleControllerTest, AltKeyRelease) {
   generator->PressKey(ui::VKEY_MENU, ui::EF_NONE);
   auto currently_pressed_keys = Shell::Get()
                                     ->accelerator_controller()
-                                    ->accelerator_history()
+                                    ->GetAcceleratorHistory()
                                     ->currently_pressed_keys();
   // Expect exactly one key pressed, which is Alt.
   EXPECT_EQ(1u, currently_pressed_keys.size());
@@ -979,7 +979,7 @@ TEST_F(WindowCycleControllerTest, AltKeyRelease) {
   // Expect all keys pressed to be released.
   currently_pressed_keys = Shell::Get()
                                ->accelerator_controller()
-                               ->accelerator_history()
+                               ->GetAcceleratorHistory()
                                ->currently_pressed_keys();
   EXPECT_EQ(0u, currently_pressed_keys.size());
   EXPECT_FALSE(base::Contains(currently_pressed_keys, ui::VKEY_MENU));
@@ -1363,18 +1363,13 @@ TEST_F(WindowCycleControllerTest,
   Shell::Get()->overview_controller()->StartOverview();
   EXPECT_TRUE(InOverviewSession());
 
-  // Open the window cycle list. Scroll right to second item. Scroll should only
-  // go to the window cycle list so the overview focus should not be visible.
+  // Open the window cycle list. Scroll right to second item. Overview mode
+  // should be dismissed at this point as they do the same thing by design.
   // Current order is [2,4,5,3,1].
   auto* cycle_controller = Shell::Get()->window_cycle_controller();
   cycle_controller->StartCycling();
   Scroll(GetOffsetX(horizontal_scroll), 0, kNumFingersForTrackpad);
-  EXPECT_TRUE(InOverviewSession());
-  EXPECT_FALSE(Shell::Get()
-                   ->overview_controller()
-                   ->overview_session()
-                   ->highlight_controller()
-                   ->IsFocusHighlightVisible());
+  EXPECT_FALSE(InOverviewSession());
 
   CompleteCycling(cycle_controller);
   EXPECT_FALSE(InOverviewSession());

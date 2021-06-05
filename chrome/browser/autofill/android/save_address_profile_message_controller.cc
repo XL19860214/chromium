@@ -15,6 +15,8 @@
 #include "components/autofill/core/browser/autofill_client.h"
 #include "components/autofill/core/common/autofill_features.h"
 #include "components/messages/android/message_dispatcher_bridge.h"
+#include "components/strings/grit/components_strings.h"
+#include "ui/base/l10n/l10n_util.h"
 
 namespace autofill {
 
@@ -60,6 +62,7 @@ void SaveAddressProfileMessageController::DisplayMessage(
 
   message_->SetTitle(GetTitle());
   message_->SetDescription(GetDescription());
+  message_->SetDescriptionMaxLines(1);
   message_->SetPrimaryButtonText(GetPrimaryButtonText());
   message_->SetIconResourceId(
       ResourceMapper::MapToJavaDrawableId(IDR_ANDROID_AUTOFILL_ADDRESS));
@@ -68,11 +71,8 @@ void SaveAddressProfileMessageController::DisplayMessage(
       message_.get(), web_contents, messages::MessageScopeType::WEB_CONTENTS);
 }
 
-void SaveAddressProfileMessageController::DismissMessage() {
-  if (message_) {
-    messages::MessageDispatcherBridge::Get()->DismissMessage(
-        message_.get(), web_contents_, messages::DismissReason::UNKNOWN);
-  }
+bool SaveAddressProfileMessageController::IsMessageDisplayed() {
+  return !!message_;
 }
 
 void SaveAddressProfileMessageController::OnPrimaryAction() {
@@ -91,10 +91,16 @@ void SaveAddressProfileMessageController::OnMessageDismissed(
     case messages::DismissReason::GESTURE:
       // User explicitly dismissed the message.
       RunSaveAddressProfileCallback(
-          AutofillClient::SaveAddressProfileOfferUserDecision::kDeclined);
+          AutofillClient::SaveAddressProfileOfferUserDecision::
+              kMessageDeclined);
+      break;
+    case messages::DismissReason::TIMER:
+      // The message was auto-dismissed after a timeout.
+      RunSaveAddressProfileCallback(
+          AutofillClient::SaveAddressProfileOfferUserDecision::kMessageTimeout);
       break;
     default:
-      // Dismissal without direct interaction.
+      // Dismissal for any other reason.
       RunSaveAddressProfileCallback(
           AutofillClient::SaveAddressProfileOfferUserDecision::kIgnored);
       break;
@@ -105,6 +111,21 @@ void SaveAddressProfileMessageController::OnMessageDismissed(
   web_contents_ = nullptr;
 }
 
+void SaveAddressProfileMessageController::DismissMessageForTest(
+    messages::DismissReason reason) {
+  if (message_) {
+    messages::MessageDispatcherBridge::Get()->DismissMessage(
+        message_.get(), web_contents_, reason);
+  }
+}
+
+void SaveAddressProfileMessageController::DismissMessage() {
+  if (message_) {
+    messages::MessageDispatcherBridge::Get()->DismissMessage(
+        message_.get(), web_contents_, messages::DismissReason::UNKNOWN);
+  }
+}
+
 void SaveAddressProfileMessageController::RunSaveAddressProfileCallback(
     AutofillClient::SaveAddressProfileOfferUserDecision decision) {
   std::move(save_address_profile_callback_).Run(decision, profile_);
@@ -112,8 +133,9 @@ void SaveAddressProfileMessageController::RunSaveAddressProfileCallback(
 }
 
 std::u16string SaveAddressProfileMessageController::GetTitle() {
-  // TODO(crbug.com/1167061): Replace with proper localized strings.
-  return original_profile_ ? u"Update address?" : u"Save address?";
+  return l10n_util::GetStringUTF16(
+      original_profile_ ? IDS_AUTOFILL_UPDATE_ADDRESS_PROMPT_TITLE
+                        : IDS_AUTOFILL_SAVE_ADDRESS_PROMPT_TITLE);
 }
 
 std::u16string SaveAddressProfileMessageController::GetDescription() {
@@ -124,8 +146,9 @@ std::u16string SaveAddressProfileMessageController::GetDescription() {
 }
 
 std::u16string SaveAddressProfileMessageController::GetPrimaryButtonText() {
-  // TODO(crbug.com/1167061): Replace with proper localized strings.
-  return original_profile_ ? u"Update…" : u"Save…";
+  return l10n_util::GetStringUTF16(
+      original_profile_ ? IDS_AUTOFILL_UPDATE_ADDRESS_PROMPT_OK_BUTTON_LABEL
+                        : IDS_AUTOFILL_SAVE_ADDRESS_PROMPT_OK_BUTTON_LABEL);
 }
 
 }  // namespace autofill

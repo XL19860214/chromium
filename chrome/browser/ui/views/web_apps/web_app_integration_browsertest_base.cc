@@ -9,6 +9,7 @@
 #include "base/files/file_util.h"
 #include "base/strings/pattern.h"
 #include "base/strings/string_split.h"
+#include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/test/bind.h"
 #include "build/build_config.h"
@@ -23,6 +24,7 @@
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/browser/ui/views/frame/toolbar_button_provider.h"
 #include "chrome/browser/ui/views/page_action/page_action_icon_view.h"
+#include "chrome/browser/ui/web_applications/app_browser_controller.h"
 #include "chrome/browser/ui/web_applications/test/web_app_browsertest_util.h"
 #include "chrome/browser/ui/web_applications/web_app_dialog_utils.h"
 #include "chrome/browser/ui/web_applications/web_app_launch_utils.h"
@@ -59,9 +61,9 @@ namespace {
 
 constexpr char kExpectationsFilename[] = "TestExpectations";
 constexpr char kPlatformName[] =
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
     "ChromeOS";
-#elif defined(OS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
+#elif defined(OS_LINUX)
     "Linux";
 #elif defined(OS_MAC)
     "Mac";
@@ -149,6 +151,18 @@ StateSnapshot::~StateSnapshot() = default;
 StateSnapshot::StateSnapshot(const StateSnapshot&) = default;
 bool StateSnapshot::operator==(const StateSnapshot& other) const {
   return profiles == other.profiles;
+}
+
+void WebAppIntegrationBrowserTestBase::OnWebAppManifestUpdated(
+    const AppId& app_id,
+    base::StringPiece old_name) {
+  bool is_waiting = app_ids_with_pending_manifest_updates_.erase(app_id);
+  ASSERT_TRUE(is_waiting) << "Received manifest update that was unexpected";
+  if (waiting_for_update_id_ && app_id == waiting_for_update_id_.value()) {
+    DCHECK(waiting_for_update_run_loop_);
+    waiting_for_update_run_loop_->Quit();
+    waiting_for_update_id_ = absl::nullopt;
+  }
 }
 
 WebAppIntegrationBrowserTestBase::WebAppIntegrationBrowserTestBase(
@@ -273,6 +287,9 @@ void WebAppIntegrationBrowserTestBase::SetUp(base::FilePath test_data_dir) {
 
 void WebAppIntegrationBrowserTestBase::SetUpOnMainThread() {
   os_hooks_suppress_ = OsIntegrationManager::ScopedSuppressOsHooksForTesting();
+  if (!delegate_->IsSyncTest()) {
+    observation_.Observe(&GetProvider()->registrar());
+  }
 }
 
 void WebAppIntegrationBrowserTestBase::ParseParams(std::string action_strings) {
@@ -410,10 +427,20 @@ void WebAppIntegrationBrowserTestBase::ExecuteAction(
 
   if (action_base == "add_policy_app_internal_tabbed") {
     AddPolicyAppInternal(action_param,
-                         base::Value(kDefaultLaunchContainerTabValue));
+                         base::Value(kDefaultLaunchContainerTabValue),
+                         /*create_shortcut=*/true);
+  } else if (action_base == "add_policy_app_internal_tabbed_no_shortcut") {
+    AddPolicyAppInternal(action_param,
+                         base::Value(kDefaultLaunchContainerTabValue),
+                         /*create_shortcut=*/false);
   } else if (action_base == "add_policy_app_internal_windowed") {
     AddPolicyAppInternal(action_param,
-                         base::Value(kDefaultLaunchContainerWindowValue));
+                         base::Value(kDefaultLaunchContainerWindowValue),
+                         /*create_shortcut=*/true);
+  } else if (action_base == "add_policy_app_internal_windowed_no_shortcut") {
+    AddPolicyAppInternal(action_param,
+                         base::Value(kDefaultLaunchContainerWindowValue),
+                         /*create_shortcut=*/false);
   } else if (action_base == "close_pwa") {
     ClosePWA();
   } else if (action_base == "install_create_shortcut_tabbed") {
@@ -456,6 +483,8 @@ void WebAppIntegrationBrowserTestBase::ExecuteAction(
     ManifestUpdateDisplay(action_param, blink::mojom::DisplayMode::kMinimalUi);
   } else if (action_base == "user_signin_internal") {
     UserSigninInternal();
+  } else if (action_base == "assert_app_locally_installed_internal") {
+    AssertAppLocallyInstalledInternal();
   } else if (action_base == "assert_app_not_locally_installed_internal") {
     AssertAppNotLocallyInstalledInternal();
   } else if (action_base == "assert_app_not_in_list") {
@@ -472,6 +501,8 @@ void WebAppIntegrationBrowserTestBase::ExecuteAction(
     AssertLaunchIconNotShown();
   } else if (action_base == "assert_manifest_display_mode_browser_internal") {
     AssertManifestDisplayModeInternal(DisplayMode::kBrowser);
+  } else if (action_base == "assert_manifest_display_mode_minimal_internal") {
+    AssertManifestDisplayModeInternal(DisplayMode::kMinimalUi);
   } else if (action_base ==
              "assert_manifest_display_mode_standalone_internal") {
     AssertManifestDisplayModeInternal(DisplayMode::kStandalone);
@@ -503,13 +534,15 @@ void WebAppIntegrationBrowserTestBase::ExecuteAction(
   } else {
     after_action_state_ =
         std::make_unique<StateSnapshot>(ConstructStateSnapshot());
+    MaybeWaitForManifestUpdates(profile());
   }
 }
 
 // Automated Testing Actions
 void WebAppIntegrationBrowserTestBase::AddPolicyAppInternal(
     const std::string& action_param,
-    base::Value default_launch_container) {
+    base::Value default_launch_container,
+    const bool create_shortcut) {
   GURL url = GetInstallableAppURL(action_param);
   auto* web_app_registrar =
       WebAppProvider::Get(profile())->registrar().AsWebAppRegistrar();
@@ -530,6 +563,7 @@ void WebAppIntegrationBrowserTestBase::AddPolicyAppInternal(
     item.SetKey(kUrlKey, base::Value(url.spec()));
     item.SetKey(kDefaultLaunchContainerKey,
                 std::move(default_launch_container));
+    item.SetKey(kCreateDesktopShortcutKey, base::Value(create_shortcut));
     ListPrefUpdate update(profile()->GetPrefs(),
                           prefs::kWebAppInstallForceList);
     update->Append(item.Clone());
@@ -784,6 +818,14 @@ void WebAppIntegrationBrowserTestBase::UserSigninInternal() {
 }
 
 // Assert Actions
+void WebAppIntegrationBrowserTestBase::AssertAppLocallyInstalledInternal() {
+  DCHECK(after_action_state_);
+  absl::optional<AppState> app_state =
+      GetStateForAppId(after_action_state_.get(), profile(), active_app_id_);
+  ASSERT_TRUE(app_state.has_value());
+  EXPECT_TRUE(app_state->is_installed_locally);
+}
+
 void WebAppIntegrationBrowserTestBase::AssertAppNotLocallyInstalledInternal() {
   DCHECK(after_action_state_);
   absl::optional<AppState> app_state =
@@ -969,6 +1011,10 @@ WebAppProvider* WebAppIntegrationBrowserTestBase::GetProviderForProfile(
   return WebAppProvider::Get(profile);
 }
 
+void WebAppIntegrationBrowserTestBase::ResetRegistrarObserver() {
+  observation_.Reset();
+}
+
 GURL WebAppIntegrationBrowserTestBase::GetNonInstallableAppURL() {
   return embedded_test_server()->GetURL("/web_apps/site_c/basic.html");
 }
@@ -994,6 +1040,26 @@ content::WebContents* WebAppIntegrationBrowserTestBase::GetCurrentTab(
   return browser->tab_strip_model()->GetActiveWebContents();
 }
 
+bool WebAppIntegrationBrowserTestBase::AreNoAppWindowsOpen(
+    Profile* profile,
+    const AppId& app_id) {
+  auto* provider = GetProviderForProfile(profile);
+  const GURL& app_scope = provider->registrar().GetAppScope(app_id);
+  auto* browser_list = BrowserList::GetInstance();
+  for (Browser* browser : *browser_list) {
+    if (browser->IsAttemptingToCloseBrowser()) {
+      continue;
+    }
+    const GURL& browser_url =
+        browser->tab_strip_model()->GetActiveWebContents()->GetURL();
+    if (AppBrowserController::IsWebApp(browser) &&
+        IsInScope(browser_url, app_scope)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 void WebAppIntegrationBrowserTestBase::ForceUpdateManifestContents(
     const std::string& app_scope,
     GURL app_url_with_manifest_param) {
@@ -1001,12 +1067,35 @@ void WebAppIntegrationBrowserTestBase::ForceUpdateManifestContents(
       GetAppByScope(before_action_state_.get(), profile(), app_scope);
   ASSERT_TRUE(app_state.has_value());
   auto app_id = app_state->id;
+  active_app_id_ = app_id;
 
   // Manifest updates must occur as the first navigation after a webapp is
   // installed, otherwise the throttle is tripped.
   ASSERT_FALSE(
       GetProvider()->manifest_update_manager().IsUpdateConsumed(app_id));
   NavigateTabbedBrowserToSite(app_url_with_manifest_param);
+  app_ids_with_pending_manifest_updates_.insert(app_id);
+}
+
+void WebAppIntegrationBrowserTestBase::MaybeWaitForManifestUpdates(
+    Profile* profile) {
+  bool continue_checking_for_updates = true;
+  while (continue_checking_for_updates) {
+    continue_checking_for_updates = false;
+    for (const AppId& app_id : app_ids_with_pending_manifest_updates_) {
+      if (AreNoAppWindowsOpen(profile, app_id)) {
+        waiting_for_update_id_ = absl::make_optional(app_id);
+        waiting_for_update_run_loop_ = std::make_unique<base::RunLoop>();
+        waiting_for_update_run_loop_->Run();
+        waiting_for_update_run_loop_ = nullptr;
+        DCHECK(!waiting_for_update_id_);
+        // To prevent iteration-during-modification, break and restart
+        // the loop.
+        continue_checking_for_updates = true;
+        break;
+      }
+    }
+  }
 }
 
 Browser* WebAppIntegrationBrowserTestBase::browser() {

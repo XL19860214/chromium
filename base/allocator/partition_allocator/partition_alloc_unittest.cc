@@ -13,6 +13,7 @@
 #include <memory>
 #include <vector>
 
+#include "base/allocator/buildflags.h"
 #include "base/allocator/partition_allocator/address_space_randomization.h"
 #include "base/allocator/partition_allocator/page_allocator_constants.h"
 #include "base/allocator/partition_allocator/partition_alloc_constants.h"
@@ -24,7 +25,6 @@
 #include "base/allocator/partition_allocator/partition_root.h"
 #include "base/bits.h"
 #include "base/logging.h"
-#include "base/partition_alloc_buildflags.h"
 #include "base/rand_util.h"
 #include "base/stl_util.h"
 #include "base/system/sys_info.h"
@@ -878,7 +878,7 @@ TEST_F(PartitionAllocTest, AllocSizes) {
 }
 
 // Test that we can fetch the real allocated size after an allocation.
-TEST_F(PartitionAllocTest, AllocGetSizeAndOffsetAndStart) {
+TEST_F(PartitionAllocTest, AllocGetSizeAndStart) {
   void* ptr;
   void* slot_start;
   size_t requested_size, actual_capacity, predicted_capacity;
@@ -972,12 +972,16 @@ TEST_F(PartitionAllocTest, AllocGetSizeAndOffsetAndStart) {
         allocator.root()->AllocationCapacityFromRequestedSize(requested_size);
     ptr = allocator.root()->Alloc(requested_size, type_name);
     EXPECT_TRUE(ptr);
+    slot_start = reinterpret_cast<char*>(ptr) - allocator.root()->extras_offset;
     actual_capacity = allocator.root()->AllocationCapacityFromPtr(ptr);
     EXPECT_EQ(predicted_capacity, actual_capacity);
     EXPECT_LT(requested_size, actual_capacity);
-    // Unlike above, don't test for PartitionAllocGetSlotOffset. Such large
-    // allocations are direct-mapped, for which one can't easily obtain the
-    // offset.
+#if BUILDFLAG(USE_BACKUP_REF_PTR)
+    for (size_t offset = 0; offset < requested_size; offset += 16111) {
+      EXPECT_EQ(PartitionAllocGetSlotStart(static_cast<char*>(ptr) + offset),
+                slot_start);
+    }
+#endif  // BUILDFLAG(USE_BACKUP_REF_PTR)
     allocator.root()->Free(ptr);
   }
 
@@ -1021,12 +1025,7 @@ TEST_F(PartitionAllocTest, GetSlotStartMultiplePages) {
 #endif  // BUILDFLAG(USE_BACKUP_REF_PTR)
 
 // Test the realloc() contract.
-#if defined(OS_ANDROID)
-#define MAYBE_Realloc DISABLED_Realloc
-#else
-#define MAYBE_Realloc Realloc
-#endif
-TEST_F(PartitionAllocTest, MAYBE_Realloc) {
+TEST_F(PartitionAllocTest, Realloc) {
   // realloc(0, size) should be equivalent to malloc().
   void* ptr = allocator.root()->Realloc(nullptr, kTestAllocSize, type_name);
   memset(ptr, 'A', kTestAllocSize);
@@ -1385,12 +1384,7 @@ TEST_F(PartitionAllocTest, SlotSpanRefilling) {
 }
 
 // Basic tests to ensure that allocations work for partial page buckets.
-#if defined(OS_ANDROID)
-#define MAYBE_PartialPages DISABLED_PartialPages
-#else
-#define MAYBE_PartialPages PartialPages
-#endif
-TEST_F(PartitionAllocTest, MAYBE_PartialPages) {
+TEST_F(PartitionAllocTest, PartialPages) {
   // Find a size that is backed by a partial partition page.
   size_t size = sizeof(void*);
   size_t bucket_index;
@@ -2099,12 +2093,7 @@ TEST_F(PartitionAllocTest, DumpMemoryStats) {
 }
 
 // Tests the API to purge freeable memory.
-#if defined(OS_ANDROID)
-#define MAYBE_Purge DISABLED_Purge
-#else
-#define MAYBE_Purge Purge
-#endif
-TEST_F(PartitionAllocTest, MAYBE_Purge) {
+TEST_F(PartitionAllocTest, Purge) {
   char* ptr = reinterpret_cast<char*>(
       allocator.root()->Alloc(2048 - kExtraAllocSize, type_name));
   allocator.root()->Free(ptr);
@@ -2708,12 +2697,7 @@ void VerifyAlignment(PartitionRoot<ThreadSafe>* root,
     PartitionRoot<ThreadSafe>::Free(ptr);
 }
 
-#if defined(OS_ANDROID)
-#define MAYBE_AlignedAllocations DISABLED_AlignedAllocations
-#else
-#define MAYBE_AlignedAllocations AlignedAllocations
-#endif
-TEST_F(PartitionAllocTest, MAYBE_AlignedAllocations) {
+TEST_F(PartitionAllocTest, AlignedAllocations) {
   size_t alloc_sizes[] = {1,     10,    100,    1000,   10000,
                           60000, 70000, 130000, 500000, 900000};
   size_t max_alignment = 1048576;
@@ -2863,6 +2847,7 @@ TEST_F(PartitionAllocTest, MAYBE_Bookkeeping) {
       kSuperPageSize + PartitionPageSize(),
       kSuperPageSize + SystemPageSize() + PartitionPageSize(),
       kSuperPageSize + PageAllocationGranularity(),
+      kSuperPageSize + DirectMapAllocationGranularity(),
   };
   for (size_t huge_size : huge_sizes) {
     // For direct map, we commit only as many pages as needed.
@@ -2871,12 +2856,9 @@ TEST_F(PartitionAllocTest, MAYBE_Bookkeeping) {
     expected_committed_size += aligned_size;
     size_t surrounding_pages_size =
         PartitionRoot<ThreadSafe>::GetDirectMapMetadataAndGuardPagesSize();
-    size_t alignment = PageAllocationGranularity();
-#if defined(PA_HAS_64_BITS_POINTERS)
-    alignment = kSuperPageSize;
-#endif
     size_t expected_direct_map_size =
-        bits::AlignUp(aligned_size + surrounding_pages_size, alignment);
+        bits::AlignUp(aligned_size + surrounding_pages_size,
+                      DirectMapAllocationGranularity());
     EXPECT_EQ(expected_committed_size, root.total_size_of_committed_pages);
     EXPECT_EQ(expected_super_pages_size, root.total_size_of_super_pages);
     EXPECT_EQ(expected_direct_map_size, root.total_size_of_direct_mapped_pages);
@@ -2991,15 +2973,93 @@ TEST_F(PartitionAllocTest, RefCountRealloc) {
   }
 }
 
-#endif
+#endif  // BUILDFLAG(USE_BACKUP_REF_PTR)
+
+TEST_F(PartitionAllocTest, ReservationOffset) {
+  // For normal buckets, offsets should be kNotInDirectMap.
+  void* ptr = allocator.root()->Alloc(kTestAllocSize, type_name);
+  EXPECT_TRUE(ptr);
+  uintptr_t ptr_as_uintptr = reinterpret_cast<uintptr_t>(ptr);
+  EXPECT_EQ(internal::NotInDirectMapOffsetTag(),
+            *internal::ReservationOffsetPointer(ptr_as_uintptr));
+  allocator.root()->Free(ptr);
+
+  // For direct-map,
+  size_t large_size = kSuperPageSize * 5 + PartitionPageSize() * .5f;
+  ptr = allocator.root()->Alloc(large_size, type_name);
+  EXPECT_TRUE(ptr);
+  ptr_as_uintptr = reinterpret_cast<uintptr_t>(ptr);
+  EXPECT_EQ(0U, *internal::ReservationOffsetPointer(ptr_as_uintptr));
+  EXPECT_EQ(
+      1U, *internal::ReservationOffsetPointer(ptr_as_uintptr + kSuperPageSize));
+  EXPECT_EQ(2U, *internal::ReservationOffsetPointer(ptr_as_uintptr +
+                                                    kSuperPageSize * 2));
+  EXPECT_EQ(3U, *internal::ReservationOffsetPointer(ptr_as_uintptr +
+                                                    kSuperPageSize * 3));
+  EXPECT_EQ(4U, *internal::ReservationOffsetPointer(ptr_as_uintptr +
+                                                    kSuperPageSize * 4));
+  EXPECT_EQ(5U, *internal::ReservationOffsetPointer(ptr_as_uintptr +
+                                                    kSuperPageSize * 5));
+
+  // In-place realloc doesn't affect the offsets.
+  void* new_ptr = allocator.root()->Realloc(ptr, large_size * .8, type_name);
+  EXPECT_EQ(new_ptr, ptr);
+  EXPECT_EQ(0U, *internal::ReservationOffsetPointer(ptr_as_uintptr));
+  EXPECT_EQ(
+      1U, *internal::ReservationOffsetPointer(ptr_as_uintptr + kSuperPageSize));
+  EXPECT_EQ(2U, *internal::ReservationOffsetPointer(ptr_as_uintptr +
+                                                    kSuperPageSize * 2));
+  EXPECT_EQ(3U, *internal::ReservationOffsetPointer(ptr_as_uintptr +
+                                                    kSuperPageSize * 3));
+  EXPECT_EQ(4U, *internal::ReservationOffsetPointer(ptr_as_uintptr +
+                                                    kSuperPageSize * 4));
+  EXPECT_EQ(5U, *internal::ReservationOffsetPointer(ptr_as_uintptr +
+                                                    kSuperPageSize * 5));
+
+  allocator.root()->Free(ptr);
+  // After free, the offsets must be 0.
+  EXPECT_EQ(internal::NotInDirectMapOffsetTag(),
+            *internal::ReservationOffsetPointer(ptr_as_uintptr));
+  EXPECT_EQ(
+      internal::NotInDirectMapOffsetTag(),
+      *internal::ReservationOffsetPointer(ptr_as_uintptr + kSuperPageSize));
+  EXPECT_EQ(
+      internal::NotInDirectMapOffsetTag(),
+      *internal::ReservationOffsetPointer(ptr_as_uintptr + kSuperPageSize * 2));
+  EXPECT_EQ(
+      internal::NotInDirectMapOffsetTag(),
+      *internal::ReservationOffsetPointer(ptr_as_uintptr + kSuperPageSize * 3));
+  EXPECT_EQ(
+      internal::NotInDirectMapOffsetTag(),
+      *internal::ReservationOffsetPointer(ptr_as_uintptr + kSuperPageSize * 4));
+  EXPECT_EQ(
+      internal::NotInDirectMapOffsetTag(),
+      *internal::ReservationOffsetPointer(ptr_as_uintptr + kSuperPageSize * 5));
+}
+
+TEST_F(PartitionAllocTest, GetReservationStart) {
+  size_t large_size = kSuperPageSize * 3 + PartitionPageSize() * .5f;
+  void* ptr = allocator.root()->Alloc(large_size, type_name);
+  EXPECT_TRUE(ptr);
+  void* slot_start = allocator.root()->AdjustPointerForExtrasSubtract(ptr);
+  uintptr_t reservation_start =
+      reinterpret_cast<uintptr_t>(slot_start) - PartitionPageSize();
+  EXPECT_EQ(0U, reservation_start & DirectMapAllocationGranularityOffsetMask());
+
+  for (char* p = static_cast<char*>(ptr); p < (char*)ptr + large_size; ++p) {
+    void* ptr2 = reinterpret_cast<char*>(GetDirectMapReservationStart(p)) +
+                 PartitionPageSize();
+    EXPECT_EQ(slot_start, ptr2);
+  }
+
+  EXPECT_EQ(reservation_start, reinterpret_cast<uintptr_t>(
+                                   GetDirectMapReservationStart(slot_start)));
+
+  allocator.root()->Free(ptr);
+}
 
 // Test for crash http://crbug.com/1169003.
-#if defined(OS_ANDROID)
-#define MAYBE_CrossPartitionRootRealloc DISABLED_CrossPartitionRootRealloc
-#else
-#define MAYBE_CrossPartitionRootRealloc CrossPartitionRootRealloc
-#endif
-TEST_F(PartitionAllocTest, MAYBE_CrossPartitionRootRealloc) {
+TEST_F(PartitionAllocTest, CrossPartitionRootRealloc) {
   // Size is large enough to satisfy it from a single-slot slot span
   size_t test_size =
       SystemPageSize() * MaxSystemPagesPerSlotSpan() - kExtraAllocSize;

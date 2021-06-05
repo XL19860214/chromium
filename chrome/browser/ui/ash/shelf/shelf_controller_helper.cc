@@ -30,6 +30,7 @@
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/extensions/app_launch_params.h"
 #include "chrome/browser/ui/extensions/extension_enable_flow.h"
+#include "chrome/browser/ui/web_applications/app_browser_controller.h"
 #include "chrome/browser/web_applications/components/app_registrar.h"
 #include "chrome/browser/web_applications/components/web_app_helpers.h"
 #include "chrome/browser/web_applications/components/web_app_id.h"
@@ -38,6 +39,7 @@
 #include "chrome/common/extensions/manifest_handlers/app_launch_info.h"
 #include "components/arc/arc_util.h"
 #include "components/arc/metrics/arc_metrics_constants.h"
+#include "components/services/app_service/public/cpp/types_util.h"
 #include "content/public/browser/navigation_entry.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/extension_system.h"
@@ -336,7 +338,7 @@ bool ShelfControllerHelper::IsValidIDFromAppService(
         if (update.AppType() != apps::mojom::AppType::kArc &&
             update.AppType() != apps::mojom::AppType::kUnknown &&
             update.Readiness() != apps::mojom::Readiness::kUnknown &&
-            update.Readiness() != apps::mojom::Readiness::kUninstalledByUser) {
+            apps_util::IsInstalled(update.Readiness())) {
           is_valid = true;
         }
       });

@@ -4,8 +4,9 @@
 
 import {assert} from 'chrome://resources/js/assert.m.js';
 
+import {fakeChromeVersion, fakeComponents, fakeStates} from './fake_data.js';
 import {FakeShimlessRmaService} from './fake_shimless_rma_service.js'
-import {RmadErrorCode, RmaState, ShimlessRmaServiceInterface} from './shimless_rma_types.js';
+import {Component, ComponentRepairState, ComponentType, RmadErrorCode, RmaState, ShimlessRmaServiceInterface} from './shimless_rma_types.js';
 
 /**
  * @fileoverview
@@ -21,17 +22,10 @@ function setupFakeShimlessRmaService_() {
   // Create provider.
   let service = new FakeShimlessRmaService();
 
-  // TODO(gavindodd): Setup fake states
-  let states = [
-    {state: RmaState.kWelcomeScreen, error: RmadErrorCode.kOk},
-    {state: RmaState.kSelectComponents, error: RmadErrorCode.kRequestInvalid},
-    {state: RmaState.kUpdateChrome, error: RmadErrorCode.kOk},
-  ];
-  service.setStates(states);
-
-  // TODO(joonbug): Set up shimless_rma_fakes module
-  service.setGetCurrentChromeVersionResult('90.4430.0.143');
-  service.setCheckForChromeUpdatesResult(true);
+  service.setStates(fakeStates);
+  service.setGetCurrentChromeVersionResult(fakeChromeVersion[0]);
+  service.setCheckForChromeUpdatesResult(false);
+  service.setGetComponentListResult(fakeComponents);
 
   // Set the fake service.
   setShimlessRmaServiceForTesting(service);

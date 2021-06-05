@@ -85,6 +85,7 @@ class CORE_EXPORT RemoteFrame final : public Frame,
   void DidFocus() override;
   void AddResourceTimingFromChild(
       mojom::blink::ResourceTimingInfoPtr timing) override;
+  bool IsAdSubframe() const override;
 
   // ChildFrameCompositor:
   const scoped_refptr<cc::Layer>& GetCcLayer() override;
@@ -101,8 +102,6 @@ class CORE_EXPORT RemoteFrame final : public Frame,
       LocalFrame* source_frame);
 
   mojom::blink::RemoteFrameHost& GetRemoteFrameHostRemote();
-
-  AssociatedInterfaceProvider* GetRemoteAssociatedInterfaces();
 
   RemoteFrameView* View() const override;
 
@@ -158,8 +157,7 @@ class CORE_EXPORT RemoteFrame final : public Frame,
   void SetReplicatedOrigin(
       const scoped_refptr<const SecurityOrigin>& origin,
       bool is_potentially_trustworthy_unique_origin) override;
-  void SetReplicatedAdFrameType(
-      mojom::blink::AdFrameType ad_frame_type) override;
+  void SetReplicatedIsAdSubframe(bool is_ad_subframe) override;
   void SetReplicatedName(const String& name,
                          const String& unique_name) override;
   void DispatchLoadEventForFrameOwner() override;
@@ -220,7 +218,9 @@ class CORE_EXPORT RemoteFrame final : public Frame,
       mojom::blink::TextAutosizerPageInfoPtr page_info) override;
 
   // Indicate that this frame was attached as a MainFrame.
-  void WasAttachedAsRemoteMainFrame();
+  void WasAttachedAsRemoteMainFrame(
+      mojo::PendingAssociatedReceiver<mojom::blink::RemoteMainFrame>
+          main_frame);
 
   RemoteFrameToken GetRemoteFrameToken() const {
     return GetFrameToken().GetAs<RemoteFrameToken>();
@@ -229,6 +229,8 @@ class CORE_EXPORT RemoteFrame final : public Frame,
   const viz::LocalSurfaceId& GetLocalSurfaceId() const;
 
   viz::FrameSinkId GetFrameSinkId();
+
+  void SetCcLayerForTesting(scoped_refptr<cc::Layer>, bool is_surface_layer);
 
  private:
   // Frame protected overrides:
@@ -252,9 +254,6 @@ class CORE_EXPORT RemoteFrame final : public Frame,
   static void BindToReceiver(
       RemoteFrame* frame,
       mojo::PendingAssociatedReceiver<mojom::blink::RemoteFrame> receiver);
-  static void BindToMainFrameReceiver(
-      RemoteFrame* frame,
-      mojo::PendingAssociatedReceiver<mojom::blink::RemoteMainFrame> receiver);
 
   Member<RemoteFrameView> view_;
   RemoteSecurityContext security_context_;
@@ -282,6 +281,9 @@ class CORE_EXPORT RemoteFrame final : public Frame,
 
   // Will be nullptr when this RemoteFrame's parent is not a LocalFrame.
   std::unique_ptr<ChildFrameCompositingHelper> compositing_helper_;
+
+  // Whether the frame is considered to be an ad subframe by Ad Tagging.
+  bool is_ad_subframe_;
 
   mojo::AssociatedRemote<mojom::blink::RemoteFrameHost>
       remote_frame_host_remote_;

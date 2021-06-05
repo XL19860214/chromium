@@ -24,12 +24,12 @@
 <translation id="2695886661449553974">Chrome kan niet checken op updates. Probeer het later opnieuw.</translation>
 <translation id="2732745070297234559">Chrome kan niet alle wachtwoorden checken. Probeer het morgen opnieuw.</translation>
 <translation id="2740105938841089077">Chrome gebruiken om links te openen</translation>
+<translation id="2869959624320573933">Inloggen bij Chrome</translation>
 <translation id="2919738076569633423">Door Chrome te gebruiken, ga je akkoord met de <ph name="BEGIN_LINK_TOS" />servicevoorwaarden<ph name="END_LINK_TOS" />.</translation>
 <translation id="3030414234702425231">Omdat je uitlogt van een account dat wordt beheerd door <ph name="SIGNOUT_MANAGED_DOMAIN" />, worden je Chrome-gegevens van dit apparaat verwijderd. Je gegevens blijven echter wel in je Google-account staan.</translation>
 <translation id="3167189358072330585">Je account werkt niet in Google Chrome. Neem contact op met je domeinbeheerder of gebruik een gewoon Google-account om je aan te melden.</translation>
 <translation id="3173834708294760622">Google Chrome-pagina</translation>
 <translation id="3196546062792660320">Chrome bespaart je tijd door je accounts beschikbaar te maken op internet. Je kunt accounts toevoegen of verwijderen bij Instellingen.</translation>
-<translation id="3223655207402797071">Log in op deze site, je Google-account, en op Chrome. Je kunt synchronisatie later inschakelen.</translation>
 <translation id="3282568296779691940">Inloggen bij Chrome</translation>
 <translation id="3345341804167540816">Chrome overal gebruiken</translation>
 <translation id="3455456143708465450">Log in met je Google-account om het maximale uit Chrome te halen</translation>
@@ -64,7 +64,6 @@
 <translation id="6063091872902370735">Inloggen bij Chrome toestaan</translation>
 <translation id="6181930887571472871">Overschakelen naar Chrome</translation>
 <translation id="6238746320622508509">Laat Chrome je incognitotabbladen vergrendelen.</translation>
-<translation id="6573431926118603307">Hier zie je tabbladen die je op andere apparaten in Chrome hebt geopend.</translation>
 <translation id="6600954340915313787">Gekopieerd naar Chrome</translation>
 <translation id="6634107063912726160">Als je uitlogt, synchroniseert Chrome geen nieuwe gegevens met je Google-account. Eerder gesynchroniseerde gegevens blijven in het account staan.</translation>
 <translation id="6648150602980899529">Je logt in met een account dat wordt beheerd door <ph name="DOMAIN" />, waarmee je de eigenaar beheer geeft over je Chrome-gegevens. Je gegevens worden permanent gekoppeld aan dit account. Als je uitlogt van Chrome, worden je gegevens van dit apparaat verwijderd. Ze blijven echter opgeslagen in je Google-account.</translation>
@@ -78,7 +77,6 @@
 <translation id="7172660552945675509">Tip: <ph name="BEGIN_LINK" />Verplaats Chrome naar je dock<ph name="END_LINK" /></translation>
 <translation id="7173660919484573146">Chrome gebruikt Face ID om geautoriseerde toegang tot je wachtwoorden mogelijk te maken.</translation>
 <translation id="7261678641327190792">Chrome kan je wachtwoorden niet checken</translation>
-<translation id="7265369419224458312">Bekijk hier de tabbladen die je op je computer hebt geopend. Open Chrome op je computer, ga naar het menu en selecteer 'Inloggen bij Chrome'.</translation>
 <translation id="7272930098487145294">Als je afbeeldingen wilt opslaan, tik je op Instellingen om deze door Chrome aan je foto's te laten toevoegen</translation>
 <translation id="7275945473750112644">Je account wordt beheerd door <ph name="HOSTED_DOMAIN" />, dus je Chrome-gegevens worden verwijderd van dit apparaat</translation>
 <translation id="7400722733683201933">Over Google Chrome</translation>
@@ -91,6 +89,7 @@
 <translation id="7855730255114109580">Google Chrome is up-to-date</translation>
 <translation id="8022947259858476807">Gebruik standaard Chrome om links te openen, te zoeken via widgets en om wachtwoorden in andere apps automatisch in te vullen</translation>
 <translation id="8160472928944011082">Chrome kan niet updaten</translation>
+<translation id="8263079278049777200">Log in op deze site, op je Google-account en bij Chrome. Je kunt synchronisatie later aanzetten.</translation>
 <translation id="8357607116237445042">Kies of je je Chrome-gegevens voor dit apparaat wilt verwijderen of behouden</translation>
 <translation id="8370517070665726704">Copyright <ph name="YEAR" /> Google LLC. Alle rechten voorbehouden.</translation>
 <translation id="840168496893712993">Sommige add-ons kunnen ervoor zorgen dat Chrome crasht. Verwijder deze add-ons.</translation>

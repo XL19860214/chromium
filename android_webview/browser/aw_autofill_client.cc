@@ -16,7 +16,6 @@
 #include "base/android/scoped_java_ref.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/notreached.h"
-#include "base/stl_util.h"
 #include "components/autofill/core/browser/payments/legal_message_line.h"
 #include "components/autofill/core/browser/ui/autofill_popup_delegate.h"
 #include "components/autofill/core/browser/ui/suggestion.h"
@@ -308,7 +307,7 @@ void AwAutofillClient::SuggestionSelected(JNIEnv* env,
   if (delegate_) {
     delegate_->DidAcceptSuggestion(suggestions_[position].value,
                                    suggestions_[position].frontend_id,
-                                   position);
+                                   suggestions_[position].backend_id, position);
   }
 }
 

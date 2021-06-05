@@ -228,6 +228,11 @@ std::vector<GURL> HoldingSpaceKeyedService::GetPinnedFiles() const {
   return pinned_files;
 }
 
+void HoldingSpaceKeyedService::AddDiagnosticsLog(
+    const base::FilePath& diagnostics_log_path) {
+  AddItemOfType(HoldingSpaceItem::Type::kDiagnosticsLog, diagnostics_log_path);
+}
+
 void HoldingSpaceKeyedService::AddDownload(
     HoldingSpaceItem::Type type,
     const base::FilePath& download_file,
@@ -239,6 +244,10 @@ void HoldingSpaceKeyedService::AddDownload(
 void HoldingSpaceKeyedService::AddNearbyShare(
     const base::FilePath& nearby_share_path) {
   AddItemOfType(HoldingSpaceItem::Type::kNearbyShare, nearby_share_path);
+}
+
+void HoldingSpaceKeyedService::AddScan(const base::FilePath& file_path) {
+  AddItemOfType(HoldingSpaceItem::Type::kScan, file_path);
 }
 
 void HoldingSpaceKeyedService::AddScreenRecording(
@@ -289,6 +298,24 @@ void HoldingSpaceKeyedService::AddItemOfType(
   AddItem(HoldingSpaceItem::CreateFileBackedItem(
       type, file_path, file_system_url, progress,
       base::BindOnce(&holding_space_util::ResolveImage, &thumbnail_loader_)));
+}
+
+void HoldingSpaceKeyedService::CancelItem(const HoldingSpaceItem* item) {
+  // Currently it is only possible to cancel download type items.
+  if (HoldingSpaceItem::IsDownload(item->type()) && downloads_delegate_)
+    downloads_delegate_->Cancel(item);
+}
+
+void HoldingSpaceKeyedService::PauseItem(const HoldingSpaceItem* item) {
+  // Currently it is only possible to pause download type items.
+  if (HoldingSpaceItem::IsDownload(item->type()) && downloads_delegate_)
+    downloads_delegate_->Pause(item);
+}
+
+void HoldingSpaceKeyedService::ResumeItem(const HoldingSpaceItem* item) {
+  // Currently it is only possible to resume download type items.
+  if (HoldingSpaceItem::IsDownload(item->type()) && downloads_delegate_)
+    downloads_delegate_->Resume(item);
 }
 
 void HoldingSpaceKeyedService::Shutdown() {
@@ -342,8 +369,10 @@ void HoldingSpaceKeyedService::InitializeDelegates() {
     return;
 
   // The `HoldingSpaceDownloadsDelegate` monitors the status of downloads.
-  delegates_.push_back(std::make_unique<HoldingSpaceDownloadsDelegate>(
-      this, &holding_space_model_));
+  auto downloads_delegate = std::make_unique<HoldingSpaceDownloadsDelegate>(
+      this, &holding_space_model_);
+  downloads_delegate_ = downloads_delegate.get();
+  delegates_.push_back(std::move(downloads_delegate));
 
   // The `HoldingSpaceFileSystemDelegate` monitors the file system for changes.
   delegates_.push_back(std::make_unique<HoldingSpaceFileSystemDelegate>(
@@ -364,6 +393,7 @@ void HoldingSpaceKeyedService::InitializeDelegates() {
 }
 
 void HoldingSpaceKeyedService::ShutdownDelegates() {
+  downloads_delegate_ = nullptr;
   delegates_.clear();
 }
 

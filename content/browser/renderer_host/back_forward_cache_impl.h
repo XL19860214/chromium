@@ -9,6 +9,7 @@
 #include <memory>
 #include <set>
 #include <unordered_map>
+#include <unordered_set>
 
 #include "base/feature_list.h"
 #include "base/macros.h"
@@ -43,6 +44,11 @@ class SiteInstance;
 constexpr base::Feature kRecordBackForwardCacheMetricsWithoutEnabling{
     "RecordBackForwardCacheMetricsWithoutEnabling",
     base::FEATURE_DISABLED_BY_DEFAULT};
+
+// Removes the time limit for cached content. This is used on bots to identify
+// accidentally passing tests.
+constexpr base::Feature kBackForwardCacheNoTimeEviction{
+    "BackForwardCacheNoTimeEviction", base::FEATURE_DISABLED_BY_DEFAULT};
 
 // BackForwardCache:
 //
@@ -104,6 +110,16 @@ class CONTENT_EXPORT BackForwardCacheImpl
     blink::mojom::PageRestoreParamsPtr page_restore_params;
 
     DISALLOW_COPY_AND_ASSIGN(Entry);
+  };
+
+  // UnloadSupportStrategy is possible actions to take against pages with
+  // "unload" handlers.
+  // TODO(crbug.com/1201653): Consider making this private.
+  enum class UnloadSupportStrategy {
+    kAlways,
+    kOptInHeaderRequired,
+    // TODO(crbug.com/1201653): Consider removing `kNo` to simplify code a bit.
+    kNo,
   };
 
   // Returns whether MediaSessionImpl::OnServiceCreated is allowed for the
@@ -187,15 +203,21 @@ class CONTENT_EXPORT BackForwardCacheImpl
 
   // The back-forward cache is experimented on a limited set of URLs. This
   // method returns true if the |url| matches one of those. URL not matching
-  // this won't enter the back-forward cache.
-  // This is controlled by GetAllowedURLs method which depends on the
-  // following:
-  //  - feature::kBackForwardCache param -> allowed_websites.
-  //  - kRecordBackForwardCacheMetricsWithoutEnabling param -> allowed_websites.
-
-  // If no param is set all websites are allowed by default. This can still
-  // return true even when BackForwardCache is disabled for metrics purposes.
+  // this won't enter the back-forward cache. This can still return true even
+  // when BackForwardCache is disabled for metrics purposes. It checks
+  // |IsHostPathAllowed| then |IsHostPathAllowed|
   bool IsAllowed(const GURL& current_url);
+  // Returns true if the host and path are allowed according to the
+  // "allowed_websites" and "blocked_webites" parameters of
+  // |feature::kBackForwardCache|. An empty "allowed_websites" implies that all
+  // websites are allowed.
+  bool IsHostPathAllowed(const GURL& current_url);
+  // Returns true if query does not contain any of the parameters in
+  // "blocked_cgi_params" parameter of |feature::kBackForwardCache|. The
+  // comparison is done by splitting the query string on "&" and looking for
+  // exact matches in the list (parameter name and value). It does not consider
+  // URL escaping.
+  bool IsQueryAllowed(const GURL& current_url);
 
   // This is a wrapper around the flag that indicates whether or not the
   // feature usage should be checked only after receiving an ack from the
@@ -293,19 +315,26 @@ class CONTENT_EXPORT BackForwardCacheImpl
   // the field trial parameter "allowed_websites". This is represented here by a
   // set of host and path prefix. When |allowed_urls_| is empty, it means there
   // are no restrictions on URLs.
-  std::map<std::string,              // URL's host,
-           std::vector<std::string>  // URL's path prefix
-           >
+  const std::map<std::string,              // URL's host,
+                 std::vector<std::string>  // URL's path prefix
+                 >
       allowed_urls_;
 
   // This is an emergency kill switch per url to stop BFCache. The data will be
   // provided via the field trial parameter "blocked_websites".
   // "blocked_websites" have priority over "allowed_websites". This is
   // represented here by a set of host and path prefix.
-  std::map<std::string,              // URL's host,
-           std::vector<std::string>  // URL's path prefix
-           >
+  const std::map<std::string,              // URL's host,
+                 std::vector<std::string>  // URL's path prefix
+                 >
       blocked_urls_;
+
+  // Data provided from the "blocked_cgi_params" feature param. If any of these
+  // occur in the query of the URL then the page is not eligible for caching.
+  // See |IsQueryAllowed|.
+  const std::unordered_set<std::string> blocked_cgi_params_;
+
+  const UnloadSupportStrategy unload_strategy_;
 
   base::WeakPtrFactory<BackForwardCacheImpl> weak_factory_;
 

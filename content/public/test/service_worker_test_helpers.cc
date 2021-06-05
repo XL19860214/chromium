@@ -16,6 +16,7 @@
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/service_worker_context.h"
 #include "third_party/blink/public/common/notifications/platform_notification_data.h"
+#include "third_party/blink/public/common/storage_key/storage_key.h"
 #include "url/gurl.h"
 
 namespace content {
@@ -131,7 +132,9 @@ void FindReadyRegistrationForScope(
                                              std::move(callback)));
     return;
   }
-  context_wrapper->FindReadyRegistrationForScope(scope, std::move(callback));
+  context_wrapper->FindReadyRegistrationForScope(
+      scope, blink::StorageKey(url::Origin::Create(scope)),
+      std::move(callback));
 }
 
 }  // namespace

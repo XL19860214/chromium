@@ -144,24 +144,40 @@ CreateRandomShortcutsMenuItemInfos(const GURL& scope, RandomHelper& random) {
     WebApplicationShortcutsMenuItemInfo shortcut_info;
     shortcut_info.url = scope.Resolve("shortcut" + suffix_str);
     shortcut_info.name = base::UTF8ToUTF16("shortcut" + suffix_str);
+
     std::vector<WebApplicationShortcutsMenuItemInfo::Icon> shortcut_icons_any;
     std::vector<WebApplicationShortcutsMenuItemInfo::Icon>
         shortcut_icons_maskable;
+    std::vector<WebApplicationShortcutsMenuItemInfo::Icon>
+        shortcut_icons_monochrome;
+
     for (int j = random.next_uint(4) + 1; j >= 0; --j) {
       std::string icon_suffix_str = suffix_str + base::NumberToString(j);
       WebApplicationShortcutsMenuItemInfo::Icon shortcut_icon;
       shortcut_icon.url = scope.Resolve("/shortcuts/icon" + icon_suffix_str);
       // Within each shortcut_icons_*, square_size_px must be unique.
       shortcut_icon.square_size_px = (j * 10) + random.next_uint(10);
-      if (random.next_bool())
-        shortcut_icons_any.push_back(std::move(shortcut_icon));
-      else
-        shortcut_icons_maskable.push_back(std::move(shortcut_icon));
+      int icon_purpose = random.next_uint(3);
+      switch (icon_purpose) {
+        case 0:
+          shortcut_icons_any.push_back(std::move(shortcut_icon));
+          break;
+        case 1:
+          shortcut_icons_maskable.push_back(std::move(shortcut_icon));
+          break;
+        case 2:
+          shortcut_icons_monochrome.push_back(std::move(shortcut_icon));
+          break;
+      }
     }
+
     shortcut_info.SetShortcutIconInfosForPurpose(IconPurpose::ANY,
                                                  std::move(shortcut_icons_any));
     shortcut_info.SetShortcutIconInfosForPurpose(
         IconPurpose::MASKABLE, std::move(shortcut_icons_maskable));
+    shortcut_info.SetShortcutIconInfosForPurpose(
+        IconPurpose::MONOCHROME, std::move(shortcut_icons_monochrome));
+
     shortcuts_menu_item_infos.emplace_back(std::move(shortcut_info));
   }
   return shortcuts_menu_item_infos;
@@ -174,15 +190,20 @@ std::vector<IconSizes> CreateRandomDownloadedShortcutsMenuIconsSizes(
     IconSizes result;
     std::vector<SquareSizePx> shortcuts_menu_icon_sizes_any;
     std::vector<SquareSizePx> shortcuts_menu_icon_sizes_maskable;
+    std::vector<SquareSizePx> shortcuts_menu_icon_sizes_monochrome;
     for (unsigned int j = 0; j < i; ++j) {
       shortcuts_menu_icon_sizes_any.emplace_back(random.next_uint(256) + 1);
       shortcuts_menu_icon_sizes_maskable.emplace_back(random.next_uint(256) +
                                                       1);
+      shortcuts_menu_icon_sizes_monochrome.emplace_back(random.next_uint(256) +
+                                                        1);
     }
     result.SetSizesForPurpose(IconPurpose::ANY,
                               std::move(shortcuts_menu_icon_sizes_any));
     result.SetSizesForPurpose(IconPurpose::MASKABLE,
                               std::move(shortcuts_menu_icon_sizes_maskable));
+    result.SetSizesForPurpose(IconPurpose::MONOCHROME,
+                              std::move(shortcuts_menu_icon_sizes_monochrome));
     results.emplace_back(std::move(result));
   }
   return results;
@@ -307,6 +328,10 @@ std::unique_ptr<WebApp> CreateRandomWebApp(const GURL& base_url,
     app->SetShareTarget(CreateRandomShareTarget(random.next_uint()));
   app->SetProtocolHandlers(CreateRandomProtocolHandlers(random.next_uint()));
   app->SetUrlHandlers(CreateRandomUrlHandlers(random.next_uint()));
+  if (random.next_bool()) {
+    app->SetNoteTakingNewNoteUrl(
+        scope.Resolve("new_note" + base::NumberToString(random.next_uint())));
+  }
   app->SetCaptureLinks(CreateRandomCaptureLinks(random.next_uint()));
 
   const int num_additional_search_terms = random.next_uint(8);
@@ -323,7 +348,7 @@ std::unique_ptr<WebApp> CreateRandomWebApp(const GURL& base_url,
       CreateRandomDownloadedShortcutsMenuIconsSizes(random));
   app->SetManifestUrl(base_url.Resolve("/manifest" + seed_str + ".json"));
 
-  if (IsChromeOs()) {
+  if (IsChromeOsDataMandatory()) {
     auto chromeos_data = absl::make_optional<WebAppChromeOsData>();
     chromeos_data->show_in_launcher = random.next_bool();
     chromeos_data->show_in_search = random.next_bool();
@@ -335,12 +360,16 @@ std::unique_ptr<WebApp> CreateRandomWebApp(const GURL& base_url,
 
   app->SetFileHandlerPermissionBlocked(false);
 
+  app->SetWindowControlsOverlayEnabled(false);
+
   WebApp::SyncFallbackData sync_fallback_data;
   sync_fallback_data.name = "Sync" + name;
   sync_fallback_data.theme_color = synced_theme_color;
   sync_fallback_data.scope = app->scope();
   sync_fallback_data.icon_infos = app->icon_infos();
   app->SetSyncFallbackData(std::move(sync_fallback_data));
+
+  app->SetStorageIsolated(random.next_bool());
 
   return app;
 }

@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "ash/public/cpp/holding_space/holding_space_image.h"
+#include "base/bind.h"
 #include "base/callback_helpers.h"
 #include "base/test/bind.h"
 #include "base/values.h"
@@ -76,6 +77,37 @@ TEST_P(HoldingSpaceItemTest, DeserializeId) {
   EXPECT_EQ(deserialized_holding_space_id, holding_space_item->id());
 }
 
+// Tests pause for each holding space item type.
+TEST_P(HoldingSpaceItemTest, Pause) {
+  // Create an in-progress `holding_space_item`.
+  auto holding_space_item = HoldingSpaceItem::CreateFileBackedItem(
+      /*type=*/GetParam(), base::FilePath("file_path"),
+      GURL("filesystem::file_system_url"), /*progress=*/0.5f,
+      /*image_resolver=*/base::BindOnce(&CreateFakeHoldingSpaceImage));
+
+  // Initially items are not paused.
+  EXPECT_FALSE(holding_space_item->IsPaused());
+
+  // It should be possible to update pause to a new value.
+  EXPECT_TRUE(holding_space_item->SetPaused(true));
+  EXPECT_TRUE(holding_space_item->IsPaused());
+
+  // It should no-op to try to update pause to its existing value.
+  EXPECT_FALSE(holding_space_item->SetPaused(true));
+  EXPECT_TRUE(holding_space_item->IsPaused());
+
+  // Once progress has been marked completed, items are no longer paused.
+  EXPECT_TRUE(holding_space_item->SetProgress(1.f));
+  EXPECT_EQ(holding_space_item->progress(), 1.f);
+  EXPECT_FALSE(holding_space_item->IsPaused());
+
+  // It should no-op to try to update pause for items which are not in-progress.
+  EXPECT_FALSE(holding_space_item->SetPaused(true));
+  EXPECT_FALSE(holding_space_item->IsPaused());
+  EXPECT_FALSE(holding_space_item->SetPaused(false));
+  EXPECT_FALSE(holding_space_item->IsPaused());
+}
+
 // Tests progress for each holding space item type.
 TEST_P(HoldingSpaceItemTest, Progress) {
   // Create a `holding_space_item` w/ explicitly specified progress.
@@ -88,23 +120,23 @@ TEST_P(HoldingSpaceItemTest, Progress) {
   EXPECT_EQ(holding_space_item->progress(), 0.5f);
 
   // It should be possible to update progress to a new value.
-  EXPECT_TRUE(holding_space_item->UpdateProgress(0.75f));
+  EXPECT_TRUE(holding_space_item->SetProgress(0.75f));
   EXPECT_EQ(holding_space_item->progress(), 0.75f);
 
   // It should no-op to try to update progress to its existing value.
-  EXPECT_FALSE(holding_space_item->UpdateProgress(0.75f));
+  EXPECT_FALSE(holding_space_item->SetProgress(0.75f));
   EXPECT_EQ(holding_space_item->progress(), 0.75f);
 
   // It should be possible to set indeterminate progress.
-  EXPECT_TRUE(holding_space_item->UpdateProgress(absl::nullopt));
+  EXPECT_TRUE(holding_space_item->SetProgress(absl::nullopt));
   EXPECT_EQ(holding_space_item->progress(), absl::nullopt);
 
   // It should be possible to set progress complete.
-  EXPECT_TRUE(holding_space_item->UpdateProgress(1.f));
+  EXPECT_TRUE(holding_space_item->SetProgress(1.f));
   EXPECT_EQ(holding_space_item->progress(), 1.f);
 
   // Once progress has been marked completed, it should become read-only.
-  EXPECT_FALSE(holding_space_item->UpdateProgress(0.75f));
+  EXPECT_FALSE(holding_space_item->SetProgress(0.75f));
   EXPECT_EQ(holding_space_item->progress(), 1.f);
 
   // Create a `holding_space_item` w/ default progress.
@@ -117,7 +149,7 @@ TEST_P(HoldingSpaceItemTest, Progress) {
   EXPECT_EQ(holding_space_item->progress(), 1.f);
 
   // Since progress is marked completed, it should be read-only.
-  EXPECT_FALSE(holding_space_item->UpdateProgress(0.75f));
+  EXPECT_FALSE(holding_space_item->SetProgress(0.75f));
   EXPECT_EQ(holding_space_item->progress(), 1.f);
 }
 

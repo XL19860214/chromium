@@ -16,6 +16,9 @@
   <message name="IDS_SETTINGS_DISMISS" desc="Label to dismiss a shortcut reminder.">
     Dismiss
   </message>
+  <message name="IDS_SETTINGS_SHORTCUT_BANNER_DISMISSED" desc="The message spoken aloud by screen readers when the user dismisses a banner showing keyboard shortcuts.">
+    Keyboard shortcut notice dismissed
+  </message>
 
   <!--Main Page-->
   <message name="IDS_SETTINGS_SECONDARY_USER_BANNER" desc="Banner displayed in settings page when the user is secondary in a multi-profile session.">
@@ -175,10 +178,10 @@
     Couldn't update your Chromebook. Please try again later.
   </message>
   <message name="IDS_SETTINGS_UPGRADE_DOWNLOAD_ERROR" desc="Status label: Update check download error(ChromiumOS/ChromeOS)">
-    There was an issue downloading the update. Please try again later.
+    Couldn't download the update. Please try again later.
   </message>
   <message name="IDS_SETTINGS_UPGRADE_ADMINISTRATOR_ERROR" desc="Status label: Update blocked by policy (ChromiumOS/ChromeOS)">
-    This update is blocked by your administrator
+    Updates are blocked by your administrator
   </message>
   <message name="IDS_SETTINGS_UPGRADE_UP_TO_DATE" desc="Status label: Already up to date (ChromiumOS/ChromeOS)">
     Your <ph name="DEVICE_TYPE">$1<ex>Chromebook</ex></ph> is up to date
@@ -490,6 +493,12 @@
   </message>
   <message name="IDS_SETTINGS_SUGGESTIONS_EMOJI_SUGGESTION_DESCRIPTION" desc="The description for emoji suggestion (when an user types a word, some emojis might be suggested for the user to insert after) section.">
     Get emoji suggestions based on what you're typing
+  </message>
+  <message name="IDS_SETTINGS_SUGGESTIONS_PREDICTIVE_WRITING_TITLE" desc="The label for predictive writing suggestions (when a user types a word, some text might be suggested for the user to insert after) section.">
+    Predictive writing
+  </message>
+  <message name="IDS_SETTINGS_SUGGESTIONS_PREDICTIVE_WRITING_DESCRIPTION" desc="The description for predictive writing suggestions (when a user types a word, some text might be suggested for the user to insert after) section.">
+    Show inline writing suggestions that appear as you type
   </message>
 
   <!-- Input Method Options Section -->
@@ -1976,8 +1985,23 @@ Press an assigned switch to remove assignment.
   <message name="IDS_SETTINGS_PRINTING_CUPS_PRINTERS_AVAILABLE_PRINTER_COUNT_NONE" desc="In CUPS printing settings subpage, this message will be read aloud to the user to inform them there are no printers available to save.">
     There are no printers available to save.
   </message>
+  <message name="IDS_SETTINGS_PRINTING_ENTERPRISE_PRINTERS_TITLE" desc="Text for the title of the user's managed printers list.">
+    Managed printers
+  </message>
+  <message name="IDS_SETTINGS_PRINTING_ENTERPRISE_PRINTERS_AVAILABLE_PRINTERS_COUNT_MANY" desc="In CUPS printing settings subpage, this message will be read aloud to the user to inform them on the number of managed printers showing on the screen.">
+    There are <ph name="PRINTER_COUNT">$1<ex>3</ex></ph> managed printers.
+  </message>
+  <message name="IDS_SETTINGS_PRINTING_ENTERPRISE_PRINTERS_AVAILABLE_PRINTER_COUNT_ONE" desc="In CUPS printing settings subpage, this message will be read aloud to the user to inform them there is only 1 managed printer.">
+    There is 1 managed printer.
+  </message>
+  <message name="IDS_SETTINGS_PRINTING_ENTERPRISE_PRINTERS_AVAILABLE_PRINTER_COUNT_NONE" desc="In CUPS printing settings subpage, this message will be read aloud to the user to inform them there are no managed printers.">
+    There are no managed printers.
+  </message>
   <message name="IDS_SETTINGS_PRINTING_CUPS_PRINTERS_EDIT" desc="Text for the drop down menu which allows the user to edit the printer details.">
     Edit
+  </message>
+  <message name="IDS_SETTINGS_PRINTING_CUPS_PRINTERS_VIEW" desc="Text for the drop down menu which allows the user to view the managed printer details.">
+    View
   </message>
   <message name="IDS_SETTINGS_PRINTING_CUPS_PRINTERS_REMOVE" desc="Text for the drop down menu which allows the user to remove the selected printer.">
     Remove
@@ -2161,6 +2185,9 @@ Press an assigned switch to remove assignment.
   </message>
   <message name="IDS_SETTINGS_PRINTING_CUPS_EDIT_PRINTER_DIALOG_TITLE" desc="Text for the title of the dialog that is used to edit a CUPS printer's information.">
     Edit printer
+  </message>
+  <message name="IDS_SETTINGS_PRINTING_CUPS_VIEW_PRINTER_DIALOG_TITLE" desc="Text for the title of the dialog that is used to view a CUPS managed printer's information.">
+    View printer
   </message>
   <message name="IDS_SETTINGS_PRINTING_CUPS_EDIT_PRINTER_BUTTON" desc="Text for the button which allows the user to save the modification of a CUPS printer.">
     Save

@@ -137,6 +137,9 @@ public class PaymentRequestService
     private boolean mHasEnrolledInstrument;
     /** True if any of the requested payment methods are supported. */
     private boolean mCanMakePayment;
+    /** True if canMakePayment() and hasEnrolledInstrument() are forced to return true. */
+    private boolean mCanMakePaymentEvenWithoutApps;
+
     /**
      * Whether there's at least one app that is not an autofill card. Should be read only after all
      * payment apps have been queried.
@@ -628,6 +631,9 @@ public class PaymentRequestService
                 case MethodStrings.GOOGLE_PLAY_BILLING:
                     methodTypes.add(PaymentMethodCategory.PLAY_BILLING);
                     break;
+                case MethodStrings.SECURE_PAYMENT_CONFIRMATION:
+                    methodTypes.add(PaymentMethodCategory.SECURE_PAYMENT_CONFIRMATION);
+                    break;
                 case MethodStrings.BASIC_CARD:
                     // Not to record requestedMethodBasicCard because JourneyLogger ignore the case
                     // where the specified networks are unsupported.
@@ -735,11 +741,21 @@ public class PaymentRequestService
                             == PaymentAppType.NATIVE_MOBILE_APP;
                     category = PaymentMethodCategory.PLAY_BILLING;
                     break;
+                } else if (method.equals(MethodStrings.SECURE_PAYMENT_CONFIRMATION)) {
+                    assert invokedPaymentApp.getPaymentAppType() == PaymentAppType.INTERNAL;
+                    category = PaymentMethodCategory.SECURE_PAYMENT_CONFIRMATION;
+                    break;
                 }
             }
         }
 
         mJourneyLogger.setSelectedMethod(category);
+    }
+
+    // Implements PaymentAppFactoryDelegate:
+    @Override
+    public void setCanMakePaymentEvenWithoutApps() {
+        mCanMakePaymentEvenWithoutApps = true;
     }
 
     // Implements PaymentAppFactoryDelegate:
@@ -751,6 +767,7 @@ public class PaymentRequestService
 
         mIsFinishedQueryingPaymentApps = true;
 
+        mHasEnrolledInstrument |= mCanMakePaymentEvenWithoutApps;
         // Always return false when can make payment is disabled.
         mHasEnrolledInstrument &= mDelegate.prefsCanMakePayment();
 
@@ -815,8 +832,33 @@ public class PaymentRequestService
         assert mSpec.getRawTotal() != null;
         mJourneyLogger.recordTransactionAmount(mSpec.getRawTotal().amount.currency,
                 mSpec.getRawTotal().amount.value, false /*completed*/);
+        if (isSecurePaymentConfirmationApplicable()) {
+            mJourneyLogger.setShown();
+            // TODO(crbug.com/1204565): Replace the auto-accept with a SPC payment UI.
+            onSecurePaymentConfirmationUiAccepted(mBrowserPaymentRequest.getSelectedPaymentApp());
+            return null;
+        }
         return mBrowserPaymentRequest.onShowCalledAndAppsQueriedAndDetailsFinalized(
                 mIsUserGestureShow);
+    }
+
+    private boolean isSecurePaymentConfirmationApplicable() {
+        PaymentApp selectedApp = mBrowserPaymentRequest.getSelectedPaymentApp();
+        // TODO(crbug.com/1211947): Deduplicate this part with
+        // SecurePaymentConfirmationController::SetupModelAndShowDialogIfApplicable().
+        return selectedApp != null && selectedApp.getPaymentAppType() == PaymentAppType.INTERNAL
+                && selectedApp.getInstrumentMethodNames().size() == 1
+                && selectedApp.getInstrumentMethodNames().contains(
+                        MethodStrings.SECURE_PAYMENT_CONFIRMATION)
+                && mBrowserPaymentRequest.getPaymentApps().size() == 1 && mSpec != null
+                && !mSpec.isDestroyed() && mSpec.isSecurePaymentConfirmationRequested()
+                && !PaymentOptionsUtils.requestAnyInformation(mSpec.getPaymentOptions());
+    }
+
+    private void onSecurePaymentConfirmationUiAccepted(PaymentApp app) {
+        PaymentResponseHelperInterface paymentResponseHelper =
+                new PaymentResponseHelper(app, mSpec.getPaymentOptions());
+        invokePaymentApp(app, paymentResponseHelper);
     }
 
     private void onShowFailed(String error) {
@@ -1001,7 +1043,7 @@ public class PaymentRequestService
     // Implements PaymentAppFactoryDelegate:
     @Override
     public void onCanMakePaymentCalculated(boolean canMakePayment) {
-        mCanMakePayment = canMakePayment;
+        mCanMakePayment = canMakePayment || mCanMakePaymentEvenWithoutApps;
         if (!mIsCanMakePaymentResponsePending) return;
         // canMakePayment doesn't need to wait for all apps to be queried because it only needs to
         // test the existence of a payment handler.

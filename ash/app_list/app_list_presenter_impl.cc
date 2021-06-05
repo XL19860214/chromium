@@ -131,7 +131,6 @@ AppListPresenterImpl::AppListPresenterImpl(AppListControllerImpl* controller)
 }
 
 AppListPresenterImpl::~AppListPresenterImpl() {
-  Dismiss(base::TimeTicks());
   // Ensures app list view goes before the controller since pagination model
   // lives in the controller and app list view would access it on destruction.
   if (view_) {
@@ -150,7 +149,8 @@ aura::Window* AppListPresenterImpl::GetWindow() const {
 
 void AppListPresenterImpl::Show(AppListViewState preferred_state,
                                 int64_t display_id,
-                                base::TimeTicks event_time_stamp) {
+                                base::TimeTicks event_time_stamp,
+                                absl::optional<AppListShowSource> show_source) {
   if (is_target_visibility_show_) {
     // Launcher is always visible on the internal display when home launcher is
     // enabled in tablet mode.
@@ -196,6 +196,17 @@ void AppListPresenterImpl::Show(AppListViewState preferred_state,
       shelf->shelf_widget()->GetDragAndDropHostForAppList());
   view_->SetShelfHasRoundedCorners(
       IsShelfBackgroundTypeWithRoundedCorners(shelf->GetBackgroundType()));
+  std::unique_ptr<AppListView::ScopedAccessibilityAnnouncementLock>
+      scoped_accessibility_lock;
+
+  // App list view state accessibility alerts should be suppressed when the app
+  // list view is shown by the assistant. The assistant UI should handle its
+  // own accessibility notifications.
+  if (show_source && *show_source == kAssistantEntryPoint) {
+    scoped_accessibility_lock =
+        std::make_unique<AppListView::ScopedAccessibilityAnnouncementLock>(
+            view_);
+  }
   view_->Show(preferred_state, IsSideShelf(shelf));
 
   SnapAppListBoundsToDisplayEdge();
@@ -288,7 +299,7 @@ ShelfAction AppListPresenterImpl::ToggleAppList(
   }
   Show(request_fullscreen ? AppListViewState::kFullscreenAllApps
                           : AppListViewState::kPeeking,
-       display_id, event_time_stamp);
+       display_id, event_time_stamp, show_source);
   return SHELF_ACTION_APP_LIST_SHOWN;
 }
 
@@ -318,6 +329,13 @@ void AppListPresenterImpl::UpdateYPositionAndOpacity(float y_position_in_screen,
 void AppListPresenterImpl::EndDragFromShelf(AppListViewState app_list_state) {
   if (view_)
     view_->EndDragFromShelf(app_list_state);
+}
+
+void AppListPresenterImpl::ProcessScrollOffset(
+    const gfx::Point& location,
+    const gfx::Vector2d& scroll_offset_vector) {
+  if (view_)
+    view_->HandleScroll(location, scroll_offset_vector, ui::ET_SCROLL);
 }
 
 void AppListPresenterImpl::ProcessMouseWheelOffset(
@@ -464,7 +482,6 @@ void AppListPresenterImpl::OnVisibilityWillChange(bool visible,
 void AppListPresenterImpl::OnClosed() {
   if (!is_target_visibility_show_)
     shelf_observation_.RemoveAllObservations();
-  controller_->ViewClosed();
 }
 
 ////////////////////////////////////////////////////////////////////////////////

@@ -1094,6 +1094,7 @@
       'Fuchsia x64', # https://crbug.com/961457
       'fuchsia-code-coverage',  # https://crbug.com/961457
       'fuchsia-fyi-arm64-dbg',  # https://crbug.com/961457
+      'fuchsia-fyi-arm64-femu',  # https://crbug.com/961457
       'fuchsia-fyi-arm64-rel',  # https://crbug.com/961457
       'fuchsia-fyi-x64-dbg',  # https://crbug.com/961457
       'fuchsia-fyi-x64-rel',  # https://crbug.com/961457
@@ -1136,12 +1137,6 @@
             }
           ],
         },
-      },
-      # https://crbug.com/1203439 components_unittests on Win10 got much slower.
-      'Win10 Tests x64': {
-        'args': [
-          '--test-launcher-print-timestamps',
-        ],
       },
       'android-11-x86-fyi-rel': {
         'args': [
@@ -1496,9 +1491,6 @@
       # TODO(https://crbug.com/850107): Remove the Android FYI Release (Pixel 2)
       # exception once there is enough capacity to run these tests.
       'Android FYI Release (Pixel 2)',
-      # TODO(https://crbug.com/1203234): Remove exception once the 1% flake-
-      # rate regression is addressed.
-      'Fuchsia x64' # https://crbug.com/1203236
     ],
   },
   'disk_usage_tast_test': {
@@ -1731,9 +1723,6 @@
       'Linux V8 FYI Release - pointer compression (NVIDIA)',
       'Mac V8 FYI Release (Intel)',
       'Win V8 FYI Release (NVIDIA)',
-      # TODO(https://crbug.com/1203234): Remove exception once the 1% flake-
-      # rate regression is addressed.
-      'Fuchsia x64' # https://crbug.com/1203236
     ],
     'modifications': {
       'ChromeOS FYI Release (amd64-generic)': {
@@ -1906,6 +1895,24 @@
     },
   },
   'maps_pixel_passthrough_test': {
+    'modifications': {
+      'Android FYI Release (Pixel 4)': {
+        'args': [
+          # Pixel 4s are weird in that they can output in different color spaces
+          # simultaneously. The readback code for capturing a screenshot assumes
+          # only one color space, so disable wide color gamut for the test to
+          # work around the issue. See https://crbug.com/1166379 for more
+          # information.
+          '--extra-browser-args=--disable-wcg-for-test',
+        ],
+      },
+      'Optional Android Release (Pixel 4)': {
+        'args': [
+          # See above.
+          '--extra-browser-args=--disable-wcg-for-test',
+        ],
+      },
+    },
     'replacements': {
       # The V8 builders pass the V8 revision for ${got_revision}, so instead
       # use ${got_cr_revision}, which is only set on the V8 bots.
@@ -1940,6 +1947,12 @@
           # only one color space, so disable wide color gamut for the test to
           # work around the issue. See https://crbug.com/1166379 for more
           # information.
+          '--extra-browser-args=--disable-wcg-for-test',
+        ],
+      },
+      'Optional Android Release (Pixel 4)': {
+        'args': [
+          # See above.
           '--extra-browser-args=--disable-wcg-for-test',
         ],
       },
@@ -2343,15 +2356,6 @@
       },
     },
   },
-  'ozone_unittests_amd64-generic': {
-    'modifications': {
-      'lacros-amd64-generic-rel': {
-        'args': [
-          '--test-launcher-filter-file=../../testing/buildbot/filters/device-lacros.ozone_unittests.filter',
-        ],
-      },
-    },
-  },
   'perfetto_unittests': {
     'remove_from': [
       # TODO(crbug.com/931138): Fix permission issue when creating tmp files
@@ -2409,6 +2413,24 @@
     },
   },
   'pixel_skia_gold_passthrough_test': {
+    'modifications': {
+      'Android FYI Release (Pixel 4)': {
+        'args': [
+          # Pixel 4s are weird in that they can output in different color spaces
+          # simultaneously. The readback code for capturing a screenshot assumes
+          # only one color space, so disable wide color gamut for the test to
+          # work around the issue. See https://crbug.com/1166379 for more
+          # information.
+          '--extra-browser-args=--disable-wcg-for-test',
+        ],
+      },
+      'Optional Android Release (Pixel 4)': {
+        'args': [
+          # See above.
+          '--extra-browser-args=--disable-wcg-for-test',
+        ],
+      },
+    },
     'replacements': {
       # The V8 builders pass the V8 revision for ${got_revision}, so instead
       # use ${got_cr_revision}, which is only set on the V8 bots.
@@ -2443,6 +2465,12 @@
           # only one color space, so disable wide color gamut for the test to
           # work around the issue. See https://crbug.com/1166379 for more
           # information.
+          '--extra-browser-args=--disable-wcg-for-test',
+        ],
+      },
+      'Optional Android Release (Pixel 4)': {
+        'args': [
+          # See above.
           '--extra-browser-args=--disable-wcg-for-test',
         ],
       },
@@ -2537,10 +2565,25 @@
       'android-asan',  # https://crbug.com/962650
     ],
   },
-  'screenshot_sync_tests': {
-    'remove_from': [
-      'Fuchsia x64' # https://crbug.com/1203236
-    ],
+  'screenshot_sync_passthrough_tests': {
+    'modifications': {
+      'Android FYI Release (Pixel 4)': {
+        'args': [
+          # Pixel 4s are weird in that they can output in different color spaces
+          # simultaneously. The readback code for capturing a screenshot assumes
+          # only one color space, so disable wide color gamut for the test to
+          # work around the issue. See https://crbug.com/1166379 for more
+          # information.
+          '--extra-browser-args=--disable-wcg-for-test',
+        ],
+      },
+      'Optional Android Release (Pixel 4)': {
+        'args': [
+          # See above.
+          '--extra-browser-args=--disable-wcg-for-test',
+        ],
+      },
+    },
   },
   'screenshot_sync_validating_tests': {
     'modifications': {
@@ -2551,6 +2594,12 @@
           # only one color space, so disable wide color gamut for the test to
           # work around the issue. See https://crbug.com/1166379 for more
           # information.
+          '--extra-browser-args=--disable-wcg-for-test',
+        ],
+      },
+      'Optional Android Release (Pixel 4)': {
+        'args': [
+          # See above.
           '--extra-browser-args=--disable-wcg-for-test',
         ],
       },
@@ -3078,6 +3127,15 @@
       'fuchsia-code-coverage': {
         'swarming': {
           'shards': 14,
+        },
+      },
+    },
+  },
+  'web_engine_integration_tests': {
+    'modifications': {
+      'fuchsia-code-coverage': {
+        'swarming': {
+          'shards': 6,
         },
       },
     },

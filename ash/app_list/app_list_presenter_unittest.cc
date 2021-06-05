@@ -22,6 +22,7 @@
 #include "ash/app_list/views/apps_grid_view_test_api.h"
 #include "ash/app_list/views/contents_view.h"
 #include "ash/app_list/views/expand_arrow_view.h"
+#include "ash/app_list/views/paged_apps_grid_view.h"
 #include "ash/app_list/views/privacy_container_view.h"
 #include "ash/app_list/views/search_box_view.h"
 #include "ash/app_list/views/search_result_actions_view.h"
@@ -87,6 +88,7 @@
 #include "ui/events/event_constants.h"
 #include "ui/events/test/event_generator.h"
 #include "ui/touch_selection/touch_selection_menu_runner.h"
+#include "ui/views/animation/bounds_animator.h"
 #include "ui/views/controls/button/label_button.h"
 #include "ui/views/controls/textfield/textfield.h"
 #include "ui/views/controls/textfield/textfield_test_api.h"
@@ -891,7 +893,7 @@ TEST_F(PopulatedAppListTest, CancelItemDragOnMouseCaptureLoss) {
   dragged_view->FireMouseDragTimerForTest();
   event_generator->MoveMouseTo(
       apps_grid_view_->GetItemViewAt(2)->GetBoundsInScreen().left_center());
-  EXPECT_TRUE(apps_grid_view_->dragging());
+  EXPECT_TRUE(apps_grid_view_->IsDragging());
 
   display::Display display = display::Screen::GetScreen()->GetPrimaryDisplay();
   display_manager()->SetDisplayRotation(
@@ -904,7 +906,7 @@ TEST_F(PopulatedAppListTest, CancelItemDragOnMouseCaptureLoss) {
   app_list_view_->OnParentWindowBoundsChanged();
 
   // Verify that mouse drag has been canceled due to mouse capture loss.
-  EXPECT_FALSE(apps_grid_view_->dragging());
+  EXPECT_FALSE(apps_grid_view_->IsDragging());
   EXPECT_EQ("Item 0", apps_grid_view_->GetItemViewAt(0)->item()->id());
   EXPECT_EQ("Item 1", apps_grid_view_->GetItemViewAt(1)->item()->id());
   EXPECT_EQ("Item 2", apps_grid_view_->GetItemViewAt(2)->item()->id());
@@ -938,7 +940,7 @@ TEST_F(PopulatedAppListTest,
     EXPECT_TRUE(item_view->layer()) << "at " << i;
   }
 
-  EXPECT_TRUE(apps_grid_view_->dragging());
+  EXPECT_TRUE(apps_grid_view_->IsDragging());
   event_generator->ReleaseLeftButton();
 
   // After the drag is released, the item bounds should animate to their final
@@ -1084,8 +1086,8 @@ TEST_F(PopulatedAppListTest, ScreenRotationDuringFolderItemDrag) {
   // The current behavior on app list bounds change is to close the active
   // folder, canceling the drag.
   EXPECT_FALSE(AppListIsInFolderView());
-  EXPECT_FALSE(apps_grid_view_->dragging());
-  EXPECT_FALSE(folder_view()->items_grid_view()->dragging());
+  EXPECT_FALSE(apps_grid_view_->IsDragging());
+  EXPECT_FALSE(folder_view()->items_grid_view()->IsDragging());
 
   EXPECT_EQ("Item 0", apps_grid_view_->GetItemViewAt(0)->item()->id());
   EXPECT_EQ("Item 1", apps_grid_view_->GetItemViewAt(1)->item()->id());
@@ -1221,7 +1223,7 @@ TEST_F(PopulatedAppListTest, RemoveFolderItemAfterFolderCreation) {
       apps_grid_view_->GetItemViewAt(3)->GetBoundsInScreen().CenterPoint());
   EXPECT_TRUE(apps_grid_view_->FireFolderDroppingTimerForTest());
   event_generator->ReleaseLeftButton();
-  EXPECT_FALSE(apps_grid_view_->dragging());
+  EXPECT_FALSE(apps_grid_view_->IsDragging());
 
   EXPECT_TRUE(apps_grid_view_->GetItemViewAt(3)->item()->is_folder());
   EXPECT_EQ(dragged_item->folder_id(),
@@ -4143,8 +4145,8 @@ TEST_F(AppListPresenterHomeLauncherTest, MouseScrollToDismissFromFullscreen) {
   GetAppListTestHelper()->CheckVisibility(true);
   generator->MoveMouseTo(GetPointOutsideSearchbox());
 
-  // Scroll up with mouse wheel to close app list.
-  generator->MoveMouseWheel(0, 1);
+  // Scroll down with mouse wheel to close app list.
+  generator->MoveMouseWheel(0, -1);
   GetAppListTestHelper()->WaitUntilIdle();
   GetAppListTestHelper()->CheckState(AppListViewState::kClosed);
   GetAppListTestHelper()->CheckVisibility(false);

@@ -45,6 +45,8 @@
 #include "content/browser/renderer_host/render_process_host_impl.h"
 #include "content/browser/renderer_host/render_widget_host_delegate.h"
 #include "content/browser/renderer_host/render_widget_host_view_base.h"
+#include "content/browser/scheduler/browser_task_executor.h"
+#include "content/common/frame.mojom-forward.h"
 #include "content/public/browser/render_process_host_observer.h"
 #include "content/public/browser/render_widget_host.h"
 #include "content/public/common/page_zoom.h"
@@ -305,6 +307,9 @@ class CONTENT_EXPORT RenderWidgetHostImpl
   void UpdateTooltipUnderCursor(
       const std::u16string& tooltip_text,
       base::i18n::TextDirection text_direction_hint) override;
+  void UpdateTooltipFromKeyboard(const std::u16string& tooltip_text,
+                                 base::i18n::TextDirection text_direction_hint,
+                                 const gfx::Rect& bounds) override;
   void TextInputStateChanged(ui::mojom::TextInputStatePtr state) override;
   void SelectionBoundsChanged(const gfx::Rect& anchor_rect,
                               base::i18n::TextDirection anchor_dir,
@@ -1412,6 +1417,8 @@ class CONTENT_EXPORT RenderWidgetHostImpl
 
   std::unique_ptr<power_scheduler::PowerModeVoter> power_mode_input_voter_;
   std::unique_ptr<power_scheduler::PowerModeVoter> power_mode_loading_voter_;
+  absl::optional<BrowserUIThreadScheduler::UserInputActiveHandle>
+      user_input_active_handle_;
 
   base::WeakPtrFactory<RenderWidgetHostImpl> weak_factory_{this};
 

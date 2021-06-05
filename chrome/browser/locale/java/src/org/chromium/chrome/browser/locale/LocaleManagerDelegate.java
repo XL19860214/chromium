@@ -84,7 +84,11 @@ public class LocaleManagerDelegate {
         mSearchEnginePromoCompleted = state == SearchEnginePromoState.CHECKED_AND_SHOWN;
     }
 
-    void setDefaulSearchEngineDelegate(DefaultSearchEngineDialogHelper.Delegate delegate) {
+    /**
+     * Sets the delegate for {@link DefaultSearchEngineDialogHelper}.
+     * @param delegate Delegate used to select/notify the default search engine.
+     */
+    public void setDefaulSearchEngineDelegate(DefaultSearchEngineDialogHelper.Delegate delegate) {
         mSearchEngineHelperDelegate = delegate;
     }
 
@@ -136,7 +140,8 @@ public class LocaleManagerDelegate {
     }
 
     /**
-     * @see {@link LocaleManager#overrideDefaultSearchEngine()}
+     * Overrides the default search engine to a different search engine we designate. This is a
+     * no-op if the user has manually changed DSP settings.
      */
     void overrideDefaultSearchEngine() {
         if (!isSearchEngineAutoSwitchEnabled() || !isSpecialLocaleEnabled()) return;
@@ -145,7 +150,8 @@ public class LocaleManagerDelegate {
     }
 
     /**
-     * @see {@link LocaleManager#revertDefaultSearchEngineOverride()}
+     * Reverts the temporary change made in {@link #overrideDefaultSearchEngine()}. This is a no-op
+     * if the user has manually changed DSP settings.
      */
     private void revertDefaultSearchEngineOverride() {
         if (!isSearchEngineAutoSwitchEnabled() || isSpecialLocaleEnabled()) return;
@@ -255,9 +261,9 @@ public class LocaleManagerDelegate {
     }
 
     /**
-     * @see {@link LocaleManager#isSearchEngineAutoSwitchEnabled()}
+     * @return Whether auto switch for search engine is enabled.
      */
-    public boolean isSearchEngineAutoSwitchEnabled() {
+    private boolean isSearchEngineAutoSwitchEnabled() {
         return SharedPreferencesManager.getInstance().readBoolean(
                 ChromePreferenceKeys.LOCALE_MANAGER_AUTO_SWITCH, false);
     }
@@ -323,6 +329,11 @@ public class LocaleManagerDelegate {
         return "";
     }
 
+    public List<TemplateUrl> getSearchEnginesForPromoDialog(@SearchEnginePromoType int promoType) {
+        throw new IllegalStateException(
+                "Not applicable unless existing or new promos are required");
+    }
+
     /**
      * @see {@link LocaleManager#onUserSearchEngineChoiceFromPromoDialog()}
      */
@@ -345,16 +356,6 @@ public class LocaleManagerDelegate {
             mLocaleTemplateUrlLoader = new LocaleTemplateUrlLoader(getSpecialLocaleId());
         }
         return mLocaleTemplateUrlLoader;
-    }
-
-    public List<TemplateUrl> getSearchEnginesForPromoDialog(@SearchEnginePromoType int promoType) {
-        throw new IllegalStateException(
-                "Not applicable unless existing or new promos are required");
-    }
-
-    public void onUserSearchEngineChoice(
-            @SearchEnginePromoType int type, List<String> keywords, String keyword) {
-        onUserSearchEngineChoiceFromPromoDialog(type, keywords, keyword);
     }
 
     /**

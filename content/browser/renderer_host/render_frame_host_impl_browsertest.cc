@@ -59,6 +59,7 @@
 #include "content/test/frame_host_test_interface.mojom.h"
 #include "content/test/test_content_browser_client.h"
 #include "content/test/test_render_frame_host_factory.h"
+#include "mojo/public/cpp/bindings/self_owned_receiver.h"
 #include "net/base/features.h"
 #include "net/base/ip_address.h"
 #include "net/base/ip_endpoint.h"
@@ -257,6 +258,18 @@ std::string ExecuteJavaScriptMethodAndGetResult(
   }
 
   return result;
+}
+
+// Navigates to a URL and waits till the navigation is finished. It doesn't wait
+// for the load to complete. Use this instead of NavigateToURL in tests that are
+// testing navigation related cases and doesn't need the load to finish. Load
+// could get blocked on blink::mojom::CodeCacheHostInterface if the browser
+// interface is not available.
+bool NavigateToURLAndDoNotWaitForLoadStop(Shell* window, const GURL& url) {
+  TestNavigationManager observer(window->web_contents(), url);
+  window->LoadURL(url);
+  observer.WaitForNavigationFinished();
+  return url == window->web_contents()->GetMainFrame()->GetLastCommittedURL();
 }
 
 IN_PROC_BROWSER_TEST_F(RenderFrameHostImplBrowserTest,
@@ -1931,7 +1944,7 @@ IN_PROC_BROWSER_TEST_F(RenderFrameHostImplBrowserTest,
     injector.set_fake_receiver_for_next_commit(
         std::move(interface_broker_receiver));
 
-    ASSERT_TRUE(NavigateToURL(shell(), first_url));
+    ASSERT_TRUE(NavigateToURLAndDoNotWaitForLoadStop(shell(), first_url));
     ASSERT_EQ(first_url, injector.url_of_last_commit());
     ASSERT_TRUE(injector.original_receiver_of_last_commit().is_valid());
   }
@@ -1984,7 +1997,7 @@ IN_PROC_BROWSER_TEST_F(RenderFrameHostImplBrowserTest,
   EXPECT_CALL(navigation_finished_callback, Run());
 
   // Start the same-process navigation.
-  ASSERT_TRUE(NavigateToURL(shell(), second_url));
+  ASSERT_TRUE(NavigateToURLAndDoNotWaitForLoadStop(shell(), second_url));
 
   // Wait for a connection error on the |test_interface| as a signal, after
   // which it can be safely assumed that no GetInterface message will ever be
@@ -2479,7 +2492,7 @@ IN_PROC_BROWSER_TEST_F(RenderFrameHostImplBrowserTest,
         interface_broker_1.BindNewPipeAndPassReceiver());
     interface_broker_1.set_disconnect_handler(
         wait_until_connection_error_loop_1.QuitClosure());
-    ASSERT_TRUE(NavigateToURL(shell(), kUrl1));
+    ASSERT_TRUE(NavigateToURLAndDoNotWaitForLoadStop(shell(), kUrl1));
   }
 
   // The test below only makes sense for same-RFH navigations, so we need to
@@ -2492,7 +2505,7 @@ IN_PROC_BROWSER_TEST_F(RenderFrameHostImplBrowserTest,
         interface_broker_2.BindNewPipeAndPassReceiver());
     interface_broker_2.set_disconnect_handler(
         wait_until_connection_error_loop_2.QuitClosure());
-    ASSERT_TRUE(NavigateToURL(shell(), kUrl2));
+    ASSERT_TRUE(NavigateToURLAndDoNotWaitForLoadStop(shell(), kUrl2));
   }
 
   // Simulate two interface requests corresponding to the first navigation
@@ -2510,7 +2523,7 @@ IN_PROC_BROWSER_TEST_F(RenderFrameHostImplBrowserTest,
   // first URL.
   {
     base::HistogramTester histogram_tester;
-    ASSERT_TRUE(NavigateToURL(shell(), kUrl3));
+    ASSERT_TRUE(NavigateToURLAndDoNotWaitForLoadStop(shell(), kUrl3));
     histogram_tester.ExpectUniqueSample(
         "RenderFrameHostImpl.DroppedInterfaceRequests", 2, 1);
     histogram_tester.ExpectUniqueSample(
@@ -2526,7 +2539,8 @@ IN_PROC_BROWSER_TEST_F(RenderFrameHostImplBrowserTest,
   // A final navigation should record the sample from the second URL.
   {
     base::HistogramTester histogram_tester;
-    ASSERT_TRUE(NavigateToURL(shell(), kUrl4));
+    ASSERT_TRUE(NavigateToURLAndDoNotWaitForLoadStop(shell(), kUrl4));
+
     histogram_tester.ExpectUniqueSample(
         "RenderFrameHostImpl.DroppedInterfaceRequests", 1, 1);
     histogram_tester.ExpectUniqueSample(
@@ -4162,7 +4176,7 @@ IN_PROC_BROWSER_TEST_F(RenderFrameHostImplBrowserTest,
   EXPECT_EQ(kid_url, child_rfh->GetLastCommittedURL());
   EXPECT_EQ(url, main_frame->GetLastCommittedURL());
   EXPECT_TRUE(main_frame->IsPendingDeletion());
-  EXPECT_FALSE(main_frame->IsCurrent());
+  EXPECT_FALSE(main_frame->IsActive());
   net::SiteForCookies computed_for_child = child_rfh->ComputeSiteForCookies();
   EXPECT_TRUE(
       net::SiteForCookies::FromUrl(url).IsEquivalent(computed_for_child))
@@ -4231,11 +4245,11 @@ IN_PROC_BROWSER_TEST_F(RenderFrameHostImplBrowserTest, WebUiReloadAfterCrash) {
 }
 
 // Start with A(B), navigate A to C. By emulating a slow unload handler B, check
-// the status of IsCurrent for subframes of A i.e., B before and after
+// the status of IsActive for subframes of A i.e., B before and after
 // navigating to C.
 // Test is flaky: https://crbug.com/1114149.
 IN_PROC_BROWSER_TEST_F(RenderFrameHostImplBrowserTest,
-                       DISABLED_CheckIsCurrentBeforeAndAfterUnload) {
+                       DISABLED_CheckIsActiveBeforeAndAfterUnload) {
   IsolateAllSitesForTesting(base::CommandLine::ForCurrentProcess());
   GURL url_ab(embedded_test_server()->GetURL(
       "a.com", "/cross_site_iframe_factory.html?a(b)"));
@@ -4251,9 +4265,9 @@ IN_PROC_BROWSER_TEST_F(RenderFrameHostImplBrowserTest,
   // 2) Leave rfh_b in pending deletion state.
   LeaveInPendingDeletionState(rfh_b);
 
-  // 3) Check the IsCurrent state of rfh_a, rfh_b before navigating to C.
-  EXPECT_TRUE(rfh_a->IsCurrent());
-  EXPECT_TRUE(rfh_b->IsCurrent());
+  // 3) Check the IsActive state of rfh_a, rfh_b before navigating to C.
+  EXPECT_TRUE(rfh_a->IsActive());
+  EXPECT_TRUE(rfh_b->IsActive());
 
   // 4) Navigate rfh_a to C.
   EXPECT_TRUE(NavigateToURL(shell(), url_c));
@@ -4268,11 +4282,11 @@ IN_PROC_BROWSER_TEST_F(RenderFrameHostImplBrowserTest,
       testing::AnyOf(testing::Eq(LifecycleStateImpl::kRunningUnloadHandlers),
                      testing::Eq(LifecycleStateImpl::kInBackForwardCache)));
 
-  // 5) Check the IsCurrent state of rfh_a, rfh_b and rfh_c after navigating to
+  // 5) Check the IsActive state of rfh_a, rfh_b and rfh_c after navigating to
   // C.
-  EXPECT_FALSE(rfh_a->IsCurrent());
-  EXPECT_FALSE(rfh_b->IsCurrent());
-  EXPECT_TRUE(rfh_c->IsCurrent());
+  EXPECT_FALSE(rfh_a->IsActive());
+  EXPECT_FALSE(rfh_b->IsActive());
+  EXPECT_TRUE(rfh_c->IsActive());
 }
 
 // Test the LifecycleStateImpl is updated correctly for the main frame during
@@ -5420,25 +5434,62 @@ IN_PROC_BROWSER_TEST_F(RenderFrameHostImplBrowserTest,
   ASSERT_TRUE(rfh_b);
   EXPECT_EQ(LifecycleStateImpl::kSpeculative, rfh_b->lifecycle_state());
 
-  // ForEachRenderFrameHost does not expose the speculative RFH.
-  EXPECT_THAT(CollectAllRenderFrameHosts(rfh_a), testing::ElementsAre(rfh_a));
+  // We test that the following properties hold during both the speculative and
+  // pending commit lifecycle state of |rfh_b|.
+  base::RepeatingClosure test_expectations = base::BindRepeating(
+      [](RenderFrameHostImpl* rfh_a, RenderFrameHostImpl* rfh_b) {
+        // ForEachRenderFrameHost does not expose the speculative RFH.
+        EXPECT_THAT(CollectAllRenderFrameHosts(rfh_a),
+                    testing::ElementsAre(rfh_a));
 
-  // When we request the speculative RFH, we visit it.
-  EXPECT_THAT(CollectAllRenderFrameHostsIncludingSpeculative(rfh_a),
-              testing::UnorderedElementsAre(rfh_a, rfh_b));
+        // When we request the speculative RFH, we visit it.
+        EXPECT_THAT(CollectAllRenderFrameHostsIncludingSpeculative(rfh_a),
+                    testing::UnorderedElementsAre(rfh_a, rfh_b));
 
-  // If ForEachRenderFrameHost is called on a speculative RFH directly, do
-  // nothing.
-  rfh_b->ForEachRenderFrameHost(
-      base::BindRepeating([](RenderFrameHostImpl* rfh) {
-        ADD_FAILURE() << "Visited speculative RFH";
-        return RenderFrameHost::FrameIterationAction::kStop;
-      }));
+        // If ForEachRenderFrameHost is called on a speculative RFH directly, do
+        // nothing.
+        rfh_b->ForEachRenderFrameHost(
+            base::BindRepeating([](RenderFrameHostImpl* rfh) {
+              ADD_FAILURE() << "Visited speculative RFH";
+              return RenderFrameHost::FrameIterationAction::kStop;
+            }));
 
-  // If we request speculative RFHs and directly call this on a speculative RFH,
-  // just visit the given speculative RFH.
-  EXPECT_THAT(CollectAllRenderFrameHostsIncludingSpeculative(rfh_b),
-              testing::ElementsAre(rfh_b));
+        // If we request speculative RFHs and directly call this on a
+        // speculative RFH, just visit the given speculative RFH.
+        EXPECT_THAT(CollectAllRenderFrameHostsIncludingSpeculative(rfh_b),
+                    testing::ElementsAre(rfh_b));
+      },
+      rfh_a, rfh_b);
+
+  {
+    SCOPED_TRACE("Speculative LifecycleState");
+    test_expectations.Run();
+  }
+
+  class ReadyToCommitObserver : public WebContentsObserver {
+   public:
+    explicit ReadyToCommitObserver(WebContentsImpl* web_contents,
+                                   base::RepeatingClosure test_expectations)
+        : WebContentsObserver(web_contents),
+          test_expectations_(test_expectations) {}
+
+    // WebContentsObserver:
+    void ReadyToCommitNavigation(NavigationHandle* navigation_handle) override {
+      EXPECT_EQ(static_cast<RenderFrameHostImpl*>(
+                    navigation_handle->GetRenderFrameHost())
+                    ->lifecycle_state(),
+                LifecycleStateImpl::kPendingCommit);
+      SCOPED_TRACE("PendingCommit LifecycleState");
+      test_expectations_.Run();
+    }
+
+   private:
+    base::RepeatingClosure test_expectations_;
+  };
+
+  ReadyToCommitObserver ready_to_commit_observer(web_contents(),
+                                                 test_expectations);
+  nav_manager.WaitForNavigationFinished();
 }
 
 // Like ForEachRenderFrameHostSpeculative, but for a speculative RFH for a
@@ -5687,6 +5738,63 @@ IN_PROC_BROWSER_TEST_F(RenderFrameHostImplBrowserTest,
 
   EXPECT_THAT(CollectAllRenderFrameHosts(rfh_a),
               testing::ElementsAre(rfh_a, rfh_b, rfh_d, rfh_c));
+}
+
+// This test verifies that RFHImpl::ForEachImmediateLocalRoot works as expected.
+// The frame tree used in the test is:
+//                                A0
+//                            /    |    \
+//                          A1     B1    A2
+//                         /  \    |    /  \
+//                        B2   A3  B3  A4   C2
+//                       /    /   / \    \
+//                      D1   D2  C3  C4  C5
+//
+// As an example, the expected set of immediate local roots for the root node A0
+// should be {B1, B2, C2, D2, C5}. Note that the order is compatible with that
+// of a BFS traversal from root node A0.
+IN_PROC_BROWSER_TEST_F(RenderFrameHostImplBrowserTest,
+                       FindImmediateLocalRoots) {
+  IsolateAllSitesForTesting(base::CommandLine::ForCurrentProcess());
+  GURL main_url(embedded_test_server()->GetURL(
+      "a.com",
+      "/cross_site_iframe_factory.html?a(a(b(d),a(d)),b(b(c,c)),a(a(c),c))"));
+  EXPECT_TRUE(NavigateToURL(shell(), main_url));
+
+  // Each entry is of the frame "LABEL:ILR1ILR2..." where ILR stands for
+  // immediate local root.
+  std::string immediate_local_roots[] = {
+      "A0:B1B2C2D2C5", "A1:B2D2", "B1:C3C4", "A2:C2C5", "B2:D1",
+      "A3:D2",         "B3:C3C4", "A4:C5",   "C2:",     "D1:",
+      "D2:",           "C3:",     "C4:",     "C5:"};
+
+  std::map<RenderFrameHostImpl*, std::string>
+      frame_to_immediate_local_roots_map;
+  std::map<RenderFrameHostImpl*, std::string> frame_to_label_map;
+  size_t index = 0;
+  // Map each RenderFrameHostImpl to its label and set of immediate local roots.
+  for (auto* ftn : web_contents()->GetFrameTree()->Nodes()) {
+    std::string roots = immediate_local_roots[index++];
+    frame_to_immediate_local_roots_map[ftn->current_frame_host()] = roots;
+    frame_to_label_map[ftn->current_frame_host()] = roots.substr(0, 2);
+  }
+
+  // For each frame in the tree, verify that ForEachImmediateLocalRoot properly
+  // visits each and only each immediate local root in a BFS traversal order.
+  for (auto* ftn : web_contents()->GetFrameTree()->Nodes()) {
+    RenderFrameHostImpl* current_frame_host = ftn->current_frame_host();
+    std::list<RenderFrameHostImpl*> frame_list;
+    current_frame_host->ForEachImmediateLocalRoot(base::BindRepeating(
+        [](std::list<RenderFrameHostImpl*>* ilr_list,
+           RenderFrameHostImpl* rfh) { ilr_list->push_back(rfh); },
+        &frame_list));
+
+    std::string result = frame_to_label_map[current_frame_host];
+    result.append(":");
+    for (auto* ilr_ptr : frame_list)
+      result.append(frame_to_label_map[ilr_ptr]);
+    EXPECT_EQ(frame_to_immediate_local_roots_map[current_frame_host], result);
+  }
 }
 
 }  // namespace content

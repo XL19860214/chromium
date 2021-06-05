@@ -20,9 +20,8 @@ BLINK_COMMON_EXPORT extern const base::Feature
     kBlockingDownloadsInAdFrameWithoutUserActivation;
 BLINK_COMMON_EXPORT extern const base::Feature kCOLRV1Fonts;
 BLINK_COMMON_EXPORT extern const base::Feature kCSSContainerQueries;
+BLINK_COMMON_EXPORT extern const base::Feature kConversionMeasurement;
 BLINK_COMMON_EXPORT extern const base::Feature kGMSCoreEmoji;
-BLINK_COMMON_EXPORT extern const base::Feature
-    kHandwritingRecognitionWebPlatformApi;
 BLINK_COMMON_EXPORT extern const base::Feature
     kHandwritingRecognitionWebPlatformApiFinch;
 BLINK_COMMON_EXPORT extern const base::Feature kPaintHolding;
@@ -52,6 +51,13 @@ BLINK_COMMON_EXPORT extern const base::Feature kPlzDedicatedWorker;
 BLINK_COMMON_EXPORT extern const base::Feature kPortals;
 BLINK_COMMON_EXPORT extern const base::Feature kPortalsCrossOrigin;
 BLINK_COMMON_EXPORT extern const base::Feature kFencedFrames;
+enum class FencedFramesImplementationType {
+  kShadowDOM,
+  kMPArch,
+};
+BLINK_COMMON_EXPORT extern const base::FeatureParam<
+    FencedFramesImplementationType>
+    kFencedFramesImplementationTypeParam;
 
 // Prerender2:
 BLINK_COMMON_EXPORT extern const base::Feature kPrerender2;
@@ -322,6 +328,8 @@ BLINK_COMMON_EXPORT extern const base::Feature kPreferCompositingToLCDText;
 BLINK_COMMON_EXPORT extern const base::Feature
     kLogUnexpectedIPCPostedToBackForwardCachedDocuments;
 
+BLINK_COMMON_EXPORT extern const base::Feature kWebAppEnableIsolatedStorage;
+
 BLINK_COMMON_EXPORT extern const base::Feature kWebAppEnableLinkCapturing;
 
 BLINK_COMMON_EXPORT extern const base::Feature kWebAppEnableUrlHandlers;
@@ -329,8 +337,6 @@ BLINK_COMMON_EXPORT extern const base::Feature kWebAppEnableUrlHandlers;
 BLINK_COMMON_EXPORT extern const base::Feature kWebAppEnableProtocolHandlers;
 
 BLINK_COMMON_EXPORT extern const base::Feature kWebAppNoteTaking;
-
-BLINK_COMMON_EXPORT extern const base::Feature kWebRtcLibvpxEncodeNV12;
 
 BLINK_COMMON_EXPORT extern const base::Feature kLoadingTasksUnfreezable;
 
@@ -399,6 +405,12 @@ BLINK_COMMON_EXPORT extern const base::Feature kFledgeInterestGroupAPI;
 // tracks are disabled.
 BLINK_COMMON_EXPORT extern const base::Feature
     kMinimizeAudioProcessingForUnusedOutput;
+
+// When <dialog>s are closed, this focuses the "previously focused" element
+// which had focus when the <dialog> was first opened.
+// TODO(crbug.com/649162): Remove DialogFocusNewSpecBehavior after
+// the feature is in stable with no issues.
+BLINK_COMMON_EXPORT extern const base::Feature kDialogFocusNewSpecBehavior;
 
 }  // namespace features
 }  // namespace blink

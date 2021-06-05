@@ -29,12 +29,13 @@
 #include "chrome/browser/signin/identity_manager_factory.h"
 #include "chrome/browser/signin/signin_error_controller_factory.h"
 #include "chrome/browser/signin/signin_ui_util.h"
-#include "chrome/browser/sync/profile_sync_service_factory.h"
+#include "chrome/browser/sync/sync_service_factory.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/browser_dialogs.h"
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_list.h"
+#include "chrome/browser/ui/browser_navigator.h"
 #include "chrome/browser/ui/browser_navigator_params.h"
 #include "chrome/browser/ui/passwords/manage_passwords_view_utils.h"
 #include "chrome/browser/ui/profile_picker.h"
@@ -129,15 +130,6 @@ std::u16string GetSyncErrorDescription(
   }
 }
 
-ProfileAttributesEntry* GetProfileAttributesEntry(Profile* profile) {
-  ProfileAttributesEntry* entry =
-      g_browser_process->profile_manager()
-          ->GetProfileAttributesStorage()
-          .GetProfileAttributesWithPath(profile->GetPath());
-  CHECK(entry);
-  return entry;
-}
-
 void NavigateToGoogleAccountPage(Profile* profile, const std::string& email) {
   // Create a URL so that the account chooser is shown if the account with
   // |email| is not signed into the web. Include a UTM parameter to signal the
@@ -175,10 +167,6 @@ bool IsGuest(Profile* profile) {
   return profile->IsGuestSession() || profile->IsEphemeralGuestProfile();
 }
 
-bool UseNewPicker() {
-  return base::FeatureList::IsEnabled(features::kNewProfilePicker);
-}
-
 }  // namespace
 
 // ProfileMenuView ---------------------------------------------------------
@@ -210,9 +198,9 @@ void ProfileMenuView::BuildMenu() {
 
 //  ChromeOS doesn't support multi-profile.
 #if !BUILDFLAG(IS_CHROMEOS_ASH)
-  if (!(IsGuest(profile) &&
-        base::FeatureList::IsEnabled(features::kNewProfilePicker))) {
-    BuildProfileManagementHeading();
+  if (!(IsGuest(profile))) {
+    SetProfileManagementHeading(
+        l10n_util::GetStringUTF16(IDS_PROFILES_LIST_PROFILES_TITLE));
     BuildSelectableProfiles();
     BuildProfileManagementFeatureButtons();
   }
@@ -457,43 +445,40 @@ void ProfileMenuView::BuildIdentity() {
       IdentityManagerFactory::GetForProfile(profile);
   CoreAccountInfo account =
       identity_manager->GetPrimaryAccountInfo(signin::ConsentLevel::kSignin);
-  absl::optional<AccountInfo> account_info =
-      identity_manager->FindExtendedAccountInfoForAccountWithRefreshToken(
-          account);
+  AccountInfo account_info = identity_manager->FindExtendedAccountInfo(account);
   ProfileAttributesEntry* profile_attributes =
-      GetProfileAttributesEntry(profile);
+      g_browser_process->profile_manager()
+          ->GetProfileAttributesStorage()
+          .GetProfileAttributesWithPath(profile->GetPath());
+  if (!profile_attributes) {
+    // May happen if the profile is being deleted. https://crbug.com/1040079
+    return;
+  }
 
   std::u16string profile_name;
   absl::optional<EditButtonParams> edit_button_params;
 // Profile names are not supported on ChromeOS.
 #if !BUILDFLAG(IS_CHROMEOS_ASH)
-  size_t num_of_profiles =
-      g_browser_process->profile_manager()->GetNumberOfProfiles();
-  if (num_of_profiles > 1 || !profile_attributes->IsUsingDefaultName() ||
-      base::FeatureList::IsEnabled(features::kNewProfilePicker)) {
-    profile_name = profile_attributes->GetLocalProfileName();
-    edit_button_params = EditButtonParams(
-        &vector_icons::kEditIcon,
-        UseNewPicker() ? l10n_util::GetStringUTF16(
-                             IDS_PROFILES_CUSTOMIZE_PROFILE_BUTTON_TOOLTIP)
-                       : l10n_util::GetStringUTF16(IDS_SETTINGS_EDIT_PERSON),
-        base::BindRepeating(&ProfileMenuView::OnEditProfileButtonClicked,
-                            base::Unretained(this)));
-  }
+  profile_name = profile_attributes->GetLocalProfileName();
+  edit_button_params = EditButtonParams(
+      &vector_icons::kEditIcon,
+      l10n_util::GetStringUTF16(IDS_PROFILES_CUSTOMIZE_PROFILE_BUTTON_TOOLTIP),
+      base::BindRepeating(&ProfileMenuView::OnEditProfileButtonClicked,
+                          base::Unretained(this)));
 #endif
 
   SkColor background_color =
       profile_attributes->GetProfileThemeColors().profile_highlight_color;
-  if (account_info.has_value()) {
-    menu_title_ = base::UTF8ToUTF16(account_info.value().full_name);
+  if (!account_info.IsEmpty()) {
+    menu_title_ = base::UTF8ToUTF16(account_info.full_name);
     menu_subtitle_ =
         IsSyncPaused(profile)
             ? l10n_util::GetStringUTF16(IDS_PROFILES_LOCAL_PROFILE_STATE)
-            : base::UTF8ToUTF16(account_info.value().email);
+            : base::UTF8ToUTF16(account_info.email);
     SetProfileIdentityInfo(
         profile_name, background_color, edit_button_params,
-        ui::ImageModel::FromImage(account_info.value().account_image),
-        menu_title_, menu_subtitle_);
+        ui::ImageModel::FromImage(account_info.account_image), menu_title_,
+        menu_subtitle_);
   } else {
     menu_title_ = std::u16string();
     menu_subtitle_ =
@@ -511,8 +496,7 @@ void ProfileMenuView::BuildGuestIdentity() {
 
   menu_title_ = l10n_util::GetStringUTF16(IDS_GUEST_PROFILE_NAME);
   menu_subtitle_ = std::u16string();
-  if (guest_window_count > 1 &&
-      base::FeatureList::IsEnabled(features::kNewProfilePicker)) {
+  if (guest_window_count > 1) {
     menu_subtitle_ = l10n_util::GetPluralStringFUTF16(
         IDS_GUEST_WINDOW_COUNT_MESSAGE, guest_window_count);
   }
@@ -549,7 +533,7 @@ void ProfileMenuView::BuildSyncInfo() {
   Profile* profile = browser()->profile();
   // Only show the sync info if signin and sync are allowed.
   if (!profile->GetPrefs()->GetBoolean(prefs::kSigninAllowed) ||
-      !ProfileSyncServiceFactory::IsSyncAllowed(profile)) {
+      !SyncServiceFactory::IsSyncAllowed(profile)) {
     return;
   }
 
@@ -581,17 +565,16 @@ void ProfileMenuView::BuildSyncInfo() {
   // Show sync promos.
   CoreAccountInfo unconsented_account =
       identity_manager->GetPrimaryAccountInfo(signin::ConsentLevel::kSignin);
-  absl::optional<AccountInfo> account_info =
-      identity_manager->FindExtendedAccountInfoForAccountWithRefreshToken(
-          unconsented_account);
+  AccountInfo account_info =
+      identity_manager->FindExtendedAccountInfo(unconsented_account);
 
-  if (account_info.has_value()) {
+  if (!account_info.IsEmpty()) {
     BuildSyncInfoWithCallToAction(
         l10n_util::GetStringUTF16(IDS_PROFILES_DICE_NOT_SYNCING_TITLE),
         l10n_util::GetStringUTF16(IDS_PROFILES_DICE_SIGNIN_BUTTON),
         ui::NativeTheme::kColorId_SyncInfoContainerNoPrimaryAccount,
         base::BindRepeating(&ProfileMenuView::OnSigninAccountButtonClicked,
-                            base::Unretained(this), account_info.value()),
+                            base::Unretained(this), account_info),
         /*show_badge=*/true);
   } else {
 #if BUILDFLAG(IS_CHROMEOS_ASH)
@@ -638,8 +621,7 @@ void ProfileMenuView::BuildFeatureButtons() {
   }
 
   int window_count = CountBrowsersFor(profile);
-  if (base::FeatureList::IsEnabled(features::kNewProfilePicker) &&
-      IsGuest(profile)) {
+  if (IsGuest(profile)) {
     AddFeatureButton(
         l10n_util::GetPluralStringFUTF16(IDS_GUEST_PROFILE_MENU_CLOSE_BUTTON,
                                          window_count),
@@ -673,13 +655,6 @@ void ProfileMenuView::BuildFeatureButtons() {
 }
 
 #if !BUILDFLAG(IS_CHROMEOS_ASH)
-void ProfileMenuView::BuildProfileManagementHeading() {
-  SetProfileManagementHeading(
-      UseNewPicker()
-          ? l10n_util::GetStringUTF16(IDS_PROFILES_LIST_PROFILES_TITLE)
-          : l10n_util::GetStringUTF16(IDS_PROFILES_OTHER_PROFILES_TITLE));
-}
-
 void ProfileMenuView::BuildSelectableProfiles() {
   auto profile_entries = g_browser_process->profile_manager()
                              ->GetProfileAttributesStorage()
@@ -715,10 +690,7 @@ void ProfileMenuView::BuildSelectableProfiles() {
 void ProfileMenuView::BuildProfileManagementFeatureButtons() {
   AddProfileManagementShortcutFeatureButton(
       vector_icons::kSettingsIcon,
-      UseNewPicker()
-          ? l10n_util::GetStringUTF16(
-                IDS_PROFILES_MANAGE_PROFILES_BUTTON_TOOLTIP)
-          : l10n_util::GetStringUTF16(IDS_PROFILES_MANAGE_USERS_BUTTON),
+      l10n_util::GetStringUTF16(IDS_PROFILES_MANAGE_PROFILES_BUTTON_TOOLTIP),
       base::BindRepeating(&ProfileMenuView::OnManageProfilesButtonClicked,
                           base::Unretained(this)));
 

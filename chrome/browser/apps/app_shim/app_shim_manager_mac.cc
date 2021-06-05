@@ -15,13 +15,13 @@
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/callback_helpers.h"
+#include "base/cxx17_backports.h"
 #include "base/feature_list.h"
 #include "base/files/file_path.h"
 #include "base/hash/sha1.h"
 #include "base/logging.h"
 #include "base/mac/foundation_util.h"
 #include "base/mac/scoped_cftyperef.h"
-#include "base/stl_util.h"
 #include "chrome/browser/apps/app_shim/app_shim_host_bootstrap_mac.h"
 #include "chrome/browser/apps/app_shim/app_shim_host_mac.h"
 #include "chrome/browser/apps/app_shim/app_shim_listener.h"
@@ -38,6 +38,7 @@
 #include "chrome/browser/profiles/profile_window.h"
 #include "chrome/browser/profiles/profiles_state.h"
 #include "chrome/browser/ui/browser_list.h"
+#include "chrome/browser/ui/browser_navigator.h"
 #include "chrome/browser/ui/profile_picker.h"
 #include "chrome/browser/ui/ui_features.h"
 #include "chrome/browser/web_applications/components/app_shim_registry_mac.h"
@@ -1055,8 +1056,7 @@ void AppShimManager::UpdateAppProfileMenu(AppState* app_state) {
 
   // Send the profile menu to the app shim process.
   app_state->multi_profile_host->GetAppShim()->UpdateProfileMenu(
-      std::move(items),
-      base::FeatureList::IsEnabled(features::kNewProfilePicker));
+      std::move(items));
 }
 
 AppShimManager::ProfileState* AppShimManager::GetOrCreateProfileState(

@@ -305,23 +305,31 @@ std::unique_ptr<WebAppProto> WebAppDatabase::CreateWebAppProto(
     }
   }
 
-  // TODO (crbug.com/1114638): Support Monochrome icons.
-  std::array<IconPurpose, 2> purposes = {IconPurpose::ANY,
-                                         IconPurpose::MASKABLE};
   for (const WebApplicationShortcutsMenuItemInfo& shortcut_info :
        web_app.shortcuts_menu_item_infos()) {
     WebAppShortcutsMenuItemInfoProto* shortcut_info_proto =
         local_data->add_shortcuts_menu_item_infos();
     shortcut_info_proto->set_name(base::UTF16ToUTF8(shortcut_info.name));
     shortcut_info_proto->set_url(shortcut_info.url.spec());
-    for (IconPurpose purpose : purposes) {
+    for (IconPurpose purpose : kIconPurposes) {
       for (const WebApplicationShortcutsMenuItemInfo::Icon& icon_info :
            shortcut_info.GetShortcutIconInfosForPurpose(purpose)) {
-        // TODO (crbug.com/1114638): Add Monochrome support.
-        sync_pb::WebAppIconInfo* shortcut_icon_info_proto =
-            (purpose == IconPurpose::ANY)
-                ? shortcut_info_proto->add_shortcut_icon_infos()
-                : shortcut_info_proto->add_shortcut_icon_infos_maskable();
+        sync_pb::WebAppIconInfo* shortcut_icon_info_proto;
+        switch (purpose) {
+          case IconPurpose::ANY:
+            shortcut_icon_info_proto =
+                shortcut_info_proto->add_shortcut_icon_infos();
+            break;
+          case IconPurpose::MASKABLE:
+            shortcut_icon_info_proto =
+                shortcut_info_proto->add_shortcut_icon_infos_maskable();
+            break;
+          case IconPurpose::MONOCHROME:
+            shortcut_icon_info_proto =
+                shortcut_info_proto->add_shortcut_icon_infos_monochrome();
+            break;
+        }
+
         DCHECK(!icon_info.url.is_empty());
         shortcut_icon_info_proto->set_url(icon_info.url.spec());
         shortcut_icon_info_proto->set_size_in_px(icon_info.square_size_px);
@@ -333,7 +341,6 @@ std::unique_ptr<WebAppProto> WebAppDatabase::CreateWebAppProto(
        web_app.downloaded_shortcuts_menu_icons_sizes()) {
     DownloadedShortcutsMenuIconSizesProto* icon_sizes_proto =
         local_data->add_downloaded_shortcuts_menu_icons_sizes();
-    // TODO (crbug.com/1114638): Add Monochrome support.
     for (const SquareSizePx& icon_size :
          icon_sizes.GetSizesForPurpose(IconPurpose::ANY)) {
       icon_sizes_proto->add_icon_sizes(icon_size);
@@ -341,6 +348,10 @@ std::unique_ptr<WebAppProto> WebAppDatabase::CreateWebAppProto(
     for (const SquareSizePx& icon_size :
          icon_sizes.GetSizesForPurpose(IconPurpose::MASKABLE)) {
       icon_sizes_proto->add_icon_sizes_maskable(icon_size);
+    }
+    for (const SquareSizePx& icon_size :
+         icon_sizes.GetSizesForPurpose(IconPurpose::MONOCHROME)) {
+      icon_sizes_proto->add_icon_sizes_monochrome(icon_size);
     }
   }
 
@@ -363,6 +374,11 @@ std::unique_ptr<WebAppProto> WebAppDatabase::CreateWebAppProto(
     url_handler_proto->set_has_origin_wildcard(url_handler.has_origin_wildcard);
   }
 
+  if (web_app.note_taking_new_note_url().is_valid()) {
+    local_data->set_note_taking_new_note_url(
+        web_app.note_taking_new_note_url().spec());
+  }
+
   if (web_app.capture_links() != blink::mojom::CaptureLinks::kUndefined)
     local_data->set_capture_links(CaptureLinksToProto(web_app.capture_links()));
   else
@@ -373,6 +389,11 @@ std::unique_ptr<WebAppProto> WebAppDatabase::CreateWebAppProto(
 
   local_data->set_file_handler_permission_blocked(
       web_app.file_handler_permission_blocked());
+
+  local_data->set_window_controls_overlay_enabled(
+      web_app.window_controls_overlay_enabled());
+
+  local_data->set_is_storage_isolated(web_app.IsStorageIsolated());
   return local_data;
 }
 
@@ -456,14 +477,14 @@ std::unique_ptr<WebApp> WebAppDatabase::CreateWebApp(
 
   auto& chromeos_data_proto = local_data.chromeos_data();
 
-  if (IsChromeOs() && !local_data.has_chromeos_data()) {
+  if (IsChromeOsDataMandatory() && !local_data.has_chromeos_data()) {
     DLOG(ERROR) << "WebApp proto parse error: no chromeos_data field. The web "
                 << "app might have been installed when running on an OS other "
                 << "than Chrome OS.";
     return nullptr;
   }
 
-  if (!IsChromeOs() && local_data.has_chromeos_data()) {
+  if (!IsChromeOsDataMandatory() && local_data.has_chromeos_data()) {
     DLOG(ERROR) << "WebApp proto parse error: has chromeos_data field. The web "
                 << "app might have been installed when running on Chrome OS.";
     return nullptr;
@@ -646,22 +667,32 @@ std::unique_ptr<WebApp> WebAppDatabase::CreateWebApp(
   }
 
   std::vector<WebApplicationShortcutsMenuItemInfo> shortcuts_menu_item_infos;
-  // TODO (crbug.com/1114638): Support Monochrome icons.
-  std::array<IconPurpose, 2> purposes = {IconPurpose::ANY,
-                                         IconPurpose::MASKABLE};
   for (const auto& shortcut_info_proto :
        local_data.shortcuts_menu_item_infos()) {
     WebApplicationShortcutsMenuItemInfo shortcut_info;
     shortcut_info.name = base::UTF8ToUTF16(shortcut_info_proto.name());
     shortcut_info.url = GURL(shortcut_info_proto.url());
-    for (IconPurpose purpose : purposes) {
-      // TODO (crbug.com/1114638): Add Monochrome support.
-      const auto& shortcut_icon_infos =
-          (purpose == IconPurpose::ANY)
-              ? shortcut_info_proto.shortcut_icon_infos()
-              : shortcut_info_proto.shortcut_icon_infos_maskable();
+    for (IconPurpose purpose : kIconPurposes) {
+      // This default init needed to infer the sophisticated protobuf type.
+      const auto* shortcut_icon_infos =
+          &shortcut_info_proto.shortcut_icon_infos();
+
+      switch (purpose) {
+        case IconPurpose::ANY:
+          shortcut_icon_infos = &shortcut_info_proto.shortcut_icon_infos();
+          break;
+        case IconPurpose::MASKABLE:
+          shortcut_icon_infos =
+              &shortcut_info_proto.shortcut_icon_infos_maskable();
+          break;
+        case IconPurpose::MONOCHROME:
+          shortcut_icon_infos =
+              &shortcut_info_proto.shortcut_icon_infos_monochrome();
+          break;
+      }
+
       std::vector<WebApplicationShortcutsMenuItemInfo::Icon> icon_infos;
-      for (const auto& icon_info_proto : shortcut_icon_infos) {
+      for (const auto& icon_info_proto : *shortcut_icon_infos) {
         WebApplicationShortcutsMenuItemInfo::Icon shortcut_icon_info;
         shortcut_icon_info.square_size_px = icon_info_proto.size_in_px();
         shortcut_icon_info.url = GURL(icon_info_proto.url());
@@ -678,7 +709,6 @@ std::unique_ptr<WebApp> WebAppDatabase::CreateWebApp(
   for (const auto& shortcuts_icon_sizes_proto :
        local_data.downloaded_shortcuts_menu_icons_sizes()) {
     IconSizes icon_sizes;
-    // TODO (crbug.com/1114638): Support Monochrome icons.
     icon_sizes.SetSizesForPurpose(
         IconPurpose::ANY, std::vector<SquareSizePx>(
                               shortcuts_icon_sizes_proto.icon_sizes().begin(),
@@ -688,6 +718,11 @@ std::unique_ptr<WebApp> WebAppDatabase::CreateWebApp(
         std::vector<SquareSizePx>(
             shortcuts_icon_sizes_proto.icon_sizes_maskable().begin(),
             shortcuts_icon_sizes_proto.icon_sizes_maskable().end()));
+    icon_sizes.SetSizesForPurpose(
+        IconPurpose::MONOCHROME,
+        std::vector<SquareSizePx>(
+            shortcuts_icon_sizes_proto.icon_sizes_monochrome().begin(),
+            shortcuts_icon_sizes_proto.icon_sizes_monochrome().end()));
 
     shortcuts_menu_icons_sizes.push_back(std::move(icon_sizes));
   }
@@ -721,11 +756,6 @@ std::unique_ptr<WebApp> WebAppDatabase::CreateWebApp(
   }
   web_app->SetProtocolHandlers(std::move(protocol_handlers));
 
-  if (local_data.has_user_run_on_os_login_mode()) {
-    web_app->SetRunOnOsLoginMode(
-        ToRunOnOsLoginMode(local_data.user_run_on_os_login_mode()));
-  }
-
   std::vector<apps::UrlHandlerInfo> url_handlers;
   for (const auto& url_handler_proto : local_data.url_handlers()) {
     apps::UrlHandlerInfo url_handler;
@@ -741,6 +771,16 @@ std::unique_ptr<WebApp> WebAppDatabase::CreateWebApp(
     url_handlers.push_back(std::move(url_handler));
   }
   web_app->SetUrlHandlers(std::move(url_handlers));
+
+  if (local_data.has_note_taking_new_note_url()) {
+    web_app->SetNoteTakingNewNoteUrl(
+        GURL(local_data.note_taking_new_note_url()));
+  }
+
+  if (local_data.has_user_run_on_os_login_mode()) {
+    web_app->SetRunOnOsLoginMode(
+        ToRunOnOsLoginMode(local_data.user_run_on_os_login_mode()));
+  }
 
   if (local_data.has_capture_links())
     web_app->SetCaptureLinks(ProtoToCaptureLinks(local_data.capture_links()));
@@ -759,6 +799,12 @@ std::unique_ptr<WebApp> WebAppDatabase::CreateWebApp(
   if (local_data.has_file_handler_permission_blocked())
     web_app->SetFileHandlerPermissionBlocked(
         local_data.file_handler_permission_blocked());
+
+  if (local_data.has_window_controls_overlay_enabled()) {
+    web_app->SetWindowControlsOverlayEnabled(
+        local_data.window_controls_overlay_enabled());
+  }
+  web_app->SetStorageIsolated(local_data.is_storage_isolated());
   return web_app;
 }
 

@@ -462,7 +462,7 @@ void AXEventGenerator::OnIntAttributeChanged(AXTree* tree,
     case ax::mojom::IntAttribute::kActivedescendantId:
       // Don't fire on invisible containers, as it confuses some screen readers,
       // such as NVDA.
-      if (!node->data().HasState(ax::mojom::State::kInvisible)) {
+      if (!node->data().IsInvisible()) {
         AddEvent(node, Event::ACTIVE_DESCENDANT_CHANGED);
         active_descendant_changed_.push_back(node);
       }
@@ -639,6 +639,9 @@ void AXEventGenerator::OnIntListAttributeChanged(
   switch (attr) {
     case ax::mojom::IntListAttribute::kControlsIds:
       AddEvent(node, Event::CONTROLS_CHANGED);
+      break;
+    case ax::mojom::IntListAttribute::kDetailsIds:
+      AddEvent(node, Event::DETAILS_CHANGED);
       break;
     case ax::mojom::IntListAttribute::kDescribedbyIds:
       AddEvent(node, Event::DESCRIBED_BY_CHANGED);
@@ -1141,6 +1144,8 @@ const char* ToString(AXEventGenerator::Event event) {
       return "collapsed";
     case AXEventGenerator::Event::CONTROLS_CHANGED:
       return "controlsChanged";
+    case AXEventGenerator::Event::DETAILS_CHANGED:
+      return "detailsChanged";
     case AXEventGenerator::Event::DESCRIBED_BY_CHANGED:
       return "describedByChanged";
     case AXEventGenerator::Event::DESCRIPTION_CHANGED:

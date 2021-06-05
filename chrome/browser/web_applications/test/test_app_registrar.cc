@@ -137,6 +137,11 @@ const apps::FileHandlers* TestAppRegistrar::GetAppFileHandlers(
   return nullptr;
 }
 
+const apps::ProtocolHandlers* TestAppRegistrar::GetAppProtocolHandlers(
+    const AppId& app_id) const {
+  return nullptr;
+}
+
 bool TestAppRegistrar::IsAppFileHandlerPermissionBlocked(
     const web_app::AppId& app_id) const {
   return false;
@@ -222,6 +227,12 @@ RunOnOsLoginMode TestAppRegistrar::GetAppRunOnOsLoginMode(
     const AppId& app_id) const {
   NOTIMPLEMENTED();
   return RunOnOsLoginMode::kNotRun;
+}
+
+bool TestAppRegistrar::GetWindowControlsOverlayEnabled(
+    const AppId& app_id) const {
+  NOTIMPLEMENTED();
+  return false;
 }
 
 std::vector<AppId> TestAppRegistrar::GetAppIds() const {

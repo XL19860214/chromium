@@ -152,10 +152,10 @@ bool ShouldOverrideUserAgent(
   return false;
 }
 
-// Returns true this navigation should be treated as a reload. For e.g.
+// Returns true if this navigation should be treated as a reload. For e.g.
 // navigating to the last committed url via the address bar or clicking on a
-// link which results in a navigation to the last committed or pending
-// navigation, etc.
+// link which results in a navigation to the last committed URL (but wasn't
+// converted to do a replacement navigation in the renderer), etc.
 // |node| is the FrameTreeNode which is navigating. |url|, |virtual_url|,
 // |base_url_for_data_url|, |transition_type| correspond to the new navigation
 // (i.e. the pending NavigationEntry). |last_committed_entry| is the last
@@ -166,10 +166,11 @@ bool ShouldTreatNavigationAsReload(FrameTreeNode* node,
                                    const GURL& base_url_for_data_url,
                                    ui::PageTransition transition_type,
                                    bool is_post,
-                                   bool is_reload,
-                                   bool is_navigation_to_existing_entry,
+                                   bool should_replace_current_entry,
                                    NavigationEntryImpl* last_committed_entry) {
-  if (is_reload || is_navigation_to_existing_entry)
+  // Navigations intended to do a replacement shouldn't be converted to do a
+  // reload.
+  if (should_replace_current_entry)
     return false;
   // Only convert to reload if at least one navigation committed.
   if (!last_committed_entry)
@@ -1087,18 +1088,20 @@ void NavigationControllerImpl::UpdateVirtualURLToURL(NavigationEntryImpl* entry,
   }
 }
 
-void NavigationControllerImpl::LoadURL(const GURL& url,
-                                       const Referrer& referrer,
-                                       ui::PageTransition transition,
-                                       const std::string& extra_headers) {
+base::WeakPtr<NavigationHandle> NavigationControllerImpl::LoadURL(
+    const GURL& url,
+    const Referrer& referrer,
+    ui::PageTransition transition,
+    const std::string& extra_headers) {
   LoadURLParams params(url);
   params.referrer = referrer;
   params.transition_type = transition;
   params.extra_headers = extra_headers;
-  LoadURLWithParams(params);
+  return LoadURLWithParams(params);
 }
 
-void NavigationControllerImpl::LoadURLWithParams(const LoadURLParams& params) {
+base::WeakPtr<NavigationHandle> NavigationControllerImpl::LoadURLWithParams(
+    const LoadURLParams& params) {
   if (params.is_renderer_initiated)
     DCHECK(params.initiator_origin.has_value());
 
@@ -1114,7 +1117,7 @@ void NavigationControllerImpl::LoadURLWithParams(const LoadURLParams& params) {
     // unhandled, otherwise Telemetry can't tell if Navigation completed.
     if (!base::CommandLine::ForCurrentProcess()->HasSwitch(
             cc::switches::kEnableGpuBenchmarking))
-      return;
+      return nullptr;
   }
 
   // Checks based on params.load_type.
@@ -1125,7 +1128,7 @@ void NavigationControllerImpl::LoadURLWithParams(const LoadURLParams& params) {
     case LOAD_TYPE_DATA:
       if (!params.url.SchemeIs(url::kDataScheme)) {
         NOTREACHED() << "Data load must use data scheme.";
-        return;
+        return nullptr;
       }
       break;
   }
@@ -1133,7 +1136,7 @@ void NavigationControllerImpl::LoadURLWithParams(const LoadURLParams& params) {
   // The user initiated a load, we don't need to reload anymore.
   needs_reload_ = false;
 
-  NavigateWithoutEntry(params);
+  return NavigateWithoutEntry(params);
 }
 
 bool NavigationControllerImpl::PendingEntryMatchesRequest(
@@ -1690,13 +1693,7 @@ void NavigationControllerImpl::RendererDidNavigateToNewEntry(
         static_cast<SiteInstanceImpl*>(rfh->GetSiteInstance()));
     new_entry->SetOriginalRequestURL(request->GetOriginalRequestURL());
 
-    if (!is_same_document) {
-      DCHECK_EQ(request->is_overriding_user_agent() && !rfh->GetParent(),
-                params.is_overriding_user_agent);
-    } else {
-      DCHECK_EQ(rfh->is_overriding_user_agent(),
-                params.is_overriding_user_agent);
-    }
+    DCHECK_EQ(rfh->is_overriding_user_agent(), params.is_overriding_user_agent);
     new_entry->SetIsOverridingUserAgent(params.is_overriding_user_agent);
 
     // Update the FrameNavigationEntry for new main frame commits.
@@ -2059,8 +2056,9 @@ bool NavigationControllerImpl::RendererDidNavigateAutoSubframe(
       // (https://crbug.com/373041).
       // TODO(creis): For now, restrict this check to HTTP(S) origins, because
       // about:blank, file, and unique origins are more subtle to get right.
-      // We'll abstract out the relevant checks from IsURLSameDocumentNavigation
-      // and share them here.  See https://crbug.com/618104.
+      // We should use checks similar to RenderFrameHostImpl's
+      // CanCommitUrlAndOrigin on the main frame during subframe commits.
+      // See https://crbug.com/1209092.
       const GURL& dest_top_url = GetEntryAtIndex(entry_index)->GetURL();
       const GURL& current_top_url = GetLastCommittedEntry()->GetURL();
       if (current_top_url.SchemeIsHTTPOrHTTPS() &&
@@ -2109,70 +2107,6 @@ int NavigationControllerImpl::GetIndexOfEntry(
       return i;
   }
   return -1;
-}
-
-// There are two general cases where a navigation is "same-document":
-// 1. A fragment navigation, in which the url is kept the same except for the
-//    reference fragment.
-// 2. A history API navigation (pushState and replaceState). This case is
-//    always same-document, but the urls are not guaranteed to match excluding
-//    the fragment. The relevant spec allows pushState/replaceState to any URL
-//    on the same origin.
-// However, due to reloads, even identical urls are *not* guaranteed to be
-// same-document navigations, we have to trust the renderer almost entirely.
-// The one thing we do know is that cross-origin navigations will *never* be
-// same-document. Therefore, trust the renderer if the URLs are on the same
-// origin, and assume the renderer is malicious if a cross-origin navigation
-// claims to be same-document.
-//
-// TODO(creis): Clean up and simplify the about:blank and origin checks below,
-// which are likely redundant with each other.  Be careful about data URLs vs
-// about:blank, both of which are unique origins and thus not considered equal.
-bool NavigationControllerImpl::IsURLSameDocumentNavigation(
-    const GURL& url,
-    const url::Origin& origin,
-    bool renderer_says_same_document,
-    RenderFrameHost* rfh) {
-  RenderFrameHostImpl* rfhi = static_cast<RenderFrameHostImpl*>(rfh);
-  GURL last_committed_url;
-  // For cases that can't compare against the main frame's URL in the last
-  // committed entry, use the FrameTreeNode's current_url(). Note that it is
-  // possible to get same-document commits in the initial empty document when
-  // there is no last committed entry (e.g., about:blank#foo).
-  // TODO(creis): It would be simpler to always get the URL from the FTN rather
-  // than ever looking at GetLastCommittedEntry here. We're limiting the change
-  // in behavior for a merge and will clean it up further afterward.
-  if (rfh->GetParent() || !GetLastCommittedEntry()) {
-    // Use the FrameTreeNode's current_url and not rfh->GetLastCommittedURL(),
-    // which might be empty in a new RenderFrameHost after a process swap.
-    // Here, we care about the last committed URL in the FrameTreeNode,
-    // regardless of which process it is in.
-    last_committed_url = rfhi->frame_tree_node()->current_url();
-  } else {
-    last_committed_url = GetLastCommittedEntry()->GetURL();
-  }
-
-  auto prefs = rfhi->GetOrCreateWebPreferences();
-  const url::Origin& committed_origin =
-      rfhi->frame_tree_node()->current_origin();
-  bool is_same_origin = last_committed_url.is_empty() ||
-                        // TODO(japhet): We should only permit navigations
-                        // originating from about:blank to be in-page if the
-                        // about:blank is the first document that frame loaded.
-                        // We don't have sufficient information to identify
-                        // that case at the moment, so always allow about:blank
-                        // for now.
-                        last_committed_url == url::kAboutBlankURL ||
-                        last_committed_url.GetOrigin() == url.GetOrigin() ||
-                        committed_origin == origin ||
-                        !prefs.web_security_enabled ||
-                        (prefs.allow_universal_access_from_file_urls &&
-                         committed_origin.scheme() == url::kFileScheme);
-  if (!is_same_origin && renderer_says_same_document) {
-    bad_message::ReceivedBadMessage(rfh->GetProcess(),
-                                    bad_message::NC_IN_PAGE_NAVIGATION);
-  }
-  return is_same_origin && renderer_says_same_document;
 }
 
 void NavigationControllerImpl::CopyStateFrom(NavigationController* temp,
@@ -3148,7 +3082,7 @@ void NavigationControllerImpl::FindFramesToNavigate(
   }
 }
 
-void NavigationControllerImpl::NavigateWithoutEntry(
+base::WeakPtr<NavigationHandle> NavigationControllerImpl::NavigateWithoutEntry(
     const LoadURLParams& params) {
   // Find the appropriate FrameTreeNode.
   FrameTreeNode* node = nullptr;
@@ -3206,11 +3140,11 @@ void NavigationControllerImpl::NavigateWithoutEntry(
     if (GetContentClient()->browser()->ShouldBlockRendererDebugURL(
             params.url, browser_context_)) {
       DiscardPendingEntry(false);
-      return;
+      return nullptr;
     }
 
     HandleRendererDebugURL(node, params.url);
-    return;
+    return nullptr;
   }
 
   DCHECK(pending_entry_);
@@ -3229,8 +3163,7 @@ void NavigationControllerImpl::NavigateWithoutEntry(
           params.base_url_for_data_url, params.transition_type,
           params.load_type ==
               NavigationController::LOAD_TYPE_HTTP_POST /* is_post */,
-          false /* is_reload */, false /* is_navigation_to_existing_entry */,
-          GetLastCommittedEntry())) {
+          params.should_replace_current_entry, GetLastCommittedEntry())) {
     reload_type = ReloadType::NORMAL;
     pending_entry_->set_reload_type(reload_type);
 
@@ -3282,7 +3215,7 @@ void NavigationControllerImpl::NavigateWithoutEntry(
   // pending NavigationEntry.
   if (!request) {
     DiscardPendingEntry(false);
-    return;
+    return nullptr;
   }
 
 #if DCHECK_IS_ON()
@@ -3299,9 +3232,12 @@ void NavigationControllerImpl::NavigateWithoutEntry(
   // function.
   std::unique_ptr<PendingEntryRef> pending_entry_ref = ReferencePendingEntry();
 
+  base::WeakPtr<NavigationHandle> created_navigation_handle(
+      request->GetWeakPtr());
   node->navigator().Navigate(std::move(request), reload_type);
 
   in_navigate_to_pending_entry_ = false;
+  return created_navigation_handle;
 }
 
 void NavigationControllerImpl::HandleRendererDebugURL(
@@ -4047,17 +3983,7 @@ NavigationControllerImpl::ComputePolicyContainerPoliciesForFrameEntry(
     return previous_policies->Clone();
   }
 
-  if (!request->IsWaitingToCommit()) {
-    // This is the initial, "fake" navigation to about:blank. The
-    // NavigationRequest contains a dummy policy container, while the
-    // RenderFrameHost already inherited the policy container from the
-    // creator, so let's take the policies from there.
-    return rfh->policy_container_host()->policies().Clone();
-  }
-
-  // Take the policy container from the request since we did not move it
-  // into the RFH yet.
-  return request->GetPolicyContainerPolicies().Clone();
+  return rfh->policy_container_host()->policies().Clone();
 }
 
 void NavigationControllerImpl::SetHistoryOffsetAndLength(int history_offset,

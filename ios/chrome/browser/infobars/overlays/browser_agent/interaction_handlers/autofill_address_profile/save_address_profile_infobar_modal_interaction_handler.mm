@@ -26,19 +26,6 @@ SaveAddressProfileInfobarModalInteractionHandler::
 void SaveAddressProfileInfobarModalInteractionHandler::PerformMainAction(
     InfoBarIOS* infobar) {
   infobar->set_accepted(GetInfoBarDelegate(infobar)->Accept());
-  // Post save, the infobar should not be brought back from the omnibox
-  // icon.
-  infobar->RemoveSelf();
-}
-
-void SaveAddressProfileInfobarModalInteractionHandler::InfobarVisibilityChanged(
-    InfoBarIOS* infobar,
-    bool visible) {
-  if (!visible && !infobar->accepted()) {
-    // Inform the delegate that the modal has been dismissed.
-    GetInfoBarDelegate(infobar)->set_modal_is_dismissed_to_true();
-    GetInfoBarDelegate(infobar)->InfoBarDismissed();
-  }
 }
 
 void SaveAddressProfileInfobarModalInteractionHandler::SaveEditedProfile(
@@ -48,12 +35,20 @@ void SaveAddressProfileInfobarModalInteractionHandler::SaveEditedProfile(
     autofill::ServerFieldType type =
         AutofillTypeFromAutofillUIType((AutofillUIType)[key intValue]);
     std::u16string data = base::SysNSStringToUTF16(profileData[key]);
-    GetInfoBarDelegate(infobar)->SetProfileRawInfo(type, data);
+    GetInfoBarDelegate(infobar)->SetProfileInfo(type, data);
   }
-  infobar->set_accepted(GetInfoBarDelegate(infobar)->EditAccepted());
-  // On post-edit save, the infobar should not be brought back from the omnibox
-  // icon.
-  infobar->RemoveSelf();
+  GetInfoBarDelegate(infobar)->EditAccepted();
+  infobar->set_accepted(true);
+}
+
+void SaveAddressProfileInfobarModalInteractionHandler::CancelModal(
+    InfoBarIOS* infobar,
+    BOOL fromEditModal) {
+  if (fromEditModal) {
+    GetInfoBarDelegate(infobar)->EditDeclined();
+  } else {
+    GetInfoBarDelegate(infobar)->Cancel();
+  }
 }
 
 #pragma mark - Private

@@ -80,7 +80,8 @@ class ASH_EXPORT AppListPresenterImpl
   // AppListShowSources: kSearchKey, kShelfButton, or kSwipeFromShelf.
   void Show(AppListViewState preferred_state,
             int64_t display_id,
-            base::TimeTicks event_time_stamp);
+            base::TimeTicks event_time_stamp,
+            absl::optional<AppListShowSource> show_source);
 
   // Hide the open app list window. This may leave the view open but hidden.
   // If |event_time_stamp| is not 0, it means |Dismiss()| was triggered by
@@ -121,7 +122,13 @@ class ASH_EXPORT AppListPresenterImpl
   // Ends the drag of app list from shelf.
   void EndDragFromShelf(AppListViewState app_list_state);
 
-  // Passes a MouseWheelEvent from the shelf to the AppListView.
+  // Passes data from a Scroll event from the shelf to the
+  // AppListView.
+  void ProcessScrollOffset(const gfx::Point& location,
+                           const gfx::Vector2d& scroll_offset_vector);
+
+  // Passes data from a MouseWheelEvent event from the shelf to the
+  // AppListView.
   void ProcessMouseWheelOffset(const gfx::Point& location,
                                const gfx::Vector2d& scroll_offset_vector);
 

@@ -85,8 +85,9 @@ CSSStyleValue* CreateStyleValueWithPropertyInternal(CSSPropertyID property_id,
       }
       return nullptr;
     }
+    case CSSPropertyID::kAccentColor:
     case CSSPropertyID::kCaretColor: {
-      // caret-color also supports 'auto'
+      // caret-color and accent-color also support 'auto'
       auto* identifier_value = DynamicTo<CSSIdentifierValue>(value);
       if (identifier_value &&
           identifier_value->GetValueID() == CSSValueID::kAuto)
@@ -314,7 +315,6 @@ CSSStyleValue* StyleValueFactory::CssValueToStyleValue(
   return style_value;
 }
 
-#if defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
 CSSStyleValueVector StyleValueFactory::CoerceStyleValuesOrStrings(
     const CSSProperty& property,
     const AtomicString& custom_property_name,
@@ -349,40 +349,6 @@ CSSStyleValueVector StyleValueFactory::CoerceStyleValuesOrStrings(
   }
   return style_values;
 }
-#else   // defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
-CSSStyleValueVector StyleValueFactory::CoerceStyleValuesOrStrings(
-    const CSSProperty& property,
-    const AtomicString& custom_property_name,
-    const HeapVector<CSSStyleValueOrString>& values,
-    const ExecutionContext& execution_context) {
-  const CSSParserContext* parser_context = nullptr;
-
-  CSSStyleValueVector style_values;
-  for (const auto& value : values) {
-    if (value.IsCSSStyleValue()) {
-      if (!value.GetAsCSSStyleValue())
-        return CSSStyleValueVector();
-      style_values.push_back(*value.GetAsCSSStyleValue());
-    } else {
-      DCHECK(value.IsString());
-      if (!parser_context) {
-        parser_context =
-            MakeGarbageCollected<CSSParserContext>(execution_context);
-      }
-
-      const auto subvalues = StyleValueFactory::FromString(
-          property.PropertyID(), custom_property_name, value.GetAsString(),
-          parser_context);
-      if (subvalues.IsEmpty())
-        return CSSStyleValueVector();
-
-      DCHECK(!subvalues.Contains(nullptr));
-      style_values.AppendVector(subvalues);
-    }
-  }
-  return style_values;
-}
-#endif  // defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
 
 CSSStyleValueVector StyleValueFactory::CssValueToStyleValueVector(
     const CSSPropertyName& name,

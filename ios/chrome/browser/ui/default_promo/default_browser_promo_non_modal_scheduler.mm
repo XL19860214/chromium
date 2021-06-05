@@ -4,6 +4,8 @@
 
 #import "ios/chrome/browser/ui/default_promo/default_browser_promo_non_modal_scheduler.h"
 
+#import "base/time/time.h"
+#include "base/timer/timer.h"
 #import "ios/chrome/browser/main/browser.h"
 #import "ios/chrome/browser/main/browser_observer_bridge.h"
 #import "ios/chrome/browser/overlays/public/overlay_presenter.h"
@@ -11,6 +13,7 @@
 #import "ios/chrome/browser/ui/commands/application_commands.h"
 #import "ios/chrome/browser/ui/commands/command_dispatcher.h"
 #import "ios/chrome/browser/ui/default_promo/default_browser_promo_non_modal_commands.h"
+#import "ios/chrome/browser/ui/default_promo/default_browser_promo_non_modal_metrics_util.h"
 #import "ios/chrome/browser/ui/default_promo/default_browser_utils.h"
 #import "ios/chrome/browser/ui/main/scene_state.h"
 #import "ios/chrome/browser/web_state_list/active_web_state_observation_forwarder.h"
@@ -27,7 +30,11 @@ namespace {
 
 // Default time interval to wait to show the promo after loading a webpage.
 // This should allow any initial overlays to be presented first.
-const NSTimeInterval kShowPromoWebpageLoadWaitTime = 3;
+const int64_t kShowPromoWebpageLoadWaitTime = 3;
+
+// Default time interval to wait to show the promo after the share action is
+// completed.
+const int64_t kShowPromoPostShareWaitTime = 1;
 
 // Number of times to show the promo to a user.
 const int kPromoShownTimesLimit = 2;
@@ -36,6 +43,13 @@ bool PromoCanBeDisplayed() {
   return !UserInPromoCooldown() &&
          UserInteractionWithNonModalPromoCount() < kPromoShownTimesLimit;
 }
+
+typedef NS_ENUM(NSUInteger, PromoReason) {
+  PromoReasonNone,
+  PromoReasonOmniboxPaste,
+  PromoReasonExternalLink,
+  PromoReasonShare
+};
 
 }  // namespace
 
@@ -50,16 +64,22 @@ bool PromoCanBeDisplayed() {
   // Observe the browser the web state list is tied to to deregister any
   // observers before the browser is destroyed.
   std::unique_ptr<BrowserObserverBridge> _browserObserver;
+
+  // Timer for showing the promo after page load.
+  std::unique_ptr<base::OneShotTimer> _showPromoTimer;
+
+  // Timer for dismissing the promo after it is shown.
+  std::unique_ptr<base::OneShotTimer> _dismissPromoTimer;
 }
 
-// Timer for showing the promo after page load.
-@property(nonatomic, strong) NSTimer* showPromoTimer;
+// Type of the promo being triggered, use for metrics only.
+@property(nonatomic) NonModalPromoTriggerType promoTypeForMetrics;
 
-// Timer for dismissing the promo after it is shown.
-@property(nonatomic, strong) NSTimer* dismissPromoTimer;
+// Time when a non modal promo was shown on screen, used for metrics only.
+@property(nonatomic) base::TimeTicks promoShownTime;
 
-// Webstate that the omnibox paste triggring event occured in.
-@property(nonatomic, assign) web::WebState* omniboxPasteWebState;
+// WebState that the triggering event occured in.
+@property(nonatomic, assign) web::WebState* webStateToListenTo;
 
 // The handler used to respond to the promo show/hide commands.
 @property(nonatomic, readonly) id<DefaultBrowserPromoNonModalCommands> handler;
@@ -75,6 +95,9 @@ bool PromoCanBeDisplayed() {
 // promo from showing over an overlay.
 @property(nonatomic, assign) OverlayPresenter* overlayPresenter;
 
+// The trigger reason for the in-progress promo flow.
+@property(nonatomic, assign) PromoReason currentPromoReason;
+
 @end
 
 @implementation DefaultBrowserPromoNonModalScheduler
@@ -85,11 +108,20 @@ bool PromoCanBeDisplayed() {
     _webStateObserver = std::make_unique<web::WebStateObserverBridge>(self);
     _overlayObserver = std::make_unique<OverlayPresenterObserverBridge>(self);
     _browserObserver = std::make_unique<BrowserObserverBridge>(self);
+    _promoTypeForMetrics = NonModalPromoTriggerType::kUnknown;
   }
   return self;
 }
 
+- (void)dealloc {
+  self.browser = nullptr;
+}
+
 - (void)logUserPastedInOmnibox {
+  if (self.currentPromoReason != PromoReasonNone) {
+    return;
+  }
+
   // This assumes that the currently active webstate is the one that the paste
   // occured in.
   web::WebState* activeWebState = self.webStateList->GetActiveWebState();
@@ -97,19 +129,49 @@ bool PromoCanBeDisplayed() {
   if (!activeWebState) {
     return;
   }
+
+  self.currentPromoReason = PromoReasonOmniboxPaste;
+
   // Store the pasted web state, so when that web state's page load finishes,
   // the promo can be shown.
-  self.omniboxPasteWebState = activeWebState;
+  self.webStateToListenTo = activeWebState;
+
+  self.promoTypeForMetrics = NonModalPromoTriggerType::kPastedLink;
 }
 
 - (void)logUserFinishedActivityFlow {
+  if (self.currentPromoReason != PromoReasonNone) {
+    return;
+  }
+  self.currentPromoReason = PromoReasonShare;
+  self.promoTypeForMetrics = NonModalPromoTriggerType::kShare;
+  [self startShowPromoTimer];
 }
 
 - (void)logUserEnteredAppViaFirstPartyScheme {
+  if (self.currentPromoReason != PromoReasonNone) {
+    return;
+  }
+  // This assumes that the currently active webstate is the one that the paste
+  // occured in.
+  web::WebState* activeWebState = self.webStateList->GetActiveWebState();
+  // There should always be an active web state when pasting in the omnibox.
+  if (!activeWebState) {
+    return;
+  }
+
+  self.currentPromoReason = PromoReasonExternalLink;
+  self.promoTypeForMetrics = NonModalPromoTriggerType::kGrowthKitOpen;
+
+  // Store the current web state, so when that web state's page load finishes,
+  // the promo can be shown.
+  self.webStateToListenTo = activeWebState;
 }
 
 - (void)logPromoWasDismissed {
+  self.currentPromoReason = PromoReasonNone;
   self.promoIsShowing = NO;
+  self.promoTypeForMetrics = NonModalPromoTriggerType::kUnknown;
 }
 
 - (void)logTabGridEntered {
@@ -121,7 +183,13 @@ bool PromoCanBeDisplayed() {
 }
 
 - (void)logUserPerformedPromoAction {
+  LogNonModalPromoAction(NonModalPromoAction::kAccepted,
+                         self.promoTypeForMetrics,
+                         UserInteractionWithNonModalPromoCount());
+  LogNonModalTimeOnScreen(self.promoShownTime);
+  self.promoShownTime = base::TimeTicks();
   LogUserInteractionWithNonModalPromo();
+
   if (NonModalPromosInstructionsEnabled()) {
     id<ApplicationSettingsCommands> handler =
         HandlerForProtocol(self.dispatcher, ApplicationSettingsCommands);
@@ -136,6 +204,11 @@ bool PromoCanBeDisplayed() {
 }
 
 - (void)logUserDismissedPromo {
+  LogNonModalPromoAction(NonModalPromoAction::kDismiss,
+                         self.promoTypeForMetrics,
+                         UserInteractionWithNonModalPromoCount());
+  LogNonModalTimeOnScreen(self.promoShownTime);
+  self.promoShownTime = base::TimeTicks();
   LogUserInteractionWithNonModalPromo();
 }
 
@@ -198,14 +271,30 @@ bool PromoCanBeDisplayed() {
                 oldWebState:(web::WebState*)oldWebState
                     atIndex:(int)atIndex
                      reason:(ActiveWebStateChangeReason)reason {
-  [self cancelShowPromoTimer];
+  if (newWebState != self.webStateToListenTo) {
+    [self cancelShowPromoTimer];
+  }
+}
+
+- (void)webStateList:(WebStateList*)webStateList
+    didInsertWebState:(web::WebState*)webState
+              atIndex:(int)index
+           activating:(BOOL)activating {
+  // For the external link open, the opened link can open in a new webstate.
+  // Assume that is the case if a new WebState is inserted and activated when
+  // the current web state is the one that was active when the link was opened.
+  if (self.currentPromoReason == PromoReasonExternalLink &&
+      self.webStateList->GetActiveWebState() == self.webStateToListenTo &&
+      activating) {
+    self.webStateToListenTo = webState;
+  }
 }
 
 #pragma mark - CRWWebStateObserver
 
 - (void)webState:(web::WebState*)webState didLoadPageWithSuccess:(BOOL)success {
-  if (success && webState == self.omniboxPasteWebState) {
-    self.omniboxPasteWebState = nil;
+  if (success && webState == self.webStateToListenTo) {
+    self.webStateToListenTo = nil;
     [self startShowPromoTimer];
   }
 }
@@ -224,6 +313,15 @@ bool PromoCanBeDisplayed() {
 - (void)sceneState:(SceneState*)sceneState
     transitionedToActivationLevel:(SceneActivationLevel)level {
   if (level <= SceneActivationLevelBackground) {
+    if (self.promoTypeForMetrics != NonModalPromoTriggerType::kUnknown &&
+        !self.promoIsShowing) {
+      LogNonModalPromoAction(NonModalPromoAction::kBackgroundCancel,
+                             self.promoTypeForMetrics,
+                             UserInteractionWithNonModalPromoCount());
+      self.promoTypeForMetrics = NonModalPromoTriggerType::kUnknown;
+    }
+    [self cancelShowPromoTimer];
+    [self cancelDismissPromoTimer];
     [self.handler dismissDefaultBrowserNonModalPromoAnimated:NO];
   }
 }
@@ -236,53 +334,90 @@ bool PromoCanBeDisplayed() {
 
 #pragma mark - Timer Management
 
+// Start the timer to show a promo. |self.currentPromoReason| must be set to
+// the reason for this promo flow and must not be |PromoReasonNone|.
 - (void)startShowPromoTimer {
-  if (!PromoCanBeDisplayed() || self.promoIsShowing || self.showPromoTimer) {
+  DCHECK(self.currentPromoReason != PromoReasonNone);
+
+  if (!PromoCanBeDisplayed()) {
+    self.currentPromoReason = PromoReasonNone;
     return;
   }
-  self.showPromoTimer =
-      [NSTimer scheduledTimerWithTimeInterval:kShowPromoWebpageLoadWaitTime
-                                       target:self
-                                     selector:@selector(showPromoTimerFinished)
-                                     userInfo:nil
-                                      repeats:NO];
+
+  if (self.promoIsShowing || _showPromoTimer) {
+    return;
+  }
+
+  int64_t promoTimeInterval;
+  switch (self.currentPromoReason) {
+    case PromoReasonNone:
+      NOTREACHED();
+      promoTimeInterval = kShowPromoWebpageLoadWaitTime;
+      break;
+    case PromoReasonOmniboxPaste:
+      promoTimeInterval = kShowPromoWebpageLoadWaitTime;
+      break;
+    case PromoReasonExternalLink:
+      promoTimeInterval = kShowPromoWebpageLoadWaitTime;
+      break;
+    case PromoReasonShare:
+      promoTimeInterval = kShowPromoPostShareWaitTime;
+      break;
+  }
+
+  __weak __typeof(self) weakSelf = self;
+  _showPromoTimer = std::make_unique<base::OneShotTimer>();
+  _showPromoTimer->Start(FROM_HERE,
+                         base::TimeDelta::FromSeconds(promoTimeInterval),
+                         base::BindOnce(^{
+                           [weakSelf showPromoTimerFinished];
+                         }));
 }
 
 - (void)cancelShowPromoTimer {
-  [self.showPromoTimer invalidate];
-  self.showPromoTimer = nil;
+  _showPromoTimer = nullptr;
+  self.currentPromoReason = PromoReasonNone;
 }
 
 - (void)showPromoTimerFinished {
   if (!PromoCanBeDisplayed() || self.promoIsShowing) {
     return;
   }
-  self.showPromoTimer = nil;
+  _showPromoTimer = nullptr;
   [self.handler showDefaultBrowserNonModalPromo];
   self.promoIsShowing = YES;
+  LogNonModalPromoAction(NonModalPromoAction::kAppear, self.promoTypeForMetrics,
+                         UserInteractionWithNonModalPromoCount());
+  self.promoShownTime = base::TimeTicks::Now();
   [self startDismissPromoTimer];
 }
 
 - (void)startDismissPromoTimer {
-  if (self.dismissPromoTimer) {
+  if (_dismissPromoTimer) {
     return;
   }
-  self.dismissPromoTimer = [NSTimer
-      scheduledTimerWithTimeInterval:NonModalPromosTimeout()
-                              target:self
-                            selector:@selector(dismissPromoTimerFinished)
-                            userInfo:nil
-                             repeats:NO];
+
+  __weak __typeof(self) weakSelf = self;
+  _dismissPromoTimer = std::make_unique<base::OneShotTimer>();
+  _dismissPromoTimer->Start(
+      FROM_HERE, base::TimeDelta::FromSeconds(NonModalPromosTimeout()),
+      base::BindOnce(^{
+        [weakSelf dismissPromoTimerFinished];
+      }));
 }
 
 - (void)cancelDismissPromoTimer {
-  [self.dismissPromoTimer invalidate];
-  self.dismissPromoTimer = nil;
+  _dismissPromoTimer = nullptr;
 }
 
 - (void)dismissPromoTimerFinished {
-  self.dismissPromoTimer = nil;
+  _dismissPromoTimer = nullptr;
   if (self.promoIsShowing) {
+    LogNonModalPromoAction(NonModalPromoAction::kTimeout,
+                           self.promoTypeForMetrics,
+                           UserInteractionWithNonModalPromoCount());
+    LogNonModalTimeOnScreen(self.promoShownTime);
+    self.promoShownTime = base::TimeTicks();
     LogUserInteractionWithNonModalPromo();
     [self.handler dismissDefaultBrowserNonModalPromoAnimated:YES];
   }

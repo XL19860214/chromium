@@ -24,6 +24,7 @@
 #include "services/network/public/mojom/url_loader.mojom.h"
 #include "services/network/public/mojom/url_response_head.mojom-forward.h"
 #include "third_party/blink/public/mojom/loader/resource_load_info.mojom.h"
+#include "third_party/blink/public/platform/web_loader_freeze_mode.h"
 #include "third_party/blink/public/platform/web_navigation_body_loader.h"
 
 namespace blink {
@@ -103,12 +104,13 @@ class CONTENT_EXPORT NavigationBodyLoader
       network::mojom::URLLoaderClientEndpointsPtr url_loader_client_endpoints,
       scoped_refptr<base::SingleThreadTaskRunner> task_runner,
       std::unique_ptr<blink::ResourceLoadInfoNotifierWrapper>
-          resource_load_info_notifier_wrapper);
+          resource_load_info_notifier_wrapper,
+      RenderFrameImpl* render_frame_impl);
 
   // blink::WebNavigationBodyLoader
-  void SetDefersLoading(blink::WebURLLoader::DeferType defers) override;
+  void SetDefersLoading(blink::WebLoaderFreezeMode mode) override;
   void StartLoadingBody(WebNavigationBodyLoader::Client* client,
-                        bool use_isolated_code_cache) override;
+                        blink::mojom::CodeCacheHost* code_cache_host) override;
 
   // network::mojom::URLLoaderClient
   void OnReceiveEarlyHints(network::mojom::EarlyHintsPtr early_hints) override;
@@ -171,10 +173,9 @@ class CONTENT_EXPORT NavigationBodyLoader
   // Whether we got all the body data.
   bool has_seen_end_of_data_ = false;
 
-  // Deferred body loader does not send any notifications to the client
+  // Frozen body loader does not send any notifications to the client
   // and tries not to read from the body pipe.
-  blink::WebURLLoader::DeferType defer_type_ =
-      blink::WebURLLoader::DeferType::kNotDeferred;
+  blink::WebLoaderFreezeMode freeze_mode_ = blink::WebLoaderFreezeMode::kNone;
 
   // This protects against reentrancy into OnReadable,
   // which can happen due to nested message loop triggered

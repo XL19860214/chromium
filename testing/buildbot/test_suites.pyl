@@ -425,12 +425,6 @@
       },
     },
 
-    'check_network_annotations_script': {
-      'check_network_annotations': {
-        'script': 'check_network_annotations.py',
-      },
-    },
-
     'chrome_public_wpt': {
       'chrome_public_wpt': {
         'swarming': {
@@ -643,13 +637,6 @@
       'crypto_unittests': {},
       'display_unittests': {},
       'google_apis_unittests': {},
-      'interactive_ui_tests': {
-        'args': [
-          '--stop-ui',
-          '--dbus-stub',
-          '--gtest_filter=SplitViewTest.SplitViewResize',
-        ],
-      },
       'ipc_tests': {},
       'jingle_unittests': {},
       'latency_unittests': {},
@@ -896,6 +883,9 @@
     },
 
     'chromium_linux_scripts': {
+      'check_network_annotations': {
+        'script': 'check_network_annotations.py',
+      },
       'check_static_initializers': {
         'script': 'check_static_initializers.py',
       },
@@ -917,12 +907,6 @@
       'check_static_initializers': {
         'script': 'check_static_initializers.py',
       },
-      'webkit_lint': {
-        'script': 'blink_lint_expectations.py',
-      },
-    },
-
-    'chromium_scripts': {
       'webkit_lint': {
         'script': 'blink_lint_expectations.py',
       },
@@ -1108,6 +1092,15 @@
         'swarming': {
           'shards': 12,
         }
+      },
+    },
+
+    'chromium_win_scripts': {
+      'check_network_annotations': {
+        'script': 'check_network_annotations.py',
+      },
+      'webkit_lint': {
+        'script': 'blink_lint_expectations.py',
       },
     },
 
@@ -3963,7 +3956,6 @@
         # TODO(crbug.com/816629) - Move these args into //BUILD.gn.
         'name': 'webgpu_blink_web_tests_with_backend_validation',
         'args': [
-          '--driver-logging',
           # Disable parallel jobs to work around consistent test timeout flakes.
           # Also, the first test is always flaky due to startup time, so force
           # the order so we can suppress it.
@@ -4006,7 +3998,6 @@
         # TODO(crbug.com/816629) - Move these args into //BUILD.gn.
         'name': 'webgpu_blink_web_tests',
         'args': [
-          '--driver-logging',
           # Disable parallel jobs to work around consistent test timeout flakes.
           # Also, the first test is always flaky due to startup time, so force
           # the order so we can suppress it.
@@ -4050,7 +4041,6 @@
         # TODO(crbug.com/816629) - Move these args into //BUILD.gn.
         'name': 'webgpu_blink_web_tests_with_backend_validation',
         'args': [
-          '--driver-logging',
           # Disable parallel jobs to work around consistent test timeout flakes.
           # Also, the first test is always flaky due to startup time, so force
           # the order so we can suppress it.
@@ -4198,8 +4188,16 @@
       }
     },
 
-    'lacros_all_tast_tests': {
-      'lacros_all_tast_tests': {
+    # TODO(crbug.com/1204231): Re-enable vaapi_unittest.
+    'lacros_device_or_vm_gtests': {
+      'aura_unittests': {},
+      'cc_unittests': {},
+      'interactive_ui_tests': {},
+      'ozone_unittests': {},
+    },
+
+    'lacros_fyi_tast_tests': {
+      'lacros_fyi_tast_tests': {
         'swarming': {
           'idempotent': False,  # https://crbug.com/923426#c27
         },
@@ -4209,16 +4207,8 @@
       },
     },
 
-    # TODO(crbug.com/1204231): Re-enable vaapi_unittest.
-    'lacros_device_or_vm_gtests': {
-      'aura_unittests': {},
-      'cc_unittests': {},
-      'interactive_ui_tests': {},
-      'ozone_unittests': {},
-    },
-
     'lacros_skylab_poc': {
-      'mainline_lacros_tast_tests': {
+      'lacros_fyi_tast_tests': {
         'tast_expr': '("group:mainline" && "dep:lacros")',
         'timeout_sec': 10800,
       },
@@ -4341,6 +4331,7 @@
 
     'linux_lacros_chrome_browsertests_version_skew': {
       'lacros_chrome_browsertests': { },
+      'lacros_chrome_browsertests_run_in_series': { },
     },
 
     'linux_lacros_cq_gtests': {
@@ -4358,6 +4349,7 @@
         },
       },
       'lacros_chrome_browsertests': {},
+      'lacros_chrome_browsertests_run_in_series': {},
       'lacros_chrome_unittests': {},
       'sync_integration_tests': {},
       'ui_base_unittests': {},
@@ -4366,6 +4358,7 @@
 
     'linux_lacros_specific_gtests': {
       'lacros_chrome_browsertests': {},
+      'lacros_chrome_browsertests_run_in_series': {},
       'lacros_chrome_unittests': {},
     },
 
@@ -4725,6 +4718,18 @@
       },
     },
 
+    'process_host_on_ui_gtests': {
+      'process_host_on_ui_content_browsertests': {
+        'args': [
+          '--enable-features=ProcessHostOnUI',
+        ],
+        'swarming': {
+          'shards': 10,
+        },
+        'test': 'content_browsertests',
+      },
+    },
+
     # TODO(dpranke): These are run on the p/chromium waterfall; they should
     # probably be run on other builders, and we should get rid of the p/chromium
     # waterfall.
@@ -4747,7 +4752,7 @@
 
     'rendering_mobile_representative_perf_tests_isolated_scripts': {
       'rendering_representative_perf_tests': {
-        'isolate_name': 'rendering_representative_perf_tests',
+        'isolate_name': 'rendering_representative_perf_tests_android_chrome',
         'args': [
           "../../tools/perf/run_benchmark",
           "--benchmarks=rendering.mobile",
@@ -4759,7 +4764,7 @@
 
     'rendering_mobile_representative_perf_tests_isolated_scripts_experimental': {
       'rendering_representative_perf_tests': {
-        'isolate_name': 'rendering_representative_perf_tests',
+        'isolate_name': 'rendering_representative_perf_tests_android_chrome',
         'args': [
           "../../tools/perf/run_benchmark",
           "--benchmarks=rendering.mobile",
@@ -5039,7 +5044,7 @@
           '--passthrough',
           '--retry-limit=2',
         ],
-        'isolate_name': 'telemetry_perf_unittests',
+        'isolate_name': 'telemetry_perf_unittests_android_chrome',
         'resultdb': {
           'enable': True,
         },
@@ -5052,7 +5057,7 @@
           '--passthrough',
           '--retry-limit=2',
         ],
-        'isolate_name': 'telemetry_perf_unittests',
+        'isolate_name': 'telemetry_perf_unittests_android_monochrome',
         'resultdb': {
           'enable': True,
         },
@@ -5077,6 +5082,23 @@
 
     'telemetry_perf_unittests_isolated_scripts': {
       'telemetry_perf_unittests': {
+        'args': [
+          # TODO(crbug.com/1077284): Remove this once Crashpad is the default.
+          '--extra-browser-args=--enable-crashpad',
+        ],
+        'swarming': {
+          'idempotent': False,  # https://crbug.com/549140
+          'shards': 12,
+        },
+        'resultdb': {
+          'enable': True,
+        },
+      },
+    },
+
+    'telemetry_perf_unittests_isolated_scripts_android': {
+      'telemetry_perf_unittests': {
+        'isolate_name': 'telemetry_perf_unittests_android_chrome',
         'args': [
           # TODO(crbug.com/1077284): Remove this once Crashpad is the default.
           '--extra-browser-args=--enable-crashpad',
@@ -5837,6 +5859,7 @@
       'linux_specific_xr_gtests',
       'non_android_and_cast_and_chromeos_chromium_gtests',
       'non_android_chromium_gtests',
+      'process_host_on_ui_gtests',
       'vr_platform_specific_chromium_gtests',
       'weblayer_gtests',
     ],
@@ -5968,7 +5991,7 @@
       'web_engine_gtests',
     ],
 
-    'fuchsia_x64_isolated_scripts': [
+    'fuchsia_isolated_scripts': [
       'chromium_webkit_isolated_scripts',
       'gpu_angle_fuchsia_unittests_isolated_scripts'
     ],
@@ -6640,6 +6663,7 @@
       'gpu_common_and_optional_telemetry_tests',
       'gpu_mediapipe_passthrough_telemetry_tests',
       'gpu_mediapipe_validating_telemetry_tests',
+      'gpu_passthrough_telemetry_tests',
       'gpu_validating_telemetry_tests',
       'gpu_webcodecs_telemetry_test',
       'gpu_webgl_conformance_gles_passthrough_telemetry_tests',
@@ -6743,14 +6767,14 @@
       'components_perftests_isolated_scripts',
       'monochrome_public_apk_checker_isolated_script',
       'telemetry_android_minidump_unittests_isolated_scripts',
-      'telemetry_perf_unittests_isolated_scripts',
+      'telemetry_perf_unittests_isolated_scripts_android',
     ],
 
     'marshmallow_pie_isolated_scripts': [
       'android_isolated_scripts',
       'components_perftests_isolated_scripts',
       'telemetry_android_minidump_unittests_isolated_scripts',
-      'telemetry_perf_unittests_isolated_scripts',
+      'telemetry_perf_unittests_isolated_scripts_android',
     ],
 
     'mojo_android_gtests': [
@@ -6963,37 +6987,35 @@
       },
     },
 
-    # ios14-beta-sim runs sims only on 14.0+ since
-    # ios13-beta-sim already runs 13.x and 12.4
     'ios14_beta_simulator_tests': {
       'ios_common_tests': {
         'variants': [
-          'SIM_IPHONE_X_14_4',
+          'SIM_IPHONE_X_14_5',
         ],
       },
       'ios_eg2_tests': {
         'mixins': ['xcode_parallelization'],
         'variants': [
-          'SIM_IPHONE_X_14_4',
-          'SIM_IPHONE_7_14_4',
-          'SIM_IPAD_AIR_3RD_GEN_14_4',
-          'SIM_IPAD_6_GEN_14_4',
+          'SIM_IPHONE_X_14_5',
+          'SIM_IPHONE_7_14_5',
+          'SIM_IPAD_AIR_3RD_GEN_14_5',
+          'SIM_IPAD_6_GEN_14_5',
         ]
       },
       'ios_eg2_cq_tests': {
         'mixins': ['xcode_parallelization'],
         'variants': [
-          'SIM_IPHONE_7_14_4',
-          'SIM_IPHONE_X_14_4',
-          'SIM_IPAD_PRO_2ND_GEN_14_4',
-          'SIM_IPAD_6_GEN_14_4',
+          'SIM_IPHONE_7_14_5',
+          'SIM_IPHONE_X_14_5',
+          'SIM_IPAD_PRO_2ND_GEN_14_5',
+          'SIM_IPAD_6_GEN_14_5',
         ]
       },
       'ios_screen_size_dependent_tests': {
         'variants': [
-          'SIM_IPHONE_6S_PLUS_14_4',
-          'SIM_IPHONE_X_14_4',
-          'SIM_IPAD_AIR_2_14_4',
+          'SIM_IPHONE_6S_PLUS_14_5',
+          'SIM_IPHONE_X_14_5',
+          'SIM_IPAD_AIR_2_14_5',
         ],
       },
     },
@@ -7002,32 +7024,50 @@
       'ios_common_tests': {
         'variants': [
           # Latest beta iOS version Sims
-          'SIM_IPHONE_6S_14_4',
+          'SIM_IPHONE_6S_14_5',
+          'SIM_IPHONE_6S_13_6',
+          'SIM_IPHONE_6S_12_4',
         ],
       },
       'ios_eg2_tests': {
         'mixins': ['xcode_parallelization'],
         'variants': [
           # Latest beta iOS version Sims
-          'SIM_IPHONE_7_14_4',
-          'SIM_IPAD_AIR_2_14_4',
-          'SIM_IPHONE_X_14_4',
+          'SIM_IPHONE_7_14_5',
+          'SIM_IPAD_AIR_2_14_5',
+          'SIM_IPHONE_X_14_5',
+          'SIM_IPHONE_7_13_6',
+          'SIM_IPAD_AIR_2_13_6',
+          'SIM_IPHONE_X_13_6',
+          'SIM_IPAD_AIR_2_12_4',
+          'SIM_IPHONE_X_12_4',
         ]
       },
       'ios_eg2_cq_tests': {
         'mixins': ['xcode_parallelization'],
         'variants': [
           # Latest beta iOS version Sims
-          'SIM_IPHONE_X_14_4',
-          'SIM_IPAD_AIR_2_14_4',
-          'SIM_IPAD_PRO_2ND_GEN_14_4',
+          'SIM_IPHONE_X_14_5',
+          'SIM_IPAD_AIR_2_14_5',
+          'SIM_IPAD_PRO_2ND_GEN_14_5',
+          'SIM_IPHONE_7_13_6',
+          'SIM_IPAD_AIR_2_13_6',
+          'SIM_IPHONE_6S_13_6',
+          'SIM_IPAD_AIR_2_12_4',
+          'SIM_IPHONE_6S_12_4',
         ]
       },
       'ios_screen_size_dependent_tests': {
         'variants': [
           # Latest beta iOS version Sims
-          'SIM_IPHONE_6S_PLUS_14_4',
-          'SIM_IPHONE_6S_14_4',
+          'SIM_IPHONE_6S_PLUS_14_5',
+          'SIM_IPHONE_6S_14_5',
+          'SIM_IPHONE_SE_1ST_GEN_14_5',
+          'SIM_IPAD_AIR_2_14_5',
+          'SIM_IPHONE_6S_PLUS_13_6',
+          'SIM_IPHONE_6S_13_6',
+          'SIM_IPHONE_SE_1ST_GEN_13_6',
+          'SIM_IPAD_AIR_2_13_6',
         ],
       },
     },
@@ -7226,36 +7266,28 @@
     'ios_webkit_tot_tests': {
       'ios_common_tests': {
         'variants': [
-          'SIM_IPHONE_X_13_5',
-          'SIM_IPAD_AIR_2_13_5',
+          'SIM_IPHONE_X_14_5',
+          'SIM_IPAD_AIR_2_14_5',
         ]
       },
       'ios_eg2_cq_tests': {
         'mixins': ['xcode_parallelization'],
         'variants': [
-          'SIM_IPHONE_X_13_5',
-          'SIM_IPAD_AIR_2_13_5',
+          'SIM_IPHONE_X_14_5',
+          'SIM_IPAD_AIR_2_14_5',
         ]
       },
       'ios_eg2_tests': {
         'mixins': ['xcode_parallelization'],
         'variants': [
-          'SIM_IPHONE_X_13_5',
-          'SIM_IPAD_AIR_2_13_5',
+          'SIM_IPHONE_X_14_5',
+          'SIM_IPAD_AIR_2_14_5',
         ]
       },
       'ios_screen_size_dependent_tests': {
         'variants': [
-          'SIM_IPHONE_X_13_5',
-          'SIM_IPAD_AIR_2_13_5',
-        ]
-      },
-    },
-
-    'lacros_all_tast_tests_eve': {
-      'lacros_all_tast_tests': {
-        'variants': [
-          'LACROS_EVE',
+          'SIM_IPHONE_X_14_5',
+          'SIM_IPAD_AIR_2_14_5',
         ]
       },
     },
@@ -7276,14 +7308,24 @@
 
     # TODO(crbug.com/1195415): Add EVE variant once HW arrives and is deployed.
     'lacros_device_or_vm_tests_fyi': {
-      'lacros_all_tast_tests': {
-        'variants': [
-          'LACROS_AMD64_GENERIC',
-        ]
-      },
       'lacros_device_or_vm_gtests': {
         'variants': [
           'LACROS_AMD64_GENERIC',
+          'LACROS_EVE',
+        ]
+      },
+      'lacros_fyi_tast_tests': {
+        'variants': [
+          'LACROS_AMD64_GENERIC',
+          'LACROS_EVE',
+        ]
+      },
+    },
+
+    'lacros_fyi_tast_tests_eve': {
+      'lacros_fyi_tast_tests': {
+        'variants': [
+          'LACROS_EVE',
         ]
       },
     },

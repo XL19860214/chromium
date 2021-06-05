@@ -107,9 +107,9 @@ class ChromeShelfController
   // Returns true if the item identified by |id| is pinned.
   bool IsPinned(const ash::ShelfID& id);
 
-  // Set the shelf item status for the V1 application with the given |app_id|.
+  // Set the shelf item status for the application with the given |app_id|.
   // Adds or removes an item as needed to respect the running and pinned state.
-  void SetV1AppStatus(const std::string& app_id, ash::ShelfItemStatus status);
+  void SetAppStatus(const std::string& app_id, ash::ShelfItemStatus status);
 
   // Closes the specified item.
   void Close(const ash::ShelfID& id);
@@ -276,7 +276,8 @@ class ChromeShelfController
                     const std::string& app_id,
                     bool reload_icon) override;
   void OnAppUninstalledPrepared(content::BrowserContext* browser_context,
-                                const std::string& app_id) override;
+                                const std::string& app_id,
+                                bool by_migration) override;
 
   // AppIconLoaderDelegate:
   void OnAppImageUpdated(const std::string& app_id,

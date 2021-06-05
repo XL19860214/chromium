@@ -10,13 +10,13 @@
 
 #include "base/base64.h"
 #include "base/bind.h"
+#include "base/cxx17_backports.h"
 #include "base/feature_list.h"
 #include "base/files/file_path.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
-#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/stringprintf.h"
@@ -96,7 +96,7 @@ class MessageSender : public content::NotificationObserver {
       GURL event_url) {
     auto event =
         std::make_unique<Event>(events::TEST_ON_MESSAGE, "test.onMessage",
-                                std::move(event_args), profile);
+                                event_args->TakeList(), profile);
     event->event_url = event_url;
     return event;
   }

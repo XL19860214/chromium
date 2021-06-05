@@ -227,6 +227,8 @@ class CORE_EXPORT ScrollableArea : public GarbageCollectedMixin {
         scrollbar_overlay_color_theme_);
   }
 
+  // This getter will create a MacScrollAnimator if it doesn't already exist,
+  // only on MacOS.
   MacScrollbarAnimator* GetMacScrollbarAnimator() const;
 
   // This getter will create a ScrollAnimatorBase if it doesn't already exist.
@@ -393,8 +395,12 @@ class CORE_EXPORT ScrollableArea : public GarbageCollectedMixin {
   virtual void RegisterForAnimation() {}
   virtual void DeregisterForAnimation() {}
 
-  bool UsesCompositedScrolling() const { return uses_composited_scrolling_; }
+  virtual bool UsesCompositedScrolling() const {
+    DCHECK(!RuntimeEnabledFeatures::CompositeAfterPaintEnabled());
+    return uses_composited_scrolling_;
+  }
   void SetUsesCompositedScrolling(bool uses_composited_scrolling) {
+    DCHECK(!RuntimeEnabledFeatures::CompositeAfterPaintEnabled());
     uses_composited_scrolling_ = uses_composited_scrolling;
   }
   virtual bool ShouldScrollOnMainThread() const { return false; }
@@ -449,9 +455,6 @@ class CORE_EXPORT ScrollableArea : public GarbageCollectedMixin {
   bool ScrollCornerNeedsPaintInvalidation() const {
     return scroll_corner_needs_paint_invalidation_;
   }
-
-  bool NeedsShowScrollbarLayers() const { return needs_show_scrollbar_layers_; }
-  void DidShowScrollbarLayers() { needs_show_scrollbar_layers_ = false; }
 
   void CancelScrollAnimation();
   virtual void CancelProgrammaticScrollAnimation();
@@ -633,7 +636,7 @@ class CORE_EXPORT ScrollableArea : public GarbageCollectedMixin {
   // using AppKit-specific code (Cocoa APIs). It requires input from
   // ScrollableArea about changes on scrollbars. For other platforms, painting
   // is done by blink, and this member will be a nullptr.
-  mutable Member<MacScrollbarAnimator> scrollbar_animator_;
+  mutable Member<MacScrollbarAnimator> mac_scrollbar_animator_;
 
   mutable Member<ScrollAnimatorBase> scroll_animator_;
   mutable Member<ProgrammaticScrollAnimator> programmatic_scroll_animator_;
@@ -652,10 +655,6 @@ class CORE_EXPORT ScrollableArea : public GarbageCollectedMixin {
   unsigned scrollbar_captured_ : 1;
   unsigned mouse_over_scrollbar_ : 1;
   unsigned has_been_disposed_ : 1;
-
-  // Indicates that the next compositing update needs to call
-  // cc::Layer::ShowScrollbars() on our scroll layer. Ignored if not composited.
-  unsigned needs_show_scrollbar_layers_ : 1;
   unsigned uses_composited_scrolling_ : 1;
 
   scoped_refptr<base::SingleThreadTaskRunner> compositor_task_runner_;

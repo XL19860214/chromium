@@ -8,9 +8,23 @@
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_inline_item.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_inline_node.h"
+#include "third_party/blink/renderer/core/svg/svg_animated_length.h"
 #include "third_party/blink/renderer/core/svg/svg_animated_length_list.h"
 #include "third_party/blink/renderer/core/svg/svg_animated_number_list.h"
 #include "third_party/blink/renderer/core/svg/svg_text_positioning_element.h"
+
+namespace blink {
+
+struct SVGTextLengthContext {
+  DISALLOW_NEW();
+
+  const LayoutObject* layout_object;
+  unsigned start_index;
+};
+
+}  // namespace blink
+
+WTF_ALLOW_MOVE_INIT_AND_COMPARE_WITH_MEM_FUNCTIONS(blink::SVGTextLengthContext)
 
 namespace blink {
 
@@ -180,14 +194,31 @@ class LayoutAttributesStack final {
   HeapVector<Member<LayoutAttributesIterator>> stack_;
 };
 
-bool HasUpdated(const NGSVGCharacterData& data) {
+bool HasUpdated(const NGSvgCharacterData& data) {
   return data.HasX() || data.HasY() || data.HasDx() || data.HasDy() ||
          data.HasRotate() || data.anchored_chunk;
 }
 
+bool HasValidTextLength(const LayoutObject& layout_object) {
+  if (auto* element =
+          DynamicTo<SVGTextContentElement>(layout_object.GetNode())) {
+    if (element->TextLengthIsSpecifiedByUser()) {
+      float text_length = element->textLength()->CurrentValue()->Value(
+          SVGLengthContext(element));
+      // text_length is 0.0 if the textLength attribute has an invalid
+      // string. Legacy SVG <text> skips textLength processing if the
+      // attribute is "0" or invalid. Firefox skips textLength processing if
+      // textLength value is smaller than the intrinsic width of the text.
+      // This code follows the legacy behavior.
+      return text_length > 0.0f;
+    }
+  }
+  return false;
+}
+
 }  // anonymous namespace
 
-NGSVGTextLayoutAttributesBuilder::NGSVGTextLayoutAttributesBuilder(
+NGSvgTextLayoutAttributesBuilder::NGSvgTextLayoutAttributesBuilder(
     NGInlineNode ifc)
     : block_flow_(To<LayoutBlockFlow>(ifc.GetLayoutBox())) {}
 
@@ -198,10 +229,11 @@ NGSVGTextLayoutAttributesBuilder::NGSVGTextLayoutAttributesBuilder(
 // resolve_dy, "rotate" of result[], and "anchored chunk" of result[].
 //
 // [1]: https://svgwg.org/svg2-draft/text.html#TextLayoutAlgorithm
-void NGSVGTextLayoutAttributesBuilder::Build(
+void NGSvgTextLayoutAttributesBuilder::Build(
     const String& ifc_text_content,
     const Vector<NGInlineItem>& items) {
   LayoutAttributesStack attr_stack;
+  Vector<SVGTextLengthContext> text_length_stack;
   unsigned addressable_index = 0;
   bool is_first_char = true;
   bool in_text_path = false;
@@ -211,6 +243,10 @@ void NGSVGTextLayoutAttributesBuilder::Build(
       IsHorizontalWritingMode(block_flow_->StyleRef().GetWritingMode());
 
   attr_stack.Push(*block_flow_, in_text_path);
+  if (HasValidTextLength(*block_flow_)) {
+    text_length_stack.push_back(
+        SVGTextLengthContext{block_flow_, addressable_index});
+  }
   for (const auto& item : items) {
     const LayoutObject* object = item.GetLayoutObject();
 
@@ -224,6 +260,10 @@ void NGSVGTextLayoutAttributesBuilder::Build(
         in_text_path = true;
         text_path_start = addressable_index;
       }
+      if (HasValidTextLength(*object)) {
+        text_length_stack.push_back(
+            SVGTextLengthContext{object, addressable_index});
+      }
 
     } else if (item.Type() == NGInlineItem::kCloseTag) {
       if (object->IsSVGTSpan()) {
@@ -235,11 +275,17 @@ void NGSVGTextLayoutAttributesBuilder::Build(
         first_char_in_text_path = false;
         DCHECK(text_path_start);
         if (addressable_index != *text_path_start) {
-          text_path_range_list_.push_back(
-              SVGTextPathRange{To<LayoutSVGTextPath>(object), *text_path_start,
-                               addressable_index - 1});
+          text_path_range_list_.push_back(SvgTextContentRange{
+              object, *text_path_start, addressable_index - 1});
         }
         text_path_start.reset();
+      }
+      if (text_length_stack.size() > 0u &&
+          text_length_stack.back().layout_object == object) {
+        text_length_range_list_.push_back(
+            SvgTextContentRange{object, text_length_stack.back().start_index,
+                                addressable_index - 1});
+        text_length_stack.pop_back();
       }
 
     } else if (item.Type() != NGInlineItem::kText) {
@@ -248,7 +294,7 @@ void NGSVGTextLayoutAttributesBuilder::Build(
 
     StringView item_string(ifc_text_content, item.StartOffset(), item.Length());
     for (unsigned i = 0; i < item.Length();) {
-      NGSVGCharacterData data;
+      NGSvgCharacterData data;
 
       // 2.2. Set the "anchored chunk" flag of result[index] to true.
       // 1.6.1.1. If i < new_check_count, then set the "anchored chunk" flag
@@ -266,12 +312,12 @@ void NGSVGTextLayoutAttributesBuilder::Build(
       // false, unset resolve_x[index].
       if (in_text_path && !horizontal)
         data.x = SVGCharacterData::EmptyValue();
-      // Not in the specification; Set X/Y of the first character in a
+      // Not in the specification; Set X of the first character in a
       // <textPath> to 0 in order to:
-      //   - Reset dx/dy in AdjustPositionsDxDy().
+      //   - Reset dx in AdjustPositionsDxDy().
       //   - Anchor at 0 in ApplyAnchoring().
       // https://github.com/w3c/svgwg/issues/274
-      if (first_char_in_text_path && !data.HasX())
+      if (first_char_in_text_path && horizontal && !data.HasX())
         data.x = 0.0f;
 
       // 1.6.1.4. If i < length of y, then set resolve_y[index + j] to y[i].
@@ -281,22 +327,28 @@ void NGSVGTextLayoutAttributesBuilder::Build(
       // true, unset resolve_y[index].
       if (in_text_path && horizontal)
         data.y = SVGCharacterData::EmptyValue();
-      // Not in the specification; Set X/Y of the first character in a
+      // Not in the specification; Set Y of the first character in a
       // <textPath> to 0 in order to:
-      //   - Reset dx/dy in AdjustPositionsDxDy().
+      //   - Reset dy in AdjustPositionsDxDy().
       //   - Anchor at 0 in ApplyAnchoring().
       // https://github.com/w3c/svgwg/issues/274
-      if (first_char_in_text_path && !data.HasY())
+      if (first_char_in_text_path && !horizontal && !data.HasY())
         data.y = 0.0f;
 
       first_char_in_text_path = false;
 
+      // Not in the specification; The following code sets the initial inline
+      // offset of 'current text position' to 0.
+      // See NGInlineLayoutAlgorithm::CreateLine() for the initial block offset.
       if (is_first_char) {
         is_first_char = false;
-        if (!data.HasX())
-          data.x = 0.0f;
-        if (!data.HasY())
-          data.y = 0.0f;
+        if (horizontal) {
+          if (!data.HasX())
+            data.x = 0.0f;
+        } else {
+          if (!data.HasY())
+            data.y = 0.0f;
+        }
       }
 
       // 1.6.1.6. If i < length of dx, then set resolve_dx[index + j] to dx[i].
@@ -320,15 +372,28 @@ void NGSVGTextLayoutAttributesBuilder::Build(
                : 1;
     }
   }
+  if (text_length_stack.size() > 0u) {
+    DCHECK_EQ(text_length_stack.back().layout_object, block_flow_);
+    DCHECK_EQ(text_length_stack.back().start_index, 0u);
+    text_length_range_list_.push_back(
+        SvgTextContentRange{block_flow_, 0u, addressable_index - 1});
+    text_length_stack.pop_back();
+  }
   attr_stack.Pop();
 }
 
-Vector<std::pair<unsigned, NGSVGCharacterData>>
-NGSVGTextLayoutAttributesBuilder::CharacterDataList() {
+Vector<std::pair<unsigned, NGSvgCharacterData>>
+NGSvgTextLayoutAttributesBuilder::CharacterDataList() {
   return std::move(resolved_);
 }
 
-Vector<SVGTextPathRange> NGSVGTextLayoutAttributesBuilder::TextPathRangeList() {
+Vector<SvgTextContentRange>
+NGSvgTextLayoutAttributesBuilder::TextLengthRangeList() {
+  return std::move(text_length_range_list_);
+}
+
+Vector<SvgTextContentRange>
+NGSvgTextLayoutAttributesBuilder::TextPathRangeList() {
   return std::move(text_path_range_list_);
 }
 

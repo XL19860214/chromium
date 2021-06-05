@@ -78,7 +78,6 @@ class AppListTestViewDelegate : public AppListViewDelegate,
   void ViewShown(int64_t display_id) override {}
   void DismissAppList() override;
   void ViewClosing() override {}
-  void ViewClosed() override {}
   const std::vector<SkColor>& GetWallpaperProminentColors() override;
   void ActivateItem(const std::string& id,
                     int event_flags,
@@ -113,6 +112,7 @@ class AppListTestViewDelegate : public AppListViewDelegate,
   bool AppListTargetVisibility() const override;
   bool IsInTabletMode() override;
   AppListNotifier* GetNotifier() override;
+  int AdjustAppListViewScrollOffset(int offset, ui::EventType type) override;
 
   // Do a bulk replacement of the items in the model.
   void ReplaceTestModel(int item_count);

@@ -98,7 +98,6 @@ WebURL WebURLLoaderMock::ServeRedirect(
 void WebURLLoaderMock::LoadSynchronously(
     std::unique_ptr<network::ResourceRequest> request,
     scoped_refptr<WebURLRequestExtraData> url_request_extra_data,
-    int requestor_id,
     bool pass_response_pipe_to_client,
     bool no_mime_sniffing,
     base::TimeDelta timeout_interval,
@@ -119,7 +118,6 @@ void WebURLLoaderMock::LoadSynchronously(
 void WebURLLoaderMock::LoadAsynchronously(
     std::unique_ptr<network::ResourceRequest> request,
     scoped_refptr<WebURLRequestExtraData> url_request_extra_data,
-    int requestor_id,
     bool no_mime_sniffing,
     std::unique_ptr<blink::ResourceLoadInfoNotifierWrapper>
         resource_load_info_notifier_wrapper,
@@ -135,8 +133,8 @@ void WebURLLoaderMock::Cancel() {
   factory_->CancelLoad(this);
 }
 
-void WebURLLoaderMock::SetDefersLoading(DeferType deferred) {
-  is_deferred_ = (deferred != DeferType::kNotDeferred);
+void WebURLLoaderMock::Freeze(WebLoaderFreezeMode mode) {
+  is_deferred_ = (mode != WebLoaderFreezeMode::kNone);
   // Ignores setDefersLoading(false) safely.
   if (!is_deferred_)
     return;

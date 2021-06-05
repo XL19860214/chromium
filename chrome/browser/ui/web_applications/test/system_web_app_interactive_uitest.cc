@@ -21,6 +21,7 @@
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/location_bar/location_bar.h"
 #include "chrome/browser/ui/settings_window_manager_chromeos.h"
+#include "chrome/browser/ui/web_applications/app_browser_controller.h"
 #include "chrome/browser/ui/web_applications/system_web_app_ui_utils.h"
 #include "chrome/browser/ui/web_applications/test/web_app_browsertest_util.h"
 #include "chrome/browser/web_applications/system_web_apps/test/system_web_app_browsertest_base.h"
@@ -55,6 +56,9 @@ class SystemWebAppLinkCaptureBrowserTest
  public:
   SystemWebAppLinkCaptureBrowserTest()
       : SystemWebAppManagerBrowserTest(/*install_mock*/ false) {
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+    WebAppProvider::EnableSystemWebAppsInLacrosForTesting();
+#endif
     maybe_installation_ =
         TestSystemWebAppInstallation::SetUpAppThatCapturesNavigation();
   }
@@ -119,14 +123,14 @@ IN_PROC_BROWSER_TEST_P(SystemWebAppLinkCaptureBrowserTest, OmniboxPasteAndGo) {
 }
 
 // This test is flaky on MacOS with ASAN or DBG. https://crbug.com/1173317
+// Also flaky on MacOS in general, see https://crbug.com/1216076
 #if defined(OS_MAC)
-#if defined(ADDRESS_SANITIZER) || !defined(NDEBUG)
 #define MAYBE_AnchorLinkClick DISABLED_AnchorLinkClick
 #else
 #define MAYBE_AnchorLinkClick AnchorLinkClick
-#endif  // ADDRESS_SANITIZER || !NDEBUG
 #endif  // OS_MAC
-IN_PROC_BROWSER_TEST_P(SystemWebAppLinkCaptureBrowserTest, AnchorLinkClick) {
+IN_PROC_BROWSER_TEST_P(SystemWebAppLinkCaptureBrowserTest,
+                       MAYBE_AnchorLinkClick) {
   WaitForTestSystemAppInstall();
 
   GURL kInitiatingChromeUrl = GURL(chrome::kChromeUIAboutURL);
@@ -299,7 +303,13 @@ IN_PROC_BROWSER_TEST_P(SystemWebAppLinkCaptureBrowserTest, ChangeLocationHref) {
                                       ->GetLastCommittedURL());
 }
 
-IN_PROC_BROWSER_TEST_P(SystemWebAppLinkCaptureBrowserTest, WindowOpen) {
+// Flaky on Mac, see https://crbug.com/1216076
+#if defined(OS_MAC)
+#define MAYBE_WindowOpen DISABLED_WindowOpen
+#else
+#define MAYBE_WindowOpen WindowOpen
+#endif  // OS_MAC
+IN_PROC_BROWSER_TEST_P(SystemWebAppLinkCaptureBrowserTest, MAYBE_WindowOpen) {
   WaitForTestSystemAppInstall();
 
   GURL kInitiatingChromeUrl = GURL(chrome::kChromeUIAboutURL);
@@ -346,8 +356,14 @@ IN_PROC_BROWSER_TEST_P(SystemWebAppLinkCaptureBrowserTest, WindowOpen) {
   }
 }
 
+// Flaky on Mac, see https://crbug.com/1216076
+#if defined(OS_MAC)
+#define MAYBE_WindowOpenFromOtherSWA DISABLED_WindowOpenFromOtherSWA
+#else
+#define MAYBE_WindowOpenFromOtherSWA WindowOpenFromOtherSWA
+#endif  // OS_MAC
 IN_PROC_BROWSER_TEST_P(SystemWebAppLinkCaptureBrowserTest,
-                       WindowOpenFromOtherSWA) {
+                       MAYBE_WindowOpenFromOtherSWA) {
   WaitForTestSystemAppInstall();
 
   content::WebContents* initiating_web_contents = LaunchApp(kInitiatingAppType);
@@ -503,7 +519,7 @@ class SystemWebAppManagerMultiDesktopLaunchBrowserTest
 
   void WaitForSystemWebAppInstall(Profile* profile) {
     base::RunLoop run_loop;
-    web_app::WebAppProvider::Get(profile)
+    web_app::WebAppProvider::GetForSystemWebApps(profile)
         ->system_web_app_manager()
         .on_apps_synchronized()
         .Post(FROM_HERE, base::BindLambdaForTesting([&]() {
@@ -517,7 +533,8 @@ class SystemWebAppManagerMultiDesktopLaunchBrowserTest
 
   AppId GetAppId(Profile* profile) {
     SystemWebAppManager& manager =
-        web_app::WebAppProvider::Get(profile)->system_web_app_manager();
+        web_app::WebAppProvider::GetForSystemWebApps(profile)
+            ->system_web_app_manager();
 
     absl::optional<AppId> app_id =
         manager.GetAppIdForSystemApp(installation_->GetType());

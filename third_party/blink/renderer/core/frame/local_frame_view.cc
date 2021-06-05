@@ -2332,7 +2332,7 @@ bool LocalFrameView::UpdateLifecyclePhases(
   // in preparation for a hit test.
   if (reason == DocumentUpdateReason::kHitTest) {
     LocalFrameUkmAggregator& aggregator = EnsureUkmAggregator();
-    aggregator.RecordSample(
+    aggregator.RecordTimerSample(
         static_cast<size_t>(LocalFrameUkmAggregator::kHitTestDocumentUpdate),
         lifecycle_data_.start_time, base::TimeTicks::Now());
   }
@@ -2841,6 +2841,10 @@ bool LocalFrameView::PaintTree(PaintBenchmarkMode benchmark_mode) {
 
   auto* layout_view = GetLayoutView();
   DCHECK(layout_view);
+
+  if (RuntimeEnabledFeatures::CullRectUpdateEnabled())
+    CullRectUpdater(*layout_view->Layer()).Update();
+
   paint_frame_count_++;
   ForAllNonThrottledLocalFrameViews(
       [](LocalFrameView& frame_view) {
@@ -2890,6 +2894,10 @@ bool LocalFrameView::PaintTree(PaintBenchmarkMode benchmark_mode) {
         !visual_viewport_or_overlay_needs_repaint_) {
       paint_controller_->UpdateUMACountsOnFullyCached();
     } else {
+      // This makes paint metrics in nested document lifecycle updates (e.g. for
+      // SVG images) accumulated in the top-level document lifecycle update.
+      PaintController::DisableUMAReportScope disable_uma_report;
+
       GraphicsContext graphics_context(*paint_controller_);
       if (Settings* settings = frame_->GetSettings()) {
         graphics_context.SetDarkModeEnabled(
@@ -2956,6 +2964,10 @@ bool LocalFrameView::PaintTree(PaintBenchmarkMode benchmark_mode) {
 
     if (GraphicsLayer* root =
             layout_view->Compositor()->PaintRootGraphicsLayer()) {
+      // See the CompositeAfterPaint branch. Not sure if this is needed in
+      // pre-CAP, but we'd better keep consistency for safety.
+      PaintController::DisableUMAReportScope disable_uma_report;
+
       repainted = root->PaintRecursively(
           graphics_context, pre_composited_layers_, benchmark_mode);
       if (visual_viewport_or_overlay_needs_repaint_ &&
@@ -3161,6 +3173,7 @@ void LocalFrameView::UpdateStyleAndLayoutIfNeededRecursive() {
   CheckDoesNotNeedLayout();
 #if DCHECK_IS_ON()
   frame_->GetDocument()->GetLayoutView()->AssertLaidOut();
+  frame_->GetDocument()->GetLayoutView()->AssertFragmentTree();
 #endif
 
   if (Lifecycle().GetState() < DocumentLifecycle::kLayoutClean)
@@ -3248,8 +3261,6 @@ void LocalFrameView::UpdateStyleAndLayout() {
 
 bool LocalFrameView::UpdateStyleAndLayoutInternal() {
   {
-    SCOPED_UMA_AND_UKM_TIMER(EnsureUkmAggregator(),
-                             LocalFrameUkmAggregator::kStyle);
     frame_->GetDocument()->UpdateStyleAndLayoutTreeForThisDocument();
 
     // Update style for all embedded SVG documents underneath this frame, so
@@ -4022,7 +4033,8 @@ void LocalFrameView::PaintOutsideOfLifecycle(
   });
 
   {
-    OverriddenCullRectScope force_cull_rect(*this, cull_rect);
+    OverriddenCullRectScope force_cull_rect(*GetLayoutView()->Layer(),
+                                            cull_rect);
     PaintInternal(context, global_paint_flags, cull_rect);
   }
 
@@ -4045,7 +4057,8 @@ void LocalFrameView::PaintContentsOutsideOfLifecycle(
   });
 
   {
-    OverriddenCullRectScope force_cull_rect(*this, cull_rect);
+    OverriddenCullRectScope force_cull_rect(*GetLayoutView()->Layer(),
+                                            cull_rect);
     FramePainter(*this).PaintContents(context, global_paint_flags, cull_rect);
   }
 
@@ -4057,7 +4070,7 @@ void LocalFrameView::PaintContentsOutsideOfLifecycle(
 void LocalFrameView::PaintContentsForTest(const CullRect& cull_rect) {
   AllowThrottlingScope allow_throttling(*this);
   Lifecycle().AdvanceTo(DocumentLifecycle::kInPaint);
-  OverriddenCullRectScope force_cull_rect(*this, cull_rect);
+  OverriddenCullRectScope force_cull_rect(*GetLayoutView()->Layer(), cull_rect);
   if (RuntimeEnabledFeatures::CompositeAfterPaintEnabled()) {
     PaintController& paint_controller = EnsurePaintController();
     if (GetLayoutView()->Layer()->SelfOrDescendantNeedsRepaint()) {

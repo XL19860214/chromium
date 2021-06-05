@@ -31,7 +31,6 @@ class VideoFrame;
 
 namespace blink {
 
-class ArrayBufferOrArrayBufferView;
 class CanvasImageSource;
 class ExceptionState;
 class ExecutionContext;
@@ -57,19 +56,11 @@ class MODULES_EXPORT VideoFrame final : public ScriptWrappable,
   explicit VideoFrame(scoped_refptr<VideoFrameHandle> handle);
 
   // video_frame.idl implementation.
-#if defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
   static VideoFrame* Create(ScriptState* script_state,
                             const V8CanvasImageSource* source,
                             const VideoFrameInit* init,
                             ExceptionState& exception_state);
-#else   // defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
   static VideoFrame* Create(ScriptState*,
-                            const CanvasImageSourceUnion&,
-                            const VideoFrameInit*,
-                            ExceptionState&);
-#endif  // defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
-  static VideoFrame* Create(ScriptState*,
-                            const String& format,
                             const HeapVector<Member<PlaneInit>>&,
                             const VideoFramePlaneInit*,
                             ExceptionState&);
@@ -96,17 +87,10 @@ class MODULES_EXPORT VideoFrame final : public ScriptWrappable,
 
   uint32_t allocationSize(VideoFrameReadIntoOptions* options, ExceptionState&);
 
-#if defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
   ScriptPromise readInto(ScriptState* script_state,
                          const V8BufferSource* destination,
                          VideoFrameReadIntoOptions* options,
                          ExceptionState& exception_state);
-#else   // defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
-  ScriptPromise readInto(ScriptState*,
-                         const ArrayBufferOrArrayBufferView& destination,
-                         VideoFrameReadIntoOptions* options,
-                         ExceptionState&);
-#endif  // defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
 
   // Invalidates |handle_|, releasing underlying media::VideoFrame references.
   // This effectively "destroys" all frames sharing the same Handle.
@@ -126,8 +110,10 @@ class MODULES_EXPORT VideoFrame final : public ScriptWrappable,
 
  private:
   // CanvasImageSource implementation
-  scoped_refptr<Image> GetSourceImageForCanvas(SourceImageStatus*,
-                                               const FloatSize&) override;
+  scoped_refptr<Image> GetSourceImageForCanvas(
+      SourceImageStatus*,
+      const FloatSize&,
+      const AlphaDisposition alpha_disposition = kPremultiplyAlpha) override;
   bool WouldTaintOrigin() const override;
   FloatSize ElementSize(const FloatSize&,
                         const RespectImageOrientationEnum) const override;

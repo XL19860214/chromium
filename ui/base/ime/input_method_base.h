@@ -58,10 +58,6 @@ class COMPONENT_EXPORT(UI_BASE_IME) InputMethodBase
   // implementation.
   void OnTextInputTypeChanged(const TextInputClient* client) override;
   TextInputType GetTextInputType() const override;
-  TextInputMode GetTextInputMode() const override;
-  int GetTextInputFlags() const override;
-  bool CanComposeInline() const override;
-  bool GetClientShouldDoLearning() override;
   void ShowVirtualKeyboardIfEnabled() override;
 
   void AddObserver(InputMethodObserver* observer) override;

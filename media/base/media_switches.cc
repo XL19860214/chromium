@@ -186,8 +186,8 @@ const char kOverrideEnabledCdmInterfaceVersion[] =
 
 // Overrides hardware secure codecs support for testing. If specified, real
 // platform hardware secure codecs check will be skipped. Codecs are separated
-// by comma. Valid video codecs are "vp8", "vp9" and "avc1", and the only valid
-// audio codec is "vorbis". For example:
+// by comma. Valid video codecs are "vp8", "vp9", "avc1" and "hevc", and the
+// only valid audio codec is "vorbis". For example:
 //  --override-hardware-secure-codecs-for-testing=vp8,vp9
 //  --override-hardware-secure-codecs-for-testing=avc1
 // CENC encryption scheme is assumed to be supported for the specified codecs.
@@ -275,10 +275,10 @@ const base::Feature kMediaCapabilitiesWithParameters{
 const base::Feature kMediaCastOverlayButton{"MediaCastOverlayButton",
                                             base::FEATURE_ENABLED_BY_DEFAULT};
 
-// Use AndroidOverlay for more cases than just player-element fullscreen?  This
-// requires that |kOverlayFullscreenVideo| is true, else it is ignored.
-const base::Feature kUseAndroidOverlayAggressively{
-    "UseAndroidOverlayAggressively", base::FEATURE_ENABLED_BY_DEFAULT};
+// Use AndroidOverlay only if required for secure video playback. This requires
+// that |kOverlayFullscreenVideo| is true, else it is ignored.
+const base::Feature kUseAndroidOverlayForSecureOnly{
+    "UseAndroidOverlayForSecureOnly", base::FEATURE_DISABLED_BY_DEFAULT};
 
 // If enabled, RTCVideoDecoderAdapter will wrap a DecoderStream as a video
 // decoder, rather than using MojoVideoDecoder.  This causes the RTC external
@@ -315,6 +315,10 @@ const base::Feature kCdmProcessSiteIsolation{"CdmProcessSiteIsolation",
 const base::Feature kMemoryPressureBasedSourceBufferGC{
     "MemoryPressureBasedSourceBufferGC", base::FEATURE_DISABLED_BY_DEFAULT};
 
+// Enable binding multiple shared images to a single GpuMemoryBuffer.
+const base::Feature kMultiPlaneSharedImageVideo{
+    "MultiPlaneVideoSharedImages", base::FEATURE_DISABLED_BY_DEFAULT};
+
 // Approach original pre-REC MSE object URL autorevoking behavior, though await
 // actual attempt to use the object URL for attachment to perform revocation.
 // This will hopefully reduce runtime memory bloat for pages that do not
@@ -340,7 +344,7 @@ const base::Feature kD3D11PrintCodecOnCrash{"D3D11PrintCodecOnCrash",
 
 // Enable The D3D11 Video decoder.
 const base::Feature kD3D11VideoDecoder{"D3D11VideoDecoder",
-                                       base::FEATURE_DISABLED_BY_DEFAULT};
+                                       base::FEATURE_ENABLED_BY_DEFAULT};
 
 // Tell D3D11VideoDecoder to ignore workarounds for zero copy.  Requires that
 // kD3D11VideoDecoder is enabled.
@@ -526,17 +530,9 @@ const base::Feature kVideoBlitColorAccuracy{"video-blit-color-accuracy",
 const base::Feature kExternalClearKeyForTesting{
     "ExternalClearKeyForTesting", base::FEATURE_DISABLED_BY_DEFAULT};
 
-// Enables the Live Caption feature.
-const base::Feature kLiveCaption {
-  "LiveCaption",
-#if defined(OS_CHROMEOS)
-      // TODO(crbug.com/1209058): Remove this special case after it's merged
-      //                          into M91.
-      base::FEATURE_DISABLED_BY_DEFAULT
-#else
-      base::FEATURE_ENABLED_BY_DEFAULT
-#endif
-};
+// Enables the Live Caption feature on supported devices.
+const base::Feature kLiveCaption{"LiveCaption",
+                                 base::FEATURE_ENABLED_BY_DEFAULT};
 
 // Use the Speech On-Device API (SODA) to power the Live Caption feature instead
 // of the Cloud-based Open Speech API.
@@ -814,7 +810,7 @@ const base::Feature kMediaPowerExperiment{"MediaPowerExperiment",
 
 // Enable WebRTC actions for the Media Session API.
 const base::Feature kMediaSessionWebRTC{"MediaSessionWebRTC",
-                                        base::FEATURE_DISABLED_BY_DEFAULT};
+                                        base::FEATURE_ENABLED_BY_DEFAULT};
 
 // Enables flash to be ducked by audio focus. This is enabled on Chrome OS which
 // has audio focus enabled.
@@ -862,6 +858,10 @@ const base::Feature kUseFakeDeviceForMediaStream{
 // estimations.
 const base::Feature kBresenhamCadence{"BresenhamCadence",
                                       base::FEATURE_DISABLED_BY_DEFAULT};
+
+// Display the playback speed button on the media controls.
+const base::Feature kPlaybackSpeedButton{"PlaybackSpeedButton",
+                                         base::FEATURE_DISABLED_BY_DEFAULT};
 
 bool IsVideoCaptureAcceleratedJpegDecodingEnabled() {
   if (base::CommandLine::ForCurrentProcess()->HasSwitch(

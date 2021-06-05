@@ -8,8 +8,8 @@
 #include <string>
 
 #include "base/bind.h"
-#include "chrome/browser/accessibility/caption_controller.h"
-#include "chrome/browser/accessibility/caption_controller_factory.h"
+#include "chrome/browser/accessibility/live_caption_controller.h"
+#include "chrome/browser/accessibility/live_caption_controller_factory.h"
 #include "chrome/browser/accessibility/live_caption_speech_recognition_host.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_finder.h"
@@ -47,7 +47,7 @@ void CaptionBubbleControllerViews::OnCaptionBubbleDestroyed() {
 
 bool CaptionBubbleControllerViews::OnTranscription(
     LiveCaptionSpeechRecognitionHost* live_caption_speech_recognition_host,
-    const media::mojom::SpeechRecognitionResultPtr& result) {
+    const media::SpeechRecognitionResult& result) {
   if (!caption_bubble_)
     return false;
   SetActiveModel(live_caption_speech_recognition_host);
@@ -59,11 +59,11 @@ bool CaptionBubbleControllerViews::OnTranscription(
   // transcription after several seconds of no audio. This prevents the bubble
   // reappearing with a final transcription after it had disappeared due to no
   // activity.
-  if (!caption_bubble_->HasActivity() && result->is_final)
+  if (!caption_bubble_->HasActivity() && result.is_final)
     return true;
 
-  active_model_->SetPartialText(result->transcription);
-  if (result->is_final)
+  active_model_->SetPartialText(result.transcription);
+  if (result.is_final)
     active_model_->CommitPartialText();
 
   return true;

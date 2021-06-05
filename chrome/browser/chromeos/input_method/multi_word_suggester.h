@@ -28,12 +28,18 @@ class MultiWordSuggester : public Suggester {
   void OnExternalSuggestionsUpdated(
       const std::vector<ime::TextSuggestion>& suggestions) override;
   SuggestionStatus HandleKeyEvent(const ui::KeyEvent& event) override;
-  bool Suggest(const std::u16string& text) override;
+  bool Suggest(const std::u16string& text,
+               size_t cursor_pos,
+               size_t anchor_pos) override;
   bool AcceptSuggestion(size_t index = 0) override;
   void DismissSuggestion() override;
   AssistiveType GetProposeActionType() override;
   bool HasSuggestions() override;
   std::vector<ime::TextSuggestion> GetSuggestions() override;
+
+  void OnSurroundingTextChanged(const std::u16string& text,
+                                int cursor_pos,
+                                int anchor_pos);
 
  private:
   void DisplaySuggestion(const ime::TextSuggestion& suggestion);
@@ -42,6 +48,11 @@ class MultiWordSuggester : public Suggester {
   int focused_context_id_ = 0;
 
   bool suggestion_shown_ = false;
+
+  // The last known state of text in the focused text input
+  std::u16string last_known_text_;
+  int last_known_cursor_pos_ = 0;
+  int last_known_anchor_pos_ = 0;
 
   // Not owned by this class
   SuggestionHandlerInterface* suggestion_handler_;

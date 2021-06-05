@@ -93,7 +93,7 @@ Refer to README.md for content description and update process.
  <item id="dial_get_device_description" added_in_milestone="62" hash_code="50422598" type="0" deprecated="2018-02-27" content_hash_code="129827780" file_path=""/>
  <item id="dial_url_fetcher" added_in_milestone="67" hash_code="41424546" type="0" content_hash_code="129828432" os_list="linux,windows" file_path="chrome/browser/media/router/discovery/dial/dial_url_fetcher.cc"/>
  <item id="digital_asset_links" added_in_milestone="90" hash_code="134272131" type="0" content_hash_code="13554846" os_list="linux,windows" file_path="components/digital_asset_links/digital_asset_links_handler.cc"/>
- <item id="direct_sockets" added_in_milestone="88" hash_code="32472991" type="0" content_hash_code="64752301" os_list="linux,windows" file_path="third_party/blink/renderer/modules/direct_sockets/navigator_socket.cc"/>
+ <item id="direct_sockets" added_in_milestone="88" hash_code="32472991" type="0" content_hash_code="64752301" os_list="linux,windows" file_path="content/browser/direct_sockets/direct_sockets_service_impl.cc"/>
  <item id="dns_over_https" added_in_milestone="66" hash_code="79895226" type="0" content_hash_code="45123510" os_list="linux,windows" file_path="net/dns/dns_transaction.cc"/>
  <item id="dns_transaction" added_in_milestone="65" hash_code="79227717" type="0" content_hash_code="132206495" os_list="linux,windows" file_path="net/dns/dns_transaction.cc"/>
  <item id="dom_distiller" added_in_milestone="62" hash_code="3989826" type="0" content_hash_code="106153970" os_list="linux,windows" file_path="components/dom_distiller/core/distiller_url_fetcher.cc"/>
@@ -285,8 +285,6 @@ Refer to README.md for content description and update process.
  <item id="remoting_telemetry_log_writer" added_in_milestone="86" hash_code="107268760" type="0" content_hash_code="81741595" os_list="linux,windows" file_path="remoting/base/telemetry_log_writer.cc"/>
  <item id="render_view_context_menu" added_in_milestone="62" hash_code="25844439" type="0" content_hash_code="69471170" os_list="linux,windows" file_path="chrome/browser/renderer_context_menu/render_view_context_menu.cc"/>
  <item id="renderer_initiated_download" added_in_milestone="62" hash_code="116443055" type="0" content_hash_code="37846436" os_list="linux,windows" file_path="content/browser/renderer_host/render_frame_host_impl.cc"/>
- <item id="repeatable_queries_deletion" added_in_milestone="88" hash_code="59980744" type="0" content_hash_code="9022058" os_list="linux,windows" file_path="components/search/repeatable_queries/repeatable_queries_service.cc"/>
- <item id="repeatable_queries_service" added_in_milestone="88" hash_code="5394442" type="0" content_hash_code="115294794" os_list="linux,windows" file_path="components/search/repeatable_queries/repeatable_queries_service.cc"/>
  <item id="reporting" added_in_milestone="62" hash_code="109891200" type="0" content_hash_code="125758928" os_list="linux,windows" file_path="net/reporting/reporting_uploader.cc"/>
  <item id="resource_dispatcher_host" added_in_milestone="62" hash_code="81157007" type="0" deprecated="2019-07-30" content_hash_code="35725167" file_path=""/>
  <item id="resource_prefetch" added_in_milestone="62" hash_code="110815970" type="0" deprecated="2018-02-28" content_hash_code="39251261" file_path=""/>

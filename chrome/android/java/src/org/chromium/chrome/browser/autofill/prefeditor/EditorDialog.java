@@ -91,6 +91,7 @@ public class EditorDialog
     private EditorModel mEditorModel;
     private Button mDoneButton;
     private boolean mFormWasValid;
+    private boolean mShouldTriggerDoneCallbackBeforeCloseAnimation;
     private ViewGroup mDataView;
     private View mFooter;
     @Nullable
@@ -169,6 +170,15 @@ public class EditorDialog
         WindowManager.LayoutParams attributes = getWindow().getAttributes();
         attributes.flags |= WindowManager.LayoutParams.FLAG_SECURE;
         getWindow().setAttributes(attributes);
+    }
+
+    /**
+     * @param shouldTrigger If true, done callback is triggered immediately after the user clicked
+     *         on the done button. Otherwise, by default, it is triggered only after the dialog is
+     *         dismissed with animation.
+     */
+    public void setShouldTriggerDoneCallbackBeforeCloseAnimation(boolean shouldTrigger) {
+        mShouldTriggerDoneCallbackBeforeCloseAnimation = shouldTrigger;
     }
 
     /**
@@ -281,6 +291,10 @@ public class EditorDialog
 
         if (view.getId() == R.id.editor_dialog_done_button) {
             if (validateForm()) {
+                if (mShouldTriggerDoneCallbackBeforeCloseAnimation && mEditorModel != null) {
+                    mEditorModel.done();
+                    mEditorModel = null;
+                }
                 mFormWasValid = true;
                 animateOutDialog();
                 return;
@@ -607,6 +621,11 @@ public class EditorDialog
             // Note that keyboard will not be shown for dropdown field since it's not necessary.
             if (getCurrentFocus() != null) {
                 KeyboardVisibilityDelegate.getInstance().showKeyboard(getCurrentFocus());
+                // Put the cursor to the end of the text.
+                if (getCurrentFocus() instanceof EditText) {
+                    EditText focusedEditText = (EditText) getCurrentFocus();
+                    focusedEditText.setSelection(focusedEditText.getText().length());
+                }
             }
             if (sObserverForTest != null) sObserverForTest.onEditorReadyToEdit();
         });

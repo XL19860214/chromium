@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "base/check_op.h"
+#include "base/i18n/string_search.h"
 #include "base/metrics/user_metrics.h"
 #include "base/metrics/user_metrics_action.h"
 #include "base/no_destructor.h"
@@ -90,7 +91,7 @@ class PerProcessInitializer final {
 
     DCHECK(!IsSDKInitializedViaPlugin());
     // TODO(crbug.com/1111024): Support JavaScript.
-    InitializeSDK(/*enable_v8=*/false);
+    InitializeSDK(/*enable_v8=*/false, FontMappingMode::kBlink);
     SetIsSDKInitializedViaPlugin(true);
   }
 
@@ -362,6 +363,23 @@ bool PdfViewWebPlugin::ExecuteEditCommand(const blink::WebString& name,
   return false;
 }
 
+bool PdfViewWebPlugin::StartFind(const blink::WebString& search_text,
+                                 bool case_sensitive,
+                                 int /*identifier*/) {
+  engine()->StartFind(search_text.Utf8(), case_sensitive);
+  return true;
+}
+
+void PdfViewWebPlugin::SelectFindResult(bool forward, int /*identifier*/) {
+  engine()->SelectFindResult(forward);
+}
+
+void PdfViewWebPlugin::StopFind() {
+  engine()->StopFind();
+  // TODO(crbug.com/1199999): Clear tickmarks on scroller when find is
+  // dismissed.
+}
+
 blink::WebTextInputType PdfViewWebPlugin::GetPluginTextInputType() {
   return text_input_type_;
 }
@@ -400,7 +418,14 @@ std::vector<PDFEngine::Client::SearchStringResult>
 PdfViewWebPlugin::SearchString(const char16_t* string,
                                const char16_t* term,
                                bool case_sensitive) {
-  return {};
+  base::i18n::RepeatingStringSearch searcher(
+      /*find_this=*/term, /*in_this=*/string, case_sensitive);
+  std::vector<SearchStringResult> results;
+  int match_index;
+  int match_length;
+  while (searcher.NextMatchResult(match_index, match_length))
+    results.push_back({.start_index = match_index, .length = match_length});
+  return results;
 }
 
 pp::Instance* PdfViewWebPlugin::GetPluginInstance() {
@@ -416,8 +441,6 @@ bool PdfViewWebPlugin::IsPrintPreview() {
 
 void PdfViewWebPlugin::SelectionChanged(const gfx::Rect& left,
                                         const gfx::Rect& right) {}
-
-void PdfViewWebPlugin::EnteredEditMode() {}
 
 void PdfViewWebPlugin::SetSelectedText(const std::string& selected_text) {
   selected_text_ = blink::WebString::FromUTF8(selected_text);
@@ -528,6 +551,12 @@ void PdfViewWebPlugin::SendMessage(base::Value message) {
   post_message_sender_.Post(std::move(message));
 }
 
+// TODO(https://crbug.com/1213294): Add a Pepper-free implementation that is
+// equivalent to pp::PDF::SaveAs().
+void PdfViewWebPlugin::SaveAs() {
+  NOTIMPLEMENTED();
+}
+
 void PdfViewWebPlugin::InitImageData(const gfx::Size& size) {
   mutable_image_data() = CreateN32PremulSkBitmap(gfx::SizeToSkISize(size));
 }
@@ -563,6 +592,10 @@ void PdfViewWebPlugin::SetAccessibilityViewportInfo(
 }
 
 void PdfViewWebPlugin::SetContentRestrictions(int content_restrictions) {
+  NOTIMPLEMENTED();
+}
+
+void PdfViewWebPlugin::SetPluginCanSave(bool can_save) {
   NOTIMPLEMENTED();
 }
 

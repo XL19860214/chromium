@@ -891,6 +891,16 @@ class CommitToPendingTreeLayerTreeHostImplTest : public LayerTreeHostImplTest {
   }
 };
 
+class OccludedSurfaceThrottlingLayerTreeHostImplTest
+    : public LayerTreeHostImplTest {
+ public:
+  void SetUp() override {
+    LayerTreeSettings settings = DefaultSettings();
+    settings.enable_compositing_based_throttling = true;
+    CreateHostImpl(settings, CreateLayerTreeFrameSink());
+  }
+};
+
 // A test fixture for new animation timelines tests.
 class LayerTreeHostImplTimelinesTest : public LayerTreeHostImplTest {
  public:
@@ -5043,7 +5053,7 @@ class LayerTreeHostImplTestScrollbarAnimation : public LayerTreeHostImplTest {
     SetupScrollbarLayer(OuterViewportScrollLayer(), scrollbar);
 
     host_impl_->active_tree()->DidBecomeActive();
-    host_impl_->active_tree()->HandleScrollbarShowRequestsFromMain();
+    host_impl_->active_tree()->HandleScrollbarShowRequests();
     host_impl_->active_tree()->SetLocalSurfaceIdFromParent(
         viz::LocalSurfaceId(1, base::UnguessableToken::Deserialize(2u, 3u)));
 
@@ -5720,7 +5730,7 @@ TEST_P(ScrollUnifiedLayerTreeHostImplTest, ScrollbarRegistration) {
   animation_task_.Reset();
   child->set_needs_show_scrollbars(true);
   UpdateDrawProperties(host_impl_->active_tree());
-  host_impl_->active_tree()->HandleScrollbarShowRequestsFromMain();
+  host_impl_->active_tree()->HandleScrollbarShowRequests();
   EXPECT_FALSE(animation_task_.is_null());
   animation_task_.Reset();
 
@@ -18081,6 +18091,33 @@ TEST_F(UnifiedScrollingTest, CompositedWithSquashedLayerMutatesTransform) {
   TestUncompositedScrollingState(/*mutates_transform_tree=*/true);
 
   ScrollEnd();
+}
+
+// Verifies that when a surface layer is occluded, its frame sink id will be
+// marked as qualified for throttling.
+TEST_F(OccludedSurfaceThrottlingLayerTreeHostImplTest,
+       ThrottleOccludedSurface) {
+  LayerTreeImpl* tree = host_impl_->active_tree();
+  gfx::Rect viewport_rect(0, 0, 800, 600);
+  auto* root = SetupRootLayer<LayerImpl>(tree, viewport_rect.size());
+
+  auto* occluded = AddLayer<SurfaceLayerImpl>(tree);
+  occluded->SetBounds(gfx::Size(400, 300));
+  occluded->SetDrawsContent(true);
+  viz::SurfaceId start = MakeSurfaceId(viz::FrameSinkId(1, 2), 1);
+  viz::SurfaceId end = MakeSurfaceId(viz::FrameSinkId(3, 4), 1);
+  occluded->SetRange(viz::SurfaceRange(start, end), 2u);
+  CopyProperties(root, occluded);
+
+  auto* occluder = AddLayer<SolidColorLayerImpl>(tree);
+  occluder->SetBounds(gfx::Size(400, 400));
+  occluder->SetDrawsContent(true);
+  occluder->SetContentsOpaque(true);
+  CopyProperties(root, occluder);
+
+  DrawFrame();
+  EXPECT_EQ(host_impl_->GetFrameSinksToThrottleForTesting(),
+            base::flat_set<viz::FrameSinkId>{end.frame_sink_id()});
 }
 
 TEST_F(LayerTreeHostImplTest, FrameElementIdHitTestSimple) {

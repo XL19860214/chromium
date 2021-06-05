@@ -5,14 +5,12 @@
 #include "components/arc/compat_mode/arc_resize_lock_manager.h"
 
 #include "ash/frame/non_client_frame_view_ash.h"
-#include "ash/public/cpp/app_types.h"
+#include "ash/public/cpp/app_types_util.h"
 #include "ash/public/cpp/window_properties.h"
 #include "base/bind.h"
 #include "base/memory/singleton.h"
 #include "components/arc/arc_browser_context_keyed_service_factory_base.h"
 #include "components/arc/compat_mode/arc_splash_screen_dialog_view.h"
-#include "components/exo/shell_surface_base.h"
-#include "components/exo/shell_surface_util.h"
 
 namespace arc {
 
@@ -69,16 +67,24 @@ void ArcResizeLockManager::OnWindowInitialized(aura::Window* new_window) {
 void ArcResizeLockManager::OnWindowPropertyChanged(aura::Window* window,
                                                    const void* key,
                                                    intptr_t old) {
-  if (key != ash::kArcResizeLockKey)
+  if (key != ash::kArcResizeLockKey && key != ash::kAppIDKey)
     return;
 
-  const bool current_value = window->GetProperty(ash::kArcResizeLockKey);
-  if (current_value == static_cast<bool>(old))
-    return;
+  const bool current_resize_lock_value =
+      window->GetProperty(ash::kArcResizeLockKey);
+  const bool resize_lock_changed =
+      (key == ash::kArcResizeLockKey &&
+       current_resize_lock_value != static_cast<bool>(old));
+  const bool has_app_id = window->GetProperty(ash::kAppIDKey) != nullptr;
+  const bool app_id_changed = key == ash::kAppIDKey;
 
-  if (current_value)
+  // Both the resize lock value and app id are needed to enable resize lock.
+  if (has_app_id && current_resize_lock_value &&
+      (app_id_changed || resize_lock_changed)) {
     EnableResizeLock(window);
-  else
+  }
+
+  if (resize_lock_changed && !current_resize_lock_value)
     DisableResizeLock(window);
 }
 
@@ -95,31 +101,10 @@ void ArcResizeLockManager::EnableResizeLock(aura::Window* window) {
                     mojom::ArcResizeLockState::READY) {
     pref_delegate_->SetResizeLockState(*app_id, mojom::ArcResizeLockState::ON);
 
-    // Setup splash screen.
-    auto* shell_surface_base = exo::GetShellSurfaceBaseForWindow(window);
-    if (shell_surface_base && !shell_surface_base->HasOverlay()) {
-      // Show the splash screen in current window. The splash screen is an
-      // overlay covering the entire window. User can only remove the overlay
-      // before closing the window.
-      auto splash_screen_dialog = arc::BuildSplashScreenDialogView(
-          views::Button::PressedCallback(base::BindRepeating(
-              [](aura::Window* window, const ui::Event& event) {
-                auto* shell_surface_base =
-                    exo::GetShellSurfaceBaseForWindow(window);
-                if (!shell_surface_base)
-                  return;
-                if (shell_surface_base->HasOverlay()) {
-                  shell_surface_base->RemoveOverlay();
-                }
-                return;
-              },
-              base::Unretained(window))));
-
-      exo::ShellSurfaceBase::OverlayParams params(
-          std::move(splash_screen_dialog));
-      params.translucent = true;
-      shell_surface_base->AddOverlay(std::move(params));
-    }
+    // Show the splash screen in current window. The splash screen is an
+    // overlay covering the entire window. User can only remove the overlay
+    // before closing the window.
+    ShowSplashScreenDialog(window);
   }
 
   // Setup size button override.

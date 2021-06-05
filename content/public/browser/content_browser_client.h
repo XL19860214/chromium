@@ -49,6 +49,7 @@
 #include "services/network/public/mojom/network_context.mojom-forward.h"
 #include "services/network/public/mojom/restricted_cookie_manager.mojom-forward.h"
 #include "services/network/public/mojom/url_loader_factory.mojom-forward.h"
+#include "services/network/public/mojom/web_transport.mojom-forward.h"
 #include "services/network/public/mojom/websocket.mojom-forward.h"
 #include "storage/browser/file_system/file_system_context.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
@@ -102,6 +103,7 @@ struct WebPreferences;
 class AssociatedInterfaceRegistry;
 struct NavigationDownloadPolicy;
 struct RendererPreferences;
+class StorageKey;
 class URLLoaderThrottle;
 }  // namespace blink
 
@@ -183,7 +185,6 @@ class Origin;
 
 namespace storage {
 class FileSystemBackend;
-class StorageKey;
 }  // namespace storage
 
 namespace content {
@@ -216,6 +217,7 @@ class ReceiverPresentationServiceDelegate;
 class RenderFrameHost;
 class RenderProcessHost;
 class SerialDelegate;
+class SpeculationHostDelegate;
 class SiteInstance;
 class SpeechRecognitionManagerDelegate;
 class StoragePartition;
@@ -525,6 +527,13 @@ class CONTENT_EXPORT ContentBrowserClient {
   // given |process_host|.
   virtual bool MayReuseHost(RenderProcessHost* process_host);
 
+  // Returns a number of processes to ignore when deciding whether to reuse
+  // processes when over the process limit. This is useful for embedders that
+  // may want to partly delay when normal pages start reusing processes (e.g.,
+  // if another process type has a large number of processes). Defaults to 0.
+  // Must be less than or equal to the total number of RenderProcessHosts.
+  virtual size_t GetProcessCountToIgnoreForLimit();
+
   // Returns whether a new process should be created or an existing one should
   // be reused based on the URL we want to load. This should return false,
   // unless there is a good reason otherwise.
@@ -683,7 +692,7 @@ class CONTENT_EXPORT ContentBrowserClient {
       const GURL& site_for_cookies,
       const absl::optional<url::Origin>& top_frame_origin,
       const std::string& name,
-      const storage::StorageKey& storage_key,
+      const blink::StorageKey& storage_key,
       BrowserContext* context,
       int render_process_id,
       int render_frame_id);
@@ -1476,6 +1485,14 @@ class CONTENT_EXPORT ContentBrowserClient {
       mojo::PendingRemote<network::mojom::WebSocketHandshakeClient>
           handshake_client);
 
+  // Allows the embedder to control if establishing a WebTransport connection is
+  // allowed. When the connection is blocked, `callback` is called with `error`.
+  using WillCreateWebTransportCallback = base::OnceCallback<void(
+      absl::optional<network::mojom::WebTransportErrorPtr> error)>;
+  virtual void WillCreateWebTransport(RenderFrameHost* frame,
+                                      const GURL& url,
+                                      WillCreateWebTransportCallback callback);
+
   // Allows the embedder to intercept or replace the mojo objects used for
   // preference-following access to cookies. This is primarily used for objects
   // vended to renderer processes for limited, origin-locked (to |origin|),
@@ -1865,6 +1882,12 @@ class CONTENT_EXPORT ContentBrowserClient {
   // Creates the TtsEnvironmentAndroid. A return value of null results in using
   // a default implementation.
   virtual std::unique_ptr<TtsEnvironmentAndroid> CreateTtsEnvironmentAndroid();
+
+  // If enabled, DialogOverlays will observe the container view for location
+  // changes and reposition themselves automatically. Note that this comes with
+  // some overhead and should only be enabled if the embedder itself can be
+  // moved. Defaults to false.
+  virtual bool ShouldObserveContainerViewLocationForDialogOverlays();
 #endif
 
   // Obtains the list of MIME types that are for plugins with external handlers.
@@ -2042,6 +2065,23 @@ class CONTENT_EXPORT ContentBrowserClient {
   // main frame should be disallowed.
   virtual bool SuppressDifferentOriginSubframeJSDialogs(
       BrowserContext* browser_context);
+
+  // Allows the embedder to provide a SpeculationHostDelegate that will be used
+  // to process speculation rules provided by the document hosted by
+  // `render_frame_host`.
+  virtual std::unique_ptr<SpeculationHostDelegate>
+  CreateSpeculationHostDelegate(RenderFrameHost& render_frame_host);
+
+  // Allows the embedder to show a dialog that will be used to control whether a
+  // connection through the Direct Sockets API is permitted. If the connection
+  // is permitted, the remote address and port that the user input will be sent
+  // back to the caller through callback.
+  virtual void ShowDirectSocketsConnectionDialog(
+      RenderFrameHost* owner,
+      const std::string& address,
+      base::OnceCallback<void(bool accepted,
+                              const std::string& address,
+                              const std::string& port)> callback);
 };
 
 }  // namespace content

@@ -11,6 +11,7 @@
 #include "base/strings/string_piece.h"
 #include "base/strings/string_split.h"
 #include "base/values.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace prefs {
 
@@ -109,9 +110,8 @@ void DictionaryValueUpdate::SetKey(base::StringPiece key, base::Value value) {
 void DictionaryValueUpdate::SetWithoutPathExpansion(
     base::StringPiece key,
     std::unique_ptr<base::Value> in_value) {
-  const base::Value* old_value = nullptr;
-  if (value_->GetWithoutPathExpansion(key, &old_value) &&
-      *old_value == *in_value) {
+  const base::Value* old_value = value_->FindKey(key);
+  if (old_value && *old_value == *in_value) {
     return;
   }
   RecordKey(key);
@@ -189,13 +189,23 @@ bool DictionaryValueUpdate::GetList(base::StringPiece path,
 bool DictionaryValueUpdate::GetBooleanWithoutPathExpansion(
     base::StringPiece key,
     bool* out_value) const {
-  return value_->GetBooleanWithoutPathExpansion(key, out_value);
+  absl::optional<bool> flag = value_->FindBoolKey(key);
+  if (!flag)
+    return false;
+
+  *out_value = flag.value();
+  return true;
 }
 
 bool DictionaryValueUpdate::GetIntegerWithoutPathExpansion(
     base::StringPiece key,
     int* out_value) const {
-  return value_->GetIntegerWithoutPathExpansion(key, out_value);
+  absl::optional<int> value = value_->FindIntKey(key);
+  if (!value)
+    return false;
+
+  *out_value = value.value();
+  return true;
 }
 
 bool DictionaryValueUpdate::GetDoubleWithoutPathExpansion(

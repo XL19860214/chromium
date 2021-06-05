@@ -26,6 +26,7 @@
 
 #include "third_party/blink/renderer/modules/media_controls/media_controls_impl.h"
 
+#include "media/base/media_switches.h"
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/public/platform/task_type.h"
 #include "third_party/blink/public/platform/user_metrics_action.h"
@@ -149,6 +150,16 @@ void MaybeParserAppendChild(Element* parent, Element* child) {
   DCHECK(parent);
   if (child)
     parent->ParserAppendChild(child);
+}
+
+bool ShouldShowPlaybackSpeedButton(HTMLMediaElement& media_element) {
+  // The page disabled the button via the controlsList attribute.
+  if (media_element.ControlsListInternal()->ShouldHidePlaybackRate()) {
+    UseCounter::Count(media_element.GetDocument(),
+                      WebFeature::kHTMLMediaElementControlsListNoPlaybackRate);
+    return false;
+  }
+  return true;
 }
 
 bool ShouldShowPictureInPictureButton(HTMLMediaElement& media_element) {
@@ -562,8 +573,13 @@ void MediaControlsImpl::InitializeControls() {
   toggle_closed_captions_button_ =
       MakeGarbageCollected<MediaControlToggleClosedCaptionsButtonElement>(
           *this);
-  playback_speed_button_ =
-      MakeGarbageCollected<MediaControlPlaybackSpeedButtonElement>(*this);
+
+  if (base::FeatureList::IsEnabled(media::kPlaybackSpeedButton)) {
+    playback_speed_button_ =
+        MakeGarbageCollected<MediaControlPlaybackSpeedButtonElement>(*this);
+    playback_speed_button_->SetIsWanted(
+        ShouldShowPlaybackSpeedButton(MediaElement()));
+  }
   overflow_menu_ =
       MakeGarbageCollected<MediaControlOverflowMenuButtonElement>(*this);
 
@@ -602,9 +618,12 @@ void MediaControlsImpl::InitializeControls() {
       toggle_closed_captions_button_->CreateOverflowElement(
           MakeGarbageCollected<MediaControlToggleClosedCaptionsButtonElement>(
               *this)));
-  overflow_list_->ParserAppendChild(
-      playback_speed_button_->CreateOverflowElement(
-          MakeGarbageCollected<MediaControlPlaybackSpeedButtonElement>(*this)));
+  if (playback_speed_button_) {
+    overflow_list_->ParserAppendChild(
+        playback_speed_button_->CreateOverflowElement(
+            MakeGarbageCollected<MediaControlPlaybackSpeedButtonElement>(
+                *this)));
+  }
   if (picture_in_picture_button_) {
     overflow_list_->ParserAppendChild(
         picture_in_picture_button_->CreateOverflowElement(
@@ -920,6 +939,11 @@ void MediaControlsImpl::OnControlsListUpdated() {
 
   download_button_->SetIsWanted(
       download_button_->ShouldDisplayDownloadButton());
+
+  if (playback_speed_button_) {
+    playback_speed_button_->SetIsWanted(
+        ShouldShowPlaybackSpeedButton(MediaElement()));
+  }
 }
 
 LayoutObject* MediaControlsImpl::PanelLayoutObject() {

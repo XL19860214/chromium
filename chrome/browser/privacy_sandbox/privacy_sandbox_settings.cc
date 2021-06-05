@@ -183,6 +183,17 @@ PrivacySandboxSettings::PrivacySandboxSettings(
   if (IsCookiesClearOnExitEnabled(host_content_settings_map_))
     OnCookiesCleared();
 
+  // Register observers for the Privacy Sandbox & FLoC preferences.
+  user_prefs_registrar_.Init(pref_service_);
+  user_prefs_registrar_.Add(
+      prefs::kPrivacySandboxApisEnabled,
+      base::BindRepeating(&PrivacySandboxSettings::OnPrivacySandboxPrefChanged,
+                          base::Unretained(this)));
+  user_prefs_registrar_.Add(
+      prefs::kPrivacySandboxFlocEnabled,
+      base::BindRepeating(&PrivacySandboxSettings::OnPrivacySandboxPrefChanged,
+                          base::Unretained(this)));
+
   // On first entering the privacy sandbox experiment, users may have the
   // privacy sandbox disabled (or "reconciled") based on their current cookie
   // settings (e.g. blocking 3P cookies). Depending on the state of the sync
@@ -227,10 +238,20 @@ base::Time PrivacySandboxSettings::FlocDataAccessibleSince() const {
   return pref_service_->GetTime(prefs::kPrivacySandboxFlocDataAccessibleSince);
 }
 
-std::u16string PrivacySandboxSettings::GetFlocIdForDisplay() const {
-  auto floc_id = federated_learning::FlocId::ReadFromPrefs(pref_service_);
+std::u16string PrivacySandboxSettings::GetFlocDescriptionForDisplay() const {
+  return l10n_util::GetPluralStringFUTF16(
+      IDS_PRIVACY_SANDBOX_FLOC_DESCRIPTION,
+      GetNumberOfDaysRoundedAboveOne(
+          federated_learning::kFlocIdScheduledUpdateInterval.Get()));
+}
 
-  if (!floc_id.IsValid())
+std::u16string PrivacySandboxSettings::GetFlocIdForDisplay() const {
+  DCHECK(PrivacySandboxSettingsFunctional());
+
+  const bool floc_feature_enabled = base::FeatureList::IsEnabled(
+      blink::features::kInterestCohortAPIOriginTrial);
+  auto floc_id = federated_learning::FlocId::ReadFromPrefs(pref_service_);
+  if (!IsFlocAllowed() || !floc_feature_enabled || !floc_id.IsValid())
     return l10n_util::GetStringUTF16(IDS_PRIVACY_SANDBOX_FLOC_INVALID);
 
   return base::NumberToString16(floc_id.ToUint64());
@@ -286,8 +307,27 @@ std::u16string PrivacySandboxSettings::GetFlocStatusForDisplay() const {
   return l10n_util::GetStringUTF16(IDS_PRIVACY_SANDBOX_FLOC_STATUS_NOT_ACTIVE);
 }
 
-bool PrivacySandboxSettings::IsFlocIdValid() const {
-  return federated_learning::FlocId::ReadFromPrefs(pref_service_).IsValid();
+bool PrivacySandboxSettings::IsFlocIdResettable() const {
+  const bool floc_feature_enabled = base::FeatureList::IsEnabled(
+      blink::features::kInterestCohortAPIOriginTrial);
+  return floc_feature_enabled && IsFlocAllowed();
+}
+
+void PrivacySandboxSettings::ResetFlocId() const {
+  SetFlocDataAccessibleFromNow(/*reset_calculate_timer=*/true);
+  base::RecordAction(
+      base::UserMetricsAction("Settings.PrivacySandbox.ResetFloc"));
+}
+
+bool PrivacySandboxSettings::IsFlocPrefEnabled() const {
+  return pref_service_->GetBoolean(prefs::kPrivacySandboxFlocEnabled);
+}
+
+void PrivacySandboxSettings::SetFlocPrefEnabled(bool enabled) const {
+  pref_service_->SetBoolean(prefs::kPrivacySandboxFlocEnabled, enabled);
+  base::RecordAction(base::UserMetricsAction(
+      enabled ? "Settings.PrivacySandbox.FlocEnabled"
+              : "Settings.PrivacySandbox.FlocDisabled"));
 }
 
 bool PrivacySandboxSettings::IsConversionMeasurementAllowed(
@@ -330,8 +370,8 @@ bool PrivacySandboxSettings::IsFledgeAllowed(
 
   // Third party cookies must also be available for this context. An empty site
   // for cookies is provided so the context is always treated as a third party.
-  return cookie_settings_->IsCookieAccessAllowed(auction_party, GURL(),
-                                                 top_frame_origin);
+  return cookie_settings_->IsFullCookieAccessAllowed(auction_party, GURL(),
+                                                     top_frame_origin);
 }
 
 std::vector<GURL> PrivacySandboxSettings::FilterFledgeAllowedParties(
@@ -345,8 +385,8 @@ std::vector<GURL> PrivacySandboxSettings::FilterFledgeAllowedParties(
 
   std::vector<GURL> allowed_parties;
   for (const auto& party : auction_parties) {
-    if (cookie_settings_->IsCookieAccessAllowed(party, GURL(),
-                                                top_frame_origin)) {
+    if (cookie_settings_->IsFullCookieAccessAllowed(party, GURL(),
+                                                    top_frame_origin)) {
       allowed_parties.push_back(party);
     }
   }
@@ -379,17 +419,17 @@ void PrivacySandboxSettings::SetPrivacySandboxEnabled(bool enabled) {
   pref_service_->SetBoolean(prefs::kPrivacySandboxApisEnabled, enabled);
 }
 
-void PrivacySandboxSettings::SetFlocDataAccessibleFromNow(
-    bool reset_calculate_timer) const {
-  pref_service_->SetTime(prefs::kPrivacySandboxFlocDataAccessibleSince,
-                         base::Time::Now());
-
-  for (auto& observer : observers_)
-    observer.OnFlocDataAccessibleSinceUpdated(reset_calculate_timer);
-}
-
 void PrivacySandboxSettings::OnCookiesCleared() {
   SetFlocDataAccessibleFromNow(/*reset_calculate_timer=*/false);
+}
+
+void PrivacySandboxSettings::OnPrivacySandboxPrefChanged() {
+  // Any change of the two observed prefs should be accompanied by a
+  // reset of the FLoC cohort. Technically this only needs to occur on the
+  // transition from FLoC being effectively disabled to effectively enabled,
+  // but performing it on every pref change achieves the same user visible
+  // behavior, and is much simpler.
+  ResetFlocId();
 }
 
 void PrivacySandboxSettings::AddObserver(Observer* observer) {
@@ -433,8 +473,8 @@ bool PrivacySandboxSettings::IsPrivacySandboxAllowedForContext(
   if (!base::FeatureList::IsEnabled(features::kPrivacySandboxSettings)) {
     // Simply respect cookie settings if the UI is not available. An empty site
     // for cookies is provided so the context is always as a third party.
-    return cookie_settings_->IsCookieAccessAllowed(url, GURL(),
-                                                   top_frame_origin);
+    return cookie_settings_->IsFullCookieAccessAllowed(url, GURL(),
+                                                       top_frame_origin);
   }
 
   if (!pref_service_->GetBoolean(prefs::kPrivacySandboxApisEnabled))
@@ -544,6 +584,15 @@ void PrivacySandboxSettings::ReconcilePrivacySandboxPref() {
   // has occurred.
   StopObserving();
   LogPrivacySandboxState();
+}
+
+void PrivacySandboxSettings::SetFlocDataAccessibleFromNow(
+    bool reset_calculate_timer) const {
+  pref_service_->SetTime(prefs::kPrivacySandboxFlocDataAccessibleSince,
+                         base::Time::Now());
+
+  for (auto& observer : observers_)
+    observer.OnFlocDataAccessibleSinceUpdated(reset_calculate_timer);
 }
 
 void PrivacySandboxSettings::StopObserving() {

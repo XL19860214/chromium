@@ -1370,14 +1370,13 @@ var stringAttributes = [
   'liveStatus',
   'placeholder',
   'roleDescription',
-  'textInputType',
   'tooltip',
   'url'
 ];
 
 var boolAttributes = [
   'busy', 'clickable', 'containerLiveAtomic', 'containerLiveBusy',
-  'contentEditableRoot', 'liveAtomic', 'modal', 'notUserSelectableStyle',
+  'nonAtomicTextFieldRoot', 'liveAtomic', 'modal', 'notUserSelectableStyle',
   'scrollable', 'selected', 'supportsTextLocation'
 ];
 
@@ -1415,7 +1414,6 @@ var nodeRefAttributes = [
     ['tableRowHeaderId', 'tableRowHeader', null]];
 
 var intListAttributes = [
-    'lineBreaks',
     'wordEnds',
     'wordStarts'];
 

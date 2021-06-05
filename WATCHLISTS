@@ -74,6 +74,9 @@
     'android_omnibox': {
       'filepath': 'chrome/android/java/src/org/chromium/chrome/browser/omnibox/'
     },
+    'android_omnibox_deps': {
+      'filepath': 'chrome/android/java/src/org/chromium/chrome/browser/omnibox/*/*DEPS',
+    },
     'android_search_widget': {
       'filepath': 'chrome/android/java/src/org/chromium/chrome/browser/locale/' \
                   '|chrome/android/java/src/org/chromium/chrome/browser/searchwidget/'
@@ -997,6 +1000,7 @@
                   'chrome/test/data/extensions/api_test/file_system_provider|' \
                   'components/drive|' \
                   'google_apis/drive|' \
+                  'ash/content/file_manager|' \
                   'ui/file_manager'
     },
     'freetype_update': {
@@ -1090,7 +1094,8 @@
                   'ash/system/holding_space|'\
                   'chrome/browser/lacros/.*holding_space.*|'\
                   'chrome/browser/ui/ash/holding_space|'\
-                  'chromeos/crosapi/mojom/.*holding_space.*'
+                  'chromeos/crosapi/mojom/.*holding_space.*|'\
+                  'tools/metrics/histograms/histograms_xml/holding_space'
     },
     'i18n': {
       'filepath': 'base/i18n/|base/string|l10n|icu|'\
@@ -1439,11 +1444,14 @@
     },
     'omnibox': {
       'filepath': '^chrome/browser/autocomplete/|'\
+                  '^chrome/browser/resources/new_tab_page/realbox/|'\
                   '^chrome/browser/resources/omnibox|'\
                   '^chrome/browser/ui/location_bar/|'\
                   '^chrome/browser/ui/omnibox/|'\
                   '^chrome/browser/ui/.*/location_bar/|'\
                   '^chrome/browser/ui/.*/omnibox/|'\
+                  '^chrome/browser/ui/.*/realbox/|'\
+                  '^chrome/test/data/webui/new_tab_page/realbox/|'\
                   '^components/omnibox/|'\
                   '^components/search_engines/'
     },
@@ -2008,8 +2016,10 @@
       'filepath': 'chrome/browser/content_settings/'\
                   '|chrome/browser/ui/views/website_settings/'\
                   '|chrome/browser/ui/website_settings/'\
+                  '|chrome/browser/privacy_sandbox/privacy_sandbox_settings'\
                   '|chrome/common/content_settings'\
-                  '|components/content_settings/',
+                  '|components/content_settings/'\
+                  '|services/network/cookie_settings',
     },
     'windows_sandboxing': {
       'filepath': 'sandbox/win/',
@@ -2072,10 +2082,9 @@
     'android_flags': ['hnakashima+watch@chromium.org'],
     'android_infobars': ['dfalcantara+watch@chromium.org'],
     'android_infra': ['agrieve+watch@chromium.org'],
-    'android_item_chooser_dialogs': ['juncai+watch@chromium.org',
-                                     'ortuno+watch@chromium.org'],
-    'android_omnibox': ['ender+watch@chromium.org',
-                         'jinsukkim+watch@chromium.org'],
+    'android_item_chooser_dialogs': ['juncai+watch@chromium.org'],
+    'android_omnibox': ['ender+watch@chromium.org'],
+    'android_omnibox_deps': ['jinsukkim+deps@chromium.org'],
     'android_search_widget': ['tedchoc+watch@chromium.org',
                               'yusufo+watch@chromium.org'],
     'android_studio': ['wnwen+watch@chromium.org',
@@ -2172,7 +2181,6 @@
     'blink_bindings': ['blink-reviews-bindings@chromium.org', 'haraken@chromium.org'],
     'blink_bindings_serialization': ['jbroman+watch@chromium.org'],
     'blink_bluetooth': ['mattreynolds+watch@chromium.org',
-                        'ortuno+watch@chromium.org',
                         'odejesush+watch@chromium.org'],
     'blink_client_hints': ['yoavweiss@chromium.org'],
     'blink_clipboard': ['dcheng@chromium.org'],
@@ -2379,8 +2387,7 @@
     'clipboard': ['dcheng@chromium.org'],
     'components_deps': ['droger+watchlist@chromium.org'],
     'compositor_animator': ['mdjones+watch@chromium.org'],
-    'content_bluetooth': ['mattreynolds+watch@chromium.org',
-                          'ortuno+watch@chromium.org'],
+    'content_bluetooth': ['mattreynolds+watch@chromium.org'],
     'content_index': ['rayankans+watch@chromium.org'],
     'content_loader': ['loading-reviews@chromium.org'],
     'content_security_policy':['antoniosartori+watch-csp@chromium.org',
@@ -2422,8 +2429,7 @@
     'dbus': ['hashimoto+watch@chromium.org'],
     'demo_mode': ['cros-essential-apps-dev+watch@chromium.org'],
     'desktop_in_product_help': ['collinbaker+watch@chromium.org'],
-    'device_bluetooth': ['mattreynolds+watch@chromium.org',
-                         'ortuno+watch@chromium.org'],
+    'device_bluetooth': ['mattreynolds+watch@chromium.org'],
     'device_chooser': ['juncai+watch@chromium.org',
                        'mattreynolds+watch@chromium.org',
                        'odejesush+watch@chromium.org'],
@@ -2587,7 +2593,6 @@
                           'sbc@chromium.org'],
     'navigation': ['alexmos+watch@chromium.org',
                    'creis+watch@chromium.org',
-                   'nasko+codewatch@chromium.org',
                    'navigation-cc+reviews@chromium.org'],
     'nearby': ['cclem+watch-nearby@google.com',
                'hais+watch-nearby@google.com',
@@ -2622,8 +2627,7 @@
                       'dimich+watch@chromium.org',
                       'fgorski+watch@chromium.org',
                       'petewil+watch@chromium.org',
-                      'romax+watch@chromium.org',
-                      'harringtond+watch@google.com'],
+                      'romax+watch@chromium.org'],
     'omnibox': ['jdonnelly+watch@chromium.org'],
     'origin_trials': ['chasej+watch@chromium.org',
                       'iclelland+watch@chromium.org'],
@@ -2715,8 +2719,7 @@
     'site_engagement': ['dominickn+watch-engagement@chromium.org'],
     'site_instance': ['ajwong+watch@chromium.org',
                       'alexmos+watch@chromium.org',
-                      'creis+watch@chromium.org',
-                      'nasko+codewatch@chromium.org'],
+                      'creis+watch@chromium.org'],
     'smartlock': ['hansberry+watch-smartlock@chromium.org',
                   'vecore+watch-smartlock@google.com'],
     'smb': ['cros-enterprise-lax+smbwatch@chromium.org'],

@@ -107,6 +107,8 @@ class TestRenderWidgetHostView : public RenderWidgetHostViewBase,
   void RenderProcessGone() override;
   void Destroy() override;
   void UpdateTooltipUnderCursor(const std::u16string& tooltip_text) override {}
+  void UpdateTooltipFromKeyboard(const std::u16string& tooltip_text,
+                                 const gfx::Rect& bounds) override {}
   gfx::Rect GetBoundsInRootWindow() override;
   blink::mojom::PointerLockResult LockMouse(bool) override;
   blink::mojom::PointerLockResult ChangeMouseLock(bool) override;
@@ -275,21 +277,6 @@ class RenderViewHostImplTestHarness : public RenderViewHostTestHarness {
   // Since most functionality will eventually shift from RVH to RFH, you may
   // prefer to use the GetMainFrame() method in tests.
   TestRenderViewHost* test_rvh();
-
-  // pending_test_rvh() is equivalent to all of the following:
-  //   contents()->GetPendingMainFrame()->GetRenderViewHost() [if frame exists]
-  //   contents()->GetPendingRenderViewHost()
-  //   static_cast<TestRenderViewHost*>(pending_rvh())
-  //
-  // Since most functionality will eventually shift from RVH to RFH, you may
-  // prefer to use the GetPendingMainFrame() method in tests.
-  TestRenderViewHost* pending_test_rvh();
-
-  // active_test_rvh() is equivalent to:
-  //   contents()->GetPendingRenderViewHost() ?
-  //        contents()->GetPendingRenderViewHost() :
-  //        contents()->GetRenderViewHost();
-  TestRenderViewHost* active_test_rvh();
 
   // main_test_rfh() is equivalent to contents()->GetMainFrame()
   // TODO(nick): Replace all uses with contents()->GetMainFrame()

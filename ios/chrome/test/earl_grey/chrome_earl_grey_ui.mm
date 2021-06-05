@@ -103,8 +103,29 @@ class ScopedDisableTimerTracking {
   // to always find it.
 }
 
+- (void)openToolsMenuInWindowWithNumber:(int)windowNumber {
+  [EarlGrey setRootMatcherForSubsequentInteractions:
+                chrome_test_util::WindowWithNumber(windowNumber)];
+  // TODO(crbug.com/639524): Add logic to ensure the app is in the correct
+  // state, for example DCHECK if no tabs are displayed.
+  [[[EarlGrey
+      selectElementWithMatcher:grey_allOf(chrome_test_util::ToolsMenuButton(),
+                                          grey_sufficientlyVisible(), nil)]
+         usingSearchAction:grey_swipeSlowInDirection(kGREYDirectionDown)
+      onElementWithMatcher:chrome_test_util::
+                               WebStateScrollViewMatcherInWindowWithNumber(
+                                   windowNumber)] performAction:grey_tap()];
+  // TODO(crbug.com/639517): Add webViewScrollView matcher so we don't have
+  // to always find it.
+}
+
 - (void)openSettingsMenu {
   [self openToolsMenu];
+  [self tapToolsMenuButton:SettingsMenuButton()];
+}
+
+- (void)openSettingsMenuInWindowWithNumber:(int)windowNumber {
+  [self openToolsMenuInWindowWithNumber:windowNumber];
   [self tapToolsMenuButton:SettingsMenuButton()];
 }
 
@@ -169,24 +190,24 @@ class ScopedDisableTimerTracking {
 }
 
 - (void)assertHistoryHasNoEntries {
-  if ([ChromeEarlGrey isIllustratedEmptyStatesEnabled]) {
-    [[EarlGrey selectElementWithMatcher:grey_accessibilityID(
-                                            kTableViewIllustratedEmptyViewID)]
-        assertWithMatcher:grey_notNil()];
+  // Make sure the empty state illustration, title and subtitle are present.
+  [[EarlGrey selectElementWithMatcher:grey_accessibilityID(
+                                          kTableViewIllustratedEmptyViewID)]
+      assertWithMatcher:grey_notNil()];
 
-    id<GREYMatcher> noHistoryMessageMatcher = grey_allOf(
-        grey_text(l10n_util::GetNSString(IDS_IOS_HISTORY_EMPTY_TITLE)),
-        grey_sufficientlyVisible(), nil);
-    [[EarlGrey selectElementWithMatcher:noHistoryMessageMatcher]
-        assertWithMatcher:grey_notNil()];
-  } else {
-    id<GREYMatcher> noHistoryMessageMatcher =
-        grey_allOf(grey_text(l10n_util::GetNSString(IDS_HISTORY_NO_RESULTS)),
-                   grey_sufficientlyVisible(), nil);
-    [[EarlGrey selectElementWithMatcher:noHistoryMessageMatcher]
-        assertWithMatcher:grey_notNil()];
-  }
+  id<GREYMatcher> noHistoryTitleMatcher =
+      grey_allOf(grey_text(l10n_util::GetNSString(IDS_IOS_HISTORY_EMPTY_TITLE)),
+                 grey_sufficientlyVisible(), nil);
+  [[EarlGrey selectElementWithMatcher:noHistoryTitleMatcher]
+      assertWithMatcher:grey_notNil()];
 
+  id<GREYMatcher> noHistoryMessageMatcher = grey_allOf(
+      grey_text(l10n_util::GetNSString(IDS_IOS_HISTORY_EMPTY_MESSAGE)),
+      grey_sufficientlyVisible(), nil);
+  [[EarlGrey selectElementWithMatcher:noHistoryMessageMatcher]
+      assertWithMatcher:grey_notNil()];
+
+  // Make sure there are no history entry cells.
   id<GREYMatcher> historyEntryMatcher =
       grey_allOf(grey_kindOfClassName(@"TableViewURLCell"),
                  grey_sufficientlyVisible(), nil);

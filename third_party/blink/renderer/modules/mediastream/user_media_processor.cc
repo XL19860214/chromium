@@ -1245,6 +1245,24 @@ void UserMediaProcessor::OnDeviceRequestStateChange(
   }
 }
 
+void UserMediaProcessor::OnDeviceCaptureHandleChange(
+    const MediaStreamDevice& device) {
+  DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
+  SendLogMessage(base::StringPrintf(
+      "OnDeviceCaptureHandleChange({session_id=%s}, {device_id=%s})",
+      device.session_id().ToString().c_str(), device.id.c_str()));
+
+  MediaStreamSource* const source = FindLocalSource(device);
+  if (!source) {
+    // This happens if the same device is used in several guM requests or
+    // if a user happens to stop a track from JS at the same time
+    // as the underlying media device is unplugged from the system.
+    return;
+  }
+
+  source->OnDeviceCaptureHandleChange(device);
+}
+
 void UserMediaProcessor::Trace(Visitor* visitor) const {
   visitor->Trace(dispatcher_host_);
   visitor->Trace(frame_);
@@ -1454,6 +1472,8 @@ void UserMediaProcessor::StartTracks(const String& label) {
         WTF::BindRepeating(&UserMediaProcessor::OnDeviceChanged,
                            WrapWeakPersistent(this)),
         WTF::BindRepeating(&UserMediaProcessor::OnDeviceRequestStateChange,
+                           WrapWeakPersistent(this)),
+        WTF::BindRepeating(&UserMediaProcessor::OnDeviceCaptureHandleChange,
                            WrapWeakPersistent(this)));
   }
 
@@ -1748,17 +1768,28 @@ bool UserMediaProcessor::RemoveLocalSource(MediaStreamSource* source) {
   for (auto* device_it = pending_local_sources_.begin();
        device_it != pending_local_sources_.end(); ++device_it) {
     if (IsSameSource(*device_it, source)) {
-      WebPlatformMediaStreamSource* const source_extra_data =
+      WebPlatformMediaStreamSource* const platform_source =
           source->GetPlatformSource();
-      const bool is_audio_source =
-          source->GetType() == MediaStreamSource::kTypeAudio;
-      NotifyCurrentRequestInfoOfAudioSourceStarted(
-          source_extra_data,
-          is_audio_source ? MediaStreamRequestResult::TRACK_START_FAILURE_AUDIO
-                          : MediaStreamRequestResult::TRACK_START_FAILURE_VIDEO,
-          String::FromUTF8(is_audio_source
-                               ? "Failed to access audio capture device"
-                               : "Failed to access video capture device"));
+      MediaStreamRequestResult result;
+      String message;
+      if (source->GetType() == MediaStreamSource::kTypeAudio) {
+        auto error = MediaStreamAudioSource::From(source)->ErrorCode();
+        if (error.has_value() &&
+            error.value() ==
+                media::AudioCapturerSource::ErrorCode::kSystemPermissions) {
+          result = MediaStreamRequestResult::SYSTEM_PERMISSION_DENIED;
+          message =
+              "System Permssions prevented access to audio capture device";
+        } else {
+          result = MediaStreamRequestResult::TRACK_START_FAILURE_AUDIO;
+          message = "Failed to access audio capture device";
+        }
+      } else {
+        result = MediaStreamRequestResult::TRACK_START_FAILURE_VIDEO;
+        message = "Failed to access video capture device";
+      }
+      NotifyCurrentRequestInfoOfAudioSourceStarted(platform_source, result,
+                                                   message);
       pending_local_sources_.erase(device_it);
       return true;
     }

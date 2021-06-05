@@ -62,6 +62,7 @@
 #include "third_party/blink/public/common/net/ip_address_space_util.h"
 #include "third_party/blink/public/common/security/security_style.h"
 #include "third_party/blink/public/common/thread_safe_browser_interface_broker_proxy.h"
+#include "third_party/blink/public/mojom/blob/blob.mojom.h"
 #include "third_party/blink/public/mojom/blob/blob_registry.mojom.h"
 #include "third_party/blink/public/mojom/frame/frame.mojom.h"
 #include "third_party/blink/public/platform/file_path_conversion.h"
@@ -343,12 +344,11 @@ class WebURLLoader::Context : public WebRequestPeer {
   scoped_refptr<base::SingleThreadTaskRunner> GetMaybeUnfreezableTaskRunner();
 
   void Cancel();
-  void SetDefersLoading(WebURLLoader::DeferType value);
+  void Freeze(WebLoaderFreezeMode mode);
   void DidChangePriority(WebURLRequest::Priority new_priority,
                          int intra_priority_value);
   void Start(std::unique_ptr<network::ResourceRequest> request,
              scoped_refptr<WebURLRequestExtraData> url_request_extra_data,
-             int requestor_id,
              bool pass_response_pipe_to_client,
              bool no_mime_sniffing,
              base::TimeDelta timeout_interval,
@@ -417,7 +417,7 @@ class WebURLLoader::Context : public WebRequestPeer {
   scoped_refptr<base::SingleThreadTaskRunner> freezable_task_runner_;
   scoped_refptr<base::SingleThreadTaskRunner> unfreezable_task_runner_;
   mojo::PendingRemote<mojom::KeepAliveHandle> keep_alive_handle_;
-  WebURLLoader::DeferType defers_loading_;
+  WebLoaderFreezeMode freeze_mode_ = WebLoaderFreezeMode::kNone;
   const WebVector<WebString> cors_exempt_header_list_;
   base::WaitableEvent* terminate_sync_load_event_;
 
@@ -460,7 +460,6 @@ WebURLLoader::Context::Context(
       unfreezable_task_runner_(
           unfreezable_task_runner_handle_->GetTaskRunner()),
       keep_alive_handle_(std::move(keep_alive_handle)),
-      defers_loading_(WebURLLoader::DeferType::kNotDeferred),
       cors_exempt_header_list_(cors_exempt_header_list),
       terminate_sync_load_event_(terminate_sync_load_event),
       request_id_(-1),
@@ -490,10 +489,10 @@ void WebURLLoader::Context::Cancel() {
   loader_ = nullptr;
 }
 
-void WebURLLoader::Context::SetDefersLoading(WebURLLoader::DeferType value) {
+void WebURLLoader::Context::Freeze(WebLoaderFreezeMode mode) {
   if (request_id_ != -1)
-    resource_request_sender_->SetDefersLoading(value);
-  defers_loading_ = value;
+    resource_request_sender_->Freeze(mode);
+  freeze_mode_ = mode;
 }
 
 void WebURLLoader::Context::DidChangePriority(
@@ -513,7 +512,6 @@ void WebURLLoader::Context::DidChangePriority(
 void WebURLLoader::Context::Start(
     std::unique_ptr<network::ResourceRequest> request,
     scoped_refptr<WebURLRequestExtraData> passed_url_request_extra_data,
-    int requestor_id,
     bool pass_response_pipe_to_client,
     bool no_mime_sniffing,
     base::TimeDelta timeout_interval,
@@ -593,7 +591,7 @@ void WebURLLoader::Context::Start(
   }
 
   if (sync_load_response) {
-    DCHECK(defers_loading_ == WebURLLoader::DeferType::kNotDeferred);
+    DCHECK(freeze_mode_ == WebLoaderFreezeMode::kNone);
 
     loader_options |= network::mojom::kURLLoadOptionSynchronous;
     request->load_flags |= net::LOAD_IGNORE_LIMITS;
@@ -624,9 +622,8 @@ void WebURLLoader::Context::Start(
       std::move(throttles), std::move(resource_load_info_notifier_wrapper),
       back_forward_cache_loader_helper_);
 
-  if (defers_loading_ != WebURLLoader::DeferType::kNotDeferred) {
-    resource_request_sender_->SetDefersLoading(
-        WebURLLoader::DeferType::kDeferred);
+  if (freeze_mode_ != WebLoaderFreezeMode::kNone) {
+    resource_request_sender_->Freeze(WebLoaderFreezeMode::kStrict);
   }
 }
 
@@ -964,7 +961,6 @@ WebURLError WebURLLoader::PopulateURLError(
 void WebURLLoader::LoadSynchronously(
     std::unique_ptr<network::ResourceRequest> request,
     scoped_refptr<WebURLRequestExtraData> url_request_extra_data,
-    int requestor_id,
     bool pass_response_pipe_to_client,
     bool no_mime_sniffing,
     base::TimeDelta timeout_interval,
@@ -988,7 +984,7 @@ void WebURLLoader::LoadSynchronously(
 
   const bool report_raw_headers = request->report_raw_headers;
   context_->Start(std::move(request), std::move(url_request_extra_data),
-                  requestor_id, pass_response_pipe_to_client, no_mime_sniffing,
+                  pass_response_pipe_to_client, no_mime_sniffing,
                   timeout_interval, &sync_load_response,
                   std::move(resource_load_info_notifier_wrapper));
 
@@ -1037,7 +1033,6 @@ void WebURLLoader::LoadSynchronously(
 void WebURLLoader::LoadAsynchronously(
     std::unique_ptr<network::ResourceRequest> request,
     scoped_refptr<WebURLRequestExtraData> url_request_extra_data,
-    int requestor_id,
     bool no_mime_sniffing,
     std::unique_ptr<ResourceLoadInfoNotifierWrapper>
         resource_load_info_notifier_wrapper,
@@ -1051,7 +1046,6 @@ void WebURLLoader::LoadAsynchronously(
 
   context_->set_client(client);
   context_->Start(std::move(request), std::move(url_request_extra_data),
-                  requestor_id,
                   /*pass_response_pipe_to_client=*/false, no_mime_sniffing,
                   base::TimeDelta(), nullptr,
                   std::move(resource_load_info_notifier_wrapper));
@@ -1062,9 +1056,9 @@ void WebURLLoader::Cancel() {
     context_->Cancel();
 }
 
-void WebURLLoader::SetDefersLoading(DeferType value) {
+void WebURLLoader::Freeze(WebLoaderFreezeMode mode) {
   if (context_)
-    context_->SetDefersLoading(value);
+    context_->Freeze(mode);
 }
 
 void WebURLLoader::DidChangePriority(WebURLRequest::Priority new_priority,

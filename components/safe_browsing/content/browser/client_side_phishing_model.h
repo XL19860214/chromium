@@ -10,12 +10,15 @@
 
 #include "base/callback_list.h"
 #include "base/files/file.h"
+#include "base/memory/read_only_shared_memory_region.h"
 #include "base/synchronization/lock.h"
 #include "components/safe_browsing/content/browser/client_side_model_loader.h"
 
 namespace safe_browsing {
 
 struct ClientSidePhishingModelSingletonTrait;
+
+enum class CSDModelType { kNone = 0, kProtobuf = 1, kFlatbuffer = 2 };
 
 // This holds the currently active client side phishing detection model.
 //
@@ -38,8 +41,14 @@ class ClientSidePhishingModel {
   // Returns whether we currently have a model.
   bool IsEnabled() const;
 
-  // Returns the model string, as a serialized protobuf.
+  // Returns model type (protobuf or flatbuffer).
+  CSDModelType GetModelType() const;
+
+  // Returns the model string, as a serialized protobuf or flatbuffer.
   std::string GetModelStr() const;
+
+  // Returns the shared memory region for the flatbuffer.
+  base::ReadOnlySharedMemoryRegion GetModelSharedMemoryRegion() const;
 
   // Updates the internal model string, when one is received from a component
   // update.
@@ -51,6 +60,15 @@ class ClientSidePhishingModel {
   // Overrides the model string for use in tests.
   void SetModelStrForTesting(const std::string& model_str);
   void SetVisualTfLiteModelForTesting(base::File file);
+  // Overrides model type.
+  void SetModelTypeForTesting(CSDModelType model_type);
+  // Removes mapping.
+  void ClearMappedRegionForTesting();
+  // Get flatbuffer memory address.
+  void* GetFlatBufferMemoryAddressForTesting();
+
+  // Called to check the command line and maybe override the current model.
+  void MaybeOverrideModel();
 
  private:
   static const int kInitialClientModelFetchDelayMs;
@@ -59,21 +77,26 @@ class ClientSidePhishingModel {
 
   void NotifyCallbacksOnUI();
 
-  // Called to check the command line and maybe override the current model.
-  void MaybeOverrideModel();
-
   // Callback when the local file overriding the model has been read.
-  void OnGetOverridenModelData(const std::string& model_data);
+  void OnGetOverridenModelData(CSDModelType model_type,
+                               const std::string& model_data);
 
   // The list of callbacks to notify when a new model is ready. Protected by
   // lock_. Will always be notified on the UI thread.
   base::RepeatingCallbackList<void()> callbacks_;
 
-  // Model string. Protected by lock_.
+  // Model protobuf string. Protected by lock_.
   std::string model_str_;
 
   // Visual TFLite model file. Protected by lock_.
   base::File visual_tflite_model_;
+
+  // Model type as inferred by feature flag. Protected by lock_.
+  CSDModelType model_type_ = CSDModelType::kNone;
+
+  // MappedReadOnlyRegion where the flatbuffer has been copied to. Protected by
+  // lock_.
+  base::MappedReadOnlyRegion mapped_region_ = base::MappedReadOnlyRegion();
 
   mutable base::Lock lock_;
 

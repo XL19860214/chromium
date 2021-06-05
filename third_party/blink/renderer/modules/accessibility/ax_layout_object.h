@@ -37,7 +37,6 @@
 namespace blink {
 
 class AXObjectCacheImpl;
-class Element;
 class HTMLAreaElement;
 class IntPoint;
 class Node;
@@ -57,7 +56,6 @@ class MODULES_EXPORT AXLayoutObject : public AXNodeObject {
 
   // DOM and layout tree access.
   Document* GetDocument() const override;
-  Element* AnchorElement() const override;
 
  protected:
   LayoutObject* layout_object_;
@@ -91,7 +89,7 @@ class MODULES_EXPORT AXLayoutObject : public AXNodeObject {
 
   // AX name calc.
   String TextAlternative(bool recursive,
-                         bool in_aria_labelled_by_traversal,
+                         const AXObject* aria_label_or_description_root,
                          AXObjectSet& visited,
                          ax::mojom::blink::NameFrom&,
                          AXRelatedObjectVector*,

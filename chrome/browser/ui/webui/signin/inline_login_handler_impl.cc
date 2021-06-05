@@ -186,26 +186,6 @@ void LogHistogramValue(signin_metrics::AccessPointAction action) {
                             signin_metrics::HISTOGRAM_MAX);
 }
 
-void RedirectToNtpOrAppsPage(content::WebContents* contents,
-                             signin_metrics::AccessPoint access_point) {
-  // Do nothing if a navigation is pending, since this call can be triggered
-  // from DidStartLoading. This avoids deleting the pending entry while we are
-  // still navigating to it. See crbug/346632.
-  if (contents->GetController().GetPendingEntry())
-    return;
-
-  VLOG(1) << "RedirectToNtpOrAppsPage";
-  // Redirect to NTP/Apps page and display a confirmation bubble
-  GURL url(access_point ==
-                   signin_metrics::AccessPoint::ACCESS_POINT_APPS_PAGE_LINK
-               ? chrome::kChromeUIAppsURL
-               : chrome::kChromeUINewTabURL);
-  content::OpenURLParams params(url, content::Referrer(),
-                                WindowOpenDisposition::CURRENT_TAB,
-                                ui::PAGE_TRANSITION_AUTO_TOPLEVEL, false);
-  contents->OpenURL(params);
-}
-
 void SetProfileLocked(const base::FilePath profile_path, bool locked) {
   if (!profile_path.empty()) {
     ProfileManager* profile_manager = g_browser_process->profile_manager();
@@ -259,13 +239,12 @@ void OnSyncSetupComplete(Profile* profile,
   if (has_primary_account && is_force_sign_in_with_usermanager) {
     CoreAccountInfo primary_account =
         identity_manager->GetPrimaryAccountInfo(signin::ConsentLevel::kSync);
-    absl::optional<AccountInfo> primary_account_info =
-        identity_manager->FindExtendedAccountInfoForAccountWithRefreshToken(
-            primary_account);
+    AccountInfo primary_account_info =
+        identity_manager->FindExtendedAccountInfo(primary_account);
     std::u16string profile_name;
-    if (primary_account_info.has_value()) {
+    if (!primary_account_info.IsEmpty()) {
       profile_name =
-          profiles::GetDefaultNameForNewSignedInProfile(*primary_account_info);
+          profiles::GetDefaultNameForNewSignedInProfile(primary_account_info);
     } else {
       profile_name =
           profiles::GetDefaultNameForNewSignedInProfileWithIncompleteInfo(
@@ -863,8 +842,10 @@ void InlineLoginHandlerImpl::SyncSetupFailed() {
     return;
   }
 
-  const GURL& current_url = contents->GetLastCommittedURL();
-  signin_metrics::AccessPoint access_point =
-      signin::GetAccessPointForEmbeddedPromoURL(current_url);
-  RedirectToNtpOrAppsPage(contents, access_point);
+  // Redirect to NTP.
+  GURL url(chrome::kChromeUINewTabURL);
+  content::OpenURLParams params(url, content::Referrer(),
+                                WindowOpenDisposition::CURRENT_TAB,
+                                ui::PAGE_TRANSITION_AUTO_TOPLEVEL, false);
+  contents->OpenURL(params);
 }

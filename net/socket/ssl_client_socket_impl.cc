@@ -16,6 +16,7 @@
 #include "base/bind.h"
 #include "base/callback_helpers.h"
 #include "base/containers/span.h"
+#include "base/cxx17_backports.h"
 #include "base/feature_list.h"
 #include "base/lazy_instance.h"
 #include "base/location.h"
@@ -26,7 +27,6 @@
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/rand_util.h"
-#include "base/stl_util.h"
 #include "base/strings/string_piece.h"
 #include "base/synchronization/lock.h"
 #include "base/threading/sequenced_task_runner_handle.h"
@@ -851,7 +851,7 @@ int SSLClientSocketImpl::Init() {
 
   // Use BoringSSL defaults, but disable HMAC-SHA1 ciphers in ECDSA. These are
   // the remaining CBC-mode ECDSA ciphers.
-  std::string command("ALL::!aPSK:!ECDSA+SHA1");
+  std::string command("ALL:!aPSK:!ECDSA+SHA1");
 
   if (ssl_config_.require_ecdhe)
     command.append(":!kRSA");

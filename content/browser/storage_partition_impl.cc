@@ -117,6 +117,7 @@
 #include "storage/browser/quota/quota_settings.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/common/features.h"
+#include "third_party/blink/public/common/storage_key/storage_key.h"
 #include "third_party/blink/public/mojom/devtools/inspector_issue.mojom-shared.h"
 #include "third_party/blink/public/mojom/quota/quota_types.mojom.h"
 
@@ -1023,7 +1024,7 @@ class StoragePartitionImpl::ServiceWorkerCookieAccessObserver
       network::mojom::CookieAccessDetailsPtr details) {
     std::vector<GlobalFrameRoutingId> destinations =
         *service_worker_context->GetWindowClientFrameRoutingIds(
-            details->url.GetOrigin());
+            blink::StorageKey(url::Origin::Create(details->url)));
     if (destinations.empty())
       return;
     RunOrPostTaskOnThread(
@@ -1175,13 +1176,12 @@ void StoragePartitionImpl::Initialize(
 
   // Each consumer is responsible for registering its QuotaClient during
   // its construction.
-  filesystem_context_ =
-      CreateFileSystemContext(browser_context_, partition_path_, is_in_memory_,
-                              quota_manager_proxy.get());
+  filesystem_context_ = CreateFileSystemContext(
+      browser_context_, partition_path_, is_in_memory_, quota_manager_proxy);
 
-  database_tracker_ = base::MakeRefCounted<storage::DatabaseTracker>(
+  database_tracker_ = storage::DatabaseTracker::Create(
       partition_path_, is_in_memory_,
-      browser_context_->GetSpecialStoragePolicy(), quota_manager_proxy.get());
+      browser_context_->GetSpecialStoragePolicy(), quota_manager_proxy);
 
   dom_storage_context_ = DOMStorageContextWrapper::Create(
       this, browser_context_->GetSpecialStoragePolicy());
@@ -1295,7 +1295,7 @@ void StoragePartitionImpl::Initialize(
 
   // The Conversion Measurement API is not available in Incognito mode.
   if (!is_in_memory_ &&
-      base::FeatureList::IsEnabled(features::kConversionMeasurement)) {
+      base::FeatureList::IsEnabled(blink::features::kConversionMeasurement)) {
     conversion_manager_ = std::make_unique<ConversionManagerImpl>(
         this, path, special_storage_policy_);
   }

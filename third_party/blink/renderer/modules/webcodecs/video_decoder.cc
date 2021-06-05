@@ -15,6 +15,7 @@
 #include "media/base/media_util.h"
 #include "media/base/mime_util.h"
 #include "media/base/supported_types.h"
+#include "media/base/video_aspect_ratio.h"
 #include "media/base/video_decoder.h"
 #include "media/media_buildflags.h"
 #include "third_party/blink/public/mojom/web_feature/web_feature.mojom-blink.h"
@@ -28,6 +29,7 @@
 #include "third_party/blink/renderer/core/dom/dom_exception.h"
 #include "third_party/blink/renderer/modules/webcodecs/codec_config_eval.h"
 #include "third_party/blink/renderer/modules/webcodecs/encoded_video_chunk.h"
+#include "third_party/blink/renderer/modules/webcodecs/gpu_factories_retriever.h"
 #include "third_party/blink/renderer/modules/webcodecs/video_decoder_broker.h"
 #include "third_party/blink/renderer/modules/webcodecs/video_frame.h"
 #include "third_party/blink/renderer/platform/bindings/exception_code.h"
@@ -51,11 +53,6 @@ namespace blink {
 
 namespace {
 
-media::GpuVideoAcceleratorFactories* GetGpuFactoriesOnMainThread() {
-  DCHECK(IsMainThread());
-  return Platform::Current()->GetGpuFactories();
-}
-
 void DecoderSupport_OnKnown(
     VideoDecoderSupport* support,
     std::unique_ptr<VideoDecoder::MediaConfigType> media_config,
@@ -66,30 +63,6 @@ void DecoderSupport_OnKnown(
       gpu_factories->IsDecoderConfigSupported(*media_config) ==
       media::GpuVideoAcceleratorFactories::Supported::kTrue);
   resolver->Resolve(support);
-}
-
-void DecoderSupport_OnGpuFactories(
-    VideoDecoderSupport* support,
-    std::unique_ptr<VideoDecoder::MediaConfigType> media_config,
-    ScriptPromiseResolver* resolver,
-    media::GpuVideoAcceleratorFactories* gpu_factories) {
-  if (!gpu_factories || !gpu_factories->IsGpuVideoAcceleratorEnabled()) {
-    support->setSupported(false);
-    resolver->Resolve(support);
-    return;
-  }
-
-  if (gpu_factories->IsDecoderSupportKnown()) {
-    DecoderSupport_OnKnown(support, std::move(media_config), resolver,
-                           gpu_factories);
-    return;
-  }
-
-  gpu_factories->NotifyDecoderSupportKnown(
-      ConvertToBaseOnceCallback(CrossThreadBindOnce(
-          &DecoderSupport_OnKnown, WrapCrossThreadPersistent(support),
-          std::move(media_config), WrapCrossThreadPersistent(resolver),
-          CrossThreadUnretained(gpu_factories))));
 }
 
 bool ParseCodecString(const String& codec_string,
@@ -144,107 +117,34 @@ bool IsValidConfig(const VideoDecoderConfig& config,
     const uint32_t coded_height = config.codedHeight();
     if (coded_width == 0 || coded_width > media::limits::kMaxDimension ||
         coded_height == 0 || coded_height > media::limits::kMaxDimension) {
+      // TODO(crbug.com/1212865): Exceeding implementation limits should not
+      // throw in isConfigSupported() (the config is valid, just unsupported).
       out_console_message = String::Format("Invalid coded size (%u, %u).",
                                            coded_width, coded_height);
       return false;
     }
-
-    // Validate visible region.
-    uint32_t visible_left = 0;
-    uint32_t visible_top = 0;
-    uint32_t visible_width = coded_width;
-    uint32_t visible_height = coded_height;
-    if (config.hasVisibleRegion()) {
-      visible_left = config.visibleRegion()->left();
-      visible_top = config.visibleRegion()->top();
-      visible_width = config.visibleRegion()->width();
-      visible_height = config.visibleRegion()->height();
-    } else {
-      // TODO(sandersd): Plumb |execution_context| so we can log a deprecation
-      // notice.
-      if (config.hasCropLeft()) {
-        visible_left = config.cropLeft();
-        if (visible_left >= coded_width) {
-          out_console_message =
-              String::Format("Invalid cropLeft %u for codedWidth %u.",
-                             visible_left, coded_width);
-          return false;
-        }
-        visible_width = coded_width - visible_left;
-      }
-      if (config.hasCropTop()) {
-        visible_top = config.cropTop();
-        if (visible_top >= coded_height) {
-          out_console_message =
-              String::Format("Invalid cropTop %u for codedHeight %u.",
-                             visible_top, coded_height);
-          return false;
-        }
-        visible_width = coded_width - visible_left;
-      }
-      if (config.hasCropWidth())
-        visible_width = config.cropWidth();
-      if (config.hasCropHeight())
-        visible_height = config.cropHeight();
-    }
-    if (visible_left >= coded_width || visible_top >= coded_height ||
-        visible_width == 0 || visible_width > media::limits::kMaxDimension ||
-        visible_height == 0 || visible_height > media::limits::kMaxDimension ||
-        visible_left + visible_width > coded_width ||
-        visible_top + visible_height > coded_height) {
-      out_console_message = String::Format(
-          "Invalid visible region {left: %u, top: %u, width: %u, height: %u} "
-          "for coded size (%u, %u).",
-          visible_left, visible_top, visible_width, visible_height, coded_width,
-          coded_height);
-      return false;
-    }
-  } else {
-    if (config.hasVisibleRegion()) {
-      out_console_message =
-          "Invalid config, visibleRegion specified without coded size.";
-      return false;
-    }
-    if (config.hasCropLeft()) {
-      out_console_message =
-          "Invalid config, cropLeft specified without coded size.";
-      return false;
-    }
-    if (config.hasCropTop()) {
-      out_console_message =
-          "Invalid config, cropTop specified without coded size.";
-      return false;
-    }
-    if (config.hasCropWidth()) {
-      out_console_message =
-          "Invalid config, cropWidth specified without coded size.";
-      return false;
-    }
-    if (config.hasCropHeight()) {
-      out_console_message =
-          "Invalid config, cropHeight specified without coded size.";
-      return false;
-    }
   }
 
-  if (config.hasDisplayWidth() || config.hasDisplayHeight()) {
-    if (!config.hasDisplayWidth()) {
+  if (config.hasDisplayAspectWidth() || config.hasDisplayAspectHeight()) {
+    if (!config.hasDisplayAspectWidth()) {
       out_console_message =
-          "Invalid config, displayHeight specified without displayWidth.";
+          "Invalid config, displayAspectHeight specified without "
+          "displayAspectWidth.";
       return false;
     }
-    if (!config.hasDisplayHeight()) {
+    if (!config.hasDisplayAspectHeight()) {
       out_console_message =
-          "Invalid config, displayWidth specified without displayHeight.";
+          "Invalid config, displayAspectWidth specified without "
+          "displayAspectHeight.";
       return false;
     }
 
-    uint32_t display_width = config.displayWidth();
-    uint32_t display_height = config.displayHeight();
-    if (display_width == 0 || display_width > media::limits::kMaxDimension ||
-        display_height == 0 || display_height > media::limits::kMaxDimension) {
-      out_console_message = String::Format("Invalid display size (%u, %u).",
-                                           display_width, display_height);
+    uint32_t display_aspect_width = config.displayAspectWidth();
+    uint32_t display_aspect_height = config.displayAspectHeight();
+    if (display_aspect_width == 0 || display_aspect_height == 0) {
+      out_console_message =
+          String::Format("Invalid display aspect (%u, %u).",
+                         display_aspect_width, display_aspect_height);
       return false;
     }
   }
@@ -270,32 +170,11 @@ VideoDecoderConfig* CopyConfig(const VideoDecoderConfig& config) {
   if (config.hasCodedHeight())
     copy->setCodedHeight(config.codedHeight());
 
-  if (config.hasVisibleRegion()) {
-    auto* region = MakeGarbageCollected<VideoFrameRegion>();
-    region->setLeft(config.visibleRegion()->left());
-    region->setTop(config.visibleRegion()->top());
-    region->setWidth(config.visibleRegion()->width());
-    region->setHeight(config.visibleRegion()->height());
-    copy->setVisibleRegion(region);
-  }
+  if (config.hasDisplayAspectWidth())
+    copy->setDisplayAspectWidth(config.displayAspectWidth());
 
-  if (config.hasCropLeft())
-    copy->setCropLeft(config.cropLeft());
-
-  if (config.hasCropTop())
-    copy->setCropTop(config.cropTop());
-
-  if (config.hasCropWidth())
-    copy->setCropWidth(config.cropWidth());
-
-  if (config.hasCropHeight())
-    copy->setCropHeight(config.cropHeight());
-
-  if (config.hasDisplayWidth())
-    copy->setDisplayWidth(config.displayWidth());
-
-  if (config.hasDisplayHeight())
-    copy->setDisplayHeight(config.displayHeight());
+  if (config.hasDisplayAspectHeight())
+    copy->setDisplayAspectHeight(config.displayAspectHeight());
 
   if (config.hasHardwareAcceleration())
     copy->setHardwareAcceleration(config.hardwareAcceleration());
@@ -435,22 +314,9 @@ ScriptPromise VideoDecoder::IsAcceleratedConfigSupported(
   VideoDecoderSupport* support = VideoDecoderSupport::Create();
   support->setConfig(CopyConfig(*config));
 
-  if (IsMainThread()) {
-    media::GpuVideoAcceleratorFactories* gpu_factories =
-        Platform::Current()->GetGpuFactories();
-    DecoderSupport_OnGpuFactories(support, std::move(media_config), resolver,
-                                  gpu_factories);
-  } else {
-    auto on_gpu_factories_cb = CrossThreadBindOnce(
-        &DecoderSupport_OnGpuFactories, WrapCrossThreadPersistent(support),
-        std::move(media_config), WrapCrossThreadPersistent(resolver));
-
-    Thread::MainThread()->GetTaskRunner()->PostTaskAndReplyWithResult(
-        FROM_HERE,
-        ConvertToBaseOnceCallback(
-            CrossThreadBindOnce(&GetGpuFactoriesOnMainThread)),
-        ConvertToBaseOnceCallback(std::move(on_gpu_factories_cb)));
-  }
+  RetrieveGpuFactoriesWithKnownDecoderSupport(CrossThreadBindOnce(
+      &DecoderSupport_OnKnown, WrapCrossThreadPersistent(support),
+      std::move(media_config), WrapCrossThreadPersistent(resolver)));
 
   return promise;
 }
@@ -516,16 +382,31 @@ CodecConfigEval VideoDecoder::MakeMediaVideoDecoderConfig(
   }
 #endif  // BUILDFLAG(USE_PROPRIETARY_CODECS)
 
-  // TODO(sandersd): Use size information from the VideoDecoderConfig when it is
-  // provided, and figure out how to combine it with the avcC. Update fuzzer to
-  // match.
-  gfx::Size size = gfx::Size(1280, 720);
+  // Guess 720p if no coded size hint is provided. This choice should result in
+  // a preference for hardware decode.
+  gfx::Size coded_size = gfx::Size(1280, 720);
+  if (config.hasCodedWidth() && config.hasCodedHeight())
+    coded_size = gfx::Size(config.codedWidth(), config.codedHeight());
+
+  // These are meaningless.
+  // TODO(crbug.com/1214061): Remove.
+  gfx::Rect visible_rect(gfx::Point(), coded_size);
+  gfx::Size natural_size = coded_size;
+
+  // Note: Using a default-constructed VideoAspectRatio allows decoders to
+  // override using in-band metadata.
+  media::VideoAspectRatio aspect_ratio;
+  if (config.hasDisplayAspectWidth() && config.hasDisplayAspectHeight()) {
+    aspect_ratio = media::VideoAspectRatio::DAR(config.displayAspectWidth(),
+                                                config.displayAspectHeight());
+  }
 
   out_media_config.Initialize(
       video_type.codec, video_type.profile,
       media::VideoDecoderConfig::AlphaMode::kIsOpaque, video_type.color_space,
-      media::kNoTransformation, size, gfx::Rect(gfx::Point(), size), size,
+      media::kNoTransformation, coded_size, visible_rect, natural_size,
       extra_data, media::EncryptionScheme::kUnencrypted);
+  out_media_config.set_aspect_ratio(aspect_ratio);
 
   return CodecConfigEval::kSupported;
 }

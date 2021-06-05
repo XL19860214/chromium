@@ -21,11 +21,13 @@
 #include "content/browser/renderer_host/render_frame_host_manager.h"
 #include "content/common/content_export.h"
 #include "services/network/public/mojom/content_security_policy.mojom-forward.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/common/frame/frame_policy.h"
 #include "third_party/blink/public/common/frame/user_activation_state.h"
 #include "third_party/blink/public/mojom/frame/frame_owner_element_type.mojom.h"
 #include "third_party/blink/public/mojom/frame/frame_owner_properties.mojom.h"
 #include "third_party/blink/public/mojom/frame/frame_replication_state.mojom-forward.h"
+#include "third_party/blink/public/mojom/frame/tree_scope_type.mojom.h"
 #include "third_party/blink/public/mojom/frame/user_activation_update_types.mojom.h"
 #include "third_party/blink/public/mojom/security_context/insecure_request_policy.mojom-forward.h"
 
@@ -78,7 +80,7 @@ class CONTENT_EXPORT FrameTreeNode {
   FrameTreeNode(
       FrameTree* frame_tree,
       RenderFrameHostImpl* parent,
-      blink::mojom::TreeScopeType scope,
+      blink::mojom::TreeScopeType tree_scope_type,
       const std::string& name,
       const std::string& unique_name,
       bool is_created_by_script,
@@ -99,7 +101,7 @@ class CONTENT_EXPORT FrameTreeNode {
   // a fresh set of CSP).
   // TODO(arthursonzogni): Remove this function. The frame/document must not be
   // left temporarily with lax state.
-  void ResetForNavigation(bool was_served_from_back_forward_cache);
+  void ResetForNavigation();
 
   FrameTree* frame_tree() const { return frame_tree_; }
   Navigator& navigator() { return frame_tree()->navigator(); }
@@ -166,8 +168,15 @@ class CONTENT_EXPORT FrameTreeNode {
   // has_committed_real_load accordingly.
   void SetCurrentURL(const GURL& url);
 
-  // Returns true iff SetCurrentURL has been called with a non-blank URL.
+  // Returns true if SetCurrentURL has been called with a non-blank URL or
+  // if the current document's input stream has been opened with
+  // document.open(). See the definition of `has_committed_real_load_` for more
+  // details.
   bool has_committed_real_load() const { return has_committed_real_load_; }
+
+  // Sets has_committed_real_load to true. Must only be called after the current
+  // document's input stream has been opened with document.open().
+  void DidOpenDocumentInputStream() { has_committed_real_load_ = true; }
 
   // Returns whether the frame's owner element in the parent document is
   // collapsed, that is, removed from the layout as if it did not exist, as per
@@ -422,7 +431,11 @@ class CONTENT_EXPORT FrameTreeNode {
     return frame_owner_element_type_;
   }
 
-  void SetAdFrameType(blink::mojom::AdFrameType ad_frame_type);
+  blink::mojom::TreeScopeType tree_scope_type() const {
+    return tree_scope_type_;
+  }
+
+  void SetIsAdSubframe(bool is_ad_subframe);
 
   // The initial popup URL for new window opened using:
   // `window.open(initial_popup_url)`.
@@ -530,16 +543,33 @@ class CONTENT_EXPORT FrameTreeNode {
   // Please refer to {Get,Set}PopupCreatorOrigin() documentation.
   url::Origin popup_creator_origin_;
 
-  // Whether this frame has committed any real load, replacing its initial
-  // about:blank page.
+  // Whether this frame has committed a "real load", replacing its initial
+  // about:blank document and possibly other subsequent about:blank documents
+  // after the initial about:blank document. This will be marked as true if
+  // either of these has happened:
+  // - SetCurrentUrl() has been called with a non about:blank URL.
+  // - The document's input stream has been opened with document.open().
+  // See:
+  // https://html.spec.whatwg.org/multipage/dynamic-markup-insertion.html#opening-the-input-stream:is-initial-about:blank
+  // TODO(https://crbug.com/1215096): Make this true after non-initial
+  // about:blank commits as well, making this only track whether the current
+  // document is the initial empty document or not.
   bool has_committed_real_load_ = false;
 
   // Whether the frame's owner element in the parent document is collapsed.
   bool is_collapsed_ = false;
 
-  // The type of frame owner for this frame, if any.
+  // The type of frame owner for this frame. This is only relevant for non-main
+  // frames.
   const blink::mojom::FrameOwnerElementType frame_owner_element_type_ =
       blink::mojom::FrameOwnerElementType::kNone;
+
+  // The tree scope type of frame owner element, i.e. whether the element is in
+  // the document tree (https://dom.spec.whatwg.org/#document-trees) or the
+  // shadow tree (https://dom.spec.whatwg.org/#shadow-trees). This is only
+  // relevant for non-main frames.
+  const blink::mojom::TreeScopeType tree_scope_type_ =
+      blink::mojom::TreeScopeType::kDocument;
 
   // Track information that needs to be replicated to processes that have
   // proxies for this frame.

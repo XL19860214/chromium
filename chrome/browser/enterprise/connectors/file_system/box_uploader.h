@@ -12,6 +12,10 @@
 
 namespace enterprise_connectors {
 
+// The UMA label used to log the number of renames to avoid a collision when
+// uploading to Box
+extern const char kUniquifierUmaLabel[];
+
 // Task Manager for downloaded items used by FileSystemRenamdHandler that
 // connects between the Chrome client and Box. Once given a download item and
 // authentication, internally it manages the entire API call flow required to
@@ -40,15 +44,26 @@ class BoxUploader {
       scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
       const std::string& access_token);
 
+  // Cancel the upload and delete the local temporary file.
+  void TerminateTask();
+
   virtual GURL GetUploadedFileUrl() const;
   virtual GURL GetDestinationFolderUrl() const;
 
   // Helper methods for unit tests.
   std::string GetFolderIdForTesting() const;
   void NotifyOAuth2ErrorForTesting();
-  void NotifyResultForTesting(bool success);
+  void SetUploadApiCallFlowDoneForTesting(bool success);
 
   class FileChunksHandler;  // To be moved into BoxChunkedFileUploader.
+
+  // The largest number of retries attempted in OnPreflightCheckResponse.
+  enum UploadAttemptCount {
+    kNotRenamed = 0,
+    kMaxRenamedWithSuffix = 9,
+    kTimestampBasedName = 1000,
+    kAbandonedUpload = 2000,
+  };
 
  protected:
   // Constructor with download::DownloadItem* to access download_item fields but
@@ -90,12 +105,12 @@ class BoxUploader {
                                       int response_code,
                                       const std::string& folder_id);
   void OnPreflightCheckResponse(bool success, int response_code);
+  void LogUniquifierCountToUma();
 
   // The followings are not necessarily specific to Box:
   // Post a task to ThreadPool to delete the local file, after the entire file
-  // has been uploaded, with callback OnFileDeleted(). Arg of |delete_cb|
-  // indicates whether deletion succeeded.
-  void PostDeleteFileTask(base::OnceCallback<void(bool)> delete_cb);
+  // upload was done, with callback OnFileDeleted().
+  void PostDeleteFileTask(bool upload_success);
   // Callback attached in PostDeleteFileTask(). Report success back to original
   // thread via download_callback_.
   void OnFileDeleted(bool upload_success, bool delete_success);
@@ -103,6 +118,9 @@ class BoxUploader {
   // File details.
   const base::FilePath local_file_path_;   // Path of the local temporary file.
   const base::FilePath target_file_name_;  // File name to be used finally.
+  const base::Time download_start_time_;   // Start time of the download.
+  uint32_t
+      uniquifier_;  // Number to be appended to the filename to make it unique.
   // Callback when API call gives Authenetication Error.
   base::RepeatingCallback<void(void)> authentication_retry_callback_;
   // Callback when the entire flow is completed to notify the download thread.

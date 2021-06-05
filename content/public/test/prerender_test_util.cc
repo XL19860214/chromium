@@ -22,6 +22,26 @@ namespace content {
 namespace test {
 namespace {
 
+// TODO(https://crbug.com/1214964): Remove this script.
+constexpr char kAddPrerenderScript[] = R"({
+    const link = document.createElement('link');
+    link.rel = 'prerender';
+    link.href = $1;
+    document.head.appendChild(link);
+  })";
+
+constexpr char kAddSpeculationRuleScript[] = R"({
+    const script = document.createElement('script');
+    script.type = 'speculationrules';
+    script.text = `{
+      "prerender": [{
+        "source": "list",
+        "urls": [$1]
+      }]
+    }`;
+    document.head.appendChild(script);
+  })";
+
 PrerenderHostRegistry& GetPrerenderHostRegistry(
     content::WebContents* web_contents) {
   EXPECT_TRUE(content::BrowserThread::CurrentlyOn(BrowserThread::UI));
@@ -119,10 +139,15 @@ class PrerenderHostObserverImpl : public PrerenderHost::Observer {
                             const GURL& gurl) {
     registry_observer_ =
         std::make_unique<PrerenderHostRegistryObserver>(web_contents);
-    registry_observer_->NotifyOnTrigger(
-        gurl,
-        base::BindOnce(&PrerenderHostObserverImpl::StartObserving,
-                       base::Unretained(this), std::ref(web_contents), gurl));
+    if (PrerenderHost* host = GetPrerenderHostRegistry(&web_contents)
+                                  .FindHostByUrlForTesting(gurl)) {
+      StartObserving(web_contents, host->GetInitialUrl());
+    } else {
+      registry_observer_->NotifyOnTrigger(
+          gurl,
+          base::BindOnce(&PrerenderHostObserverImpl::StartObserving,
+                         base::Unretained(this), std::ref(web_contents), gurl));
+    }
   }
 
   void OnActivated() override {
@@ -243,56 +268,41 @@ void PrerenderTestHelper::WaitForPrerenderLoadCompletion(const GURL& gurl) {
   host->WaitForLoadStopForTesting();
 }
 
-int PrerenderTestHelper::AddPrerender(const GURL& gurl) {
+int PrerenderTestHelper::AddPrerender(const GURL& prerendering_url) {
   EXPECT_TRUE(content::BrowserThread::CurrentlyOn(BrowserThread::UI));
+  AddPrerenderAsync(prerendering_url);
 
-  // Add the link tag that will prerender the URL.
-  EXPECT_TRUE(ExecJs(GetWebContents(), JsReplace("add_prerender($1)", gurl)))
-      << "AddPrerender failed. Did you load add_prerender.html?";
-  WaitForPrerenderLoadCompletion(gurl);
-  int host_id = GetHostForUrl(gurl);
+  WaitForPrerenderLoadCompletion(prerendering_url);
+  int host_id = GetHostForUrl(prerendering_url);
   EXPECT_NE(host_id, RenderFrameHost::kNoFrameTreeNodeId);
   return host_id;
 }
 
-void PrerenderTestHelper::AddPrerenderAsync(const GURL& gurl) {
+void PrerenderTestHelper::AddPrerenderAsync(const GURL& prerendering_url) {
   EXPECT_TRUE(content::BrowserThread::CurrentlyOn(BrowserThread::UI));
+  std::string script = JsReplace(kAddSpeculationRuleScript, prerendering_url);
 
-  auto script = JsReplace("add_prerender($1)", gurl);
+  // Have to use ExecuteJavaScriptForTests instead of ExecJs/EvalJs here,
+  // because some test pages have ContentSecurityPolicy and EvalJs cannot work
+  // with it. See the quick migration guide for EvalJs for more information.
   GetWebContents()->GetMainFrame()->ExecuteJavaScriptForTests(
       base::UTF8ToUTF16(script), base::NullCallback());
 }
 
-int PrerenderTestHelper::AddPrerenderWithTestUtilJS(const GURL& gurl) {
-  EXPECT_TRUE(content::BrowserThread::CurrentlyOn(BrowserThread::UI));
-
-  std::string start_prerender = R"(
-      (() => {
-        const script = document.createElement('script');
-        script.addEventListener('load', () => {
-          window.domAutomationController.send(true);
-        });
-        script.addEventListener('error', () => {
-          window.domAutomationController.send(false);
-        });
-        script.src = '/prerender/test_utils.js';
-        document.body.appendChild(script);
-      })();
-    )";
-  bool script_loaded = false;
-  // Load test_utils.js and wait util loading done.
-  EXPECT_TRUE(ExecuteScriptAndExtractBool(GetWebContents()->GetMainFrame(),
-                                          start_prerender, &script_loaded));
-  EXPECT_TRUE(script_loaded);
-
-  EXPECT_TRUE(ExecJs(GetWebContents(), JsReplace("add_prerender($1)", gurl)))
-      << "AddPrerender failed. Did you set the right path to load "
-         "/prerender/test_utils.js?";
+int PrerenderTestHelper::AddLinkRelPrerender(const GURL& gurl) {
+  AddLinkRelPrerenderAsync(gurl);
 
   WaitForPrerenderLoadCompletion(gurl);
   int host_id = GetHostForUrl(gurl);
   EXPECT_NE(host_id, RenderFrameHost::kNoFrameTreeNodeId);
   return host_id;
+}
+
+void PrerenderTestHelper::AddLinkRelPrerenderAsync(const GURL& gurl) {
+  EXPECT_TRUE(content::BrowserThread::CurrentlyOn(BrowserThread::UI));
+
+  std::string script = JsReplace(kAddPrerenderScript, gurl);
+  ignore_result(ExecJs(GetWebContents()->GetMainFrame(), script));
 }
 
 void PrerenderTestHelper::NavigatePrerenderedPage(int host_id,

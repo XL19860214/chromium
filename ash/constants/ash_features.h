@@ -92,6 +92,8 @@ extern const base::Feature kPreferConstantFrameRate;
 COMPONENT_EXPORT(ASH_CONSTANTS)
 extern const base::Feature kCdmFactoryDaemon;
 COMPONENT_EXPORT(ASH_CONSTANTS)
+extern const base::Feature kCellularForbidAttachApn;
+COMPONENT_EXPORT(ASH_CONSTANTS)
 extern const base::Feature kCellularUseAttachApn;
 COMPONENT_EXPORT(ASH_CONSTANTS)
 extern const base::Feature kCellularUseExternalEuicc;
@@ -104,9 +106,9 @@ extern const base::Feature kCrostiniUseBusterImage;
 COMPONENT_EXPORT(ASH_CONSTANTS)
 extern const base::Feature kCrostiniGpuSupport;
 COMPONENT_EXPORT(ASH_CONSTANTS)
-extern const base::Feature kCrostiniUseDlc;
-COMPONENT_EXPORT(ASH_CONSTANTS)
 extern const base::Feature kDiagnosticsApp;
+COMPONENT_EXPORT(ASH_CONSTANTS)
+extern const base::Feature kDiagnosticsAppNavigation;
 COMPONENT_EXPORT(ASH_CONSTANTS)
 extern const base::Feature kDisableCryptAuthV1DeviceSync;
 COMPONENT_EXPORT(ASH_CONSTANTS)
@@ -206,7 +208,6 @@ extern const base::Feature kVirtualKeyboardFloatingDefault;
 COMPONENT_EXPORT(ASH_CONSTANTS)
 extern const base::Feature kInstantTethering;
 COMPONENT_EXPORT(ASH_CONSTANTS)
-extern const base::Feature kKerberosSettingsSection;
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const base::Feature kLacrosSupport;
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const base::Feature kLacrosPrimary;
 COMPONENT_EXPORT(ASH_CONSTANTS)
@@ -228,6 +229,8 @@ extern const base::Feature kMultilingualTyping;
 COMPONENT_EXPORT(ASH_CONSTANTS)
 extern const base::Feature kNoteTakingForEnabledWebApps;
 COMPONENT_EXPORT(ASH_CONSTANTS)
+extern const base::Feature kNotificationsRefresh;
+COMPONENT_EXPORT(ASH_CONSTANTS)
 extern const base::Feature kOnDeviceGrammarCheck;
 COMPONENT_EXPORT(ASH_CONSTANTS)
 extern const base::Feature kOnDeviceSpeechRecognition;
@@ -240,8 +243,6 @@ extern const base::Feature kOsSettingsDeepLinking;
 COMPONENT_EXPORT(ASH_CONSTANTS)
 extern const base::Feature kPhoneHub;
 COMPONENT_EXPORT(ASH_CONSTANTS)
-extern const base::Feature kPinSetupForFamilyLink;
-COMPONENT_EXPORT(ASH_CONSTANTS)
 extern const base::Feature kPinSetupForManagedUsers;
 COMPONENT_EXPORT(ASH_CONSTANTS)
 extern const base::Feature kPluginVmFullscreen;
@@ -252,11 +253,6 @@ extern const base::Feature kPluginVmShowMicrophonePermissions;
 COMPONENT_EXPORT(ASH_CONSTANTS)
 extern const base::Feature kPrintJobManagementApp;
 COMPONENT_EXPORT(ASH_CONSTANTS)
-extern const base::Feature kPrintServerScaling;
-COMPONENT_EXPORT(ASH_CONSTANTS)
-extern const base::Feature kPrinterStatus;
-COMPONENT_EXPORT(ASH_CONSTANTS)
-extern const base::Feature kPrinterStatusDialog;
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const base::Feature kProjector;
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const base::Feature kProjectorFeaturePod;
 COMPONENT_EXPORT(ASH_CONSTANTS) extern const base::Feature kQuickAnswers;
@@ -342,6 +338,8 @@ extern const base::Feature kWebApkGenerator;
 COMPONENT_EXPORT(ASH_CONSTANTS)
 extern const base::Feature kWifiSyncAllowDeletes;
 COMPONENT_EXPORT(ASH_CONSTANTS)
+extern const base::Feature kWifiSyncApplyDeletes;
+COMPONENT_EXPORT(ASH_CONSTANTS)
 extern const base::Feature kWifiSyncAndroid;
 COMPONENT_EXPORT(ASH_CONSTANTS)
 extern const base::Feature kImeMozcProto;
@@ -379,11 +377,11 @@ COMPONENT_EXPORT(ASH_CONSTANTS) bool IsImeSandboxEnabled();
 COMPONENT_EXPORT(ASH_CONSTANTS) bool IsInputInDiagnosticsAppEnabled();
 COMPONENT_EXPORT(ASH_CONSTANTS)
 bool IsInstantTetheringBackgroundAdvertisingSupported();
-COMPONENT_EXPORT(ASH_CONSTANTS) bool IsKerberosSettingsSectionEnabled();
 COMPONENT_EXPORT(ASH_CONSTANTS) bool IsMicMuteNotificationsEnabled();
 COMPONENT_EXPORT(ASH_CONSTANTS) bool IsMinimumChromeVersionEnabled();
 COMPONENT_EXPORT(ASH_CONSTANTS) bool IsNetworkingInDiagnosticsAppEnabled();
 COMPONENT_EXPORT(ASH_CONSTANTS) bool IsNewOobeLayoutEnabled();
+COMPONENT_EXPORT(ASH_CONSTANTS) bool IsNotificationsRefreshEnabled();
 COMPONENT_EXPORT(ASH_CONSTANTS) bool IsInputNoiseCancellationUiEnabled();
 COMPONENT_EXPORT(ASH_CONSTANTS) bool IsOobeChromeVoxHintEnabled();
 COMPONENT_EXPORT(ASH_CONSTANTS) bool IsOobeScreensPriorityEnabled();
@@ -392,7 +390,6 @@ COMPONENT_EXPORT(ASH_CONSTANTS) bool IsPhoneHubEnabled();
 COMPONENT_EXPORT(ASH_CONSTANTS) bool IsPhoneHubUseBleEnabled();
 COMPONENT_EXPORT(ASH_CONSTANTS) bool IsPinAutosubmitBackfillFeatureEnabled();
 COMPONENT_EXPORT(ASH_CONSTANTS) bool IsPinAutosubmitFeatureEnabled();
-COMPONENT_EXPORT(ASH_CONSTANTS) bool IsPinSetupForFamilyLinkEnabled();
 COMPONENT_EXPORT(ASH_CONSTANTS) bool IsPinSetupForManagedUsersEnabled();
 COMPONENT_EXPORT(ASH_CONSTANTS) bool IsProjectorEnabled();
 COMPONENT_EXPORT(ASH_CONSTANTS) bool IsProjectorFeaturePodEnabled();
@@ -417,6 +414,7 @@ COMPONENT_EXPORT(ASH_CONSTANTS) bool ShouldUseBrowserSyncConsent();
 COMPONENT_EXPORT(ASH_CONSTANTS) bool ShouldUseQuickAnswersTextAnnotator();
 COMPONENT_EXPORT(ASH_CONSTANTS) bool ShouldUseV1DeviceSync();
 COMPONENT_EXPORT(ASH_CONSTANTS) bool ShouldUseV2DeviceSync();
+COMPONENT_EXPORT(ASH_CONSTANTS) bool ShouldUseAttachApn();
 
 // Keep alphabetized.
 

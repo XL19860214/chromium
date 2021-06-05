@@ -101,6 +101,46 @@ class WorkerThreadDispatcher : public content::RenderThreadObserver,
                             int64_t service_worker_version_id,
                             int worker_thread_id);
 
+  // Posts mojom::EventRouter::AddLazyListenerForServiceWorker to the IO thread
+  // to call it with GetEventRouterOnIO().
+  void SendAddEventLazyListener(const std::string& extension_id,
+                                const GURL& scope,
+                                const std::string& event_name);
+
+  // Posts mojom::EventRouter::AddFilteredListenerForServiceWorker to the IO
+  // thread to call it with GetEventRouterOnIO().
+  void SendAddEventFilteredListener(const std::string& extension_id,
+                                    const GURL& scope,
+                                    const std::string& event_name,
+                                    int64_t service_worker_version_id,
+                                    int worker_thread_id,
+                                    base::Value filter,
+                                    bool add_lazy_listener);
+
+  // Posts mojom::EventRouter::RemoveListenerForServiceWorker to the IO thread
+  // to call it with GetEventRouterOnIO().
+  void SendRemoveEventListener(const std::string& extension_id,
+                               const GURL& scope,
+                               const std::string& event_name,
+                               int64_t service_worker_version_id,
+                               int worker_thread_id);
+
+  // Posts mojom::EventRouter::RemoveLazyListenerForServiceWorker to the IO
+  // thread to call it with GetEventRouterOnIO().
+  void SendRemoveEventLazyListener(const std::string& extension_id,
+                                   const GURL& scope,
+                                   const std::string& event_name);
+
+  // Posts mojom::EventRouter::RemoveFilteredListenerForServiceWorker to the IO
+  // thread to call it with GetEventRouterOnIO().
+  void SendRemoveEventFilteredListener(const std::string& extension_id,
+                                       const GURL& scope,
+                                       const std::string& event_name,
+                                       int64_t service_worker_version_id,
+                                       int worker_thread_id,
+                                       base::Value filter,
+                                       bool remove_lazy_listener);
+
   // NOTE: This must be called on the IO thread because it can call
   // SyncMessageFilter::GetRemoteAssociatedInterface() which must be called on
   // the IO thread.

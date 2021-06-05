@@ -47,7 +47,7 @@ static const size_t kInvalidIndex = -1;
 // It is the responsibility of something upstream (at time of writing, the sync
 // server) to create these tagged nodes when initializing sync for the first
 // time for a user.  Thus, once the backend finishes initializing, the
-// ProfileSyncService can rely on the presence of tagged nodes.
+// SyncService can rely on the presence of tagged nodes.
 const char kBookmarkBarTag[] = "bookmark_bar";
 const char kMobileBookmarksTag[] = "synced_bookmarks";
 const char kOtherBookmarksTag[] = "other_bookmarks";
@@ -101,8 +101,11 @@ enum class RemoteBookmarkUpdateError {
   kParentNotFolder = 10,
   // Unknown/unsupported permanent folder.
   kUnsupportedPermanentFolder = 13,
+  // A bookmark that is not contained in any permanent folder and is instead
+  // hanging (directly or indirectly) from the root node.
+  kDescendantOfRootNodeWithoutPermanentFolder = 14,
 
-  kMaxValue = kUnsupportedPermanentFolder,
+  kMaxValue = kDescendantOfRootNodeWithoutPermanentFolder,
 };
 
 void LogProblematicBookmark(RemoteBookmarkUpdateError problem) {
@@ -386,6 +389,19 @@ GroupedUpdates GroupValidUpdates(UpdateResponseDataList updates) {
   return grouped_updates;
 }
 
+int GetNumUnsyncedEntities(const SyncedBookmarkTracker* tracker) {
+  DCHECK(tracker);
+
+  int num_unsynced_entities = 0;
+  for (const SyncedBookmarkTracker::Entity* entity :
+       tracker->GetAllEntities()) {
+    if (entity->IsUnsynced()) {
+      ++num_unsynced_entities;
+    }
+  }
+  return num_unsynced_entities;
+}
+
 }  // namespace
 
 BookmarkModelMerger::RemoteTreeNode::RemoteTreeNode() = default;
@@ -522,6 +538,22 @@ void BookmarkModelMerger::Merge() {
   // selects the first one.
   // Associate permanent folders.
   for (const auto& tree_tag_and_root : remote_forest_) {
+    // Special-case the root folder to avoid recording
+    // |RemoteBookmarkUpdateError::kUnsupportedPermanentFolder|.
+    if (tree_tag_and_root.first ==
+        syncer::ModelTypeToRootTag(syncer::BOOKMARKS)) {
+      // The root folder is not expected to have children, because all children
+      // should themselves be permanent folders too and hence directly populate
+      // |tree_tag_and_root| without nesting.
+      const int num_unexpected_descendants_of_root_folder =
+          CountRemoteTreeNodeDescendantsForUma(tree_tag_and_root.second);
+      for (int i = 0; i < num_unexpected_descendants_of_root_folder; ++i) {
+        LogProblematicBookmark(RemoteBookmarkUpdateError::
+                                   kDescendantOfRootNodeWithoutPermanentFolder);
+      }
+      continue;
+    }
+
     const bookmarks::BookmarkNode* permanent_folder =
         GetPermanentFolder(bookmark_model_, tree_tag_and_root.first);
     if (!permanent_folder) {
@@ -539,6 +571,10 @@ void BookmarkModelMerger::Merge() {
     // is used to disable reupload after initial merge.
     bookmark_tracker_->SetBookmarksFullTitleReuploaded();
   }
+
+  base::UmaHistogramCounts100000(
+      "Sync.BookmarkModelMerger.UnsyncedEntitiesUponCompletion",
+      GetNumUnsyncedEntities(bookmark_tracker_));
 }
 
 // static

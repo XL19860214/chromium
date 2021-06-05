@@ -17,7 +17,9 @@
 #include "components/autofill/core/browser/autofill_test_utils.h"
 #include "components/autofill/core/browser/geo/country_names.h"
 #include "components/autofill/core/common/autofill_features.h"
+#include "components/strings/grit/components_strings.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "ui/base/l10n/l10n_util.h"
 
 namespace autofill {
 
@@ -49,15 +51,17 @@ class SaveAddressProfilePromptControllerTest : public testing::Test {
     CountryNames::SetLocaleString(GetLocale());
   }
 
-  // Profile with raw data as it is returned from Java.
-  AutofillProfile GetFullProfileNoStatus() {
+  // Profile with verified data as it is returned from Java.
+  AutofillProfile GetFullProfileWithVerifiedData() {
     AutofillProfile profile(base::GenerateGUID(), test::kEmptyOrigin);
-    profile.SetRawInfo(NAME_FULL, u"Mona J. Liza");
+    profile.SetRawInfoWithVerificationStatus(
+        NAME_FULL, u"Mona J. Liza",
+        structured_address::VerificationStatus::kUserVerified);
     test::SetProfileInfo(&profile, "", "", "", "email@example.com",
                          "Company Inc.", "33 Narrow Street", "Apt 42",
                          "Playa Vista", "LA", "12345", "US", "13105551234",
                          /*finalize=*/true,
-                         structured_address::VerificationStatus::kNoStatus);
+                         structured_address::VerificationStatus::kUserVerified);
     return profile;
   }
 
@@ -90,13 +94,13 @@ void SaveAddressProfilePromptControllerTest::SetUpController(bool is_update) {
 }
 
 TEST_F(SaveAddressProfilePromptControllerTest,
-       ShouldShowViewOnDisplayPrompt_Save) {
+       ShouldShowViewOnDisplayPromptWhenSave) {
   EXPECT_CALL(*prompt_view_, Show(controller_.get(), profile_, false));
   controller_->DisplayPrompt();
 }
 
 TEST_F(SaveAddressProfilePromptControllerTest,
-       ShouldShowViewOnDisplayPrompt_Update) {
+       ShouldShowViewOnDisplayPromptWhenUpdate) {
   SetUpController(/*is_update=*/true);
   EXPECT_CALL(*prompt_view_, Show(controller_.get(), profile_, true));
   controller_->DisplayPrompt();
@@ -137,7 +141,7 @@ TEST_F(SaveAddressProfilePromptControllerTest,
        ShouldInvokeSaveCallbackWhenUserEditsProfile) {
   controller_->DisplayPrompt();
 
-  AutofillProfile edited_profile = GetFullProfileNoStatus();
+  AutofillProfile edited_profile = GetFullProfileWithVerifiedData();
   EXPECT_CALL(
       decision_callback_,
       Run(AutofillClient::SaveAddressProfileOfferUserDecision::kEditAccepted,
@@ -168,29 +172,61 @@ TEST_F(SaveAddressProfilePromptControllerTest,
   controller_.reset();
 }
 
-TEST_F(SaveAddressProfilePromptControllerTest, ShouldReturnDataToDisplay_Save) {
-  EXPECT_EQ(u"Save address?", controller_->GetTitle());
+TEST_F(SaveAddressProfilePromptControllerTest,
+       ShouldReturnDataToDisplayWhenSave) {
+  EXPECT_EQ(l10n_util::GetStringUTF16(IDS_AUTOFILL_SAVE_ADDRESS_PROMPT_TITLE),
+            controller_->GetTitle());
   EXPECT_EQ(
       u"John H. Doe\nUnderworld\n666 Erebus St.\nApt 8\nElysium, CA "
       u"91111\nUnited States",
       controller_->GetAddress());
   EXPECT_EQ(u"johndoe@hades.com", controller_->GetEmail());
   EXPECT_EQ(u"16502111111", controller_->GetPhoneNumber());
-  EXPECT_EQ(u"Save", controller_->GetPositiveButtonText());
-  EXPECT_EQ(u"Cancel", controller_->GetNegativeButtonText());
+  EXPECT_EQ(l10n_util::GetStringUTF16(
+                IDS_AUTOFILL_SAVE_ADDRESS_PROMPT_OK_BUTTON_LABEL),
+            controller_->GetPositiveButtonText());
+  EXPECT_EQ(l10n_util::GetStringUTF16(
+                IDS_ANDROID_AUTOFILL_SAVE_ADDRESS_PROMPT_CANCEL_BUTTON_LABEL),
+            controller_->GetNegativeButtonText());
 }
 
 TEST_F(SaveAddressProfilePromptControllerTest,
-       ShouldReturnDataToDisplay_Update) {
+       ShouldReturnDataToDisplayWhenUpdate) {
   SetUpController(/*is_update=*/true);
-  EXPECT_EQ(u"Update address?", controller_->GetTitle());
+  EXPECT_EQ(l10n_util::GetStringUTF16(IDS_AUTOFILL_UPDATE_ADDRESS_PROMPT_TITLE),
+            controller_->GetTitle());
   EXPECT_EQ(u"John Doe, 666 Erebus St.", controller_->GetSubtitle());
   std::pair<std::u16string, std::u16string> differences =
       controller_->GetDiffFromOldToNewProfile();
   EXPECT_EQ(u"John Doe", differences.first);
   EXPECT_EQ(u"John H. Doe\n16502111111", differences.second);
-  EXPECT_EQ(u"Update", controller_->GetPositiveButtonText());
-  EXPECT_EQ(u"Cancel", controller_->GetNegativeButtonText());
+  EXPECT_EQ(l10n_util::GetStringUTF16(
+                IDS_AUTOFILL_UPDATE_ADDRESS_PROMPT_OK_BUTTON_LABEL),
+            controller_->GetPositiveButtonText());
+  EXPECT_EQ(l10n_util::GetStringUTF16(
+                IDS_ANDROID_AUTOFILL_SAVE_ADDRESS_PROMPT_CANCEL_BUTTON_LABEL),
+            controller_->GetNegativeButtonText());
+}
+
+TEST_F(SaveAddressProfilePromptControllerTest,
+       ShouldReturnDataToDisplayWhenUpdateWithAddressChanged) {
+  original_profile_ = test::GetFullProfile();
+  original_profile_.SetInfo(ADDRESS_HOME_ZIP, u"", GetLocale());
+  original_profile_.SetInfo(PHONE_HOME_WHOLE_NUMBER, u"", GetLocale());
+  SetUpController(/*is_update=*/true);
+
+  // Subtitle should contain the full name only.
+  EXPECT_EQ(u"John H. Doe", controller_->GetSubtitle());
+  std::pair<std::u16string, std::u16string> differences =
+      controller_->GetDiffFromOldToNewProfile();
+  // Differences should contain envelope style address.
+  EXPECT_EQ(u"Underworld\n666 Erebus St.\nApt 8\nElysium, CA \nUnited States",
+            differences.first);
+  // There should be an extra newline between address and contacts data.
+  EXPECT_EQ(
+      u"Underworld\n666 Erebus St.\nApt 8\nElysium, CA 91111\nUnited "
+      u"States\n\n16502111111",
+      differences.second);
 }
 
 }  // namespace autofill

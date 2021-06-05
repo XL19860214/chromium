@@ -90,7 +90,7 @@ NGInlineBoxState* NGInlineLayoutAlgorithm::HandleOpenTag(
   // for the purpose of empty block calculation.
   // https://drafts.csswg.org/css2/visudet.html#line-height
   if (!quirks_mode_ || !item.IsEmptyItem())
-    box->ComputeTextMetrics(*item.Style(), *box->font, baseline_type_);
+    box->ComputeTextMetrics(*item.Style(), *box->font);
 
   if (item.Style()->HasMask()) {
     // Layout may change the bounding box, which affects MaskClip.
@@ -107,7 +107,7 @@ NGInlineBoxState* NGInlineLayoutAlgorithm::HandleCloseTag(
     NGLogicalLineItems* line_box,
     NGInlineBoxState* box) {
   if (UNLIKELY(quirks_mode_ && !item.IsEmptyItem()))
-    box->EnsureTextMetrics(*item.Style(), *box->font, baseline_type_);
+    box->EnsureTextMetrics(*item.Style(), *box->font);
   box = box_states_->OnCloseTag(ConstraintSpace(), line_box, box,
                                 baseline_type_, item.HasEndEdge());
   // Just clear |NeedsLayout| flags. Culled inline boxes do not need paint
@@ -218,7 +218,7 @@ void NGInlineLayoutAlgorithm::CreateLine(
   // have been to make sure that there's always room for the list item marker,
   // but that doesn't explain why it's done for every line...
   if (quirks_mode_ && line_style.Display() == EDisplay::kListItem)
-    box->ComputeTextMetrics(line_style, *box->font, baseline_type_);
+    box->ComputeTextMetrics(line_style, *box->font);
 
   bool has_logical_text_items = false;
   for (NGInlineItemResult& item_result : *line_items) {
@@ -231,13 +231,11 @@ void NGInlineLayoutAlgorithm::CreateLine(
       DCHECK(item_result.shape_result);
 
       if (UNLIKELY(quirks_mode_))
-        box->EnsureTextMetrics(*item.Style(), *box->font, baseline_type_);
+        box->EnsureTextMetrics(*item.Style(), *box->font);
 
       // Take all used fonts into account if 'line-height: normal'.
-      if (box->include_used_fonts) {
-        box->AccumulateUsedFonts(item_result.shape_result.get(),
-                                 baseline_type_);
-      }
+      if (box->include_used_fonts)
+        box->AccumulateUsedFonts(item_result.shape_result.get());
 
       DCHECK(item.TextType() == NGTextType::kNormal ||
              item.TextType() == NGTextType::kSymbolMarker);
@@ -417,7 +415,12 @@ void NGInlineLayoutAlgorithm::CreateLine(
   // Up until this point, children are placed so that the dominant baseline is
   // at 0. Move them to the final baseline position, and set the logical top of
   // the line box to the line top.
-  line_box->MoveInBlockDirection(line_box_metrics.ascent);
+  //
+  // For SVG <text>, the block offset of the initial 'current text position'
+  // should be 0. As for the inline offset, see
+  // NGSvgTextLayoutAttributesBuilder::Build().
+  if (!Node().IsSvgText())
+    line_box->MoveInBlockDirection(line_box_metrics.ascent);
 
   LayoutUnit block_offset = line_info->BfcOffset().block_offset;
   if (Node().HasRuby()) {
@@ -512,7 +515,7 @@ void NGInlineLayoutAlgorithm::PlaceControlItem(const NGInlineItem& item,
   ClearNeedsLayoutIfNeeded(item.GetLayoutObject());
 
   if (UNLIKELY(quirks_mode_ && !box->HasMetrics()))
-    box->EnsureTextMetrics(*item.Style(), *box->font, baseline_type_);
+    box->EnsureTextMetrics(*item.Style(), *box->font);
 
   line_box->AddChild(item, std::move(item_result->shape_result),
                      item_result->TextOffset(), box->text_top,
@@ -543,10 +546,13 @@ NGInlineBoxState* NGInlineLayoutAlgorithm::PlaceAtomicInline(
     NGLogicalLineItems* line_box) {
   DCHECK(item_result->layout_result);
 
-  // The input |position| is the line-left edge of the margin box.
-  // Adjust it to the border box by adding the line-left margin.
-  // const ComputedStyle& style = *item.Style();
-  // position += item_result->margins.LineLeft(style.Direction());
+  // Reset the ellipsizing state. Atomic inline is monolithic.
+  LayoutObject* layout_object = item.GetLayoutObject();
+  DCHECK(layout_object);
+  DCHECK(layout_object->IsAtomicInlineLevel());
+  DCHECK_EQ(To<LayoutBox>(layout_object)->GetNGPaginationBreakability(),
+            LayoutBox::kForbidBreaks);
+  layout_object->SetIsTruncated(false);
 
   item_result->has_edge = true;
   NGInlineBoxState* box =
@@ -771,8 +777,8 @@ void NGInlineLayoutAlgorithm::PlaceListMarker(const NGInlineItem& item,
                                               NGInlineItemResult* item_result,
                                               const NGLineInfo& line_info) {
   if (UNLIKELY(quirks_mode_)) {
-    box_states_->LineBoxState().EnsureTextMetrics(
-        *item.Style(), item.Style()->GetFont(), baseline_type_);
+    box_states_->LineBoxState().EnsureTextMetrics(*item.Style(),
+                                                  item.Style()->GetFont());
   }
 }
 
@@ -814,7 +820,7 @@ absl::optional<LayoutUnit> NGInlineLayoutAlgorithm::ApplyJustify(
   String line_text = line_text_builder.ToString();
   DCHECK_GT(line_text.length(), 0u);
 
-  ShapeResultSpacing<String> spacing(line_text);
+  ShapeResultSpacing<String> spacing(line_text, Node().IsSvgText());
   spacing.SetExpansion(space, line_info->BaseDirection(),
                        line_info->LineStyle().GetTextJustify());
   const LayoutObject* box = Node().GetLayoutBox();

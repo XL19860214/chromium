@@ -2943,9 +2943,9 @@ TEST_F(DesksTest, SwitchToDeskWithSnappedActiveWindow) {
   auto win0 = CreateAppWindow(gfx::Rect(0, 0, 250, 100));
   auto win1 = CreateAppWindow(gfx::Rect(50, 50, 200, 200));
   WindowState* win0_state = WindowState::Get(win0.get());
-  WMEvent snap_to_left(WM_EVENT_CYCLE_SNAP_LEFT);
+  WMEvent snap_to_left(WM_EVENT_CYCLE_SNAP_PRIMARY);
   win0_state->OnWMEvent(&snap_to_left);
-  EXPECT_EQ(chromeos::WindowStateType::kLeftSnapped,
+  EXPECT_EQ(chromeos::WindowStateType::kPrimarySnapped,
             win0_state->GetStateType());
 
   // Switch to |desk_2| and then back to |desk_1|. Verify that neither split
@@ -4222,6 +4222,35 @@ TEST_F(DesksTest, NameNudgesMultiDisplay) {
   EXPECT_TRUE(desk_name_view_2->HasFocus());
   EXPECT_EQ(std::u16string(), desk_name_view_1->GetText());
   EXPECT_EQ(std::u16string(), desk_name_view_2->GetText());
+}
+
+// Tests that when a user has a `DeskNameView` focused and clicks within the
+// overview grid, the `DeskNameView` loses focus and the overview grid is not
+// closed.
+TEST_F(DesksTest, ClickingOverviewGridUnfocusesDeskNameView) {
+  // Create a second desk so we don't start in zero state.
+  NewDesk();
+
+  // Start overview.
+  auto* overview_controller = Shell::Get()->overview_controller();
+  overview_controller->StartOverview();
+  EXPECT_TRUE(overview_controller->InOverviewSession());
+
+  // Focus on a `DeskNameView`.
+  auto* overview_grid = GetOverviewGridForRoot(Shell::GetPrimaryRootWindow());
+  const auto* desks_bar_view = overview_grid->desks_bar_view();
+  ASSERT_EQ(2u, desks_bar_view->mini_views().size());
+  auto* desk_name_view = desks_bar_view->mini_views()[0]->desk_name_view();
+  desk_name_view->RequestFocus();
+  ASSERT_TRUE(desk_name_view->HasFocus());
+
+  // Click the center of the overview grid. This should not close overview mode
+  // and should remove focus from the focused `desk_name_view`.
+  auto* event_generator = GetEventGenerator();
+  event_generator->MoveMouseTo(overview_grid->bounds().CenterPoint());
+  event_generator->ClickLeftButton();
+  EXPECT_FALSE(desk_name_view->HasFocus());
+  EXPECT_TRUE(overview_controller->InOverviewSession());
 }
 
 TEST_F(DesksTest, ScrollableDesks) {

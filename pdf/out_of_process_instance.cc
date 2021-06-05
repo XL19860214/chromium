@@ -28,6 +28,7 @@
 #include "net/base/escape.h"
 #include "pdf/accessibility.h"
 #include "pdf/accessibility_structs.h"
+#include "pdf/buildflags.h"
 #include "pdf/document_attachment_info.h"
 #include "pdf/document_metadata.h"
 #include "pdf/pdfium/pdfium_engine.h"
@@ -88,10 +89,6 @@ constexpr char kJSAttachmentIndex[] = "attachmentIndex";
 // Save attachment data (Plugin -> Page)
 constexpr char kJSSaveAttachmentDataType[] = "saveAttachmentData";
 constexpr char kJSAttachmentDataToSave[] = "dataToSave";
-// Save (Page -> Plugin)
-constexpr char kJSSaveType[] = "save";
-constexpr char kJSToken[] = "token";
-constexpr char kJSSaveRequestType[] = "saveRequestType";
 // Reset print preview mode (Page -> Plugin)
 constexpr char kJSResetPrintPreviewModeType[] = "resetPrintPreviewMode";
 constexpr char kJSPrintPreviewUrl[] = "url";
@@ -101,9 +98,6 @@ constexpr char kJSPrintPreviewPageCount[] = "pageCount";
 constexpr char kJSLoadPreviewPageType[] = "loadPreviewPage";
 constexpr char kJSPreviewPageUrl[] = "url";
 constexpr char kJSPreviewPageIndex[] = "index";
-
-// Editing forms in document (Plugin -> Page)
-constexpr char kJSSetIsEditingType[] = "setIsEditing";
 
 constexpr base::TimeDelta kFindResultCooldown =
     base::TimeDelta::FromMilliseconds(100);
@@ -568,9 +562,9 @@ bool OutOfProcessInstance::Init(uint32_t argc,
   // can be restarted by exiting annotation mode on ChromeOS, which can set the
   // document to an edited state.
   set_edit_mode(has_edits);
-#if !BUILDFLAG(IS_CHROMEOS_ASH)
+#if !BUILDFLAG(ENABLE_INK)
   DCHECK(!edit_mode());
-#endif  // !BUILDFLAG(IS_CHROMEOS_ASH)
+#endif  // !BUILDFLAG(ENABLE_INK)
 
   pp::PDF::SetCrashData(GetPluginInstance(), original_url, top_level_url);
   return engine()->New(original_url, headers);
@@ -589,8 +583,6 @@ void OutOfProcessInstance::HandleMessage(const pp::Var& message) {
     Print();
   } else if (type == kJSSaveAttachmentType) {
     HandleSaveAttachmentMessage(dict);
-  } else if (type == kJSSaveType) {
-    HandleSaveMessage(dict);
   } else if (type == kJSResetPrintPreviewModeType) {
     HandleResetPrintPreviewModeMessage(dict);
   } else if (type == kJSLoadPreviewPageType) {
@@ -827,6 +819,10 @@ void OutOfProcessInstance::SendMessage(base::Value message) {
   PostMessage(VarFromValue(message));
 }
 
+void OutOfProcessInstance::SaveAs() {
+  pp::PDF::SaveAs(this);
+}
+
 void OutOfProcessInstance::InitImageData(const gfx::Size& size) {
   pepper_image_data_ =
       pp::ImageData(this, PP_IMAGEDATAFORMAT_BGRA_PREMUL, PPSizeFromSize(size),
@@ -901,12 +897,6 @@ void OutOfProcessInstance::NotifySelectedFindResultChanged(
     int current_find_index) {
   DCHECK_GE(current_find_index, -1);
   SelectedFindResultChanged(current_find_index);
-}
-
-void OutOfProcessInstance::SaveToFile(const std::string& token) {
-  engine()->KillFormFocus();
-  ConsumeSaveToken(token);
-  pp::PDF::SaveAs(this);
 }
 
 void OutOfProcessInstance::Alert(const std::string& message) {
@@ -1088,32 +1078,6 @@ void OutOfProcessInstance::HandleSaveAttachmentMessage(
   PostMessage(message);
 }
 
-void OutOfProcessInstance::HandleSaveMessage(const pp::VarDictionary& dict) {
-  if (!(dict.Get(pp::Var(kJSToken)).is_string() &&
-        dict.Get(pp::Var(kJSSaveRequestType)).is_int())) {
-    NOTREACHED();
-    return;
-  }
-  const SaveRequestType request_type = static_cast<SaveRequestType>(
-      dict.Get(pp::Var(kJSSaveRequestType)).AsInt());
-  switch (request_type) {
-    case SaveRequestType::kAnnotation:
-      // In annotation mode, assume the user will make edits and prefer saving
-      // using the plugin data.
-      pp::PDF::SetPluginCanSave(this, true);
-      SaveToBuffer(dict.Get(pp::Var(kJSToken)).AsString());
-      break;
-    case SaveRequestType::kOriginal:
-      pp::PDF::SetPluginCanSave(this, false);
-      SaveToFile(dict.Get(pp::Var(kJSToken)).AsString());
-      pp::PDF::SetPluginCanSave(this, edit_mode());
-      break;
-    case SaveRequestType::kEdited:
-      SaveToBuffer(dict.Get(pp::Var(kJSToken)).AsString());
-      break;
-  }
-}
-
 void OutOfProcessInstance::PreviewDocumentLoadComplete() {
   if (preview_document_load_state_ != DocumentLoadState::kLoading ||
       preview_pages_info_.empty()) {
@@ -1222,6 +1186,10 @@ void OutOfProcessInstance::SetAccessibilityViewportInfo(
   pp::PDF::SetAccessibilityViewportInfo(GetPluginInstance(), &pp_viewport_info);
 }
 
+void OutOfProcessInstance::SetPluginCanSave(bool can_save) {
+  pp::PDF::SetPluginCanSave(this, can_save);
+}
+
 base::WeakPtr<PdfViewPluginBase> OutOfProcessInstance::GetWeakPtr() {
   return weak_factory_.GetWeakPtr();
 }
@@ -1239,15 +1207,6 @@ void OutOfProcessInstance::AppendBlankPrintPreviewPages() {
 
 bool OutOfProcessInstance::IsPrintPreview() {
   return is_print_preview_;
-}
-
-void OutOfProcessInstance::EnteredEditMode() {
-  set_edit_mode(true);
-  pp::PDF::SetPluginCanSave(this, true);
-
-  pp::VarDictionary message;
-  message.Set(kType, kJSSetIsEditingType);
-  PostMessage(message);
 }
 
 void OutOfProcessInstance::SetSelectedText(const std::string& selected_text) {

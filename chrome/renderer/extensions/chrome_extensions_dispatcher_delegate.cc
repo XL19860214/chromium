@@ -178,15 +178,17 @@ void ChromeExtensionsDispatcherDelegate::PopulateSourceMap(
                              IDR_TERMINAL_PRIVATE_CUSTOM_BINDINGS_JS);
 
   // IME service on Chrome OS.
-  source_map->RegisterSource("chromeos.ime.mojom.input_engine.mojom",
+  source_map->RegisterSource("chromeos.ime.mojom.ime_service.mojom",
                              IDR_IME_SERVICE_MOJOM_JS);
+  source_map->RegisterSource("chromeos.ime.mojom.input_engine.mojom",
+                             IDR_IME_SERVICE_INPUT_ENGINE_MOJOM_JS);
   source_map->RegisterSource("chromeos.ime.service",
                              IDR_IME_SERVICE_BINDINGS_JS);
 
-  source_map->RegisterSource("chromeos.tts.mojom.tts_stream_factory.mojom",
-                             IDR_TTS_STREAM_FACTORY_MOJOM_JS);
-  source_map->RegisterSource("chromeos.tts.stream_factory",
-                             IDR_TTS_STREAM_FACTORY_BINDINGS_JS);
+  source_map->RegisterSource("chromeos.tts.mojom.google_tts_stream.mojom",
+                             IDR_GOOGLE_TTS_STREAM_MOJOM_JS);
+  source_map->RegisterSource("chromeos.tts.google_stream",
+                             IDR_GOOGLE_TTS_STREAM_BINDINGS_JS);
 
   // Imprivata API.
   source_map->RegisterSource("chromeos.remote_apps.mojom-lite",

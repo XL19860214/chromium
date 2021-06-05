@@ -9,10 +9,8 @@
 #include <stdint.h>
 
 #include <memory>
-#include <string>
 #include <vector>
 
-#include "base/containers/flat_map.h"
 #include "base/memory/ref_counted.h"
 #include "base/synchronization/lock.h"
 #include "media/base/android/media_codec_bridge.h"

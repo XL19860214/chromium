@@ -14,9 +14,9 @@
 #include "ash/constants/ash_features.h"
 #include "base/bind.h"
 #include "base/callback_helpers.h"
+#include "base/cxx17_backports.h"
 #include "base/location.h"
 #include "base/single_thread_task_runner.h"
-#include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "base/system/sys_info.h"
 #include "base/threading/thread_task_runner_handle.h"
@@ -419,8 +419,6 @@ void NetworkDeviceHandlerImpl::ApplyUsbEthernetMacAddressSourceToShill() {
 
 void NetworkDeviceHandlerImpl::ApplyUseAttachApnToShill() {
   NetworkStateHandler::DeviceStateList list;
-  bool use_attach_apn =
-      base::FeatureList::IsEnabled(chromeos::features::kCellularUseAttachApn);
   network_state_handler_->GetDeviceListByType(NetworkTypePattern::Cellular(),
                                               &list);
   if (list.empty()) {
@@ -431,10 +429,10 @@ void NetworkDeviceHandlerImpl::ApplyUseAttachApnToShill() {
        it != list.end(); ++it) {
     const DeviceState* device_state = *it;
 
-    SetDevicePropertyInternal(device_state->path(),
-                              shill::kUseAttachAPNProperty,
-                              base::Value(use_attach_apn), base::DoNothing(),
-                              network_handler::ErrorCallback());
+    SetDevicePropertyInternal(
+        device_state->path(), shill::kUseAttachAPNProperty,
+        base::Value(features::ShouldUseAttachApn()), base::DoNothing(),
+        network_handler::ErrorCallback());
   }
 }
 

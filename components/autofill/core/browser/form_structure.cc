@@ -1446,35 +1446,6 @@ void FormStructure::ParseFieldTypesFromAutocompleteAttributes() {
   was_parsed_for_autocomplete_attributes_ = true;
 }
 
-std::set<std::u16string> FormStructure::PossibleValues(ServerFieldType type) {
-  std::set<std::u16string> values;
-  AutofillType target_type(type);
-  for (const auto& field : fields_) {
-    if (field->Type().GetStorableType() != target_type.GetStorableType() ||
-        field->Type().group() != target_type.group()) {
-      continue;
-    }
-
-    // No option values; anything goes.
-    if (field->option_values.empty()) {
-      values.clear();
-      break;
-    }
-
-    for (const std::u16string& val : field->option_values) {
-      if (!val.empty())
-        values.insert(base::i18n::ToUpper(val));
-    }
-
-    for (const std::u16string& content : field->option_contents) {
-      if (!content.empty())
-        values.insert(base::i18n::ToUpper(content));
-    }
-  }
-
-  return values;
-}
-
 const AutofillField* FormStructure::field(size_t index) const {
   if (index >= fields_.size()) {
     NOTREACHED();
@@ -1508,8 +1479,8 @@ FormData FormStructure::ToFormData() const {
   data.action = target_url_;
   data.main_frame_origin = main_frame_origin_;
   data.is_form_tag = is_form_tag_;
-  data.host_frame = host_frame();
-  data.unique_renderer_id = unique_renderer_id();
+  data.unique_renderer_id = unique_renderer_id_;
+  data.host_frame = host_frame_;
 
   for (const auto& field : fields_) {
     data.fields.push_back(*field);
@@ -2509,21 +2480,25 @@ std::ostream& operator<<(std::ostream& buffer, const FormStructure& form) {
                           base::NumberToString(
                               HashFormSignature(form.form_signature()))});
   buffer << "\n Form name: " << form.form_name();
-  buffer << "\n Host frame: " << form.host_frame().ToString();
-  buffer << "\n Unique renderer Id: " << form.unique_renderer_id().value();
+  buffer << "\n Unique id: " << form.global_id();
   buffer << "\n Target URL:" << form.target_url();
   for (size_t i = 0; i < form.field_count(); ++i) {
     buffer << "\n Field " << i << ": ";
     const AutofillField* field = form.field(i);
+    buffer << "\n  Identifiers:"
+           << base::StrCat(
+                  {"renderer id: ",
+                   base::NumberToString(field->unique_renderer_id.value()),
+                   ", host frame: ", form.global_id().frame_token.ToString(),
+                   " - ", field->origin.Serialize(),
+                   ", host form renderer id: ",
+                   base::NumberToString(field->host_form_id.value())});
     buffer << "\n  Signature: "
            << base::StrCat(
                   {base::NumberToString(field->GetFieldSignature().value()),
                    " - ",
                    base::NumberToString(
-                       HashFieldSignature(field->GetFieldSignature())),
-                   ", host frame: ", field->host_frame.ToString(),
-                   ", unique renderer id: ",
-                   base::NumberToString(field->unique_renderer_id.value())});
+                       HashFieldSignature(field->GetFieldSignature()))});
     buffer << "\n  Name: " << field->parseable_name();
 
     auto type = field->Type().ToString();
@@ -2559,8 +2534,7 @@ LogBuffer& operator<<(LogBuffer& buffer, const FormStructure& form) {
                           base::NumberToString(
                               HashFormSignature(form.form_signature()))});
   buffer << Tr{} << "Form name:" << form.form_name();
-  buffer << Tr{} << "Host frame:" << form.host_frame().ToString();
-  buffer << Tr{} << "Unique renderer id:" << form.unique_renderer_id().value();
+  buffer << Tr{} << "Unique id:" << form.global_id();
   buffer << Tr{} << "Target URL:" << form.target_url();
   for (size_t i = 0; i < form.field_count(); ++i) {
     buffer << Tag{"tr"};
@@ -2568,15 +2542,20 @@ LogBuffer& operator<<(LogBuffer& buffer, const FormStructure& form) {
     const AutofillField* field = form.field(i);
     buffer << Tag{"td"};
     buffer << Tag{"table"};
+    buffer << Tr{} << "Identifiers:"
+           << base::StrCat(
+                  {"renderer id: ",
+                   base::NumberToString(field->unique_renderer_id.value()),
+                   ", host frame: ", form.global_id().frame_token.ToString(),
+                   " - ", field->origin.Serialize(),
+                   ", host form renderer id: ",
+                   base::NumberToString(field->host_form_id.value())});
     buffer << Tr{} << "Signature:"
            << base::StrCat(
                   {base::NumberToString(field->GetFieldSignature().value()),
                    " - ",
                    base::NumberToString(
-                       HashFieldSignature(field->GetFieldSignature())),
-                   ", host frame: ", field->host_frame.ToString(),
-                   ", unique renderer id: ",
-                   base::NumberToString(field->unique_renderer_id.value())});
+                       HashFieldSignature(field->GetFieldSignature()))});
     buffer << Tr{} << "Name:" << field->parseable_name();
 
     auto type = field->Type().ToString();

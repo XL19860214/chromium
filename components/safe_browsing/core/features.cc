@@ -42,6 +42,9 @@ const base::Feature kCaptureInlineJavascriptForGoogleAds{
 const base::Feature kClientSideDetectionForAndroid{
     "ClientSideDetectionModelOnAndroid", base::FEATURE_DISABLED_BY_DEFAULT};
 
+const base::Feature kClientSideDetectionModelIsFlatBuffer{
+    "ClientSideDetectionModelIsFlatBuffer", base::FEATURE_DISABLED_BY_DEFAULT};
+
 extern const base::Feature kClientSideDetectionModelVersion{
     "ClientSideDetectionModel", base::FEATURE_ENABLED_BY_DEFAULT};
 
@@ -92,6 +95,9 @@ const base::Feature kPasswordProtectionWithToken{
 const base::Feature kPromptEsbForDeepScanning{
     "SafeBrowsingPromptEsbForDeepScanning", base::FEATURE_DISABLED_BY_DEFAULT};
 
+const base::Feature kSafeBrowsingCTDownloadWarning{
+    "SafeBrowsingCTDownloadWarning", base::FEATURE_DISABLED_BY_DEFAULT};
+
 const base::Feature kSafeBrowsingEnterpriseCsd{
     "SafeBrowsingEnterpriseCsd", base::FEATURE_DISABLED_BY_DEFAULT};
 
@@ -134,6 +140,9 @@ const base::Feature kUseNewDownloadWarnings{"UseNewDownloadWarnings",
 const base::Feature kVisualFeaturesInPasswordProtectionAndroid{
     "VisualFeaturesInPasswordProtectionAndroid",
     base::FEATURE_ENABLED_BY_DEFAULT};
+
+const base::Feature kVisualFeaturesSizes{"VisualFeaturesSizes",
+                                         base::FEATURE_DISABLED_BY_DEFAULT};
 
 namespace {
 // List of Safe Browsing features. Boolean value for each list member should be

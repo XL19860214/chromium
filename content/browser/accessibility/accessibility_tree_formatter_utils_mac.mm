@@ -71,16 +71,47 @@ AttributeInvoker::AttributeInvoker(const id node,
 
 OptionalNSObject AttributeInvoker::Invoke(
     const AXPropertyNode& property_node) const {
-  id target = TargetOf(property_node);
-  if (!target) {
-    // TODO(alexs): failing the tests when filters are incorrect is a good idea,
-    // however crashing ax_dump tools on wrong input might be not. Figure out
-    // a working solution that works nicely in both cases.
-    LOG(ERROR) << "No target to invoke attribute";
-    return OptionalNSObject::Error();
+  // TODO(alexs): failing the tests when filters are incorrect is a good idea,
+  // however crashing ax_dump tools on wrong input might be not. Figure out
+  // a working solution that works nicely in both cases. Use LOG(ERROR) for now
+  // as a console warning.
+
+  // Get a target to invoke an attribute for. If the property node doesn't
+  // provide a target then use the default one.
+  id target = node;
+  auto* current_node = &property_node;
+  if (property_node.IsTarget()) {
+    target = line_indexer->NodeBy(property_node.name_or_value);
+    if (!target) {
+      LOG(ERROR) << "No target in " << property_node.ToString();
+      return OptionalNSObject::Error();
+    }
+    current_node = property_node.next.get();
   }
 
-  // Attributes
+  // No target indicates the property_node is a scalar value or an AX object.
+  // Nothing to invoke.
+  if (!target) {
+    return OptionalNSObject::NotApplicable();
+  }
+
+  while (current_node) {
+    auto target_optional = InvokeFor(target, *current_node);
+    if (!target_optional.IsNotNil()) {
+      LOG(ERROR) << "No target for " << current_node->ToString();
+      return target_optional;
+    }
+    target = *target_optional;
+    current_node = current_node->next.get();
+  }
+
+  return OptionalNSObject(target);
+}
+
+OptionalNSObject AttributeInvoker::InvokeFor(
+    const id target,
+    const AXPropertyNode& property_node) const {
+  // Attributes.
   for (NSString* attribute : AttributeNamesOf(target)) {
     if (property_node.IsMatching(base::SysNSStringToUTF8(attribute))) {
       return OptionalNSObject::NotNullOrNotApplicable(
@@ -88,7 +119,7 @@ OptionalNSObject AttributeInvoker::Invoke(
     }
   }
 
-  // Parameterized attributes
+  // Parameterized attributes.
   for (NSString* attribute : ParameterizedAttributeNamesOf(target)) {
     if (property_node.IsMatching(base::SysNSStringToUTF8(attribute))) {
       OptionalNSObject param = ParamByPropertyNode(property_node);
@@ -100,6 +131,7 @@ OptionalNSObject AttributeInvoker::Invoke(
     }
   }
 
+  // Unmatched attribute.
   return OptionalNSObject::NotApplicable();
 }
 
@@ -140,23 +172,17 @@ void AttributeInvoker::SetValue(const std::string& property_name,
   }
 }
 
-id AttributeInvoker::TargetOf(const AXPropertyNode& property_node) const {
-  return property_node.target.empty()
-             ? node
-             : line_indexer->NodeBy(property_node.target);
-}
-
 OptionalNSObject AttributeInvoker::ParamByPropertyNode(
     const AXPropertyNode& property_node) const {
   // NSAccessibility attributes always take a single parameter.
-  if (property_node.parameters.size() != 1) {
+  if (property_node.arguments.size() != 1) {
     LOG(ERROR) << "Failed to parse " << property_node.original_property
                << ": single parameter is expected";
     return OptionalNSObject::Error();
   }
 
   // Nested attribute case: attempt to invoke an attribute for an argument node.
-  const AXPropertyNode& arg_node = property_node.parameters[0];
+  const AXPropertyNode& arg_node = property_node.arguments[0];
   OptionalNSObject subvalue = Invoke(arg_node);
   if (!subvalue.IsNotApplicable()) {
     return subvalue;
@@ -174,10 +200,14 @@ OptionalNSObject AttributeInvoker::ParamByPropertyNode(
   if (property_name == "AXStringForRange") {  // NSRange
     return OptionalNSObject::NotNilOrError(PropertyNodeToRange(arg_node));
   }
-  if (property_name == "AXIndexForChildUIElement") {  // UIElement
+  if (property_name == "AXIndexForChildUIElement" ||
+      property_name == "AXTextMarkerRangeForUIElement") {  // UIElement
     return OptionalNSObject::NotNilOrError(PropertyNodeToUIElement(arg_node));
   }
-  if (property_name == "AXIndexForTextMarker") {  // TextMarker
+  if (property_name == "AXIndexForTextMarker" ||
+      property_name == "AXNextWordEndTextMarkerForTextMarker" ||
+      property_name ==
+          "AXPreviousWordStartTextMarkerForTextMarker") {  // TextMarker
     return OptionalNSObject::NotNilOrError(PropertyNodeToTextMarker(arg_node));
   }
   if (property_name == "AXStringForTextMarkerRange") {  // TextMarkerRange
@@ -206,8 +236,8 @@ NSArray* AttributeInvoker::PropertyNodeToIntArray(
   }
 
   NSMutableArray* array =
-      [[NSMutableArray alloc] initWithCapacity:arraynode.parameters.size()];
-  for (const auto& paramnode : arraynode.parameters) {
+      [[NSMutableArray alloc] initWithCapacity:arraynode.arguments.size()];
+  for (const auto& paramnode : arraynode.arguments) {
     absl::optional<int> param = paramnode.AsInt();
     if (!param) {
       INTARRAY_FAIL(arraynode, paramnode.name_or_value + " is not a number")
@@ -254,23 +284,23 @@ id AttributeInvoker::DictNodeToTextMarker(
   if (!dictnode.IsDict()) {
     TEXTMARKER_FAIL(dictnode, "dictionary is expected")
   }
-  if (dictnode.parameters.size() != 3) {
+  if (dictnode.arguments.size() != 3) {
     TEXTMARKER_FAIL(dictnode, "wrong number of dictionary elements")
   }
 
   BrowserAccessibilityCocoa* anchor_cocoa =
-      line_indexer->NodeBy(dictnode.parameters[0].name_or_value);
+      line_indexer->NodeBy(dictnode.arguments[0].name_or_value);
   if (!anchor_cocoa) {
     TEXTMARKER_FAIL(dictnode, "1st argument: wrong anchor")
   }
 
-  absl::optional<int> offset = dictnode.parameters[1].AsInt();
+  absl::optional<int> offset = dictnode.arguments[1].AsInt();
   if (!offset) {
     TEXTMARKER_FAIL(dictnode, "2nd argument: wrong offset")
   }
 
   ax::mojom::TextAffinity affinity;
-  const std::string& affinity_str = dictnode.parameters[2].name_or_value;
+  const std::string& affinity_str = dictnode.arguments[2].name_or_value;
   if (affinity_str == "none") {
     affinity = ax::mojom::TextAffinity::kNone;
   } else if (affinity_str == "down") {

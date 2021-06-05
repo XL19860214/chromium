@@ -43,7 +43,6 @@
 #include "third_party/blink/public/mojom/permissions_policy/permissions_policy_feature.mojom-blink-forward.h"
 #include "third_party/blink/public/mojom/permissions_policy/policy_disposition.mojom-blink-forward.h"
 #include "third_party/blink/public/mojom/v8_cache_options.mojom-blink.h"
-#include "third_party/blink/public/platform/web_url_loader.h"
 #include "third_party/blink/renderer/bindings/core/v8/sanitize_script_errors.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/execution_context/security_context.h"
@@ -52,6 +51,7 @@
 #include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
 #include "third_party/blink/renderer/platform/loader/fetch/console_logger.h"
 #include "third_party/blink/renderer/platform/loader/fetch/https_state.h"
+#include "third_party/blink/renderer/platform/loader/fetch/loader_freeze_mode.h"
 #include "third_party/blink/renderer/platform/mojo/mojo_binding_context.h"
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 #include "third_party/blink/renderer/platform/supplementable.h"
@@ -246,7 +246,7 @@ class CORE_EXPORT ExecutionContext : public Supplementable<ExecutionContext>,
   virtual void AddInspectorIssue(AuditsIssue) = 0;
 
   bool IsContextPaused() const;
-  WebURLLoader::DeferType DeferType() const;
+  LoaderFreezeMode GetLoaderFreezeMode() const;
   bool IsContextDestroyed() const { return is_context_destroyed_; }
   mojom::FrameLifecycleState ContextPauseState() const {
     return lifecycle_state_;
@@ -377,6 +377,9 @@ class CORE_EXPORT ExecutionContext : public Supplementable<ExecutionContext>,
   // the future.
   bool CheckSharedArrayBufferTransferAllowedAndReport();
 
+  // Reports first usage of `navigator.userAgent` and related getters
+  void ReportNavigatorUserAgentAccess();
+
   virtual ukm::UkmRecorder* UkmRecorder() { return nullptr; }
   virtual ukm::SourceId UkmSourceID() const { return ukm::kInvalidSourceId; }
 
@@ -471,6 +474,7 @@ class CORE_EXPORT ExecutionContext : public Supplementable<ExecutionContext>,
 
   bool has_filed_shared_array_buffer_transfer_issue_ = false;
   bool has_filed_shared_array_buffer_creation_issue_ = false;
+  bool has_filed_navigator_user_agent_issue_ = false;
 
   bool is_in_request_animation_frame_ = false;
 

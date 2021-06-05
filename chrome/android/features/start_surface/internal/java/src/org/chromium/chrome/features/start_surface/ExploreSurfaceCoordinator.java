@@ -16,6 +16,7 @@ import org.chromium.chrome.browser.feed.FeedSurfaceCoordinator;
 import org.chromium.chrome.browser.feed.FeedSurfaceLifecycleManager;
 import org.chromium.chrome.browser.feed.shared.FeedSurfaceDelegate;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
+import org.chromium.chrome.browser.ntp.NewTabPageLaunchOrigin;
 import org.chromium.chrome.browser.ntp.ScrollableContainerDelegate;
 import org.chromium.chrome.browser.ntp.snippets.SectionHeaderView;
 import org.chromium.chrome.browser.profiles.Profile;
@@ -33,27 +34,35 @@ import org.chromium.ui.modelutil.PropertyModelChangeProcessor;
 class ExploreSurfaceCoordinator implements FeedSurfaceDelegate {
     private final Activity mActivity;
     private final PropertyModelChangeProcessor mPropertyModelChangeProcessor;
-    private final FeedSurfaceCreator mFeedSurfaceCreator;
+    private final FeedSurfaceController mFeedSurfaceController;
     private final Supplier<Tab> mParentTabSupplier;
     private final boolean mHasHeader;
     private final SnackbarManager mSnackbarManager;
     private final Supplier<ShareDelegate> mShareDelegateSupplier;
     private final WindowAndroid mWindowAndroid;
     private final TabModelSelector mTabModelSelector;
+    private ExploreSurfaceFeedLifecycleManager mExploreSurfaceFeedLifecycleManager;
 
     // mExploreSurfaceNavigationDelegate is lightweight, we keep it across FeedSurfaceCoordinators
     // after creating it during the first show.
     private ExploreSurfaceNavigationDelegate mExploreSurfaceNavigationDelegate;
 
-    /** Interface to create {@link FeedSurfaceCoordinator} */
-    interface FeedSurfaceCreator {
+    /** Interface to control the {@link FeedSurfaceDelegate} */
+    interface FeedSurfaceController {
         /**
          * Creates the {@link FeedSurfaceCoordinator} for the specified mode.
          * @param isInNightMode Whether or not the feed surface is going to display in night mode.
+         * @param launchOrigin Where the feed was launched from.
          * @return The {@link FeedSurfaceCoordinator}.
          */
-        FeedSurfaceCoordinator createFeedSurfaceCoordinator(
-                boolean isInNightMode, boolean isPlaceholderShown);
+        FeedSurfaceCoordinator createFeedSurfaceCoordinator(boolean isInNightMode,
+                boolean isPlaceholderShown, @NewTabPageLaunchOrigin int launchOrigin);
+
+        /** Shows the Feeds surface. */
+        void showFeedSurface();
+
+        /** Hides the Feeds surface. */
+        void hideFeedSurface();
     }
 
     /**
@@ -87,29 +96,46 @@ class ExploreSurfaceCoordinator implements FeedSurfaceDelegate {
 
         mPropertyModelChangeProcessor = PropertyModelChangeProcessor.create(
                 containerPropertyModel, parentView, ExploreSurfaceViewBinder::bind);
-        mFeedSurfaceCreator = new FeedSurfaceCreator() {
+        mFeedSurfaceController = new FeedSurfaceController() {
             @Override
-            public FeedSurfaceCoordinator createFeedSurfaceCoordinator(
-                    boolean isInNightMode, boolean isPlaceholderShown) {
+            public FeedSurfaceCoordinator createFeedSurfaceCoordinator(boolean isInNightMode,
+                    boolean isPlaceholderShown, @NewTabPageLaunchOrigin int launchOrigin) {
                 return internalCreateFeedSurfaceCoordinator(mHasHeader, isInNightMode,
-                        isPlaceholderShown, bottomSheetController, scrollableContainerDelegate);
+                        isPlaceholderShown, bottomSheetController, scrollableContainerDelegate,
+                        launchOrigin);
+            }
+
+            @Override
+            public void showFeedSurface() {
+                if (mExploreSurfaceFeedLifecycleManager != null) {
+                    mExploreSurfaceFeedLifecycleManager.showFeedSurface();
+                }
+            }
+
+            @Override
+            public void hideFeedSurface() {
+                if (mExploreSurfaceFeedLifecycleManager != null) {
+                    mExploreSurfaceFeedLifecycleManager.hideFeedSurface();
+                }
             }
         };
     }
 
     /**
-     * Gets the {@link FeedSurfaceCreator}.
-     * @return the {@link FeedSurfaceCreator}.
+     * Gets the {@link FeedSurfaceController}.
+     * @return the {@link FeedSurfaceController}.
      */
-    FeedSurfaceCreator getFeedSurfaceCreator() {
-        return mFeedSurfaceCreator;
+    FeedSurfaceController getFeedSurfaceController() {
+        return mFeedSurfaceController;
     }
 
     // Implements FeedSurfaceDelegate.
     @Override
     public FeedSurfaceLifecycleManager createStreamLifecycleManager(
             Activity activity, FeedSurfaceCoordinator coordinator) {
-        return new ExploreSurfaceFeedLifecycleManager(activity, mHasHeader, coordinator);
+        mExploreSurfaceFeedLifecycleManager =
+                new ExploreSurfaceFeedLifecycleManager(activity, mHasHeader, coordinator);
+        return mExploreSurfaceFeedLifecycleManager;
     }
 
     @Override
@@ -120,7 +146,8 @@ class ExploreSurfaceCoordinator implements FeedSurfaceDelegate {
     private FeedSurfaceCoordinator internalCreateFeedSurfaceCoordinator(boolean hasHeader,
             boolean isInNightMode, boolean isPlaceholderShown,
             BottomSheetController bottomSheetController,
-            ScrollableContainerDelegate scrollableContainerDelegate) {
+            ScrollableContainerDelegate scrollableContainerDelegate,
+            @NewTabPageLaunchOrigin int launchOrigin) {
         if (mExploreSurfaceNavigationDelegate == null) {
             mExploreSurfaceNavigationDelegate =
                     new ExploreSurfaceNavigationDelegate(mParentTabSupplier);
@@ -144,7 +171,7 @@ class ExploreSurfaceCoordinator implements FeedSurfaceDelegate {
                 new FeedSurfaceCoordinator(mActivity, mSnackbarManager, mWindowAndroid, null, null,
                         sectionHeaderView, isInNightMode, this, mExploreSurfaceNavigationDelegate,
                         profile, isPlaceholderShown, bottomSheetController, mShareDelegateSupplier,
-                        scrollableContainerDelegate, mTabModelSelector);
+                        scrollableContainerDelegate, mTabModelSelector, launchOrigin);
         feedSurfaceCoordinator.getView().setId(R.id.start_surface_explore_view);
         return feedSurfaceCoordinator;
         // TODO(crbug.com/982018): Customize surface background for incognito and dark mode.

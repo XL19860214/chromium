@@ -929,6 +929,7 @@
         'ReportDeviceVpdInfo',
         'ReportDeviceSystemInfo',
         'ReportDevicePrintJobs',
+        'ReportDeviceLoginLogout',
         'ReportUploadFrequency',
         'ReportArcStatusEnabled',
         'HeartbeatEnabled',
@@ -1569,7 +1570,7 @@
     },
     {
       'name': 'DisableSpdy',
-      'owners': ['file://components/policy/resources/OWNERS', 'hendrich@chromium.org'],
+      'owners': ['file://components/policy/resources/OWNERS', 'bnc@chromium.org'],
       'type': 'main',
       'schema': { 'type': 'boolean' },
       'supported_on': ['chrome.*:8-53', 'chrome_os:11-53', 'android:30-53'],
@@ -3412,7 +3413,7 @@
     },
     {
       'name': 'AutoFillEnabled',
-      'owners': ['file://components/policy/resources/OWNERS', 'hendrich@chromium.org'],
+      'owners': ['file://components/autofill/OWNERS', 'sebsg@chromium.org'],
       'type': 'main',
       'schema': { 'type': 'boolean' },
       'supported_on': [
@@ -3588,6 +3589,7 @@
       'schema': { 'type': 'boolean' },
       'supported_on': ['chrome.*:55-'],
       'features': {
+        'can_be_recommended': True,
         'dynamic_refresh': True,
         'per_profile': True,
       },
@@ -3595,9 +3597,11 @@
       'id': 347,
       'caption': '''Always Open PDF files externally''',
       'tags': [],
-      'desc': '''Setting the policy to True turns the internal PDF viewer off in <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph>, treats PDF files as a download, and lets users open PDFs with the default application.
+      'desc': '''Setting the policy to Enabled turns the internal PDF viewer off in <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph>, treats PDF files as a download, and lets users open PDFs with the default application.
 
-      Setting the policy to False or leaving it unset means that unless users turns off the PDF plugin, it will open PDF files.''',
+      Setting the policy to Disabled means that unless users turns off the PDF plugin, it will open PDF files.
+
+      If you set the policy, users can't change it in <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph>. If not set, users can choose whether to open PDF externally or not.''',
     },
     {
       'name': 'DisablePluginFinder',
@@ -4308,7 +4312,7 @@
       'tags': [],
       'desc': '''This policy is deprecated, please use <ph name="PROXY_SETTINGS_POLICY_NAME">ProxySettings</ph> instead.
 
-       Setting the policy means <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph> bypasses any proxy for the list of hosts given here. This policy only takes effect if the <ph name="PROXY_SETTINGS_POLICY_NAME">ProxySettings</ph> policy isn't specified and you selected a <ph name="PROXY_MODE_ENUM_FIXED_SERVERS">fixed_servers</ph> with <ph name="PROXY_MODE_POLICY_NAME">ProxyMode</ph>.
+       Setting the policy means <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph> bypasses any proxy for the list of hosts given here. This policy only takes effect if the <ph name="PROXY_SETTINGS_POLICY_NAME">ProxySettings</ph> policy isn't specified and you specified either <ph name="PROXY_MODE_ENUM_FIXED_SERVERS">fixed_servers</ph> or <ph name="PROXY_MODE_ENUM_PAC_SCRIPT">pac_script</ph> for <ph name="PROXY_MODE_POLICY_NAME">ProxyMode</ph>.
 
        Leave this policy unset if you selected any other mode for setting proxy policies.
 
@@ -4342,7 +4346,7 @@
         'dynamic_refresh': True,
         'per_profile': True,
       },
-      'example_value': { "ProxyMode": "direct", "ProxyPacUrl": "https://internal.site/example.pac", "ProxyServer": "123.123.123.123:8080", "ProxyBypassList": "https://www.example1.com,https://www.example2.com,https://internalsite/", "ProxyServerMode": 2 },
+      'example_value': { "ProxyMode": "fixed_servers", "ProxyServer": "123.123.123.123:8080", "ProxyBypassList": "https://www.example1.com,https://www.example2.com,https://internalsite/" },
       'id': 116,
       'caption': '''Proxy settings''',
       'tags': ['system-security'],
@@ -4354,15 +4358,15 @@
          * <ph name="PROXY_MODE_PROXY_SETTINGS_FIELD">ProxyMode</ph>, which lets you specify the proxy server Chrome uses and prevents users from changing proxy settings
          * <ph name="PROXY_PAC_URL_PROXY_SETTINGS_FIELD">ProxyPacUrl</ph>, a URL to a proxy .pac file
          * <ph name="PROXY_SERVER_PROXY_SETTINGS_FIELD">ProxyServer</ph>, a URL of the proxy server
-         * <ph name="PROXY_BYPASS_LIST_PROXY_SETTINGS_FIELD">ProxyBypassList</ph>, a list of proxy hosts that <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph> bypasses
+         * <ph name="PROXY_BYPASS_LIST_PROXY_SETTINGS_FIELD">ProxyBypassList</ph>, a list of hosts for which the proxy will be bypassed
 
-       The <ph name="PROXY_SERVER_MODE_PROXY_SETTINGS_FIELD">ProxyServerMode</ph> field is deprecated in favor of the <ph name="PROXY_MODE_PROXY_SETTINGS_FIELD">ProxyMode</ph> field, which lets you specify the proxy server Chrome uses and prevents users from changing proxy settings.
+       The <ph name="PROXY_SERVER_MODE_PROXY_SETTINGS_FIELD">ProxyServerMode</ph> field is deprecated in favor of the <ph name="PROXY_MODE_PROXY_SETTINGS_FIELD">ProxyMode</ph> field.
 
         For <ph name="PROXY_MODE_PROXY_SETTINGS_FIELD">ProxyMode</ph>, if you choose the value:
           * <ph name="PROXY_MODE_ENUM_DIRECT">direct</ph>, a proxy is never used and all other fields are ignored.
           * <ph name="PROXY_MODE_ENUM_SYSTEM">system</ph>, the systems's proxy is used and all other fields are ignored.
           * <ph name="PROXY_MODE_ENUM_AUTO_DETECT">auto_detect</ph>, all other fields are ignored.
-          * <ph name="PROXY_MODE_ENUM_FIXED_SERVER">fixed_server</ph>, the <ph name="PROXY_SERVER_PROXY_SETTINGS_FIELD">ProxyServer</ph> and <ph name="PROXY_BYPASS_LIST_PROXY_SETTINGS_FIELD">ProxyBypassList</ph> fields are used.
+          * <ph name="PROXY_MODE_ENUM_FIXED_SERVERS">fixed_servers</ph>, the <ph name="PROXY_SERVER_PROXY_SETTINGS_FIELD">ProxyServer</ph> and <ph name="PROXY_BYPASS_LIST_PROXY_SETTINGS_FIELD">ProxyBypassList</ph> fields are used.
           * <ph name="PROXY_MODE_ENUM_PAC_SCRIPT">pac_script</ph>, the <ph name="PROXY_BYPASS_LIST_PROXY_PAC_URL">ProxyPacUrl</ph> and <ph name="PROXY_BYPASS_LIST_PROXY_SETTINGS_FIELD">ProxyBypassList</ph> fields are used.
 
       Note: For more detailed examples, visit The Chromium Projects ( https://www.chromium.org/developers/design-documents/network-settings#TOC-Command-line-options-for-proxy-sett ).''',
@@ -6392,7 +6396,7 @@
       'future_on': ['chrome_os', 'chrome.*'],
       'features': {
         'dynamic_refresh': True,
-        'per_profile': True,
+        'per_profile': False,
       },
       'example_value': ['https://www.example.com'],
       'id': 837,
@@ -6435,7 +6439,7 @@
       'future_on': ['chrome_os', 'chrome.*'],
       'features': {
         'dynamic_refresh': True,
-        'per_profile': True,
+        'per_profile': False,
       },
       'example_value': [
         {
@@ -7085,9 +7089,9 @@
         },
       ],
       'supported_on': [
-        'chrome.*:79-',
-        'chrome_os:79-',
-        'android:79-',
+        'chrome.*:79-92',
+        'chrome_os:79-92',
+        'android:79-92',
       ],
       'features': {
         'dynamic_refresh': True,
@@ -7097,7 +7101,8 @@
       'id': 623,
       'caption': '''Default legacy <ph name="ATTRIBUTE_SAMESITE_NAME">SameSite</ph> cookie behavior setting''',
       'tags': [],
-      'desc': '''Allows you to revert all cookies to legacy <ph name="ATTRIBUTE_SAMESITE_NAME">SameSite</ph> behavior. Reverting to legacy behavior causes cookies that don't specify a <ph name="ATTRIBUTE_SAMESITE_NAME">SameSite</ph> attribute to be treated as if they were "<ph name="ATTRIBUTE_VALUE_SAMESITE_NONE">SameSite=None</ph>", removes the requirement for "<ph name="ATTRIBUTE_VALUE_SAMESITE_NONE">SameSite=None</ph>" cookies to carry the "<ph name="ATTRIBUTE_SECURE_NAME">Secure</ph>" attribute, and skips the scheme comparison when evaluating if two sites are same-site. See https://www.chromium.org/administrators/policy-list-3/cookie-legacy-samesite-policies for full description.
+      'deprecated': True,
+      'desc': '''This policy is deprecated, if you still require legacy cookie behavior please use <ph name="LEGACY_SAMESITE_COOKIE_BEHAVIOR_ENABLED_FOR_DOMAIN_LIST_POLICY_NAME">LegacySameSiteCookieBehaviorEnabledForDomainList</ph>. Allows you to revert all cookies to legacy <ph name="ATTRIBUTE_SAMESITE_NAME">SameSite</ph> behavior. Reverting to legacy behavior causes cookies that don't specify a <ph name="ATTRIBUTE_SAMESITE_NAME">SameSite</ph> attribute to be treated as if they were "<ph name="ATTRIBUTE_VALUE_SAMESITE_NONE">SameSite=None</ph>", removes the requirement for "<ph name="ATTRIBUTE_VALUE_SAMESITE_NONE">SameSite=None</ph>" cookies to carry the "<ph name="ATTRIBUTE_SECURE_NAME">Secure</ph>" attribute, and skips the scheme comparison when evaluating if two sites are same-site. See https://www.chromium.org/administrators/policy-list-3/cookie-legacy-samesite-policies for full description.
 
           When this policy is not set, the default <ph name="ATTRIBUTE_SAMESITE_NAME">SameSite</ph> behavior for cookies will depend on the user's personal configuration for the <ph name="FEATURE_NAME_SAMESITE_BY_DEFAULT_COOKIES">SameSite-by-default</ph> feature, the <ph name="FEATURE_NAME_SAMESITE_NONE_MUST_BE_SECURE">Cookies-without-SameSite-must-be-secure</ph> feature, and the <ph name="FEATURE_NAME_SCHEMEFUL_SAME_SITE">Schemeful Same-Site</ph> feature which may be set by a field trial or by enabling or disabling the <ph name="FLAG_NAME_SAMESITE_BY_DEFAULT_COOKIES">same-site-by-default-cookies</ph> flag, the <ph name="FLAG_NAME_SAMESITE_NONE_MUST_BE_SECURE">cookies-without-same-site-must-be-secure</ph> flag, or the <ph name="FLAG_NAME_SCHEMEFUL_SAME_SITE">schemeful-same-site</ph> flag, respectively.''',
     },
@@ -8489,7 +8494,7 @@
     },
     {
       'name': 'URLWhitelist',
-      'owners': ['file://components/policy/resources/OWNERS', 'atwilson@chromium.org'],
+      'owners': ['file://components/policy/resources/OWNERS', 'hendrich@chromium.org'],
       'type': 'list',
       'schema': {
         'type': 'array',
@@ -8523,7 +8528,7 @@
     },
     {
       'name': 'URLBlocklist',
-      'owners': ['file://components/policy/resources/OWNERS', 'pastarmovj@chromium.org'],
+      'owners': ['file://components/policy/resources/OWNERS', 'hendrich@chromium.org'],
       'type': 'list',
       'schema': {
         'type': 'array',
@@ -8555,7 +8560,7 @@
     },
     {
       'name': 'URLAllowlist',
-      'owners': ['file://components/policy/resources/OWNERS', 'pastarmovj@chromium.org'],
+      'owners': ['file://components/policy/resources/OWNERS', 'hendrich@chromium.org'],
       'type': 'list',
       'schema': {
         'type': 'array',
@@ -8767,7 +8772,7 @@
     },
     {
       'name': 'OpenNetworkConfiguration',
-      'owners': ['file://components/policy/resources/OWNERS', 'hendrich@chromium.org'],
+      'owners': ['pmarko@chromium.org', 'file://components/policy/resources/OWNERS'],
       'type': 'string',
       'schema': { 'type': 'string' },
       'url_schema': 'https://chromium.googlesource.com/chromium/src/+/HEAD/components/onc/docs/onc_spec.md',
@@ -8785,7 +8790,7 @@
     },
     {
       'name': 'DeviceOpenNetworkConfiguration',
-      'owners': ['file://components/policy/resources/OWNERS', 'pmarko@chromium.org'],
+      'owners': ['pmarko@chromium.org', 'file://components/policy/resources/OWNERS'],
       'type': 'string',
       'schema': { 'type': 'string' },
       'url_schema': 'https://chromium.googlesource.com/chromium/src/+/HEAD/components/onc/docs/onc_spec.md',
@@ -8803,7 +8808,7 @@
     },
     {
       'name': 'DeviceKerberosEncryptionTypes',
-      'owners': ['file://chrome/browser/ash/authpolicy/OWNERS', 'fsandrade@chromium.org'],
+      'owners': ['fsandrade@chromium.org', 'file://chrome/browser/ash/authpolicy/OWNERS'],
       'type': 'int-enum',
       'schema': {
         'type': 'integer',
@@ -8850,7 +8855,7 @@
     },
     {
       'name': 'DeviceUserPolicyLoopbackProcessingMode',
-      'owners': ['file://chrome/browser/ash/authpolicy/OWNERS', 'tomdobro@chromium.org'],
+      'owners': ['fsandrade@chromium.org', 'file://chrome/browser/ash/authpolicy/OWNERS'],
       'type': 'int-enum',
       'schema': {
         'type': 'integer',
@@ -8893,7 +8898,7 @@
     },
     {
       'name': 'DeviceMachinePasswordChangeRate',
-      'owners': ['file://chrome/browser/ash/authpolicy/OWNERS', 'fsandrade@chromium.org'],
+      'owners': ['fsandrade@chromium.org', 'file://chrome/browser/ash/authpolicy/OWNERS'],
       'type': 'int',
       'schema': { 'type': 'integer', 'minimum': 0, 'maximum': 9999 },
       'supported_on': ['chrome_os:66-'],
@@ -8916,7 +8921,7 @@
     },
     {
       'name': 'DeviceGpoCacheLifetime',
-      'owners': ['file://chrome/browser/ash/authpolicy/OWNERS', 'tomdobro@chromium.org'],
+      'owners': ['fsandrade@chromium.org', 'file://chrome/browser/ash/authpolicy/OWNERS'],
       'type': 'int',
       'schema': { 'type': 'integer', 'minimum': 0, 'maximum': 9999 },
       'supported_on': ['chrome_os:73-'],
@@ -8939,7 +8944,7 @@
     },
     {
       'name': 'DeviceAuthDataCacheLifetime',
-      'owners': ['file://chrome/browser/ash/authpolicy/OWNERS', 'fsandrade@chromium.org'],
+      'owners': ['fsandrade@chromium.org', 'file://chrome/browser/ash/authpolicy/OWNERS'],
       'type': 'int',
       'schema': { 'type': 'integer', 'minimum': 0, 'maximum': 9999 },
       'supported_on': ['chrome_os:73-'],
@@ -9429,7 +9434,7 @@
     },
     {
       'name': 'ReportDeviceVersionInfo',
-      'owners': ['file://components/policy/resources/OWNERS', 'bartfab@chromium.org'],
+      'owners': ['cros-reporting-team@google.com', 'lbaraz@chromium.org'],
       'type': 'main',
       'schema': { 'type': 'boolean' },
       'supported_on': ['chrome_os:18-'],
@@ -9449,7 +9454,7 @@
     },
     {
       'name': 'ReportDeviceActivityTimes',
-      'owners': ['file://components/policy/resources/OWNERS', 'pmarko@chromium.org'],
+      'owners': ['cros-reporting-team@google.com', 'lbaraz@chromium.org'],
       'type': 'main',
       'schema': { 'type': 'boolean' },
       'supported_on': ['chrome_os:18-'],
@@ -9469,7 +9474,7 @@
     },
     {
       'name': 'ReportDeviceBootMode',
-      'owners': ['file://components/policy/resources/OWNERS', 'bartfab@chromium.org'],
+      'owners': ['cros-reporting-team@google.com', 'lbaraz@chromium.org'],
       'type': 'main',
       'schema': { 'type': 'boolean' },
       'supported_on': ['chrome_os:18-'],
@@ -9489,7 +9494,7 @@
     },
     {
       'name': 'ReportDeviceLocation',
-      'owners': ['file://components/policy/resources/OWNERS', 'hendrich@chromium.org'],
+      'owners': ['cros-reporting-team@google.com', 'lbaraz@chromium.org'],
       'type': 'main',
       'schema': { 'type': 'boolean' },
       'future_on': ['chrome_os'],
@@ -9509,7 +9514,7 @@
     },
     {
       'name': 'ReportDeviceNetworkInterfaces',
-      'owners': ['file://components/policy/resources/OWNERS', 'rsorokin@chromium.org'],
+      'owners': ['cros-reporting-team@google.com', 'lbaraz@chromium.org'],
       'type': 'main',
       'schema': { 'type': 'boolean' },
       'supported_on': ['chrome_os:29-'],
@@ -9529,7 +9534,7 @@
     },
     {
       'name': 'ReportDeviceUsers',
-      'owners': ['stepco@chromium.org', 'poromov@chromium.org'],
+      'owners': ['stepco@chromium.org', 'cros-reporting-team@google.com', 'lbaraz@chromium.org'],
       'type': 'main',
       'schema': { 'type': 'boolean' },
       'supported_on': ['chrome_os:32-'],
@@ -9549,7 +9554,7 @@
     },
     {
       'name': 'ReportDeviceHardwareStatus',
-      'owners': ['antrim@chromium.org'],
+      'owners': ['cros-reporting-team@google.com', 'lbaraz@chromium.org', 'antrim@chromium.org'],
       'type': 'main',
       'schema': { 'type': 'boolean' },
       'supported_on': ['chrome_os:42-'],
@@ -9569,7 +9574,7 @@
     },
     {
       'name': 'ReportDeviceSessionStatus',
-      'owners': ['antrim@chromium.org'],
+      'owners': ['cros-reporting-team@google.com', 'lbaraz@chromium.org', 'antrim@chromium.org'],
       'type': 'main',
       'schema': { 'type': 'boolean' },
       'supported_on': ['chrome_os:42-'],
@@ -9589,7 +9594,7 @@
     },
     {
       'name': 'ReportDeviceGraphicsStatus',
-      'owners': ['file://components/policy/resources/OWNERS', 'anqing@chromium.org'],
+      'owners': ['cros-reporting-team@google.com', 'lbaraz@chromium.org'],
       'type': 'main',
       'schema': { 'type': 'boolean' },
       'supported_on': ['chrome_os:81-'],
@@ -9612,7 +9617,7 @@
     },
     {
       'name': 'ReportDeviceCrashReportInfo',
-      'owners': ['file://components/policy/resources/OWNERS', 'atwilson@chromium.org'],
+      'owners': ['cros-reporting-team@google.com', 'lbaraz@chromium.org'],
       'type': 'main',
       'schema': { 'type': 'boolean' },
       'supported_on': ['chrome_os:83-'],
@@ -9635,7 +9640,7 @@
     },
     {
       'name': 'ReportDeviceOsUpdateStatus',
-      'owners': ['anqing@chromium.org'],
+      'owners': ['cros-reporting-team@google.com', 'lbaraz@chromium.org', 'anqing@chromium.org'],
       'type': 'main',
       'schema': { 'type': 'boolean' },
       'supported_on': ['chrome_os:79-'],
@@ -9657,7 +9662,7 @@
     },
     {
       'name': 'ReportDevicePowerStatus',
-      'owners': ['antrim@chromium.org'],
+      'owners': ['cros-reporting-team@google.com', 'lbaraz@chromium.org', 'antrim@chromium.org'],
       'type': 'main',
       'schema': { 'type': 'boolean' },
       'supported_on': ['chrome_os:73-'],
@@ -9677,7 +9682,7 @@
     },
     {
       'name': 'ReportDeviceStorageStatus',
-      'owners': ['antrim@chromium.org'],
+      'owners': ['cros-reporting-team@google.com', 'lbaraz@chromium.org', 'antrim@chromium.org'],
       'type': 'main',
       'schema': { 'type': 'boolean' },
       'supported_on': ['chrome_os:73-'],
@@ -9697,7 +9702,7 @@
     },
     {
       'name': 'ReportDeviceBoardStatus',
-      'owners': ['antrim@chromium.org'],
+      'owners': ['cros-reporting-team@google.com', 'lbaraz@chromium.org', 'antrim@chromium.org'],
       'type': 'main',
       'schema': { 'type': 'boolean' },
       'supported_on': ['chrome_os:73-'],
@@ -9717,7 +9722,7 @@
     },
     {
       'name': 'ReportDeviceCpuInfo',
-      'owners': ['file://components/policy/resources/OWNERS', 'anqing@chromium.org'],
+      'owners': ['cros-reporting-team@google.com', 'lbaraz@chromium.org'],
       'type': 'main',
       'schema': { 'type': 'boolean' },
       'supported_on': ['chrome_os:81-'],
@@ -9739,7 +9744,7 @@
     },
     {
       'name': 'ReportDeviceTimezoneInfo',
-      'owners': ['file://components/policy/resources/OWNERS', 'poromov@chromium.org'],
+      'owners': ['cros-reporting-team@google.com', 'lbaraz@chromium.org'],
       'type': 'main',
       'schema': { 'type': 'boolean' },
       'supported_on': ['chrome_os:83-'],
@@ -9760,7 +9765,7 @@
     },
     {
       'name': 'ReportDeviceMemoryInfo',
-      'owners': ['file://components/policy/resources/OWNERS', 'atwilson@chromium.org'],
+      'owners': ['cros-reporting-team@google.com', 'lbaraz@chromium.org'],
       'type': 'main',
       'schema': { 'type': 'boolean' },
       'supported_on': ['chrome_os:83-'],
@@ -9781,7 +9786,7 @@
     },
     {
       'name': 'ReportDeviceBacklightInfo',
-      'owners': ['file://components/policy/resources/OWNERS', 'atwilson@chromium.org'],
+      'owners': ['cros-reporting-team@google.com', 'lbaraz@chromium.org'],
       'type': 'main',
       'schema': { 'type': 'boolean' },
       'supported_on': ['chrome_os:83-'],
@@ -9802,7 +9807,7 @@
     },
     {
       'name': 'ReportDeviceAppInfo',
-      'owners': ['mattme@google.com', 'file://components/policy/resources/OWNERS'],
+      'owners': ['cros-reporting-team@google.com', 'lbaraz@chromium.org', 'mattme@google.com'],
       'type': 'main',
       'schema': { 'type': 'boolean' },
       'supported_on': ['chrome_os:85-'],
@@ -9823,7 +9828,7 @@
     },
     {
       'name': 'ReportDeviceBluetoothInfo',
-      'owners': ['file://components/policy/resources/OWNERS', 'rsorokin@chromium.org'],
+      'owners': ['cros-reporting-team@google.com', 'lbaraz@chromium.org'],
       'type': 'main',
       'schema': { 'type': 'boolean' },
       'supported_on': ['chrome_os:85-'],
@@ -9844,7 +9849,7 @@
     },
     {
       'name': 'ReportDeviceFanInfo',
-      'owners': ['file://components/policy/resources/OWNERS', 'anqing@chromium.org'],
+      'owners': ['cros-reporting-team@google.com', 'lbaraz@chromium.org'],
       'type': 'main',
       'schema': { 'type': 'boolean' },
       'supported_on': ['chrome_os:85-'],
@@ -9865,7 +9870,7 @@
     },
     {
       'name': 'ReportDeviceVpdInfo',
-      'owners': ['file://components/policy/resources/OWNERS', 'rsorokin@chromium.org'],
+      'owners': ['cros-reporting-team@google.com', 'lbaraz@chromium.org'],
       'type': 'main',
       'schema': { 'type': 'boolean' },
       'supported_on': ['chrome_os:85-'],
@@ -9887,7 +9892,7 @@
     },
     {
       'name': 'ReportDeviceSystemInfo',
-      'owners': ['file://components/policy/resources/OWNERS', 'hendrich@chromium.org'],
+      'owners': ['cros-reporting-team@google.com', 'lbaraz@chromium.org'],
       'type': 'main',
       'schema': { 'type': 'boolean' },
       'supported_on': ['chrome_os:86-'],
@@ -9908,7 +9913,7 @@
     },
     {
       'name': 'ReportDevicePrintJobs',
-      'owners': ['mattme@google.com', 'file://components/policy/resources/OWNERS'],
+      'owners': ['cros-reporting-team@google.com', 'lbaraz@chromium.org', 'mattme@google.com'],
       'type': 'main',
       'schema': { 'type': 'boolean' },
       'future_on': ['chrome_os'],
@@ -9939,8 +9944,40 @@
       'arc_support': 'This policy has no effect on the logging done by Android.',
     },
     {
+      'name': 'ReportDeviceLoginLogout',
+      'owners': ['anasr@google.com', 'cros-reporting-team@google.com'],
+      'type': 'main',
+      'schema': { 'type': 'boolean' },
+      'future_on': ['chrome_os'],
+      'supported_chrome_os_management': ['google_cloud'],
+      'device_only': True,
+      'features': {
+        'dynamic_refresh': True,
+      },
+      'items': [
+        {
+          'value': True,
+          'caption': 'Report login/logout events',
+        },
+        {
+          'value': False,
+          'caption': 'Do not report login/logout events',
+        },
+      ],
+      'example_value': False,
+      'default': False,
+      'id': 863,
+      'caption': '''Report login/logout''',
+      'tags': ['admin-sharing'],
+      'desc': '''Report users login/logout events on enrolled devices including failed logins.
+
+      If the policy is set to false or left unset, the information will not be reported.
+      If set to true, the device's login/logout events will be reported.''',
+      'arc_support': 'This policy has no effect on the logging done by Android.',
+    },
+    {
       'name': 'ReportUploadFrequency',
-      'owners': ['file://components/policy/resources/OWNERS', 'atwilson@chromium.org'],
+      'owners': ['cros-reporting-team@google.com', 'lbaraz@chromium.org'],
       'type': 'int',
       'schema': { 'type': 'integer', 'minimum': 60000 },
       'supported_on': ['chrome_os:42-'],
@@ -9960,7 +9997,7 @@
     },
     {
       'name': 'ReportArcStatusEnabled',
-      'owners': ['phweiss@chromium.org'],
+      'owners': ['cros-reporting-team@google.com', 'lbaraz@chromium.org', 'phweiss@chromium.org'],
       'type': 'main',
       'schema': { 'type': 'boolean' },
       'supported_on': ['chrome_os:55-'],
@@ -9979,7 +10016,7 @@
     },
     {
       'name': 'ReportCrostiniUsageEnabled',
-      'owners': ['aoldemeier@chromium.org', 'okalitova@chromium.org'],
+      'owners': ['cros-reporting-team@google.com', 'lbaraz@chromium.org', 'aoldemeier@chromium.org', 'okalitova@chromium.org'],
       'type': 'main',
       'schema': { 'type': 'boolean' },
       'supported_on': ['chrome_os:70-'],
@@ -9998,7 +10035,7 @@
     },
     {
       'name': 'HeartbeatEnabled',
-      'owners': ['file://components/policy/resources/OWNERS', 'atwilson@chromium.org'],
+      'owners': ['cros-reporting-team@google.com', 'lbaraz@chromium.org'],
       'type': 'main',
       'schema': { 'type': 'boolean' },
       'supported_on': ['chrome_os:43-'],
@@ -10018,7 +10055,7 @@
     },
     {
       'name': 'HeartbeatFrequency',
-      'owners': ['file://components/policy/resources/OWNERS', 'atwilson@chromium.org'],
+      'owners': ['cros-reporting-team@google.com', 'lbaraz@chromium.org'],
       'type': 'int',
       'schema': { 'type': 'integer', 'minimum': 30000 },
       'supported_on': ['chrome_os:43-'],
@@ -10038,7 +10075,7 @@
     },
     {
       'name': 'LogUploadEnabled',
-      'owners': ['poromov@chromium.org', 'pbond@chromium.org'],
+      'owners': ['cros-reporting-team@google.com', 'lbaraz@chromium.org', 'pbond@chromium.org'],
       'type': 'main',
       'schema': { 'type': 'boolean' },
       'supported_on': ['chrome_os:46-'],
@@ -10185,7 +10222,7 @@
     },
     {
       'name': 'DeviceMetricsReportingEnabled',
-      'owners': ['file://components/policy/resources/OWNERS', 'zmin@chromium.org'],
+      'owners': ['cros-reporting-team@google.com', 'lbaraz@chromium.org', 'zmin@chromium.org'],
       'type': 'main',
       'schema': { 'type': 'boolean' },
       'supported_on': ['chrome_os:14-'],
@@ -10263,7 +10300,7 @@
     },
     {
       'name': 'DeviceReleaseLtsTag',
-      'owners': ['file://components/policy/resources/OWNERS', 'hendrich@chromium.org'],
+      'owners': ['vsavu@google.com', 'file://components/policy/resources/OWNERS'],
       'type': 'string',
       'schema': { 'type': 'string' },
       'supported_on': ['chrome_os:86-'],
@@ -11382,10 +11419,10 @@
       'owners': ['ericorth@chromium.org', 'file://net/OWNERS'],
       'type': 'main',
       'schema': { 'type': 'boolean' },
-      'future_on': [
-        'android',
-        'chrome.*',
-        'chrome_os',
+      'supported_on': [
+        'android:92-',
+        'chrome.*:92-',
+        'chrome_os:92-',
       ],
       'features': {
         'dynamic_refresh': True,
@@ -15012,7 +15049,7 @@
     },
     {
       'name': 'KeyPermissions',
-      'owners': ['file://components/policy/resources/OWNERS', 'hendrich@chromium.org'],
+      'owners': ['pmarko@chromium.org', 'miersh@google.com', 'omorsi@google.com'],
       'type': 'dict',
       'schema': {
         'type': 'object',
@@ -15292,7 +15329,7 @@
     },
     {
       'name': 'UsbDetachableWhitelist',
-      'owners': ['vpalatin@chromium.org', 'poromov@chromium.org'],
+      'owners': ['vpalatin@chromium.org', 'hendrich@chromium.org'],
       'type': 'list',
       'schema': {
         'type': 'array',
@@ -15333,7 +15370,7 @@
     },
     {
       'name': 'UsbDetachableAllowlist',
-      'owners': ['file://components/policy/OWNERS', 'hendrich@chromium.org'],
+      'owners': ['vpalatin@chromium.org', 'hendrich@chromium.org'],
       'type': 'list',
       'schema': {
         'type': 'array',
@@ -15833,7 +15870,7 @@
     },
     {
       'name': 'EnableMediaRouter',
-      'owners': ['file://components/policy/resources/OWNERS', 'rsorokin@chromium.org'],
+      'owners': ['file://components/media_router/OWNERS'],
       'type': 'main',
       'schema': { 'type': 'boolean' },
       'supported_on': ['chrome.*:52-', 'chrome_os:52-', 'android:52-'],
@@ -15851,7 +15888,7 @@
     },
     {
       'name': 'ShowCastIconInToolbar',
-      'owners': ['file://components/policy/resources/OWNERS', 'rsorokin@chromium.org'],
+      'owners': ['file://components/media_router/OWNERS'],
       'type': 'main',
       'schema': { 'type': 'boolean' },
       'supported_on': ['chrome.*:58-', 'chrome_os:58-'],
@@ -15871,7 +15908,7 @@
     },
     {
       'name': 'MediaRouterCastAllowAllIPs',
-      'owners': ['file://components/policy/resources/OWNERS', 'hendrich@chromium.org'],
+      'owners': ['file://components/media_router/OWNERS'],
       'type': 'main',
       'schema': { 'type': 'boolean' },
       'supported_on': ['chrome.*:67-', 'chrome_os:67-'],
@@ -17861,7 +17898,7 @@
       'owners': ['macourteau@chromium.org', 'zmin@chromium.org'],
       'type': 'main',
       'schema': { 'type': 'boolean'},
-      'supported_on': ['chrome.*:64-', 'chrome_os:64-'],
+      'supported_on': ['chrome.*:64-', 'chrome_os:64-', 'android:92-'],
       'features': {
         'dynamic_refresh': True,
         'per_profile': True,
@@ -18107,7 +18144,10 @@
       isolated context. Chrome will require cross-origin isolation when using
       SharedArrayBuffers from Chrome 91 onward (2021-05-25) for Web Compatibility
       reasons. Additional details can be found on:
-      https://developer.chrome.com/blog/enabling-shared-array-buffer/.''',
+      https://developer.chrome.com/blog/enabling-shared-array-buffer/.
+      When set to True, sites can use SharedArrayBuffer with no restrictions.
+      When set to False or not set, sites can only use SharedArrayBuffers when
+      cross-origin isolated.''',
     },
     {
       'name': 'WebDriverOverridesIncompatiblePolicies',
@@ -18676,7 +18716,7 @@
       'id': 421,
       'caption': '''Allow devices to run virtual machines on Chrome OS''',
       'tags': ['system-security'],
-      'desc': '''Setting the policy to Enabled lets the device run virtual machines on <ph name="PRODUCT_OS_NAME">$2<ex>Chrome OS</ex></ph>. <ph name="VIRTUAL_MACHINES_ALLOWED_POLICY_NAME">VirtualMachinesAllowed</ph> and <ph name="CROSTINI_ALLOWED_POLICY_NAME">CrostiniAllowed</ph> must be Enabled to use <ph name="PRODUCT_CROSTINI_NAME">$6<ex>Crostini</ex></ph>. Setting the policy to Disabled means the device can't run virtual machines. Changing it to Disabled starts applying the policy to starting new virtual machines, not those already running.
+      'desc': '''Setting the policy to Enabled lets the device run virtual machines on <ph name="PRODUCT_OS_NAME">$2<ex>Chrome OS</ex></ph>. <ph name="VIRTUAL_MACHINES_ALLOWED_POLICY_NAME">VirtualMachinesAllowed</ph> and <ph name="CROSTINI_ALLOWED_POLICY_NAME">CrostiniAllowed</ph> must be Enabled to use <ph name="PRODUCT_CROSTINI_NAME">Crostini</ph>. Setting the policy to Disabled means the device can't run virtual machines. Changing it to Disabled starts applying the policy to starting new virtual machines, not those already running.
 
       When this policy is not set on a managed device, the device can't run virtual machines. Unmanaged devices can run virtual machines.''',
     },
@@ -18694,7 +18734,7 @@
       'id': 481,
       'caption': '''User is enabled to run Crostini''',
       'tags': ['system-security'],
-      'desc': '''Setting the policy to Enabled or leaving it unset lets users run <ph name="PRODUCT_CROSTINI_NAME">$6<ex>Crostini</ex></ph>, as long as <ph name="VIRTUAL_MACHINES_ALLOWED_POLICY_NAME">VirtualMachinesAllowed</ph> and <ph name="CROSTINI_ALLOWED_POLICY_NAME">CrostiniAllowed</ph> are set to Enabled. Setting the policy to Disabled turns <ph name="PRODUCT_CROSTINI_NAME">$6<ex>Crostini</ex></ph> off for the user. Changing it to Disabled starts applying the policy to starting new <ph name="PRODUCT_CROSTINI_NAME">$6<ex>Crostini</ex></ph> containers, not those already running.''',
+      'desc': '''Setting the policy to Enabled or leaving it unset lets users run <ph name="PRODUCT_CROSTINI_NAME">Crostini</ph>, as long as <ph name="VIRTUAL_MACHINES_ALLOWED_POLICY_NAME">VirtualMachinesAllowed</ph> and <ph name="CROSTINI_ALLOWED_POLICY_NAME">CrostiniAllowed</ph> are set to Enabled. Setting the policy to Disabled turns <ph name="PRODUCT_CROSTINI_NAME">Crostini</ph> off for the user. Changing it to Disabled starts applying the policy to starting new <ph name="PRODUCT_CROSTINI_NAME">Crostini</ph> containers, not those already running.''',
     },
     {
       'name': 'DeviceUnaffiliatedCrostiniAllowed',
@@ -18710,7 +18750,7 @@
       'id': 482,
       'caption': '''Allow unaffiliated users to use Crostini''',
       'tags': ['system-security'],
-      'desc': '''Setting the policy to Enabled or leaving it unset lets all users use <ph name="PRODUCT_CROSTINI_NAME">$6<ex>Crostini</ex></ph> as long as all 3 policies, <ph name="VIRTUAL_MACHINES_ALLOWED_POLICY_NAME">VirtualMachinesAllowed</ph>, <ph name="CROSTINI_ALLOWED_POLICY_NAME">CrostiniAllowed</ph>, and <ph name="DEVICE_UNAFFILIATED_CROSTINI_ALLOWED_POLICY_NAME">DeviceUnaffiliatedCrostiniAllowed</ph> are set to Enabled. Setting the policy to Disabled means unaffiliated users can't use <ph name="PRODUCT_CROSTINI_NAME">$6<ex>Crostini</ex></ph>. Changing it to Disabled starts applying the policy to starting new <ph name="PRODUCT_CROSTINI_NAME">$6<ex>Crostini</ex></ph> containers, not those already running.''',
+      'desc': '''Setting the policy to Enabled or leaving it unset lets all users use <ph name="PRODUCT_CROSTINI_NAME">Crostini</ph> as long as all 3 policies, <ph name="VIRTUAL_MACHINES_ALLOWED_POLICY_NAME">VirtualMachinesAllowed</ph>, <ph name="CROSTINI_ALLOWED_POLICY_NAME">CrostiniAllowed</ph>, and <ph name="DEVICE_UNAFFILIATED_CROSTINI_ALLOWED_POLICY_NAME">DeviceUnaffiliatedCrostiniAllowed</ph> are set to Enabled. Setting the policy to Disabled means unaffiliated users can't use <ph name="PRODUCT_CROSTINI_NAME">Crostini</ph>. Changing it to Disabled starts applying the policy to starting new <ph name="PRODUCT_CROSTINI_NAME">Crostini</ph> containers, not those already running.''',
     },
     {
       'name': 'CrostiniExportImportUIAllowed',
@@ -19277,7 +19317,7 @@
     },
     {
       'name': 'AllowedLanguages',
-      'owners': ['hendrich@chromium.org', 'file://components/policy/resources/OWNERS', 'poromov@chromium.org'],
+      'owners': ['hendrich@chromium.org', 'pmarko@chromium.org'],
       'type': 'list',
       'schema': {
         'type': 'array',
@@ -19342,7 +19382,7 @@
     },
     {
       'name': 'ExtensionInstallEventLoggingEnabled',
-      'owners': ['file://components/policy/resources/OWNERS', 'hendrich@chromium.org'],
+      'owners': ['swapnilgupta@google.com', 'file://components/policy/resources/OWNERS'],
       'type': 'main',
       'schema': { 'type': 'boolean' },
       'supported_on': ['chrome_os:85-'],
@@ -21838,8 +21878,53 @@
       'desc': '''Allows setting a custom schedule to check for updates. This applies to all users, and to all interfaces on the device. Once set, the device will check for updates according to the schedule. The policy must be removed to cancel any more scheduled update checks.'''
     },
     {
+      'name': 'DeviceScheduledReboot',
+      'owners': ['sanjaperisic@chromium.org'],
+      'device_only': True,
+      'type': 'dict',
+      'schema': {
+        'type': 'object',
+        'properties': {
+          'reboot_time': {
+            'description': '''Time when the reboot should happen, interpreted in the device's local time zone.''',
+            '$ref': 'Time'
+          },
+          'frequency': {
+            'description': 'Frequency at which the reboot should recur.',
+            'type': 'string',
+            'enum': [
+              'DAILY',
+              'WEEKLY',
+              'MONTHLY'
+            ]
+          },
+          'day_of_week': {
+            'description': '''Day of week when the reboot should happen, interpreted in the device's local time zone. Only used when 'frequency' is 'WEEKLY'.''',
+            '$ref': 'WeekDay'
+          },
+          'day_of_month': {
+            'description': '''Day of month [1-31] when the reboot should happen, interpreted in the device's local time zone. Only used when 'frequency' is 'MONTHLY'. If this is more than the maximum number of days in a given month then the last day of the month will be chosen.''',
+            'type': 'integer',
+            'minimum': 1,
+            'maximum': 31
+          }
+        },
+        'required': ['reboot_time', 'frequency']
+      },
+      'future_on': ['chrome_os'],
+      'features': {
+        'dynamic_refresh': True,
+        'per_profile': False,
+      },
+      'example_value': {'reboot_time' : {'hour': 22, 'minute': 30}, 'frequency': 'WEEKLY', 'day_of_week': 'TUESDAY', 'day_of_month': 11},
+      'tags': [],
+      'id': 862,
+      'caption': '''Set custom schedule to reboot kiosk devices''',
+      'desc': '''Allows setting a custom schedule to reboot devices. The policy currently applies only to devices which have enabled auto-launch app in the Kiosk session. Once set to True, the device will reboot to the schedule. The policy must be removed to cancel any more scheduled reboots.'''
+    },
+    {
       'name': 'KerberosEnabled',
-      'owners': ['file://chrome/browser/ash/kerberos/OWNERS', 'fsandrade@chromium.org'],
+      'owners': ['fsandrade@chromium.org', 'file://chrome/browser/ash/kerberos/OWNERS'],
       'type': 'main',
       'schema': { 'type': 'boolean' },
       'supported_on': ['chrome_os:87-'],
@@ -21860,7 +21945,7 @@
     },
     {
       'name': 'KerberosRememberPasswordEnabled',
-      'owners': ['file://chrome/browser/ash/kerberos/OWNERS', 'tomdobro@chromium.org'],
+      'owners': ['fsandrade@chromium.org', 'file://chrome/browser/ash/kerberos/OWNERS'],
       'type': 'main',
       'schema': { 'type': 'boolean' },
       'supported_on': ['chrome_os:87-'],
@@ -21881,7 +21966,7 @@
     },
     {
       'name': 'KerberosAddAccountsAllowed',
-      'owners': ['file://chrome/browser/ash/kerberos/OWNERS', 'tomdobro@chromium.org'],
+      'owners': ['fsandrade@chromium.org', 'file://chrome/browser/ash/kerberos/OWNERS'],
       'type': 'main',
       'schema': { 'type': 'boolean' },
       'supported_on': ['chrome_os:87-'],
@@ -21902,7 +21987,7 @@
     },
     {
       'name': 'KerberosAccounts',
-      'owners': ['file://chrome/browser/ash/kerberos/OWNERS', 'tomdobro@chromium.org'],
+      'owners': ['fsandrade@chromium.org', 'file://chrome/browser/ash/kerberos/OWNERS'],
       'type': 'dict',
       'schema': {
         'type': 'array',
@@ -24651,7 +24736,7 @@ If you disable this policy, web page scrolling to specific text fragments via UR
           }
         }
       },
-      'future_on': ['chrome_os'],
+      'supported_on': ['chrome_os:92-'],
       'features': {
         'can_be_recommended': False,
         'dynamic_refresh': False,
@@ -25170,13 +25255,11 @@ If you disable this policy, web page scrolling to specific text fragments via UR
       'id': 809,
       'caption': 'Clear Browsing Data on Exit',
       'tags': [],
-      'desc': '''Configures a list of browsing data types that should be deleted when the browser is closed.
-      The available data types are browsing history (<ph name="DATA_TYPE_BROWSING_HISTORY">browsing_history</ph>), download history (<ph name="DATA_TYPE_DOWNLOAD_HISTORY">download_history</ph>), cookies (<ph name="DATA_TYPE_COOKIES_AND_OTHER_SITE_DATA">cookies_and_other_site_data</ph>), cache<ph name="DATA_TYPE_CACHED_IMAGES_AND_FILES"> (cached_images_and_files)</ph>, autofill (<ph name="DATA_TYPE_AUTOFILL">autofill</ph>), passwords (<ph name="DATA_TYPE_PASSWORD">password_signin</ph>), site settings (<ph name="DATA_TYPE_SITE_SETTINGS">site_settings</ph>) and hosted apps data (<ph name="DATA_TYPE_HOSTED_APP_DATA">hosted_app_data</ph>).
-      This policy does not take precedence over <ph name="ALLOW_DELETING_BROWSER_HISTORY_POLICY_NAME">AllowDeletingBrowserHistory</ph>.
-      This policy requires the <ph name="SYNC_DISABLED_POLICY_NAME">SyncDisabled</ph> policy to be set to true, otherwise it will be ignored.
-      If this policy is set at platform level, Sync should be disabled at platform level.
-      If this policy is set at user level, Sync should be disabled for that user in order for this policy to take effect.
-      '''
+      'desc': '''Configures a list of browsing data types that should be deleted when the user closes all browser windows. The available data types are browsing history (<ph name="DATA_TYPE_BROWSING_HISTORY">browsing_history</ph>), download history (<ph name="DATA_TYPE_DOWNLOAD_HISTORY">download_history</ph>), cookies (<ph name="DATA_TYPE_COOKIES_AND_OTHER_SITE_DATA">cookies_and_other_site_data</ph>), cache<ph name="DATA_TYPE_CACHED_IMAGES_AND_FILES"> (cached_images_and_files)</ph>, autofill (<ph name="DATA_TYPE_AUTOFILL">autofill</ph>), passwords (<ph name="DATA_TYPE_PASSWORD">password_signin</ph>), site settings (<ph name="DATA_TYPE_SITE_SETTINGS">site_settings</ph>) and hosted apps data (<ph name="DATA_TYPE_HOSTED_APP_DATA">hosted_app_data</ph>). This policy does not take precedence over <ph name="ALLOW_DELETING_BROWSER_HISTORY_POLICY_NAME">AllowDeletingBrowserHistory</ph>.
+
+      This policy requires the <ph name="SYNC_DISABLED_POLICY_NAME">SyncDisabled</ph> policy to be set to true, otherwise it will be ignored. If this policy is set at platform level, Sync should be disabled at platform level. If this policy is set at user level, Sync should be disabled for that user in order for this policy to take effect.
+
+      If <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph> does not exit cleanly (for example, if the browser or the OS crashes), the browsing data will be cleared the next time the profile is loaded.'''
     },
     {
       'name': 'ProfilePickerOnStartupAvailability',
@@ -25443,7 +25526,7 @@ If you disable this policy, web page scrolling to specific text fragments via UR
           },
         },
       },
-      'supported_on': ['chrome.*:91-'],
+      'future_on': ['chrome.*'],
       'features': {
         'dynamic_refresh': True,
         'per_profile': False,
@@ -25778,6 +25861,7 @@ When this policy is set, <ph name="PRODUCT_OS_NAME">$2<ex>Google Chrome OS</ex><
           'enum': [
             '554',
             '10080',
+            '6566',
           ],
         },
       },
@@ -25803,7 +25887,18 @@ When this policy is set, <ph name="PRODUCT_OS_NAME">$2<ex>Google Chrome OS</ex><
             'chrome_os:91-99',
             'webview_android:91-99'
           ],
-        }
+        },
+        {
+          'name': '6566',
+          'value': '6566',
+          'caption': '''port 6566 (expires 2021/10/15)''',
+          'supported_on': [
+            'chrome.*:91-94',
+            'android:91-94',
+            'chrome_os:91-94',
+            'webview_android:91-94'
+          ],
+        },
       ],
       'supported_on': ['chrome.*:91-', 'android:91-', 'chrome_os:91-', 'webview_android:91-'],
       'features': {
@@ -25920,14 +26015,99 @@ When this policy is set, <ph name="PRODUCT_OS_NAME">$2<ex>Google Chrome OS</ex><
       'example_value': False,
       'id': 858,
       'caption': '''Enable 3DES cipher suites in TLS''',
-      # TODO(davidben): Add the 'system-security' tag when we flip the default.
-      'tags': [],
+      'tags': ['system-security'],
       'desc': '''Warning: 3DES will be completely removed from <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph> in version 95 (around October 2021) and this policy will stop working then.
 
-      If the policy is set to true, then 3DES cipher suites in TLS will be enabled. If it is set to false, they will be disabled. If the policy is unset, 3DES cipher suites are currently enabled by default. They will be disabled by default in <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph> 93.
-
-      In <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph> 92, this policy may be used to preview the change and test for incompatibilities. In <ph name="PRODUCT_NAME">$1<ex>Google Chrome</ex></ph> 93 and later, it may be used to temporarily retain compatibility with an outdated server. This is a stopgap measure and the server should be reconfigured.
+      If the policy is set to true, then 3DES cipher suites in TLS will be enabled. If it is set to false, they will be disabled. If the policy is unset, 3DES cipher suites are disabled by default. This policy may be used to temporarily retain compatibility with an outdated server. This is a stopgap measure and the server should be reconfigured.
       ''',
+    },
+    {
+      'name': 'ManagedAccountsSigninRestriction',
+      'owners': ['ydago@chromium.org', 'pastarmovj@chromium.org'],
+      'type': 'string-enum',
+      'schema': {
+        'type': 'string',
+        'enum': [
+          'primary_account',
+          'primary_account_strict',
+          'affiliated_device',
+          'none',
+        ]
+      },
+      'future_on': ['chrome_os', 'chrome.*'],
+      'features': {
+        'dynamic_refresh': False,
+        'per_profile': True,
+      },
+      'items': [
+        {
+          'name': 'PrimaryAccount',
+          'value': 'primary_account',
+          'caption': 'A Managed account must be a primary account',
+        },
+        {
+          'name': 'PrimaryAccountStrict',
+          'value': 'primary_account_strict',
+          'caption': 'A Managed account must be a primary account and have no secondary accounts',
+        },
+        {
+          'name': 'AffiliatedDevice',
+          'value': 'affiliated_device',
+          'caption': 'Managed accounts must be on an affiliated managed device',
+        },
+        {
+          'name': 'None',
+          'value': 'none',
+          'caption': 'No restrictions on managed accounts',
+        },
+      ],
+      'default': 'none',
+      'example_value': 'primary_account',
+      'id': 860,
+      'caption': '''Add restrictions on managed accounts''',
+      'tags': [],
+      'desc': '''
+      This policy requires <ph name="SIGNIN_INTERCEPTION_ENABLED_POLICY_NAME">SigninInterceptionEnabled</ph> to be set to True to take effect.
+
+      If this policy is set to <ph name="POLICY_VALUE_PRIMARY_ACCOUNT">'primary_account'</ph> at the machine level, all managed accounts will be forced to be primary.
+      If this policy is set to <ph name="POLICY_VALUE_PRIMARY_ACCOUNT">'primary_account'</ph> on an account, that account will always be a primary account, but may have secondary accounts in its profile.
+
+      If this policy is set to <ph name="POLICY_VALUE_PRIMARY_ACCOUNT_STRICT">'primary_account_strict'</ph> at the machine level, all managed accounts will be forced to be primary.
+      If this policy is set to <ph name="POLICY_VALUE_PRIMARY_ACCOUNT_STRICT">'primary_account_strict'</ph> on an account, that account will always be a primary account and will not have any secondary accounts in its profile.
+
+      If this policy is set to <ph name="POLICY_VALUE_NONE">'none'</ph> or not set, managed accounts have no restrictions. This may result in a managed account being a secondary account, which disables its ability to receive policies set on the account by the admin.
+    ''',
+    },
+    {
+      'name': 'LockIconInAddressBarEnabled',
+      'owners': ['meacer@chromium.org', 'trusty-transport@chromium.org'],
+      'type': 'main',
+      'schema': { 'type': 'boolean' },
+      'items': [
+        {
+          'value': True,
+          'caption': 'Use lock icon for secure connections',
+        },
+        {
+          'value': False,
+          'caption': 'Use default icons for secure connections',
+        },
+      ],
+      'future_on': ['chrome.*', 'chrome_os', 'android'],
+      # TODO(crbug.com/1210228): Support dynamic_refresh: True
+      'features': {
+        'dynamic_refresh': False,
+        'per_profile': True,
+      },
+      'default': False,
+      'example_value': True,
+      'id': 861,
+      'caption': '''Enable lock icon in the omnibox for secure connections''',
+      'tags': [],
+      'desc': '''This policy controls the treatment for lock icon in the omnibox.
+       From Chrome M93, there is a new omnibox icon for secure connections.
+       If the policy is Enabled, Chrome will use the existing lock icon for secure connections.
+       If the policy is Disabled or not set, Chrome will use the default icon for secure connections.''',
     },
   ],
   'messages': {
@@ -26308,6 +26488,7 @@ The recommended way to configure policy on Windows is via GPO, although provisio
     'ReportDeviceVpdInfo': 'device_reporting.report_vpd_info',
     'ReportDeviceSystemInfo': 'device_reporting.report_system_info',
     'ReportDevicePrintJobs': 'device_reporting.report_print_jobs',
+    'ReportDeviceLoginLogout': 'device_reporting.report_login_logout',
     'ReportUploadFrequency': 'device_reporting.device_status_frequency',
     'DeviceLoginScreenPowerManagement': 'login_screen_power_management.login_screen_power_management',
     'DeviceChromeVariations': 'device_chrome_variations_type.value',
@@ -26372,6 +26553,7 @@ The recommended way to configure policy on Windows is via GPO, although provisio
     'DeviceBorealisAllowed': 'device_borealis_allowed.allowed',
     'DeviceAllowedBluetoothServices': 'device_allowed_bluetooth_services.allowlist',
     'DeviceDebugPacketCaptureAllowed': 'device_debug_packet_capture_allowed.allowed',
+    'DeviceScheduledReboot': 'device_scheduled_reboot.device_scheduled_reboot_settings',
   },
   'policy_atomic_group_definitions': [
     {
@@ -26769,6 +26951,7 @@ The recommended way to configure policy on Windows is via GPO, although provisio
         'ReportDeviceVpdInfo',
         'ReportDeviceSystemInfo',
         'ReportDevicePrintJobs',
+        'ReportDeviceLoginLogout',
         'ReportUploadFrequency',
         'ReportArcStatusEnabled',
         'HeartbeatEnabled',
@@ -26860,6 +27043,6 @@ The recommended way to configure policy on Windows is via GPO, although provisio
   'placeholders': [],
   'deleted_policy_ids': [114, 115, 204, 205, 206, 412, 476, 544, 546, 562, 569, 578, 583, 585, 586, 587, 588, 589, 590, 591, 600, 668, 669],
   'deleted_atomic_policy_group_ids': [19],
-  'highest_id_currently_used': 859,
+  'highest_id_currently_used': 863,
   'highest_atomic_group_id_currently_used': 40
 }

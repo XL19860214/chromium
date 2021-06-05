@@ -5,12 +5,14 @@
 #include "ash/quick_answers/ui/quick_answers_view.h"
 
 #include "ash/constants/ash_features.h"
+#include "ash/public/cpp/app_list/vector_icons/vector_icons.h"
 #include "ash/public/cpp/assistant/assistant_interface_binder.h"
 #include "ash/quick_answers/quick_answers_ui_controller.h"
 #include "ash/quick_answers/ui/quick_answers_pre_target_handler.h"
 #include "ash/resources/vector_icons/vector_icons.h"
 #include "ash/shell.h"
 #include "ash/strings/grit/ash_strings.h"
+#include "base/bind.h"
 #include "chromeos/components/quick_answers/quick_answers_model.h"
 #include "chromeos/ui/vector_icons/vector_icons.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -54,6 +56,10 @@ constexpr int kMaxRows = 3;
 constexpr int kAssistantIconSizeDip = 16;
 constexpr gfx::Insets kAssistantIconInsets(10, 10, 0, 8);
 
+// Google icon.
+constexpr int kGoogleIconSizeDip = 16;
+constexpr gfx::Insets kGoogleIconInsets(10, 10, 0, 8);
+
 // Spacing between lines in the main view.
 constexpr int kLineSpacingDip = 4;
 constexpr int kLineHeightDip = 20;
@@ -65,6 +71,11 @@ constexpr int kLabelSpacingDip = 2;
 constexpr int kDogfoodButtonMarginDip = 4;
 constexpr int kDogfoodButtonSizeDip = 20;
 constexpr SkColor kDogfoodButtonColor = gfx::kGoogleGrey500;
+
+// Settings button.
+constexpr int kSettingsButtonMarginDip = 8;
+constexpr int kSettingsButtonSizeDip = 14;
+constexpr SkColor kSettingsButtonColor = gfx::kGoogleGrey500;
 
 // Maximum height QuickAnswersView can expand to.
 int MaximumViewHeight() {
@@ -277,6 +288,15 @@ void QuickAnswersView::AddAssistantIcon() {
       chromeos::kAssistantIcon, kAssistantIconSizeDip, gfx::kPlaceholderColor));
 }
 
+void QuickAnswersView::AddGoogleIcon() {
+  // Add Google icon.
+  auto* google_icon =
+      main_view_->AddChildView(std::make_unique<views::ImageView>());
+  google_icon->SetBorder(views::CreateEmptyBorder(kGoogleIconInsets));
+  google_icon->SetImage(gfx::CreateVectorIcon(
+      kGoogleColorIcon, kGoogleIconSizeDip, gfx::kPlaceholderColor));
+}
+
 void QuickAnswersView::AddDogfoodButton() {
   auto* dogfood_view = AddChildView(std::make_unique<View>());
   auto* layout =
@@ -284,17 +304,37 @@ void QuickAnswersView::AddDogfoodButton() {
           views::BoxLayout::Orientation::kVertical,
           gfx::Insets(kDogfoodButtonMarginDip)));
   layout->set_cross_axis_alignment(views::BoxLayout::CrossAxisAlignment::kEnd);
-  auto dogfood_button = std::make_unique<views::ImageButton>(
-      base::BindRepeating(&QuickAnswersUiController::OnDogfoodButtonPressed,
-                          base::Unretained(controller_)));
-  dogfood_button->SetImage(
+  dogfood_button_ =
+      dogfood_view->AddChildView(std::make_unique<views::ImageButton>(
+          base::BindRepeating(&QuickAnswersUiController::OnDogfoodButtonPressed,
+                              base::Unretained(controller_))));
+  dogfood_button_->SetImage(
       views::Button::ButtonState::STATE_NORMAL,
       gfx::CreateVectorIcon(kDogfoodIcon, kDogfoodButtonSizeDip,
                             kDogfoodButtonColor));
-  dogfood_button->SetTooltipText(l10n_util::GetStringUTF16(
+  dogfood_button_->SetTooltipText(l10n_util::GetStringUTF16(
       IDS_ASH_QUICK_ANSWERS_DOGFOOD_BUTTON_TOOLTIP_TEXT));
-  dogfood_button_ = dogfood_view->AddChildView(std::move(dogfood_button));
   SetButtonNotifyActionToOnPress(dogfood_button_);
+}
+
+void QuickAnswersView::AddSettingsButton() {
+  auto* settings_view = AddChildView(std::make_unique<views::View>());
+  auto* layout =
+      settings_view->SetLayoutManager(std::make_unique<views::BoxLayout>(
+          views::BoxLayout::Orientation::kVertical,
+          gfx::Insets(kSettingsButtonMarginDip)));
+  layout->set_cross_axis_alignment(views::BoxLayout::CrossAxisAlignment::kEnd);
+  settings_button_ = settings_view->AddChildView(
+      std::make_unique<views::ImageButton>(base::BindRepeating(
+          &QuickAnswersUiController::OnSettingsButtonPressed,
+          base::Unretained(controller_))));
+  settings_button_->SetImage(
+      views::Button::ButtonState::STATE_NORMAL,
+      gfx::CreateVectorIcon(kUnifiedMenuSettingsIcon, kSettingsButtonSizeDip,
+                            kSettingsButtonColor));
+  settings_button_->SetTooltipText(l10n_util::GetStringUTF16(
+      IDS_ASH_QUICK_ANSWERS_SETTINGS_BUTTON_TOOLTIP_TEXT));
+  SetButtonNotifyActionToOnPress(settings_button_);
 }
 
 void QuickAnswersView::InitLayout() {
@@ -308,8 +348,12 @@ void QuickAnswersView::InitLayout() {
   layout->set_cross_axis_alignment(
       views::BoxLayout::CrossAxisAlignment::kStart);
 
-  // Add Assistant icon.
-  AddAssistantIcon();
+  // Add branding icon.
+  if (chromeos::features::IsQuickAnswersStandaloneSettingsEnabled()) {
+    AddGoogleIcon();
+  } else {
+    AddAssistantIcon();
+  }
 
   // Add content view.
   content_view_ = main_view_->AddChildView(std::make_unique<View>());
@@ -321,9 +365,11 @@ void QuickAnswersView::InitLayout() {
                   gfx::kGoogleGrey700},
                  content_view_);
 
-  // Add dogfood button, if in dogfood.
-  if (chromeos::features::IsQuickAnswersDogfood())
+  if (chromeos::features::IsQuickAnswersStandaloneSettingsEnabled()) {
+    AddSettingsButton();
+  } else if (chromeos::features::IsQuickAnswersDogfood()) {
     AddDogfoodButton();
+  }
 }
 
 void QuickAnswersView::InitWidget() {

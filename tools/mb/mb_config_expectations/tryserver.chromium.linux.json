@@ -78,6 +78,17 @@
       "use_goma": true
     }
   },
+  "fuchsia-fyi-arm64-femu": {
+    "gn_args": {
+      "dcheck_always_on": true,
+      "is_component_build": false,
+      "is_debug": false,
+      "symbol_level": 1,
+      "target_cpu": "arm64",
+      "target_os": "fuchsia",
+      "use_goma": true
+    }
+  },
   "fuchsia-fyi-arm64-rel": {
     "gn_args": {
       "dcheck_always_on": true,
@@ -379,6 +390,15 @@
     }
   },
   "leak_detection_linux": {
+    "gn_args": {
+      "dcheck_always_on": true,
+      "is_component_build": false,
+      "is_debug": false,
+      "symbol_level": 1,
+      "use_goma": true
+    }
+  },
+  "linux-1mbu-compile-fyi-rel": {
     "gn_args": {
       "dcheck_always_on": true,
       "is_component_build": false,

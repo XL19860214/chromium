@@ -23,6 +23,7 @@
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
+#include "content/public/browser/host_zoom_map.h"
 #include "content/public/browser/media_session.h"
 #include "content/public/browser/message_port_provider.h"
 #include "content/public/browser/navigation_entry.h"
@@ -30,6 +31,7 @@
 #include "content/public/browser/permission_controller_delegate.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
+#include "content/public/browser/render_view_host.h"
 #include "content/public/browser/render_widget_host.h"
 #include "content/public/browser/render_widget_host_view.h"
 #include "content/public/browser/renderer_preferences_util.h"
@@ -38,13 +40,13 @@
 #include "fuchsia/base/mem_buffer_util.h"
 #include "fuchsia/base/message_port.h"
 #include "fuchsia/engine/browser/accessibility_bridge.h"
-#include "fuchsia/engine/browser/cast_streaming_session_client.h"
 #include "fuchsia/engine/browser/context_impl.h"
 #include "fuchsia/engine/browser/event_filter.h"
 #include "fuchsia/engine/browser/frame_layout_manager.h"
 #include "fuchsia/engine/browser/frame_window_tree_host.h"
 #include "fuchsia/engine/browser/media_player_impl.h"
 #include "fuchsia/engine/browser/navigation_policy_handler.h"
+#include "fuchsia/engine/browser/receiver_session_client.h"
 #include "fuchsia/engine/browser/web_engine_devtools_controller.h"
 #include "fuchsia/engine/common/cast_streaming.h"
 #include "mojo/public/cpp/bindings/associated_remote.h"
@@ -53,6 +55,7 @@
 #include "third_party/blink/public/common/associated_interfaces/associated_interface_provider.h"
 #include "third_party/blink/public/common/logging/logging_utils.h"
 #include "third_party/blink/public/common/messaging/web_message_port.h"
+#include "third_party/blink/public/common/page/page_zoom.h"
 #include "third_party/blink/public/mojom/loader/resource_load_info.mojom.h"
 #include "ui/aura/window.h"
 #include "ui/compositor/compositor.h"
@@ -68,6 +71,9 @@ constexpr gfx::Size kHeadlessWindowSize = {1, 1};
 
 // Simulated screen bounds to use when testing the SemanticsManager.
 constexpr gfx::Size kSemanticsTestingWindowSize = {720, 640};
+
+// Name of the Inspect node that holds accessibility information.
+constexpr char kAccessibilityInspectNodeName[] = "accessibility";
 
 // A special value which matches all origins when specified in an origin list.
 constexpr char kWildcardOrigin[] = "*";
@@ -548,8 +554,7 @@ bool FrameImpl::MaybeHandleCastStreamingMessage(
     return false;
 
   fuchsia::web::Frame_PostMessage_Result result;
-  if (cast_streaming_session_client_ ||
-      !IsValidCastStreamingMessage(*message)) {
+  if (receiver_session_client_ || !IsValidCastStreamingMessage(*message)) {
     // The Cast Streaming MessagePort should only be set once and |message|
     // should be a valid Cast Streaming Message.
     result.set_err(fuchsia::web::FrameError::INVALID_ORIGIN);
@@ -557,7 +562,7 @@ bool FrameImpl::MaybeHandleCastStreamingMessage(
     return true;
   }
 
-  cast_streaming_session_client_ = std::make_unique<CastStreamingSessionClient>(
+  receiver_session_client_ = std::make_unique<ReceiverSessionClient>(
       std::move((*message->mutable_outgoing_transfer())[0].message_port()));
   result.set_response(fuchsia::web::Frame_PostMessage_Response());
   (*callback)(std::move(result));
@@ -566,16 +571,24 @@ bool FrameImpl::MaybeHandleCastStreamingMessage(
 
 void FrameImpl::MaybeStartCastStreaming(
     content::NavigationHandle* navigation_handle) {
-  if (!context_->has_cast_streaming_enabled() ||
-      !cast_streaming_session_client_)
+  if (!context_->has_cast_streaming_enabled() || !receiver_session_client_)
     return;
 
   mojo::AssociatedRemote<mojom::CastStreamingReceiver> cast_streaming_receiver;
   navigation_handle->GetRenderFrameHost()
       ->GetRemoteAssociatedInterfaces()
       ->GetInterface(&cast_streaming_receiver);
-  cast_streaming_session_client_->StartMojoConnection(
+  receiver_session_client_->SetCastStreamingReceiver(
       std::move(cast_streaming_receiver));
+}
+
+void FrameImpl::UpdateRenderViewZoomLevel(
+    content::RenderViewHost* render_view_host) {
+  content::HostZoomMap* host_zoom_map =
+      content::HostZoomMap::GetForWebContents(web_contents_.get());
+  host_zoom_map->SetTemporaryZoomLevel(
+      render_view_host->GetProcess()->GetID(), render_view_host->GetRoutingID(),
+      blink::PageZoomFactorToZoomLevel(page_scale_));
 }
 
 void FrameImpl::CreateView(fuchsia::ui::views::ViewToken view_token) {
@@ -617,7 +630,8 @@ void FrameImpl::CreateViewWithViewRef(
       semantics_manager_for_test_ ? semantics_manager_for_test_
                                   : semantics_manager.get(),
       window_tree_host_->CreateViewRef(), web_contents_.get(),
-      base::BindOnce(&FrameImpl::OnAccessibilityError, base::Unretained(this)));
+      base::BindOnce(&FrameImpl::OnAccessibilityError, base::Unretained(this)),
+      inspect_node_.CreateChild(kAccessibilityInspectNodeName));
 }
 
 void FrameImpl::GetMediaPlayer(
@@ -830,7 +844,8 @@ void FrameImpl::EnableHeadlessRendering() {
         semantics_manager_for_test_, window_tree_host_->CreateViewRef(),
         web_contents_.get(),
         base::BindOnce(&FrameImpl::OnAccessibilityError,
-                       base::Unretained(this)));
+                       base::Unretained(this)),
+        inspect_node_.CreateChild(kAccessibilityInspectNodeName));
 
     // Set bounds for testing hit testing.
     bounds.set_size(kSemanticsTestingWindowSize);
@@ -943,6 +958,19 @@ void FrameImpl::SetPreferredTheme(fuchsia::settings::ThemeType theme) {
                                      base::Unretained(this)));
 }
 
+void FrameImpl::SetPageScale(float scale) {
+  if (scale <= 0.0) {
+    LOG(ERROR) << "SetPageScale() called with nonpositive scale.";
+    CloseAndDestroyFrame(ZX_ERR_INVALID_ARGS);
+    return;
+  }
+
+  if (scale == page_scale_)
+    return;
+  page_scale_ = scale;
+  UpdateRenderViewZoomLevel(web_contents_->GetRenderViewHost());
+}
+
 void FrameImpl::ForceContentDimensions(
     std::unique_ptr<fuchsia::ui::gfx::vec2> web_dips) {
   if (!web_dips) {
@@ -954,7 +982,7 @@ void FrameImpl::ForceContentDimensions(
 
   gfx::Size web_dips_converted(web_dips->x, web_dips->y);
   if (web_dips_converted.IsEmpty()) {
-    LOG(WARNING) << "Rejecting zero-area size for ForceContentDimensions().";
+    LOG(ERROR) << "Rejecting zero-area size for ForceContentDimensions().";
     CloseAndDestroyFrame(ZX_ERR_INVALID_ARGS);
     return;
   }
@@ -1141,8 +1169,17 @@ void FrameImpl::DidFinishLoad(content::RenderFrameHost* render_frame_host,
 void FrameImpl::RenderFrameCreated(content::RenderFrameHost* frame_host) {
   // The top-level frame is given a transparent background color.
   // GetView() is guaranteed to be non-null until |frame_host| teardown.
-  if (frame_host == web_contents()->GetMainFrame())
+  if (frame_host == web_contents()->GetMainFrame()) {
     frame_host->GetView()->SetBackgroundColor(SK_AlphaTRANSPARENT);
+  }
+}
+
+void FrameImpl::RenderViewHostChanged(content::RenderViewHost* old_host,
+                                      content::RenderViewHost* new_host) {
+  // UpdateRenderViewZoomLevel() sets temporary zoom level for the current
+  // RenderView. It needs to be called again whenever main RenderView is
+  // changed.
+  UpdateRenderViewZoomLevel(new_host);
 }
 
 void FrameImpl::DidFirstVisuallyNonEmptyPaint() {

@@ -29,6 +29,7 @@
     clicked,
     collapsed,
     controlsChanged,
+    detailsChanged,
     describedByChanged,
     descriptionChanged,
     documentSelectionChanged,
@@ -136,7 +137,6 @@
     abbr,
     alert,
     alertDialog,
-    anchor,
     application,
     article,
     audio,
@@ -373,6 +373,7 @@
     internalInvalidateTree,
     loadInlineTextBoxes,
     replaceSelectedText,
+    resumeMedia,
     scrollBackward,
     scrollDown,
     scrollForward,
@@ -388,7 +389,10 @@
     setValue,
     showContextMenu,
     signalEndOfTest,
-    showTooltip
+    showTooltip,
+    startDuckingMedia,
+    stopDuckingMedia,
+    suspendMedia
   };
 
   // Possible changes to the automation tree. For any given atomic change
@@ -1049,9 +1053,6 @@ enum SortDirectionType {
     // text element; -1 if no selection.
     long? textSelEnd;
 
-    // The input type, like email or number.
-    DOMString? textInputType;
-
     // An array of Marker objects for this node.
     Marker[]? markers;
 
@@ -1285,9 +1286,11 @@ enum SortDirectionType {
     // Indicates the font family.
     DOMString fontFamily;
 
-    // Indicates whether the object is at the root of a content editable region,
-    // or at a <body> element that has "design-mode" set to "on".
-    boolean contentEditableRoot;
+    // Indicates whether the object functions as a text field which exposes its
+    // descendants. Use cases include the root of a content-editable region, an
+    // ARIA textbox which isn't currently editable and which has interactive
+    // descendants, and a <body> element that has "design-mode" set to "on".
+    boolean nonAtomicTextFieldRoot;
 
     // Indicates aria-current state.
     AriaCurrentState? ariaCurrentState;

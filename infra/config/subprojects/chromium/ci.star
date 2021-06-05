@@ -1956,9 +1956,6 @@ ci.cipd_3pp_builder(
     schedule = "with 6h interval",
     triggered_by = [],
     properties = {
-        # TODO(hypan): Remove this property after chromium_3pp is
-        # migrated to a recipe module (crrev.com/c/2870555)
-        "platform": "linux-amd64",
         "$build/chromium_3pp": {
             "platform": "linux-amd64",
             "preprocess": [{
@@ -1981,6 +1978,7 @@ ci.cipd_builder(
         category = "android",
         short_name = "androidx",
     ),
+    notifies = ["chromium-androidx-packager"],
     executable = "recipe:android/androidx_packager",
     schedule = "0 7,14,22 * * * *",
     triggered_by = [],
@@ -1995,6 +1993,7 @@ ci.cipd_builder(
     executable = "recipe:android/avd_packager",
     schedule = "0 7 * * 0 *",
     triggered_by = [],
+    os = os.LINUX_BIONIC_REMOVE,
     properties = {
         "avd_configs": [
             "tools/android/avd/proto/creation/generic_android23.textpb",
@@ -2366,7 +2365,7 @@ ci.clang_builder(
         short_name = "sim",
     ),
     cores = None,
-    os = os.MAC_10_15,
+    os = os.MAC_10_15_OR_11,
     ssd = True,
     xcode = xcode.x12d4e,
 )
@@ -2379,7 +2378,7 @@ ci.clang_builder(
         short_name = "dev",
     ),
     cores = None,
-    os = os.MAC_10_15,
+    os = os.MAC_10_15_OR_11,
     ssd = True,
     xcode = xcode.x12d4e,
 )
@@ -3108,6 +3107,18 @@ ci.fyi_builder(
 )
 
 ci.fyi_builder(
+    name = "fuchsia-fyi-arm64-femu",
+    console_view_entry = [
+        consoles.console_view_entry(
+            category = "fuchsia|a64",
+            short_name = "femu",
+        ),
+    ],
+    notifies = ["cr-fuchsia"],
+    os = os.LINUX_BIONIC_REMOVE,
+)
+
+ci.fyi_builder(
     name = "fuchsia-fyi-arm64-rel",
     console_view_entry = [
         consoles.console_view_entry(
@@ -3729,6 +3740,27 @@ ci.fyi_builder(
         short_name = "re",
     ),
     goma_backend = None,
+    reclient_rewrapper_env = {
+        "RBE_platform": "container-image=docker://gcr.io/cloud-marketplace/google/rbe-ubuntu16-04@sha256:b4dad0bfc4951d619229ab15343a311f2415a16ef83bcaa55b44f4e2bf1cf635,pool=linux-e2-custom_0",
+    },
+    reclient_instance = "rbe-chromium-trusted",
+    reclient_jobs = 500,
+    configure_kitchen = True,
+    kitchen_emulate_gce = True,
+    os = os.LINUX_BIONIC_SWITCH_TO_DEFAULT,
+    schedule = "triggered",
+)
+
+ci.fyi_builder(
+    name = "Linux Builder (j-500) (n2) (reclient)",
+    console_view_entry = consoles.console_view_entry(
+        category = "linux",
+        short_name = "re",
+    ),
+    goma_backend = None,
+    reclient_rewrapper_env = {
+        "RBE_platform": "container-image=docker://gcr.io/cloud-marketplace/google/rbe-ubuntu16-04@sha256:b4dad0bfc4951d619229ab15343a311f2415a16ef83bcaa55b44f4e2bf1cf635,pool=linux-n2-standard",
+    },
     reclient_instance = "rbe-chromium-trusted",
     reclient_jobs = 500,
     configure_kitchen = True,
@@ -3761,6 +3793,7 @@ ci.fyi_builder(
         max_concurrent_invocations = 1,
     ),
     goma_backend = None,
+    reclient_jobs = 250,
     reclient_instance = "goma-rbe-chromium",
     reclient_rewrapper_env = {"RBE_cache_silo": "Linux TSan Builder (reclient)"},
     configure_kitchen = True,
@@ -3892,6 +3925,7 @@ ci.fyi_builder(
         max_concurrent_invocations = 1,
     ),
     goma_backend = None,
+    reclient_jobs = 250,
     reclient_instance = "goma-rbe-chromium",
     configure_kitchen = True,
     kitchen_emulate_gce = True,
@@ -3908,6 +3942,7 @@ ci.fyi_builder(
         max_concurrent_invocations = 1,
     ),
     goma_backend = None,
+    reclient_jobs = 250,
     reclient_instance = "goma-rbe-chromium",
     configure_kitchen = True,
     kitchen_emulate_gce = True,
@@ -3923,6 +3958,7 @@ ci.fyi_builder(
     cq_mirrors_console_view = "mirrors",
     main_console_view = main_console_if_on_branch(),
     goma_backend = None,
+    reclient_jobs = 250,
     reclient_instance = "goma-rbe-chromium",
     configure_kitchen = True,
     kitchen_emulate_gce = True,
@@ -3938,6 +3974,20 @@ ci.fyi_windows_builder(
     ),
     goma_backend = None,
     reclient_instance = "goma-rbe-chromium",
+    configure_kitchen = True,
+    kitchen_emulate_gce = True,
+    os = os.WINDOWS_DEFAULT,
+)
+
+ci.fyi_windows_builder(
+    name = "Win x64 Builder (reclient)(cross)",
+    builderless = True,
+    console_view_entry = consoles.console_view_entry(
+        category = "win",
+        short_name = "re x",
+    ),
+    goma_backend = None,
+    reclient_instance = "rbe-chromium-trusted",
     configure_kitchen = True,
     kitchen_emulate_gce = True,
     os = os.WINDOWS_DEFAULT,
@@ -4006,7 +4056,7 @@ ci.fyi_coverage_builder(
         short_name = "ios",
     ),
     cores = None,
-    os = os.MAC_10_15,
+    os = os.MAC_10_15_OR_11,
     use_clang_coverage = True,
     coverage_exclude_sources = "ios_test_files_and_test_utils",
     coverage_test_types = ["overall", "unit"],
@@ -4117,7 +4167,7 @@ ci.fyi_ios_builder(
     ),
     schedule = "0 1-23/6 * * *",
     triggered_by = [],
-    xcode = xcode.x11e608cwk,
+    xcode = xcode.x12e262wk,
 )
 
 ci.fyi_ios_builder(
@@ -4178,6 +4228,7 @@ ci.fyi_ios_builder(
         category = "iOS|iOS14",
         short_name = "ios14",
     ),
+    os = os.MAC_11,
 )
 
 ci.fyi_ios_builder(
@@ -4186,7 +4237,8 @@ ci.fyi_ios_builder(
         category = "iOS|iOS14",
         short_name = "sdk14",
     ),
-    xcode = xcode.x12d4e,
+    os = os.MAC_11,
+    xcode = xcode.x12e262,
 )
 
 ci.fyi_mac_builder(
@@ -5749,7 +5801,7 @@ ci.memory_builder(
     ),
     cores = 32,
     # TODO(thakis): Remove once https://crbug.com/927738 is resolved.
-    execution_timeout = 4 * time.hour,
+    execution_timeout = 5 * time.hour,
     goma_jobs = goma.jobs.MANY_JOBS_FOR_CI,
     main_console_view = "main",
 )
@@ -6233,7 +6285,7 @@ ci.cipd_builder(
     executable = "recipe:chromium_rts/create_model",
     schedule = "0 7 * * *",  # at 12AM or 1AM PT (depending on DST), once a day.
     triggered_by = [],
-    execution_timeout = 6 * time.hour,
+    execution_timeout = 8 * time.hour,
     cores = None,
     console_view_entry = consoles.console_view_entry(
         category = "rts",

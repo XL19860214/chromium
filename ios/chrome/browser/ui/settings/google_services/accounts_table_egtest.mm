@@ -33,11 +33,6 @@ namespace {
 
 // Constant for timeout while waiting for asynchronous sync operations.
 const NSTimeInterval kSyncOperationTimeout = 10.0;
-
-// Returns a matcher for when there are no bookmarks saved.
-id<GREYMatcher> NoBookmarksLabel() {
-  return grey_text(l10n_util::GetNSString(IDS_IOS_BOOKMARK_NO_BOOKMARKS_LABEL));
-}
 }
 
 // Integration tests using the Account Settings screen.
@@ -67,6 +62,7 @@ id<GREYMatcher> NoBookmarksLabel() {
 
 - (AppLaunchConfiguration)appConfigurationForTestCase {
   AppLaunchConfiguration config;
+  config.features_disabled.push_back(signin::kMobileIdentityConsistency);
   config.features_disabled.push_back(signin::kSimplifySignOutIOS);
   return config;
 }
@@ -214,9 +210,8 @@ id<GREYMatcher> NoBookmarksLabel() {
   [BookmarkEarlGreyUI openBookmarks];
   [BookmarkEarlGreyUI openMobileBookmarks];
 
-  // Assert that the no bookmarks label is not present.
-  [[EarlGrey selectElementWithMatcher:NoBookmarksLabel()]
-      assertWithMatcher:grey_nil()];
+  // Assert that the empty state background is absent.
+  [BookmarkEarlGreyUI verifyEmptyBackgroundIsAbsent];
 }
 
 // Tests that selecting sign-out and clear data from a non-managed user account
@@ -238,16 +233,9 @@ id<GREYMatcher> NoBookmarksLabel() {
   // Open the Bookmarks screen on the Tools menu.
   [BookmarkEarlGreyUI openBookmarks];
 
-  // Assert that there are no bookmarks.
-  if ([ChromeEarlGrey isIllustratedEmptyStatesEnabled]) {
-    // The empty background appears in the root directory if the leaf folders
-    // are empty.
-    [BookmarkEarlGreyUI verifyEmptyBackgroundAppears];
-  } else {
-    [BookmarkEarlGreyUI openMobileBookmarks];
-    [[EarlGrey selectElementWithMatcher:NoBookmarksLabel()]
-        assertWithMatcher:grey_notNil()];
-  }
+  // Assert that there are no bookmarks. The empty background appears in the
+  // root directory if the leaf folders are empty.
+  [BookmarkEarlGreyUI verifyEmptyBackgroundAppears];
 }
 
 // Tests that signing out from a managed user account clears the user's data.
@@ -267,16 +255,9 @@ id<GREYMatcher> NoBookmarksLabel() {
   // Open the Bookmarks screen on the Tools menu.
   [BookmarkEarlGreyUI openBookmarks];
 
-  // Assert that there are no bookmarks.
-  if ([ChromeEarlGrey isIllustratedEmptyStatesEnabled]) {
-    // The empty background appears in the root directory if the leaf folders
-    // are empty.
-    [BookmarkEarlGreyUI verifyEmptyBackgroundAppears];
-  } else {
-    [BookmarkEarlGreyUI openMobileBookmarks];
-    [[EarlGrey selectElementWithMatcher:NoBookmarksLabel()]
-        assertWithMatcher:grey_notNil()];
-  }
+  // Assert that there are no bookmarks. The empty background appears in the
+  // root directory if the leaf folders are empty.
+  [BookmarkEarlGreyUI verifyEmptyBackgroundAppears];
 }
 
 // Tests that given two accounts A and B that are available on the device -

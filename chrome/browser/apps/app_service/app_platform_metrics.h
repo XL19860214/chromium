@@ -64,7 +64,8 @@ const std::set<apps::AppTypeName>& GetAppTypeNameSet();
 
 // Records metrics when launching apps.
 void RecordAppLaunchMetrics(Profile* profile,
-                            const apps::AppUpdate& update,
+                            apps::mojom::AppType app_type,
+                            const std::string& app_id,
                             apps::mojom::LaunchSource launch_source,
                             apps::mojom::LaunchContainer container);
 
@@ -81,6 +82,11 @@ class AppPlatformMetrics : public apps::AppRegistryCache::Observer,
   // UMA metrics name for installed apps count in Chrome OS.
   static std::string GetAppsCountHistogramNameForTest(
       AppTypeName app_type_name);
+
+  // UMA metrics name for installed apps count per InstallSource in Chrome OS.
+  static std::string GetAppsCountPerInstallSourceHistogramNameForTest(
+      AppTypeName app_type_name,
+      apps::mojom::InstallSource install_source);
 
   // UMA metrics name for apps running duration in Chrome OS.
   static std::string GetAppsRunningDurationHistogramNameForTest(

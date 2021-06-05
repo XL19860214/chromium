@@ -21,6 +21,7 @@
 #include "content/public/common/persistent_notification_status.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/common/notifications/platform_notification_data.h"
+#include "third_party/blink/public/common/storage_key/storage_key.h"
 
 namespace content {
 namespace {
@@ -181,12 +182,14 @@ void FindServiceWorkerRegistration(
     return;
   }
 
+  // If Push Notification becomes usable from a 3p context then
+  // NotificationDatabaseData should be changed to use StorageKey.
   RunOrPostTaskOnThread(
       FROM_HERE, ServiceWorkerContext::GetCoreThreadId(),
       base::BindOnce(&ServiceWorkerContextWrapper::FindReadyRegistrationForId,
                      service_worker_context,
                      notification_database_data.service_worker_registration_id,
-                     origin,
+                     blink::StorageKey(origin),
                      base::BindOnce(&DispatchNotificationEventOnRegistration,
                                     notification_database_data,
                                     std::move(notification_action_callback),

@@ -477,7 +477,7 @@ class NativeWindowVisibilityObserver : public aura::WindowObserver {
 class NativeWindowVisibilityBrowserMainExtraParts
     : public ChromeBrowserMainExtraParts {
  public:
-  NativeWindowVisibilityBrowserMainExtraParts(
+  explicit NativeWindowVisibilityBrowserMainExtraParts(
       NativeWindowVisibilityObserver* observer)
       : observer_(observer) {}
   ~NativeWindowVisibilityBrowserMainExtraParts() override = default;
@@ -546,9 +546,6 @@ class OobeEndToEndTestSetupMixin : public InProcessBrowserTestMixin {
 
     if (params_.arc_state != ArcState::kNotAvailable) {
       arc::SetArcAvailableCommandLineForTesting(command_line);
-      // Prevent encryption migration screen from showing up after user login
-      // with ARC available.
-      command_line->AppendSwitch(switches::kDisableEncryptionMigration);
       command_line->AppendSwitchASCII(
           switches::kArcTosHostForTests,
           arc_tos_server_->GetURL("/arc-tos").spec());
@@ -830,8 +827,9 @@ void OobeZeroTouchInteractiveUITest::ZeroTouchEndToEnd() {
 
 // crbug.com/997987. Disabled on MSAN since they time out.
 // crbug.com/1055853: EndToEnd is flaky on Linux Chromium OS ASan LSan
+// crbug.com/1214917: EndToEnd is flaky on linux-chromeos-dbg
 #if defined(MEMORY_SANITIZER) || defined(ADDRESS_SANITIZER) || \
-    defined(LEAK_SANITIZER)
+    defined(LEAK_SANITIZER) || !defined(NDEBUG)
 #define MAYBE_EndToEnd DISABLED_EndToEnd
 #else
 #define MAYBE_EndToEnd EndToEnd

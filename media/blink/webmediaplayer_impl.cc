@@ -27,7 +27,6 @@
 #include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
 #include "base/task_runner_util.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "base/trace_event/memory_dump_manager.h"
 #include "base/trace_event/trace_event.h"
 #include "build/build_config.h"
@@ -828,7 +827,7 @@ void WebMediaPlayerImpl::DoLoad(LoadType load_type,
     auto url_data = url_index_->GetByUrl(
         url, static_cast<UrlData::CorsMode>(cors_mode),
         is_cache_disabled ? UrlIndex::kCacheDisabled : UrlIndex::kNormal);
-    mb_data_source_ = new MultibufferDataSource(
+    mb_data_source_ = new MultiBufferDataSource(
         main_task_runner_, std::move(url_data), media_log_.get(),
         buffered_data_source_host_.get(),
         base::BindRepeating(&WebMediaPlayerImpl::NotifyDownloading,
@@ -1086,16 +1085,16 @@ bool WebMediaPlayerImpl::SetSinkId(
   return true;
 }
 
-STATIC_ASSERT_ENUM(WebMediaPlayer::kPreloadNone, MultibufferDataSource::NONE);
+STATIC_ASSERT_ENUM(WebMediaPlayer::kPreloadNone, MultiBufferDataSource::NONE);
 STATIC_ASSERT_ENUM(WebMediaPlayer::kPreloadMetaData,
-                   MultibufferDataSource::METADATA);
-STATIC_ASSERT_ENUM(WebMediaPlayer::kPreloadAuto, MultibufferDataSource::AUTO);
+                   MultiBufferDataSource::METADATA);
+STATIC_ASSERT_ENUM(WebMediaPlayer::kPreloadAuto, MultiBufferDataSource::AUTO);
 
 void WebMediaPlayerImpl::SetPreload(WebMediaPlayer::Preload preload) {
   DVLOG(1) << __func__ << "(" << preload << ")";
   DCHECK(main_task_runner_->BelongsToCurrentThread());
 
-  preload_ = static_cast<MultibufferDataSource::Preload>(preload);
+  preload_ = static_cast<MultiBufferDataSource::Preload>(preload);
   if (mb_data_source_)
     mb_data_source_->SetPreload(preload_);
 }
@@ -1552,6 +1551,10 @@ void WebMediaPlayerImpl::SetCdmInternal(
   cdm_config_ = web_cdm->GetCdmConfig();
   key_system_ = web_cdm->GetKeySystem();
   DCHECK(!key_system_.empty());
+
+  media_metrics_provider_->SetKeySystem(key_system_);
+  if (cdm_config_->use_hw_secure_codecs)
+    media_metrics_provider_->SetIsHardwareSecure();
   CreateVideoDecodeStatsReporter();
 
   CdmContext* cdm_context = cdm_context_ref->GetCdmContext();
@@ -1668,7 +1671,7 @@ void WebMediaPlayerImpl::OnPipelineSuspended() {
       // will cancel upon destruction of this class and |mb_data_source_| is
       // gauranteeed to outlive us.
       have_enough_after_lazy_load_cb_.Reset(
-          base::BindOnce(&MultibufferDataSource::OnBufferingHaveEnough,
+          base::BindOnce(&MultiBufferDataSource::OnBufferingHaveEnough,
                          base::Unretained(mb_data_source_), true));
       main_task_runner_->PostDelayedTask(
           FROM_HERE, have_enough_after_lazy_load_cb_.callback(),
@@ -1834,7 +1837,15 @@ void WebMediaPlayerImpl::OnError(PipelineStatus status) {
   // We found hls in a data:// URL, fail immediately.
   if (found_hls)
     status = PIPELINE_ERROR_EXTERNAL_RENDERER_FAILED;
-#endif
+#elif defined(OS_WIN)
+  // Hardware context reset is not an error. Restart to recover.
+  // TODO(crbug.com/1208618): Find a way to break the potential infinite loop of
+  // restart -> PIPELINE_ERROR_HARDWARE_CONTEXT_RESET -> restart.
+  if (status == PipelineStatus::PIPELINE_ERROR_HARDWARE_CONTEXT_RESET) {
+    ScheduleRestart();
+    return;
+  }
+#endif  // defined(OS_ANDROID)
 
   MaybeSetContainerNameForMetrics();
   simple_watch_timer_.Stop();
@@ -2267,6 +2278,7 @@ void WebMediaPlayerImpl::OnAddTextTrack(const TextTrackConfig& config,
 }
 
 void WebMediaPlayerImpl::OnWaiting(WaitingReason reason) {
+  DVLOG(2) << __func__ << ": reason=" << static_cast<int>(reason);
   DCHECK(main_task_runner_->BelongsToCurrentThread());
 
   switch (reason) {
@@ -2614,9 +2626,9 @@ void WebMediaPlayerImpl::DataSourceInitialized(bool success) {
   }
 
   // No point in preloading data as we'll probably just throw it away anyways.
-  if (IsStreaming() && preload_ > MultibufferDataSource::METADATA &&
+  if (IsStreaming() && preload_ > MultiBufferDataSource::METADATA &&
       mb_data_source_) {
-    mb_data_source_->SetPreload(MultibufferDataSource::METADATA);
+    mb_data_source_->SetPreload(MultiBufferDataSource::METADATA);
   }
 
   StartPipeline();
@@ -2745,6 +2757,7 @@ std::unique_ptr<Renderer> WebMediaPlayerImpl::CreateRenderer(
 
   reported_renderer_type_ =
       renderer_factory_selector_->GetCurrentRendererType();
+  media_metrics_provider_->SetRendererType(reported_renderer_type_);
 
   return renderer_factory_selector_->GetCurrentFactory()->CreateRenderer(
       media_task_runner_, worker_task_runner_, audio_source_provider_.get(),
@@ -2836,7 +2849,7 @@ void WebMediaPlayerImpl::StartPipeline() {
 
   // If possible attempt to avoid decoder spool up until playback starts.
   Pipeline::StartType start_type = Pipeline::StartType::kNormal;
-  if (!chunk_demuxer_ && preload_ == MultibufferDataSource::METADATA &&
+  if (!chunk_demuxer_ && preload_ == MultiBufferDataSource::METADATA &&
       !client_->CouldPlayIfEnoughData() && !IsStreaming()) {
     start_type =
         (has_poster_ || base::FeatureList::IsEnabled(kPreloadMetadataLazyLoad))

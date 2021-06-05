@@ -88,7 +88,7 @@ class AutocompleteMediator implements OnSuggestionsReceivedListener, StartStopWi
     @Nullable
     private Runnable mDeferredLoadAction;
 
-    private LocationBarDataProvider mDataProvider;
+    private @NonNull LocationBarDataProvider mDataProvider;
 
     @NonNull
     private final Callback<Tab> mBringTabToFrontCallback;
@@ -98,6 +98,7 @@ class AutocompleteMediator implements OnSuggestionsReceivedListener, StartStopWi
     private AutocompleteController mAutocomplete;
     private long mUrlFocusTime;
     private boolean mEnableAdaptiveSuggestionsCount;
+    private boolean mShouldCacheSuggestions;
 
     @IntDef({SuggestionVisibilityState.DISALLOWED, SuggestionVisibilityState.PENDING_ALLOW,
             SuggestionVisibilityState.ALLOWED})
@@ -151,7 +152,6 @@ class AutocompleteMediator implements OnSuggestionsReceivedListener, StartStopWi
 
     public AutocompleteMediator(@NonNull Context context, @NonNull AutocompleteDelegate delegate,
             @NonNull UrlBarEditingTextStateProvider textProvider,
-            @NonNull AutocompleteController autocompleteController,
             @NonNull PropertyModel listPropertyModel, @NonNull Handler handler,
             @NonNull ActivityLifecycleDispatcher lifecycleDispatcher,
             @NonNull Supplier<ModalDialogManager> modalDialogManagerSupplier,
@@ -168,15 +168,13 @@ class AutocompleteMediator implements OnSuggestionsReceivedListener, StartStopWi
         mLifecycleDispatcher = lifecycleDispatcher;
         mLifecycleDispatcher.register(this);
         mModalDialogManagerSupplier = modalDialogManagerSupplier;
-        mAutocomplete = autocompleteController;
-        mAutocomplete.setOnSuggestionsReceivedListener(this);
         mHandler = handler;
         mDataProvider = locationBarDataProvider;
         mBringTabToFrontCallback = bringTabToFrontCallback;
         mTabWindowManagerSupplier = tabWindowManagerSupplier;
         mSuggestionModels = mListPropertyModel.get(SuggestionListProperties.SUGGESTION_MODELS);
-        mDropdownViewInfoListBuilder = new DropdownItemViewInfoListBuilder(
-                mAutocomplete, activityTabSupplier, bookmarkState);
+        mDropdownViewInfoListBuilder =
+                new DropdownItemViewInfoListBuilder(activityTabSupplier, bookmarkState);
         mDropdownViewInfoListBuilder.setShareDelegateSupplier(shareDelegateSupplier);
         mDropdownViewInfoListManager = new DropdownItemViewInfoListManager(mSuggestionModels);
     }
@@ -200,7 +198,7 @@ class AutocompleteMediator implements OnSuggestionsReceivedListener, StartStopWi
     public void destroy() {
         if (mAutocomplete != null) {
             stopAutocomplete(false);
-            mAutocomplete.destroy();
+            mAutocomplete.removeOnSuggestionsReceivedListener(this);
         }
         mDropdownViewInfoListBuilder.destroy();
         if (mLifecycleDispatcher != null) {
@@ -228,10 +226,6 @@ class AutocompleteMediator implements OnSuggestionsReceivedListener, StartStopWi
     /** @return The ModelList for currently shown suggestions. */
     ModelList getSuggestionModelListForTest() {
         return mSuggestionModels;
-    }
-
-    private Profile getCurrentProfile() {
-        return mDataProvider != null ? mDataProvider.getProfile() : null;
     }
 
     /**
@@ -294,13 +288,15 @@ class AutocompleteMediator implements OnSuggestionsReceivedListener, StartStopWi
     }
 
     /**
-     * Sets to show cached zero suggest results. This will start both caching zero suggest results
-     * in shared preferences and also attempt to show them when appropriate without needing native
-     * initialization.
-     * @param showCachedZeroSuggestResults Whether cached zero suggest should be shown.
+     * Show cached zero suggest results.
+     * Enables Autocomplete subsystem to offer most recently presented suggestions in the event
+     * where Native counterpart is not yet initialized.
+     *
+     * Note: the only supported page context right now is the ANDROID_SEARCH_WIDGET.
      */
-    void setShowCachedZeroSuggestResults(boolean showCachedZeroSuggestResults) {
-        if (showCachedZeroSuggestResults) mAutocomplete.startCachedZeroSuggest();
+    void startCachedZeroSuggest() {
+        if (mNativeInitialized) return;
+        onSuggestionsReceived(CachedZeroSuggestionsManager.readFromCache(), "");
     }
 
     /** Notify the mediator that a item selection is pending and should be accepted. */
@@ -316,19 +312,9 @@ class AutocompleteMediator implements OnSuggestionsReceivedListener, StartStopWi
 
         mEnableAdaptiveSuggestionsCount =
                 ChromeFeatureList.isEnabled(ChromeFeatureList.OMNIBOX_ADAPTIVE_SUGGESTIONS_COUNT);
-
-        if (mDeferredLoadAction != null) {
-            // Re-schedule the load action for execution.
-            mHandler.post(mDeferredLoadAction);
-            mDeferredLoadAction = null;
-            cancelAutocompleteRequests();
-        } else if (mCurrentAutocompleteRequest != null) {
-            // Re-schedule the autocomplete action for immediate execution.
-            // These requests are not executed until Native libraries are loaded.
-            mHandler.postAtFrontOfQueue(mCurrentAutocompleteRequest);
-        }
-
         mDropdownViewInfoListBuilder.onNativeInitialized();
+
+        runPendingAutocompleteRequests();
     }
 
     /** @see org.chromium.chrome.browser.omnibox.UrlFocusChangeListener#onUrlFocusChange(boolean) */
@@ -384,8 +370,16 @@ class AutocompleteMediator implements OnSuggestionsReceivedListener, StartStopWi
      * @param profile The profile to be used.
      */
     void setAutocompleteProfile(Profile profile) {
-        mAutocomplete.setProfile(profile);
+        if (mAutocomplete != null) {
+            stopAutocomplete(true);
+            mAutocomplete.removeOnSuggestionsReceivedListener(this);
+        }
+        mAutocomplete = AutocompleteControllerFactory.getController(profile);
+
+        mAutocomplete.addOnSuggestionsReceivedListener(this);
         mDropdownViewInfoListBuilder.setProfile(profile);
+
+        runPendingAutocompleteRequests();
     }
 
     /**
@@ -399,15 +393,16 @@ class AutocompleteMediator implements OnSuggestionsReceivedListener, StartStopWi
      * @see AutocompleteController#onVoiceResults(List)
      */
     void onVoiceResults(@Nullable List<VoiceRecognitionHandler.VoiceResult> results) {
+        if (!mNativeInitialized || mAutocomplete == null) return;
         mAutocomplete.onVoiceResults(results);
     }
 
     /**
      * @return The current native pointer to the autocomplete results.
+     * TODO(crbug.com/1138587): Figure out how to remove this.
      */
-    // TODO(tedchoc): Figure out how to remove this.
     long getCurrentNativeAutocompleteResult() {
-        return mAutocomplete.getCurrentNativeAutocompleteResult();
+        return mAutocompleteResult.getNativeObjectRef();
     }
 
     /** Called when a query tile is selected by the user. */
@@ -428,7 +423,7 @@ class AutocompleteMediator implements OnSuggestionsReceivedListener, StartStopWi
         mNewOmniboxEditSessionTimestamp = SystemClock.elapsedRealtime();
         mEditSessionState = EditSessionState.ACTIVATED_BY_QUERY_TILE;
 
-        mAutocomplete.start(mDataProvider.getProfile(), mDataProvider.getCurrentUrl(),
+        mAutocomplete.start(mDataProvider.getCurrentUrl(),
                 mDataProvider.getPageClassification(mDelegate.didFocusUrlFromFakebox()),
                 mUrlBarEditingTextProvider.getTextWithoutAutocomplete(),
                 mUrlBarEditingTextProvider.getSelectionStart(),
@@ -444,7 +439,8 @@ class AutocompleteMediator implements OnSuggestionsReceivedListener, StartStopWi
     @Override
     public void onSuggestionClicked(
             @NonNull AutocompleteMatch suggestion, int position, @NonNull GURL url) {
-        if (mAutocompleteResult.isFromCachedResult() && !mNativeInitialized) {
+        if (mAutocompleteResult.isFromCachedResult()
+                && (!mNativeInitialized || mAutocomplete == null)) {
             // clang-format off
             mDeferredLoadAction = () -> loadUrlForOmniboxMatch(
                             position, suggestion, url, mLastActionUpTimestamp, true);
@@ -590,10 +586,7 @@ class AutocompleteMediator implements OnSuggestionsReceivedListener, StartStopWi
      */
     private GURL updateSuggestionUrlIfNeeded(@NonNull AutocompleteMatch suggestion,
             int selectedIndex, @NonNull GURL url, boolean skipCheck) {
-        // Only called once we have suggestions, and don't have a listener though which we can
-        // receive suggestions until the native side is ready, so this is safe
-        assert mNativeInitialized
-            : "updateSuggestionUrlIfNeeded called before native initialization";
+        if (!mNativeInitialized || mAutocomplete == null) return url;
         if (suggestion.getType() == OmniboxSuggestionType.VOICE_SUGGEST
                 || suggestion.getType() == OmniboxSuggestionType.TILE_SUGGESTION
                 || suggestion.getType() == OmniboxSuggestionType.TILE_NAVSUGGEST) {
@@ -657,7 +650,8 @@ class AutocompleteMediator implements OnSuggestionsReceivedListener, StartStopWi
         mIgnoreOmniboxItemSelection = true;
         cancelAutocompleteRequests();
 
-        if (mEditSessionState == EditSessionState.INACTIVE && mNativeInitialized) {
+        if (mEditSessionState == EditSessionState.INACTIVE && mNativeInitialized
+                && mAutocomplete != null) {
             mAutocomplete.resetSession();
             mNewOmniboxEditSessionTimestamp = SystemClock.elapsedRealtime();
             mEditSessionState = EditSessionState.ACTIVATED_BY_USER_INPUT;
@@ -672,7 +666,6 @@ class AutocompleteMediator implements OnSuggestionsReceivedListener, StartStopWi
         } else {
             if (mDataProvider.hasTab() || mDataProvider.isInOverviewAndShowingOmnibox()) {
                 boolean preventAutocomplete = !mUrlBarEditingTextProvider.shouldAutocomplete();
-                Profile profile = mDataProvider.getProfile();
                 int cursorPosition = mUrlBarEditingTextProvider.getSelectionStart()
                                 == mUrlBarEditingTextProvider.getSelectionEnd()
                         ? mUrlBarEditingTextProvider.getSelectionStart()
@@ -684,9 +677,8 @@ class AutocompleteMediator implements OnSuggestionsReceivedListener, StartStopWi
                         || mEditSessionState == EditSessionState.ACTIVATED_BY_QUERY_TILE;
 
                 postAutocompleteRequest(() -> {
-                    mAutocomplete.start(profile, currentUrl, pageClassification,
-                            textWithoutAutocomplete, cursorPosition, preventAutocomplete, null,
-                            isQueryStartedFromTiles);
+                    mAutocomplete.start(currentUrl, pageClassification, textWithoutAutocomplete,
+                            cursorPosition, preventAutocomplete, null, isQueryStartedFromTiles);
                 }, OMNIBOX_SUGGESTION_START_DELAY_MS);
             } else {
                 // There may be no tabs when searching form omnibox in overview mode. In that case,
@@ -705,6 +697,10 @@ class AutocompleteMediator implements OnSuggestionsReceivedListener, StartStopWi
         if (mShouldPreventOmniboxAutocomplete
                 || getSuggestionVisibilityState() == SuggestionVisibilityState.DISALLOWED) {
             return;
+        }
+
+        if (mShouldCacheSuggestions) {
+            CachedZeroSuggestionsManager.saveToCache(autocompleteResult);
         }
 
         final List<AutocompleteMatch> newSuggestions = autocompleteResult.getSuggestionsList();
@@ -744,7 +740,7 @@ class AutocompleteMediator implements OnSuggestionsReceivedListener, StartStopWi
     void loadTypedOmniboxText(long eventTime) {
         final String urlText = mUrlBarEditingTextProvider.getTextWithAutocomplete();
         cancelAutocompleteRequests();
-        if (mNativeInitialized) {
+        if (mNativeInitialized && mAutocomplete != null) {
             findMatchAndLoadUrl(urlText, eventTime);
         } else {
             mDeferredLoadAction = () -> findMatchAndLoadUrl(urlText, eventTime);
@@ -771,6 +767,7 @@ class AutocompleteMediator implements OnSuggestionsReceivedListener, StartStopWi
             // user tapped the URL bar to dismiss the suggestions, then pressed enter. This can
             // also happen if the user presses enter before any suggestions have been received
             // from the autocomplete controller.
+            if (!mNativeInitialized || mAutocomplete == null) return;
             suggestionMatch = mAutocomplete.classify(urlText, mDelegate.didFocusUrlFromFakebox());
             // Classify matches don't propagate to java, so skip the OOB check.
             inSuggestionList = false;
@@ -857,8 +854,9 @@ class AutocompleteMediator implements OnSuggestionsReceivedListener, StartStopWi
                 && (mDataProvider.hasTab() || mDataProvider.isInOverviewAndShowingOmnibox())) {
             int pageClassification =
                     mDataProvider.getPageClassification(mDelegate.didFocusUrlFromFakebox());
-            mAutocomplete.startZeroSuggest(mDataProvider.getProfile(),
-                    mUrlBarEditingTextProvider.getTextWithAutocomplete(),
+            mShouldCacheSuggestions =
+                    pageClassification == PageClassification.ANDROID_SEARCH_WIDGET_VALUE;
+            mAutocomplete.startZeroSuggest(mUrlBarEditingTextProvider.getTextWithAutocomplete(),
                     mDataProvider.getCurrentUrl(), pageClassification, mDataProvider.getTitle());
         }
     }
@@ -886,8 +884,7 @@ class AutocompleteMediator implements OnSuggestionsReceivedListener, StartStopWi
      * @see AutocompleteController#stop(boolean)
      */
     private void hideSuggestions() {
-        if (mAutocomplete == null || !mNativeInitialized) return;
-
+        if (!mNativeInitialized || mAutocomplete == null) return;
         stopAutocomplete(true);
 
         mDropdownViewInfoListManager.clear();
@@ -902,7 +899,7 @@ class AutocompleteMediator implements OnSuggestionsReceivedListener, StartStopWi
      * @param clear Whether to clear the most recent autocomplete results.
      */
     private void stopAutocomplete(boolean clear) {
-        if (mAutocomplete != null) mAutocomplete.stop(clear);
+        if (mNativeInitialized && mAutocomplete != null) mAutocomplete.stop(clear);
         cancelAutocompleteRequests();
     }
 
@@ -910,23 +907,12 @@ class AutocompleteMediator implements OnSuggestionsReceivedListener, StartStopWi
      * Trigger autocomplete for the given query.
      */
     void startAutocompleteForQuery(String query) {
+        if (!mNativeInitialized || mAutocomplete == null) return;
         stopAutocomplete(false);
         if (mDataProvider.hasTab()) {
-            mAutocomplete.start(mDataProvider.getProfile(), mDataProvider.getCurrentUrl(),
+            mAutocomplete.start(mDataProvider.getCurrentUrl(),
                     mDataProvider.getPageClassification(false), query, -1, false, null, false);
         }
-    }
-
-    /**
-     * Sets the autocomplete controller for the location bar.
-     *
-     * @param controller The controller that will handle autocomplete/omnibox suggestions.
-     * @note Only used for testing.
-     */
-    public void setAutocompleteControllerForTest(AutocompleteController controller) {
-        if (mAutocomplete != null) stopAutocomplete(true);
-        mAutocomplete = controller;
-        mDropdownViewInfoListBuilder.setAutocompleteControllerForTest(controller);
     }
 
     /**
@@ -1060,7 +1046,9 @@ class AutocompleteMediator implements OnSuggestionsReceivedListener, StartStopWi
                 mCurrentAutocompleteRequest = null;
             }
         };
-        if (!mNativeInitialized) return;
+        // In the event we got Native Ready signal but no Profile yet (or the other way around),
+        // delay execution of the Autocomplete request.
+        if (!mNativeInitialized || mAutocomplete == null) return;
         if (delayMillis == SCHEDULE_FOR_IMMEDIATE_EXECUTION) {
             // TODO(crbug.com/1174855): Replace the following with postAtFrontOfQueue() and
             // correct any tests that expect data instantly.
@@ -1074,9 +1062,28 @@ class AutocompleteMediator implements OnSuggestionsReceivedListener, StartStopWi
      * Cancel any pending autocomplete actions.
      */
     private void cancelAutocompleteRequests() {
+        mShouldCacheSuggestions = false;
         if (mCurrentAutocompleteRequest != null) {
             mHandler.removeCallbacks(mCurrentAutocompleteRequest);
             mCurrentAutocompleteRequest = null;
+        }
+    }
+
+    /**
+     * Execute any pending Autocomplete requests, if the Autocomplete subsystem is ready.
+     */
+    private void runPendingAutocompleteRequests() {
+        if (!mNativeInitialized || mAutocomplete == null) return;
+
+        if (mDeferredLoadAction != null) {
+            // Re-schedule the load action for execution.
+            mHandler.post(mDeferredLoadAction);
+            mDeferredLoadAction = null;
+            cancelAutocompleteRequests();
+        } else if (mCurrentAutocompleteRequest != null) {
+            // Re-schedule the autocomplete action for immediate execution.
+            // These requests are not executed until Native libraries are loaded.
+            mHandler.postAtFrontOfQueue(mCurrentAutocompleteRequest);
         }
     }
 }

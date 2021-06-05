@@ -451,6 +451,12 @@ id<GREYMatcher> SearchCopiedTextButton() {
 }
 
 - (void)testOmniboxDefocusesOnTabSwitchIncognito {
+#if !TARGET_IPHONE_SIMULATOR
+  // Test flaky, see TODO:(crbug.com/1211373).
+  if ([ChromeEarlGrey isIPadIdiom]) {
+    EARL_GREY_TEST_DISABLED(@"Test disable on iPad device.");
+  }
+#endif
   [ChromeEarlGrey openNewIncognitoTab];
   [ChromeEarlGrey waitForIncognitoTabCount:1];
   [self openPage1];
@@ -732,9 +738,7 @@ id<GREYMatcher> SearchCopiedTextButton() {
   // Returns the popup row containing the |url| as suggestion.
   id<GREYMatcher> textYouCopiedMatch =
       grey_allOf(grey_kindOfClassName(@"OmniboxPopupRowCell"),
-                 grey_descendant(grey_accessibilityLabel(
-                     [NSString stringWithFormat:@"\"%@\"", copiedText])),
-                 nil);
+                 grey_descendant(grey_accessibilityLabel(copiedText)), nil);
   [[EarlGrey selectElementWithMatcher:textYouCopiedMatch]
       assertWithMatcher:grey_notNil()];
 }

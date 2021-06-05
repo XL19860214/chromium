@@ -9,7 +9,6 @@
  * wallpaper collection id to avoid refetching data unnecessarily.
  */
 
-import 'chrome://resources/polymer/v3_0/iron-list/iron-list.js';
 import 'chrome://resources/polymer/v3_0/paper-spinner/paper-spinner-lite.js';
 import './styles.js';
 import {assert} from '/assert.m.js';
@@ -18,6 +17,8 @@ import {EventType} from '../common/constants.js';
 import {sendImages, validateReceivedSelection} from '../common/iframe_api.js';
 import {isNonEmptyArray, promisifyOnload} from '../common/utils.js';
 import {fetchImagesForCollectionHelper, getWallpaperProvider} from './mojo_interface_provider.js';
+import {setCurrentImageAction} from './personalization_actions.js';
+import {WithPersonalizationStore} from './personalization_store.js';
 
 let sendImagesFunction = sendImages;
 
@@ -28,7 +29,8 @@ export function promisifySendImagesForTesting() {
   return promise;
 }
 
-export class WallpaperImages extends PolymerElement {
+/** @polymer */
+export class WallpaperImages extends WithPersonalizationStore {
   static get is() {
     return 'wallpaper-images';
   }
@@ -201,10 +203,13 @@ export class WallpaperImages extends PolymerElement {
     const {success} =
         await this.wallpaperProvider_.selectWallpaper(image.assetId);
 
-    // TODO(b/181697575) show a user facing error and handle failure cases.
     if (!success) {
+      // TODO(b/181697575) show a user facing error and handle failure cases.
       console.warn('Setting wallpaper image failed');
+      return;
     }
+
+    this.dispatch(setCurrentImageAction(image));
   }
 }
 

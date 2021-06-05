@@ -191,7 +191,7 @@ void NativeInputMethodEngine::Initialize(
           std::move(assistive_suggester), std::move(autocorrect_manager),
           std::move(suggestions_collector),
           std::make_unique<GrammarManager>(
-              profile, std::make_unique<GrammarServiceClient>()));
+              profile, std::make_unique<GrammarServiceClient>(), this));
   InputMethodEngine::Initialize(std::move(native_observer), extension_id,
                                 profile);
 }
@@ -274,9 +274,8 @@ void NativeInputMethodEngine::ImeObserver::OnActivate(
     remote_to_engine_.reset();
     receiver_from_engine_.reset();
 
-    remote_manager_->ConnectToImeEngine(
+    remote_manager_->ConnectToInputMethod(
         new_engine_id, remote_to_engine_.BindNewPipeAndPassReceiver(),
-        receiver_from_engine_.BindNewPipeAndPassRemote(), {},
         base::BindOnce(&ImeObserver::OnConnected, base::Unretained(this),
                        base::Time::Now(), new_engine_id));
 
@@ -298,7 +297,7 @@ void NativeInputMethodEngine::ImeObserver::OnActivate(
 
     remote_manager_->ConnectToImeEngine(
         engine_id, remote_to_engine_.BindNewPipeAndPassReceiver(),
-        receiver_from_engine_.BindNewPipeAndPassRemote(), {},
+        receiver_from_engine_.BindNewPipeAndPassRemote(), /*extra=*/{0},
         base::BindOnce(&ImeObserver::OnConnected, base::Unretained(this),
                        base::Time::Now(), engine_id));
 
@@ -513,9 +512,17 @@ void NativeInputMethodEngine::ImeObserver::OnAssistiveWindowButtonClicked(
       if (assistive_suggester_->IsAssistiveFeatureEnabled()) {
         assistive_suggester_->AcceptSuggestion(button.index);
       }
+      if (grammar_manager_->IsOnDeviceGrammarEnabled()) {
+        grammar_manager_->AcceptSuggestion();
+      }
       break;
     case ui::ime::ButtonId::kUndo:
       autocorrect_manager_->UndoAutocorrect();
+      break;
+    case ui::ime::ButtonId::kIgnoreSuggestion:
+      if (grammar_manager_->IsOnDeviceGrammarEnabled()) {
+        grammar_manager_->IgnoreSuggestion();
+      }
       break;
     case ui::ime::ButtonId::kAddToDictionary:
     case ui::ime::ButtonId::kNone:
@@ -639,7 +646,7 @@ void NativeInputMethodEngine::ImeObserver::RecordUkm(
 
 void NativeInputMethodEngine::ImeObserver::FlushForTesting() {
   remote_manager_.FlushForTesting();
-  if (remote_to_engine_.is_bound())
+  if (receiver_from_engine_.is_bound())
     receiver_from_engine_.FlushForTesting();
   if (remote_to_engine_.is_bound())
     remote_to_engine_.FlushForTesting();

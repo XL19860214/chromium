@@ -46,6 +46,7 @@ const struct TypeClicks kClickTestCase[] = {
     {autofill::POPUP_ITEM_ID_PASSWORD_ACCOUNT_STORAGE_RE_SIGNIN, 1},
     {autofill::POPUP_ITEM_ID_PASSWORD_ACCOUNT_STORAGE_OPT_IN_AND_GENERATE, 1},
     {autofill::POPUP_ITEM_ID_PASSWORD_ACCOUNT_STORAGE_EMPTY, 1},
+    {autofill::POPUP_ITEM_ID_VIRTUAL_CREDIT_CARD_ENTRY, 1},
 };
 
 class AutofillPopupViewNativeViewsTest : public ChromeViewsTestBase {
@@ -242,10 +243,6 @@ TEST_P(AutofillPopupViewNativeViewsForEveryTypeTest, ShowClickTest) {
   gfx::Point center =
       view()->GetRowsForTesting()[0]->GetBoundsInScreen().CenterPoint();
 
-  // Because we use GetBoundsInScreen above, and because macOS may reposition
-  // the window, we need to turn this bit off or the clicks will miss their
-  // targets.
-  generator_->set_assume_window_at_origin(false);
   generator_->set_current_screen_location(center);
   generator_->ClickLeftButton();
   view()->RemoveAllChildViews(true /* delete_children */);

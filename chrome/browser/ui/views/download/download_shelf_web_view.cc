@@ -10,8 +10,10 @@
 #include "chrome/browser/task_manager/web_contents_tags.h"
 #include "chrome/browser/themes/theme_properties.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/chrome_pages.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/common/webui_url_constants.h"
+#include "ui/base/theme_provider.h"
 #include "ui/gfx/animation/animation.h"
 #include "ui/views/border.h"
 
@@ -132,6 +134,10 @@ void DownloadShelfWebView::AnimationEnded(const gfx::Animation* animation) {
 
 views::View* DownloadShelfWebView::GetView() {
   return this;
+}
+
+void DownloadShelfWebView::DoShowAll() {
+  chrome::ShowDownloads(browser());
 }
 
 void DownloadShelfWebView::ShowDownloadContextMenu(

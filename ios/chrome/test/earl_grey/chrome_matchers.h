@@ -26,6 +26,11 @@ id<GREYMatcher> WindowWithNumber(int window_number);
 id<GREYMatcher> MatchInWindowWithNumber(int window_number,
                                         id<GREYMatcher> matcher);
 
+// Same as above, but for the blocking window which only appears when a blocking
+// UI is shown in another window.
+id<GREYMatcher> MatchInBlockerWindowWithNumber(int window_number,
+                                               id<GREYMatcher> matcher);
+
 // Matcher for element with accessibility label corresponding to |message_id|
 // and accessibility trait UIAccessibilityTraitButton.
 id<GREYMatcher> ButtonWithAccessibilityLabelId(int message_id);
@@ -410,6 +415,10 @@ id<GREYMatcher> WebViewMatcher();
 
 // Returns a matcher for the current WebState's scroll view.
 id<GREYMatcher> WebStateScrollViewMatcher();
+
+// Returns a matcher for the current WebState's scroll view in the given
+// |window_number|.
+id<GREYMatcher> WebStateScrollViewMatcherInWindowWithNumber(int window_number);
 
 // Returns a matcher for the Clear Browsing Data button in the History UI.
 id<GREYMatcher> HistoryClearBrowsingDataButton();

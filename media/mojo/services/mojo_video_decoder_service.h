@@ -22,6 +22,7 @@
 #include "mojo/public/cpp/bindings/associated_remote.h"
 #include "mojo/public/cpp/bindings/pending_associated_remote.h"
 #include "mojo/public/cpp/bindings/self_owned_receiver.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace media {
 
@@ -91,6 +92,9 @@ class MEDIA_MOJO_EXPORT MojoVideoDecoderService final
 
   // Whether this instance is active (Decode() was called at least once).
   bool is_active_instance_ = false;
+
+  // Codec information stored via crash key.
+  std::string codec_string_;
 
   // Decoder factory.
   MojoMediaClient* mojo_media_client_;

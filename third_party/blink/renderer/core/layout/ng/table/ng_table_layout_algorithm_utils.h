@@ -5,6 +5,7 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_NG_TABLE_NG_TABLE_LAYOUT_ALGORITHM_UTILS_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_NG_TABLE_NG_TABLE_LAYOUT_ALGORITHM_UTILS_H_
 
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/renderer/core/layout/ng/table/ng_table_layout_algorithm_types.h"
 #include "third_party/blink/renderer/core/style/computed_style_constants.h"
 
@@ -118,6 +119,7 @@ class NGRowBaselineTabulator {
                    const LayoutUnit cell_min_block_size,
                    bool is_baseline_aligned,
                    bool is_parallel,
+                   bool is_rowspanned,
                    bool descendant_depends_on_percentage_block_size);
 
   LayoutUnit ComputeRowBlockSize(const LayoutUnit max_cell_block_size);

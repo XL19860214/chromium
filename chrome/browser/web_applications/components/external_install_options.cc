@@ -54,6 +54,7 @@ bool ExternalInstallOptions::operator==(
         options.is_disabled,
         options.override_previous_user_uninstall,
         options.only_for_new_users,
+        options.only_if_previously_preinstalled,
         options.user_type_allowlist,
         options.gate_on_feature,
 #if BUILDFLAG(IS_CHROMEOS_ASH)
@@ -75,7 +76,8 @@ bool ExternalInstallOptions::operator==(
         options.only_use_app_info_factory,
         options.app_info_factory,
         options.system_app_type,
-        options.oem_installed
+        options.oem_installed,
+        options.disable_if_touchscreen_with_stylus_not_supported
         // clang-format on
     );
   };
@@ -128,6 +130,8 @@ std::ostream& operator<<(std::ostream& out,
          << "\n override_previous_user_uninstall: "
          << install_options.override_previous_user_uninstall
          << "\n only_for_new_users: " << install_options.only_for_new_users
+         << "\n only_if_previously_preinstalled: "
+         << install_options.only_if_previously_preinstalled
          << "\n user_type_allowlist: " << install_options.user_type_allowlist
          << "\n gate_on_feature: " << install_options.gate_on_feature
 #if BUILDFLAG(IS_CHROMEOS_ASH)
@@ -163,7 +167,9 @@ std::ostream& operator<<(std::ostream& out,
          << (install_options.system_app_type.has_value()
                  ? static_cast<int32_t>(install_options.system_app_type.value())
                  : -1)
-         << "\n oem_installed: " << install_options.oem_installed;
+         << "\n oem_installed: " << install_options.oem_installed
+         << "\n disable_if_touchscreen_with_stylus_not_supported: "
+         << install_options.disable_if_touchscreen_with_stylus_not_supported;
 }
 
 InstallManager::InstallParams ConvertExternalInstallOptionsToParams(

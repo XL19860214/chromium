@@ -11,6 +11,7 @@
 
 #include "base/callback.h"
 #include "base/callback_forward.h"
+#include "base/debug/crash_logging.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
@@ -62,6 +63,7 @@
 #include "third_party/blink/public/common/tokens/tokens.h"
 #include "third_party/blink/public/mojom/loader/mixed_content.mojom-forward.h"
 #include "third_party/perfetto/include/perfetto/tracing/traced_value_forward.h"
+#include "url/origin.h"
 
 #if defined(OS_ANDROID)
 #include "base/android/scoped_java_ref.h"
@@ -361,6 +363,7 @@ class CONTENT_EXPORT NavigationRequest
 
   void RegisterCommitDeferringConditionForTesting(
       std::unique_ptr<CommitDeferringCondition> condition);
+  bool IsCommitDeferringConditionDeferredForTesting();
 
   // Called on the UI thread by the Navigator to start the navigation.
   // The NavigationRequest can be deleted while BeginNavigation() is called.
@@ -413,7 +416,9 @@ class CONTENT_EXPORT NavigationRequest
 
   int bindings() const { return bindings_; }
 
-  bool browser_initiated() const { return browser_initiated_; }
+  bool browser_initiated() const {
+    return commit_params_->is_browser_initiated;
+  }
 
   bool from_begin_navigation() const { return from_begin_navigation_; }
 
@@ -611,6 +616,11 @@ class CONTENT_EXPORT NavigationRequest
   void set_complete_callback_for_testing(
       ThrottleChecksFinishedCallback callback) {
     complete_callback_for_testing_ = std::move(callback);
+  }
+
+  network::mojom::URLLoaderClientEndpointsPtr&
+  mutable_url_loader_client_endpoints_for_testing() {
+    return url_loader_client_endpoints_;
   }
 
   void set_ready_to_commit_callback_for_testing(base::OnceClosure callback) {
@@ -874,6 +884,34 @@ class CONTENT_EXPORT NavigationRequest
   void AddDeferredConsoleMessage(blink::mojom::ConsoleMessageLevel level,
                                  std::string message);
 
+  base::WeakPtr<NavigationRequest> GetWeakPtr();
+
+  int prerender_frame_tree_node_id() const {
+    DCHECK(prerender_frame_tree_node_id_.has_value())
+        << "Must be called after StartNavigation()";
+    return prerender_frame_tree_node_id_.value();
+  }
+
+  void RenderFallbackContentForObjectTag();
+
+  // Helper for logging crash keys related to a NavigationRequest (e.g.
+  // "navigation_request_url" and "navigation_request_initiator").  The crash
+  // keys will be logged if a ScopedCrashKeys instance exists when a crash or
+  // DumpWithoutCrashing happens.
+  class ScopedCrashKeys {
+   public:
+    explicit ScopedCrashKeys(NavigationRequest& navigation_request);
+    ~ScopedCrashKeys();
+
+    // No copy constructor and no copy assignment operator.
+    ScopedCrashKeys(const ScopedCrashKeys&) = delete;
+    ScopedCrashKeys& operator=(const ScopedCrashKeys&) = delete;
+
+   private:
+    url::debug::ScopedOriginCrashKey initiator_origin_;
+    base::debug::ScopedCrashKeyString url_;
+  };
+
  private:
   friend class NavigationRequestTest;
 
@@ -893,7 +931,11 @@ class CONTENT_EXPORT NavigationRequest
       const FrameNavigationEntry* frame_navigation_entry,
       NavigationEntryImpl* navitation_entry,
       std::unique_ptr<NavigationUIData> navigation_ui_data,
+      scoped_refptr<network::SharedURLLoaderFactory> blob_url_loader_factory,
       mojo::PendingAssociatedRemote<mojom::NavigationClient> navigation_client,
+      scoped_refptr<PrefetchedSignedExchangeCache>
+          prefetched_signed_exchange_cache,
+      std::unique_ptr<WebBundleHandleTracker> web_bundle_handle_tracker,
       RenderFrameHostImpl* rfh_restored_from_back_forward_cache,
       int initiator_process_id,
       bool was_opener_suppressed);
@@ -1110,10 +1152,6 @@ class CONTENT_EXPORT NavigationRequest
   // when we commit the new page.
   void AddOldPageInfoToCommitParamsIfNeeded();
 
-  // Compute the history offset of the new document compared to the current one.
-  // See navigation_history_offset_ for more details.
-  int EstimateHistoryOffset();
-
   // Record download related UseCounters when navigation is a download before
   // filtered by download_policy.
   void RecordDownloadUseCountersPrePolicyCheck(
@@ -1313,7 +1351,6 @@ class CONTENT_EXPORT NavigationRequest
 
   bool ShouldRenderFallbackContentForResponse(
       const net::HttpResponseHeaders& response_head) const;
-  void RenderFallbackContentForObjectTag();
 
   // Never null. The pointee node owns this navigation request instance.
   FrameTreeNode* const frame_tree_node_;
@@ -1329,19 +1366,21 @@ class CONTENT_EXPORT NavigationRequest
   // Note: When the navigation is ready to commit, the url in |common_params|
   // will be set to the final navigation url, obtained after following all
   // redirects.
+  //
   // Note: |common_params_| and |begin_params_| are not const as they can be
   // modified during redirects.
+  //
   // Note: |commit_params_| is not const because was_discarded will
   // be set in CreatedNavigationRequest.
-  // Note: |browser_initiated_| and |common_params_| may be mutated by
-  // ContentBrowserClient::OverrideNavigationParams at StartNavigation time
-  // (i.e. before we actually kick off the navigation). |browser_initiated|
-  // will always be true for history navigations, even if they began in the
-  // renderer using the history API.
+  //
+  // Note: |commit_params_->is_browser_initiated| and |common_params_| may be
+  // mutated by ContentBrowserClient::OverrideNavigationParams at construction
+  // time (i.e. before we actually kick off the navigation).
+  // |commit_params_->is_browser_initiated| will always be true for history
+  // navigations, even if they began in the renderer using the history API.
   mojom::CommonNavigationParamsPtr common_params_;
   mojom::BeginNavigationParamsPtr begin_params_;
   mojom::CommitNavigationParamsPtr commit_params_;
-  bool browser_initiated_;
   bool same_origin_ = false;
 
   // Stores the NavigationUIData for this navigation until the NavigationHandle
@@ -1350,7 +1389,7 @@ class CONTENT_EXPORT NavigationRequest
   std::unique_ptr<NavigationUIData> navigation_ui_data_;
 
   // URLLoaderFactory to facilitate loading blob URLs.
-  scoped_refptr<network::SharedURLLoaderFactory> blob_url_loader_factory_;
+  const scoped_refptr<network::SharedURLLoaderFactory> blob_url_loader_factory_;
 
   NavigationState state_ = NOT_STARTED;
   bool is_navigation_started_ = false;
@@ -1372,7 +1411,7 @@ class CONTENT_EXPORT NavigationRequest
   const ReloadType reload_type_;
   const int nav_entry_id_;
   bool is_view_source_ = false;
-  int bindings_;
+  int bindings_ = FrameNavigationEntry::kInvalidBindings;
 
   scoped_refptr<SiteInstanceImpl> starting_site_instance_;
 
@@ -1424,7 +1463,7 @@ class CONTENT_EXPORT NavigationRequest
 
   // Identifies in which RenderProcessHost this navigation is expected to
   // commit.
-  int expected_render_process_host_id_;
+  int expected_render_process_host_id_ = ChildProcessHost::kInvalidUniqueID;
 
   // The SiteInfo of this navigation, as obtained from
   // SiteInstanceImpl::ComputeSiteInfo().
@@ -1460,8 +1499,7 @@ class CONTENT_EXPORT NavigationRequest
   bool upgrade_if_insecure_ = false;
 
   // The offset of the new document in the history.
-  // See NavigationHandle::GetNavigationEntryOffset() for details.
-  int navigation_entry_offset_ = 0;
+  const int navigation_entry_offset_ = 0;
 
   // Owns the NavigationThrottles associated with this navigation, and is
   // responsible for notifying them about the various navigation events.
@@ -1519,7 +1557,7 @@ class CONTENT_EXPORT NavigationRequest
 
   // Tracks navigations within a Web Bundle file. Used when WebBundles feature
   // is enabled or TrustableWebBundleFileUrl switch is set.
-  std::unique_ptr<WebBundleHandleTracker> web_bundle_handle_tracker_;
+  const std::unique_ptr<WebBundleHandleTracker> web_bundle_handle_tracker_;
 
   // Timing information of loading for the navigation. Used for recording UMAs.
   NavigationHandleTiming navigation_handle_timing_;
@@ -1629,12 +1667,12 @@ class CONTENT_EXPORT NavigationRequest
   // ID of the renderer process of the frame host that initiated the navigation.
   // This is defined if and only if |initiator_frame_token_| above is, and it is
   // only valid in conjunction with it.
-  int initiator_process_id_ = ChildProcessHost::kInvalidUniqueID;
+  const int initiator_process_id_ = ChildProcessHost::kInvalidUniqueID;
 
   // Whether a navigation in a new window had the opener suppressed. False if
   // the navigation is not in a new window. Can only be true for renderer
   // initiated navigations which use `CreateBrowserInitiated()`.
-  bool was_opener_suppressed_ = false;
+  const bool was_opener_suppressed_ = false;
 
   // This tracks a connection between the current pending entry and this
   // request, such that the pending entry can be discarded if no requests are
@@ -1665,7 +1703,7 @@ class CONTENT_EXPORT NavigationRequest
 
   // Structure tracking the effects of the CrossOriginOpenerPolicy on this
   // navigation.
-  CrossOriginOpenerPolicyStatus coop_status_;
+  CrossOriginOpenerPolicyStatus coop_status_{this};
 
 #if DCHECK_IS_ON()
   bool is_safe_to_delete_ = true;
@@ -1710,9 +1748,13 @@ class CONTENT_EXPORT NavigationRequest
   net::IsolationInfo isolation_info_for_subresources_;
 
   // Prerender2:
-  // The root frame tree node id of the prerendered page. This is valid only
-  // when this navigation will activate a prerendered page.
-  int prerender_frame_tree_node_id_ = RenderFrameHost::kNoFrameTreeNodeId;
+  // The root frame tree node id of the prerendered page. This will be a valid
+  // FrameTreeNode id when this navigation will activate a prerendered page.
+  // For all other navigations this will be
+  // RenderFrameHost::kNoFrameTreeNodeId. We only know whether this is the case
+  // when BeginNavigation is called so the optional will be empty until then
+  // and callers must not query its value before it's been computed.
+  absl::optional<int> prerender_frame_tree_node_id_;
   // Used to store a cloned NavigationEntry for activating a prerendered page.
   // |prerender_navigation_entry_| is cloned and stored in NavigationRequest
   // when the prerendered page is transferred to the target FrameTree and is
@@ -1731,8 +1773,7 @@ class CONTENT_EXPORT NavigationRequest
   // https://crbug.com/1154729
   network::CrossOriginEmbedderPolicy cross_origin_embedder_policy_;
   network::mojom::PrivateNetworkRequestPolicy private_network_request_policy_ =
-      network::mojom::PrivateNetworkRequestPolicy::
-          kWarnFromInsecureToMorePrivate;
+      network::mojom::PrivateNetworkRequestPolicy::kWarn;
 
   // Messages to be printed on the console in the target RenderFrameHost of this
   // NavigationRequest.

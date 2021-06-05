@@ -90,15 +90,10 @@ class DownloadUIAdapterDelegate : public DownloadUIAdapter::Delegate {
   void OpenItem(const OfflineItem& item,
                 int64_t offline_id,
                 const OpenParams& open_params) override {}
-  bool MaybeSuppressNotification(const std::string& origin,
-                                 const ClientId& item) override {
-    return maybe_suppress_notification_;
-  }
   MOCK_METHOD2(GetShareInfoForItem,
                void(const ContentId&, OfflineContentProvider::ShareCallback));
 
   bool is_visible = true;
-  bool maybe_suppress_notification_ = false;
 };
 
 class MockVisualsDecoder : public VisualsDecoder {
@@ -354,7 +349,7 @@ TEST_F(DownloadUIAdapterTest, InitialItemConversion) {
   auto callback =
       base::BindLambdaForTesting([&](const absl::optional<OfflineItem>& item) {
         EXPECT_EQ(kTestGuid1, item.value().id.id);
-        EXPECT_EQ(kTestUrl, item.value().page_url.spec());
+        EXPECT_EQ(kTestUrl, item.value().url.spec());
         EXPECT_EQ(OfflineItemState::COMPLETE, item.value().state);
         EXPECT_EQ(kFileSize, item.value().received_bytes);
         EXPECT_EQ(kTestFilePath, item.value().file_path);

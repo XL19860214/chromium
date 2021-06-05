@@ -7,7 +7,7 @@
 // NOTE: The format of types has changed. 'FooType' is now
 //   'chrome.accessibilityPrivate.FooType'.
 // Please run the closure compiler before committing changes.
-// See https://chromium.googlesource.com/chromium/src/+/master/docs/closure_compilation.md
+// See https://chromium.googlesource.com/chromium/src/+/main/docs/closure_compilation.md
 
 /** @fileoverview Externs generated from namespace: accessibilityPrivate */
 
@@ -557,7 +557,15 @@ chrome.accessibilityPrivate.onMagnifierBoundsChanged;
 chrome.accessibilityPrivate.onCustomSpokenFeedbackToggled;
 
 /**
- * Fired when ChromeVox should show its tutorial
+ * Fired when ChromeVox should show its tutorial.
  * @type {!ChromeEvent}
  */
 chrome.accessibilityPrivate.onShowChromeVoxTutorial;
+
+/**
+ * Fired when Dictation is activated or deactivated using a keyboard shortcut,
+ * the button in the tray, or after a call from
+ * accessibilityPrivate.toggleDictation
+ * @type {!ChromeEvent}
+ */
+chrome.accessibilityPrivate.onToggleDictation;

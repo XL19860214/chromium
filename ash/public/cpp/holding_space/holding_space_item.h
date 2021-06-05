@@ -38,7 +38,10 @@ class ASH_PUBLIC_EXPORT HoldingSpaceItem {
     kScreenRecording = 4,
     kArcDownload = 5,
     kPrintedPdf = 6,
-    kMaxValue = kPrintedPdf,
+    kDiagnosticsLog = 7,
+    kLacrosDownload = 8,
+    kScan = 9,
+    kMaxValue = kScan,
   };
 
   HoldingSpaceItem(const HoldingSpaceItem&) = delete;
@@ -101,18 +104,19 @@ class ASH_PUBLIC_EXPORT HoldingSpaceItem {
   // `Deserialize()`.
   void Initialize(const GURL& file_system_url);
 
-  // Updates the file backing the item to `file_path` and `file_system_url`,
-  // returning `false` to indicate no-op.
-  bool UpdateBackingFile(const base::FilePath& file_path,
-                         const GURL& file_system_url);
+  // Sets the file backing the item to `file_path` and `file_system_url`,
+  // returning `true` if a change occurred or `false` to indicate no-op.
+  bool SetBackingFile(const base::FilePath& file_path,
+                      const GURL& file_system_url);
 
   // Returns whether the item is in progress.
   bool IsInProgress() const;
 
-  // Updates the `progress_` of the item, returning `false` to indicate no-op.
+  // Sets the `progress_` of the item, returning `true` if a change occurred or
+  // `false` to indicate no-op.
   // NOTE: If present, `progress` must be >= `0.f` and <= `1.f`.
   // NOTE: Progress can only be updated for in progress items.
-  bool UpdateProgress(const absl::optional<float>& progress);
+  bool SetProgress(const absl::optional<float>& progress);
 
   // Invalidates the current holding space image, so fresh image representations
   // are loaded when the image is next needed.
@@ -120,6 +124,15 @@ class ASH_PUBLIC_EXPORT HoldingSpaceItem {
 
   // Returns true if this item is a screen capture.
   bool IsScreenCapture() const;
+
+  // Returns true if progress of this item is paused.
+  // NOTE: Only in-progress items can be paused.
+  bool IsPaused() const;
+
+  // Sets whether progress of this item is `paused_`, returning `true` if a
+  // change occurred or `false` to indicate no-op.
+  // NOTE: Only in-progress items can be paused.
+  bool SetPaused(bool paused);
 
   const std::string& id() const { return id_; }
 
@@ -165,9 +178,13 @@ class ASH_PUBLIC_EXPORT HoldingSpaceItem {
   std::unique_ptr<HoldingSpaceImage> image_;
 
   // The progress of the item.
-  // If present, the value is >= `0.f` and <= `1.f`.
-  // If absent, `progress_` is indeterminate.
+  // NOTE: If present, the value is >= `0.f` and <= `1.f`.
+  // NOTE: If absent, `progress_` is indeterminate.
   absl::optional<float> progress_;
+
+  // Whether or not progress of this item is paused.
+  // NOTE: Only in-progress items can be paused.
+  bool paused_ = false;
 
   // Mutable to allow const access from `AddDeletionCallback()`.
   mutable base::RepeatingClosureList deletion_callback_list_;

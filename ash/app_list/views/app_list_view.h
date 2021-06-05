@@ -20,6 +20,7 @@
 #include "build/build_config.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/aura/window_observer.h"
+#include "ui/events/event.h"
 #include "ui/gfx/color_palette.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_delegate.h"
@@ -44,10 +45,11 @@ class AppListConfig;
 class AppListMainView;
 class AppListModel;
 class AppsGridView;
-class StateTransitionNotifier;
+class PagedAppsGridView;
 class PaginationModel;
 class SearchBoxView;
 class SearchModel;
+class StateTransitionNotifier;
 
 FORWARD_DECLARE_TEST(AppListControllerImplTest,
                      CheckAppListViewBoundsWhenVKeyboardEnabled);
@@ -77,6 +79,21 @@ class ASH_EXPORT AppListView : public views::WidgetDelegateView,
    private:
     AppListView* const view_;
     DISALLOW_COPY_AND_ASSIGN(TestApi);
+  };
+
+  class ASH_EXPORT ScopedAccessibilityAnnouncementLock {
+   public:
+    explicit ScopedAccessibilityAnnouncementLock(AppListView* view)
+        : view_(view) {
+      ++view_->accessibility_event_disablers_;
+    }
+
+    ~ScopedAccessibilityAnnouncementLock() {
+      --view_->accessibility_event_disablers_;
+    }
+
+   private:
+    AppListView* const view_;
   };
 
   // Number of the size of shelf. Used to determine the opacity of items in the
@@ -116,6 +133,9 @@ class ASH_EXPORT AppListView : public views::WidgetDelegateView,
   // The animation duration for app list movement.
   static constexpr int kAppListAnimationDurationMs = 200;
   static constexpr int kAppListAnimationDurationFromFullscreenMs = 250;
+
+  // The scroll offset in order to transition from PEEKING to FULLSCREEN
+  static constexpr int kAppListMinScrollToSwitchStates = 20;
 
   // Does not take ownership of |delegate|.
   explicit AppListView(AppListViewDelegate* delegate);
@@ -462,10 +482,10 @@ class ASH_EXPORT AppListView : public views::WidgetDelegateView,
   AppsContainerView* GetAppsContainerView();
 
   // Gets the root apps grid view owned by this view.
-  AppsGridView* GetRootAppsGridView();
+  PagedAppsGridView* GetRootAppsGridView();
 
   // Gets the apps grid view within the folder view owned by this view.
-  AppsGridView* GetFolderAppsGridView();
+  PagedAppsGridView* GetFolderAppsGridView();
 
   // Gets the AppListStateTransitionSource for |app_list_state_| to
   // |target_state|. If we are not interested in recording a state transition
@@ -490,6 +510,15 @@ class ASH_EXPORT AppListView : public views::WidgetDelegateView,
   // Returns true if scroll events should be ignored.
   bool ShouldIgnoreScrollEvents();
 
+  // Returns true if we should dismiss app list. We use the |location|,
+  // |offset|, and |type| of the scroll event. |is_in_vertical_bounds| indicates
+  // whether the event took place within the vertical bounds of the apps grid,
+  // since this affects dismissal behavior.
+  bool ShouldScrollDismissAppList(const gfx::Point& location,
+                                  const gfx::Vector2d& offset,
+                                  ui::EventType type,
+                                  bool is_in_vertical_bounds);
+
   // Returns preferred y of fullscreen widget bounds in parent window for the
   // specified state.
   int GetPreferredWidgetYForState(AppListViewState state) const;
@@ -507,10 +536,14 @@ class ASH_EXPORT AppListView : public views::WidgetDelegateView,
   // is snapped.
   void ResetSubpixelPositionOffset(ui::Layer* layer);
 
-  AppListViewDelegate* delegate_;    // Weak. Owned by AppListService.
+  AppListViewDelegate* const delegate_;
   AppListModel* const model_;        // Not Owned.
   SearchModel* const search_model_;  // Not Owned.
 
+  // Keeps track of the number of locks that prevent the app list view
+  // from creating app list transition accessibility events. This is used to
+  // prevent A11Y announcements when showing the assistant UI.
+  int accessibility_event_disablers_ = 0;
   AppListMainView* app_list_main_view_ = nullptr;
   gfx::NativeView parent_window_ = nullptr;
 

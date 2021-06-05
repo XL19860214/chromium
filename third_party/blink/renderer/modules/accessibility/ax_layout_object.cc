@@ -216,14 +216,19 @@ ax::mojom::blink::Role AXLayoutObject::RoleFromLayoutObjectOrNode() const {
   // the screen reader determine what to do for CSS tables. If this line
   // is reached, then it is not an HTML table, and therefore will only be
   // considered a data table if ARIA markup indicates it is a table.
-  if (layout_object_->IsTable() && node)
-    return ax::mojom::blink::Role::kLayoutTable;
-  if (layout_object_->IsTableSection())
-    return DetermineTableSectionRole();
-  if (layout_object_->IsTableRow() && node)
-    return DetermineTableRowRole();
-  if (layout_object_->IsTableCell() && node)
-    return DetermineTableCellRole();
+  // Additionally, as pseudo elements don't have any structure it doesn't make
+  // sense to report their table-related layout roles that could be set via the
+  // display property.
+  if (node && !node->IsPseudoElement()) {
+    if (layout_object_->IsTable())
+      return ax::mojom::blink::Role::kLayoutTable;
+    if (layout_object_->IsTableSection())
+      return DetermineTableSectionRole();
+    if (layout_object_->IsTableRow())
+      return DetermineTableRowRole();
+    if (layout_object_->IsTableCell())
+      return DetermineTableCellRole();
+  }
 
   if (IsImageOrAltText(layout_object_, node)) {
     if (IsA<HTMLInputElement>(node))
@@ -656,8 +661,7 @@ ax::mojom::blink::ListStyle AXLayoutObject::GetListStyle() const {
       if (counter_style_name == "decimal-leading-zero") {
         // 'decimal-leading-zero' may be overridden by custom counter styles. We
         // return kNumeric only when we are using the predefined counter style.
-        if (!RuntimeEnabledFeatures::CSSAtRuleCounterStyleEnabled() ||
-            ListMarker::GetCounterStyle(*GetDocument(), *computed_style)
+        if (ListMarker::GetCounterStyle(*GetDocument(), *computed_style)
                 .IsPredefined())
           return ax::mojom::blink::ListStyle::kNumeric;
       }
@@ -1020,12 +1024,13 @@ AXObject* AXLayoutObject::PreviousOnLine() const {
 // Properties of interactive elements.
 //
 
-String AXLayoutObject::TextAlternative(bool recursive,
-                                       bool in_aria_labelled_by_traversal,
-                                       AXObjectSet& visited,
-                                       ax::mojom::blink::NameFrom& name_from,
-                                       AXRelatedObjectVector* related_objects,
-                                       NameSources* name_sources) const {
+String AXLayoutObject::TextAlternative(
+    bool recursive,
+    const AXObject* aria_label_or_description_root,
+    AXObjectSet& visited,
+    ax::mojom::blink::NameFrom& name_from,
+    AXRelatedObjectVector* related_objects,
+    NameSources* name_sources) const {
   if (layout_object_) {
     absl::optional<String> text_alternative = GetCSSAltText(GetNode());
     bool found_text_alternative = false;
@@ -1083,9 +1088,9 @@ String AXLayoutObject::TextAlternative(bool recursive,
     }
   }
 
-  return AXNodeObject::TextAlternative(recursive, in_aria_labelled_by_traversal,
-                                       visited, name_from, related_objects,
-                                       name_sources);
+  return AXNodeObject::TextAlternative(
+      recursive, aria_label_or_description_root, visited, name_from,
+      related_objects, name_sources);
 }
 
 //
@@ -1170,49 +1175,6 @@ Document* AXLayoutObject::GetDocument() const {
   if (!GetLayoutObject())
     return nullptr;
   return &GetLayoutObject()->GetDocument();
-}
-
-Element* AXLayoutObject::AnchorElement() const {
-  if (!layout_object_)
-    return nullptr;
-
-  AXObjectCacheImpl& cache = AXObjectCache();
-  LayoutObject* curr_layout_object;
-
-  // Search up the layout tree for a LayoutObject with a DOM node. Defer to an
-  // earlier continuation, though.
-  for (curr_layout_object = layout_object_;
-       curr_layout_object && !curr_layout_object->GetNode();
-       curr_layout_object = curr_layout_object->Parent()) {
-    auto* curr_block_flow = DynamicTo<LayoutBlockFlow>(curr_layout_object);
-    if (!curr_block_flow || !curr_block_flow->IsAnonymousBlock())
-      continue;
-
-    if (LayoutObject* continuation = curr_block_flow->Continuation())
-      return cache.GetOrCreate(continuation)->AnchorElement();
-  }
-  // bail if none found
-  if (!curr_layout_object)
-    return nullptr;
-
-  // Search up the DOM tree for an anchor element.
-  // NOTE: this assumes that any non-image with an anchor is an
-  // HTMLAnchorElement
-  Node* node = curr_layout_object->GetNode();
-  if (!node)
-    return nullptr;
-  for (Node& runner : NodeTraversal::InclusiveAncestorsOf(*node)) {
-    if (IsA<HTMLAnchorElement>(runner))
-      return To<Element>(&runner);
-
-    if (LayoutObject* layout_object = runner.GetLayoutObject()) {
-      AXObject* ax_object = cache.GetOrCreate(layout_object);
-      if (ax_object && ax_object->IsAnchor())
-        return To<Element>(&runner);
-    }
-  }
-
-  return nullptr;
 }
 
 void AXLayoutObject::HandleAutofillStateChanged(WebAXAutofillState state) {

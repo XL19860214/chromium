@@ -47,6 +47,9 @@ class MODULES_EXPORT AXNodeObject : public AXObject {
  public:
   AXNodeObject(Node*, AXObjectCacheImpl&);
   ~AXNodeObject() override;
+
+  static absl::optional<String> GetCSSAltText(const Node*);
+
   void Trace(Visitor*) const override;
 
  protected:
@@ -61,7 +64,6 @@ class MODULES_EXPORT AXNodeObject : public AXObject {
   // The ARIA role, not taking the native role into account.
   ax::mojom::blink::Role aria_role_;
 
-  static absl::optional<String> GetCSSAltText(const Node*);
   AXObjectInclusion ShouldIncludeBasedOnSemantics(
       IgnoredReasons* = nullptr) const;
   bool ComputeAccessibilityIsIgnored(IgnoredReasons* = nullptr) const override;
@@ -96,7 +98,6 @@ class MODULES_EXPORT AXNodeObject : public AXObject {
   bool IsHovered() const final;
   bool IsImageButton() const;
   bool IsInputImage() const final;
-  bool IsInPageLinkTarget() const override;
   bool IsLoaded() const override;
   bool IsMultiSelectable() const override;
   bool IsNativeImage() const final;
@@ -192,7 +193,7 @@ class MODULES_EXPORT AXNodeObject : public AXObject {
   String GetName(ax::mojom::blink::NameFrom&,
                  AXObjectVector* name_objects) const override;
   String TextAlternative(bool recursive,
-                         bool in_aria_labelled_by_traversal,
+                         const AXObject* aria_label_or_description_root,
                          AXObjectSet& visited,
                          ax::mojom::blink::NameFrom&,
                          AXRelatedObjectVector*,

@@ -114,6 +114,13 @@ void AppRegistrar::NotifyWebAppInstalledWithOsHooks(const AppId& app_id) {
     observer.OnWebAppInstalledWithOsHooks(app_id);
 }
 
+void AppRegistrar::NotifyWebAppUserDisplayModeChanged(
+    const AppId& app_id,
+    DisplayMode user_display_mode) {
+  for (AppRegistrarObserver& observer : observers_)
+    observer.OnWebAppUserDisplayModeChanged(app_id, user_display_mode);
+}
+
 void AppRegistrar::NotifyAppRegistrarShutdown() {
   for (AppRegistrarObserver& observer : observers_)
     observer.OnAppRegistrarShutdown();
@@ -169,10 +176,6 @@ GURL AppRegistrar::GetAppLaunchUrl(const AppId& app_id) const {
   std::string query_params = start_url.query() + "&" + *launch_query_params;
   replacements.SetQueryStr(query_params);
   return start_url.ReplaceComponents(replacements);
-}
-
-extensions::BookmarkAppRegistrar* AppRegistrar::AsBookmarkAppRegistrar() {
-  return nullptr;
 }
 
 GURL AppRegistrar::GetAppScope(const AppId& app_id) const {

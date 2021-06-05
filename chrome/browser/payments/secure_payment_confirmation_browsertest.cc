@@ -41,6 +41,7 @@
 #include "net/test/embedded_test_server/http_request.h"
 #include "net/test/embedded_test_server/http_response.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/blink/public/mojom/payments/payment_handler_host.mojom.h"
 
 namespace payments {
 namespace {
@@ -312,10 +313,7 @@ class SecurePaymentConfirmationCreationTest
     auto* controller = PaymentCredentialEnrollmentController::FromWebContents(
         GetActiveWebContents());
     EXPECT_EQ(nullptr, controller->GetTokenIfAvailable());
-    if (confirm_enroll_)
-      controller->OnConfirm();
-    else
-      controller->OnCancel();
+    controller->OnResponse(confirm_enroll_);
   }
 
   // PaymentCredential creation uses the normal Web Authentication code path

@@ -4,8 +4,11 @@
 
 #include "content/browser/renderer_host/back_forward_cache_can_store_document_result.h"
 
+#include "base/debug/crash_logging.h"
+#include "base/debug/dump_without_crashing.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
+#include "content/common/debug_utils.h"
 #include "third_party/blink/public/common/scheduler/web_scheduler_tracked_feature.h"
 
 namespace content {
@@ -27,6 +30,16 @@ std::string DescribeFeatures(uint64_t blocklisted_features) {
 }
 
 }  // namespace
+
+bool BackForwardCacheCanStoreDocumentResult::HasNotStoredReason(
+    BackForwardCacheMetrics::NotRestoredReason reason) const {
+  return not_stored_reasons_.test(static_cast<size_t>(reason));
+}
+
+void BackForwardCacheCanStoreDocumentResult::AddNotStoredReason(
+    BackForwardCacheMetrics::NotRestoredReason reason) {
+  not_stored_reasons_.set(static_cast<size_t>(reason));
+}
 
 bool BackForwardCacheCanStoreDocumentResult::CanStore() const {
   return not_stored_reasons_.none();
@@ -160,34 +173,51 @@ std::string BackForwardCacheCanStoreDocumentResult::NotRestoredReasonToString(
     case Reason::kOptInUnloadHeaderNotPresent:
       return "BFCache-Opt-In header not present, or does not include `unload` "
              "token, and an experimental config which requires it is active.";
+    case Reason::kUnloadHandlerExistsInMainFrame:
+      return "Unload handler exists in the main frame, and the current "
+             "experimental config doesn't permit it to be BFCached.";
+    case Reason::kUnloadHandlerExistsInSubFrame:
+      return "Unload handler exists in a sub frame, and the current "
+             "experimental config doesn't permit it to be BFCached.";
   }
 }
 
 void BackForwardCacheCanStoreDocumentResult::No(
     BackForwardCacheMetrics::NotRestoredReason reason) {
-  not_stored_reasons_.set(static_cast<size_t>(reason));
+  if (reason ==
+          BackForwardCacheMetrics::NotRestoredReason::kBlocklistedFeatures ||
+      reason == BackForwardCacheMetrics::NotRestoredReason::
+                    kDisableForRenderFrameHostCalled) {
+    // This function should not be called if blocklisted features are there or
+    // DisableForRenderFrameHost is called. Log the reason here.
+    SCOPED_CRASH_KEY_STRING256("NotRestoredReason", "reason",
+                               NotRestoredReasonToString(reason));
+    CaptureTraceForNavigationDebugScenario(
+        DebugScenario::kDebugBackForwardCacheMetricsMismatch);
+    base::debug::DumpWithoutCrashing();
+  }
+  AddNotStoredReason(reason);
 }
 
 void BackForwardCacheCanStoreDocumentResult::NoDueToFeatures(
     uint64_t features) {
-  not_stored_reasons_.set(static_cast<size_t>(
-      BackForwardCacheMetrics::NotRestoredReason::kBlocklistedFeatures));
+  AddNotStoredReason(
+      BackForwardCacheMetrics::NotRestoredReason::kBlocklistedFeatures);
   blocklisted_features_ |= features;
 }
 
 void BackForwardCacheCanStoreDocumentResult::
     NoDueToDisableForRenderFrameHostCalled(
         const std::set<BackForwardCache::DisabledReason>& reasons) {
-  not_stored_reasons_.set(
-      static_cast<size_t>(BackForwardCacheMetrics::NotRestoredReason::
-                              kDisableForRenderFrameHostCalled));
+  AddNotStoredReason(BackForwardCacheMetrics::NotRestoredReason::
+                         kDisableForRenderFrameHostCalled);
   for (const BackForwardCache::DisabledReason& reason : reasons)
     disabled_reasons_.insert(reason);
 }
 
 void BackForwardCacheCanStoreDocumentResult::AddReasonsFrom(
     const BackForwardCacheCanStoreDocumentResult& other) {
-  not_stored_reasons_ |= other.not_stored_reasons();
+  not_stored_reasons_ |= other.not_stored_reasons_;
   blocklisted_features_ |= other.blocklisted_features();
   for (const BackForwardCache::DisabledReason& reason :
        other.disabled_reasons()) {

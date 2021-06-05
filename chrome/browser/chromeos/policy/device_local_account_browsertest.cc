@@ -21,6 +21,7 @@
 #include "base/callback.h"
 #include "base/callback_helpers.h"
 #include "base/command_line.h"
+#include "base/cxx17_backports.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/json/json_reader.h"
@@ -32,7 +33,6 @@
 #include "base/scoped_observation.h"
 #include "base/sequenced_task_runner.h"
 #include "base/single_thread_task_runner.h"
-#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
@@ -74,12 +74,11 @@
 #include "chrome/browser/chromeos/extensions/device_local_account_external_policy_loader.h"
 #include "chrome/browser/chromeos/extensions/external_cache.h"
 #include "chrome/browser/chromeos/policy/browser_policy_connector_chromeos.h"
-#include "chrome/browser/chromeos/policy/cloud_external_data_manager_base_test_util.h"
 #include "chrome/browser/chromeos/policy/device_local_account.h"
 #include "chrome/browser/chromeos/policy/device_local_account_policy_service.h"
-#include "chrome/browser/chromeos/policy/device_network_configuration_updater.h"
-#include "chrome/browser/chromeos/policy/device_policy_builder.h"
 #include "chrome/browser/chromeos/policy/device_policy_cros_browser_test.h"
+#include "chrome/browser/chromeos/policy/external_data/cloud_external_data_manager_base_test_util.h"
+#include "chrome/browser/chromeos/policy/networking/device_network_configuration_updater.h"
 #include "chrome/browser/extensions/crx_installer.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/updater/chromeos_extension_cache_delegate.h"
@@ -120,7 +119,7 @@
 #include "components/policy/core/common/cloud/cloud_policy_constants.h"
 #include "components/policy/core/common/cloud/cloud_policy_core.h"
 #include "components/policy/core/common/cloud/cloud_policy_store.h"
-#include "components/policy/core/common/cloud/policy_builder.h"
+#include "components/policy/core/common/cloud/test/policy_builder.h"
 #include "components/policy/core/common/external_data_fetcher.h"
 #include "components/policy/core/common/policy_map.h"
 #include "components/policy/core/common/policy_namespace.h"
@@ -452,8 +451,7 @@ class DeviceLocalAccountTest : public DevicePolicyCrosBrowserTest,
         chrome::NOTIFICATION_LOGIN_OR_LOCK_WEBUI_VISIBLE,
         content::NotificationService::AllSources()).Wait();
 
-    chromeos::LoginDisplayHost* host =
-        chromeos::LoginDisplayHost::default_host();
+    auto* host = ash::LoginDisplayHost::default_host();
     contents_ = host->GetOobeWebContents();
     ASSERT_TRUE(contents_);
 
@@ -669,8 +667,7 @@ class DeviceLocalAccountTest : public DevicePolicyCrosBrowserTest,
   void StartLogin(const std::string& locale,
                   const std::string& input_method) {
     // Start login into the device-local account.
-    chromeos::LoginDisplayHost* host =
-        chromeos::LoginDisplayHost::default_host();
+    auto* host = ash::LoginDisplayHost::default_host();
     ASSERT_TRUE(host);
     host->StartSignInScreen();
     chromeos::ExistingUserController* controller =
@@ -687,7 +684,7 @@ class DeviceLocalAccountTest : public DevicePolicyCrosBrowserTest,
   void WaitForSessionStart() {
     if (IsSessionStarted())
       return;
-    chromeos::WizardController::SkipPostLoginScreensForTesting();
+    ash::WizardController::SkipPostLoginScreensForTesting();
     chromeos::test::WaitForPrimaryUserSessionStart();
   }
 
@@ -2649,8 +2646,7 @@ IN_PROC_BROWSER_TEST_P(TermsOfServiceDownloadTest, TermsOfServiceScreen) {
   controller->RemoveLoginStatusConsumer(&login_status_consumer);
 
   // Verify that the Terms of Service screen is being shown.
-  chromeos::WizardController* wizard_controller =
-        chromeos::WizardController::default_controller();
+  auto* wizard_controller = ash::WizardController::default_controller();
   ASSERT_TRUE(wizard_controller);
   ASSERT_TRUE(wizard_controller->current_screen());
   EXPECT_EQ(chromeos::TermsOfServiceScreenView::kScreenId.AsId(),
@@ -2759,8 +2755,7 @@ IN_PROC_BROWSER_TEST_P(TermsOfServiceDownloadTest, DeclineTermsOfService) {
   controller->RemoveLoginStatusConsumer(&login_status_consumer);
 
   // Verify that the Terms of Service screen is being shown.
-  chromeos::WizardController* wizard_controller =
-      chromeos::WizardController::default_controller();
+  auto* wizard_controller = ash::WizardController::default_controller();
   ASSERT_TRUE(wizard_controller);
   ASSERT_TRUE(wizard_controller->current_screen());
   EXPECT_EQ(chromeos::TermsOfServiceScreenView::kScreenId.AsId(),

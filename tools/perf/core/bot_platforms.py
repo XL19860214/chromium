@@ -485,6 +485,10 @@ _LINUX_PERF_CALIBRATION_BENCHMARK_CONFIGS = PerfSuite([
     _GetBenchmarkConfig('speedometer2'),
     _GetBenchmarkConfig('blink_perf.shadow_dom'),
 ])
+_ANDROID_PIXEL2_PERF_CALIBRATION_BENCHMARK_CONFIGS = PerfSuite([
+    _GetBenchmarkConfig('system_health.common_mobile'),
+    _GetBenchmarkConfig('system_health.memory_mobile'),
+])
 
 
 # Linux
@@ -522,7 +526,7 @@ MAC_M1_MINI_2020 = PerfPlatform(
     'mac-m1_mini_2020-perf',
     'Mac M1 Mini 2020',
     _MAC_M1_MINI_2020_BENCHMARK_CONFIGS,
-    8,
+    26,
     'mac',
     executables=_MAC_M1_MINI_2020_EXECUTABLE_CONFIGS)
 
@@ -650,6 +654,14 @@ LINUX_PERF_CALIBRATION = PerfPlatform(
     'linux',
     is_calibration=True)
 
+ANDROID_PIXEL2_PERF_CALIBRATION = PerfPlatform(
+    'android-pixel2-perf-calibration',
+    'Android OPM1.171019.021',
+    _ANDROID_PIXEL2_PERF_CALIBRATION_BENCHMARK_CONFIGS,
+    42,
+    'android',
+    is_calibration=True)
+
 ALL_PLATFORMS = {
     p for p in locals().values() if isinstance(p, PerfPlatform)
 }
@@ -657,6 +669,7 @@ PLATFORMS_BY_NAME = {p.name: p for p in ALL_PLATFORMS}
 FYI_PLATFORMS = {
     p for p in ALL_PLATFORMS if p.is_fyi
 }
+CALIBRATION_PLATFORMS = {p for p in ALL_PLATFORMS if p.is_calibration}
 OFFICIAL_PLATFORMS = {p for p in ALL_PLATFORMS if p.is_official}
 ALL_PLATFORM_NAMES = {
     p.name for p in ALL_PLATFORMS

@@ -5401,6 +5401,15 @@ should be able to be added at any place in this file.
   </description>
 </action>
 
+<action name="ContextualSearch.SerpResultClicked">
+  <owner>donnd@chromium.org</owner>
+  <owner>contextual-search-eng@google.com</owner>
+  <description>
+    The user clicked on a search result in the Search Result Page that was shown
+    due to a Contextual Search.
+  </description>
+</action>
+
 <action name="ContextualSearch.SmartSelectionSuppressed">
   <owner>donnd@chromium.org</owner>
   <description>
@@ -5436,6 +5445,16 @@ should be able to be added at any place in this file.
   <description>
     The user did a swip or fling to move the Contextual Search panel to the peek
     position.
+  </description>
+</action>
+
+<action name="ContextualSearch.TabPromotion">
+  <owner>donnd@chromium.org</owner>
+  <owner>contextual-search-eng@google.com</owner>
+  <description>
+    The user took an action that promotes the bottom sheet from an overlay into
+    its own separate Tab. The bottom sheet was showing results from a Contextual
+    Search.
   </description>
 </action>
 
@@ -9388,6 +9407,41 @@ should be able to be added at any place in this file.
   </description>
 </action>
 
+<action name="IOS.DefaultBrowserPromo.NonModal.Accepted">
+  <owner>javierrobles@chromium.org</owner>
+  <owner>rkgibson@google.com</owner>
+  <description>
+    The user accepted a non modal promo. This will either take them to the
+    settings instructions for default browser ot directly into settings. To
+    track the former watch for &quot;Settings.DefaultBrowser&quot; action. iOS
+    only.
+  </description>
+</action>
+
+<action name="IOS.DefaultBrowserPromo.NonModal.Appear">
+  <owner>javierrobles@chromium.org</owner>
+  <owner>rkgibson@google.com</owner>
+  <description>
+    The user triggered a non modal default promo, and it appeared. iOS only.
+  </description>
+</action>
+
+<action name="IOS.DefaultBrowserPromo.NonModal.Dismiss">
+  <owner>javierrobles@chromium.org</owner>
+  <owner>rkgibson@google.com</owner>
+  <description>
+    The user dismissed explicitly a non modal promo. iOS only.
+  </description>
+</action>
+
+<action name="IOS.DefaultBrowserPromo.NonModal.Timeout">
+  <owner>javierrobles@chromium.org</owner>
+  <owner>rkgibson@google.com</owner>
+  <description>
+    A non modal promo timed out and was dismissed. iOS only.
+  </description>
+</action>
+
 <action name="IOS.DefaultBrowserPromo.TailoredFullscreen.Accepted">
   <owner>javierrobles@chromium.org</owner>
   <owner>rkgibson@google.com</owner>
@@ -12196,6 +12250,15 @@ should be able to be added at any place in this file.
   <owner>tbuckley@chromium.org</owner>
   <description>
     Recorded when the user activates an existing task from the shelf.
+  </description>
+</action>
+
+<action name="LinkNavigationOpenedInForegroundTab">
+  <owner>meiliang@chromium.org</owner>
+  <owner>sbirch@chromium.org</owner>
+  <description>
+    Recorded any time the user opens a link which navigates into a new forground
+    tab.
   </description>
 </action>
 
@@ -15801,6 +15864,15 @@ should be able to be added at any place in this file.
   </description>
 </action>
 
+<action name="MobileTabGridSelectionDone">
+  <owner>mrefaat@chromium.org</owner>
+  <owner>michaeldo@chromium.org</owner>
+  <description>
+    User in the iOS tab grid used the Done button to exit selection mode and
+    return to regular or incognito tabs panel.
+  </description>
+</action>
+
 <action name="MobileTabGridSelectRegularPanel">
   <owner>edchin@chromium.org</owner>
   <owner>marq@chromium.org</owner>
@@ -15816,6 +15888,14 @@ should be able to be added at any place in this file.
   <description>
     User selected the iOS Tab Grid remote tabs panel by tapping the page
     control.
+  </description>
+</action>
+
+<action name="MobileTabGridSelectTabs">
+  <owner>mrefaat@chromium.org</owner>
+  <owner>michaeldo@chromium.org</owner>
+  <description>
+    User tapped the 'Select' button in the iOS tab grid.
   </description>
 </action>
 
@@ -16728,6 +16808,16 @@ should be able to be added at any place in this file.
   <description>Please enter the description of this user action.</description>
 </action>
 
+<action name="NewTabPage.Carts.DismissLastCartHidesModule">
+  <owner>wychen@chromium.org</owner>
+  <owner>yuezhanggg@chromium.org</owner>
+  <owner>chrome-shopping@google.com</owner>
+  <description>
+    The last cart in the module is temporarily hidden or permanently removed,
+    which causes the module to hide.
+  </description>
+</action>
+
 <action name="NewTabPage.Carts.HideModule">
   <owner>wychen@chromium.org</owner>
   <owner>yuezhanggg@chromium.org</owner>
@@ -16755,6 +16845,16 @@ should be able to be added at any place in this file.
   <description>
     The 'Never show carts' option is clicked in the cart module menu to
     permanently remove the module.
+  </description>
+</action>
+
+<action name="NewTabPage.Carts.RestoreLastCartRestoresModule">
+  <owner>wychen@chromium.org</owner>
+  <owner>yuezhanggg@chromium.org</owner>
+  <owner>chrome-shopping@google.com</owner>
+  <description>
+    An attempt to temporarily hide or permanently remove the last cart in module
+    is undone, which causes the hidden module to be restored.
   </description>
 </action>
 
@@ -20891,6 +20991,25 @@ should be able to be added at any place in this file.
   <description>Please enter the description of this user action.</description>
 </action>
 
+<action name="RelatedSearches.SerpResultClicked">
+  <owner>donnd@chromium.org</owner>
+  <owner>related-searches-vteam@google.com</owner>
+  <description>
+    The user clicked on a search result in the Search Result Page that was shown
+    due to a Related Searches suggestion.
+  </description>
+</action>
+
+<action name="RelatedSearches.TabPromotion">
+  <owner>donnd@chromium.org</owner>
+  <owner>related-searches-vteam@google.com</owner>
+  <description>
+    The user took an action that promotes the bottom sheet from an overlay into
+    its own separate Tab. The bottom sheet was showing results from a Related
+    Searches suggestion.
+  </description>
+</action>
+
 <action name="RelaunchRecommended_Accept">
   <owner>grt@chromium.org</owner>
   <description>
@@ -21967,6 +22086,27 @@ should be able to be added at any place in this file.
   </description>
 </action>
 
+<action name="Settings.PrivacySandbox.FlocDisabled">
+  <owner>andzaytsev@google.com</owner>
+  <owner>sauski@google.com</owner>
+  <description>User disables FLoC on the privacy sandbox page.</description>
+</action>
+
+<action name="Settings.PrivacySandbox.FlocEnabled">
+  <owner>andzaytsev@google.com</owner>
+  <owner>sauski@google.com</owner>
+  <description>User enables FLoC on the privacy sandbox page.</description>
+</action>
+
+<action name="Settings.PrivacySandbox.FlocSubpageOpened">
+  <owner>andzaytsev@google.com</owner>
+  <owner>sauski@google.com</owner>
+  <description>
+    User opens the FLoC subpage by clicking on an element on the privacy sandbox
+    page.
+  </description>
+</action>
+
 <action name="Settings.PrivacySandbox.OpenedFromCookiesPageToast">
   <owner>rainhard@chromium.org</owner>
   <owner>sauski@google.com</owner>
@@ -21994,6 +22134,14 @@ should be able to be added at any place in this file.
   <description>
     User clicks the details button in the privacy sandbox page to see the
     privacy sandbox explainer.
+  </description>
+</action>
+
+<action name="Settings.PrivacySandbox.ResetFloc">
+  <owner>andzaytsev@google.com</owner>
+  <owner>sauski@google.com</owner>
+  <description>
+    User clicks the reset group button to reset their FLoC cohor identifier.
   </description>
 </action>
 
@@ -23429,6 +23577,9 @@ should be able to be added at any place in this file.
 </action>
 
 <action name="Signin_Signin_FromAppsPageLink">
+  <obsolete>
+    Deprecated as the apps page no longer has a sign-in link/promo.
+  </obsolete>
   <owner>gogerald@chromium.org</owner>
   <description>
     Recorded on sign in start from access point
@@ -23678,6 +23829,15 @@ should be able to be added at any place in this file.
 <action name="Signin_Signin_Succeed">
   <owner>gogerald@chromium.org</owner>
   <description>Recorded when user sign in was successful.</description>
+</action>
+
+<action name="Signin_Signin_WipeDataOnChildAccountSignin">
+  <owner>triploblastic@chromium.org</owner>
+  <owner>aliceywang@chromium.org</owner>
+  <description>
+    Recorded when wiping data during child account sign-in process. Only
+    recorded on Android.
+  </description>
 </action>
 
 <action name="Signin_Signin_WithAdvancedSyncSettings">
@@ -28301,6 +28461,8 @@ should be able to be added at any place in this file.
   <suffix name="ReadingListEntryPoint"
       label="For ReadingListEntryPoint feature."/>
   <suffix name="ReopenTab" label="For ReopenTab feature."/>
+  <suffix name="SharedHighlightingBuilder"
+      label="For SharedHighlightingBuilder feature."/>
   <suffix name="TabGroupsDragAndDrop" label="For drop-to-merge in tab group."/>
   <suffix name="TabGroupsQuicklyComparePages"
       label="For long press links to create tab groups."/>
@@ -28341,6 +28503,8 @@ should be able to be added at any place in this file.
   <suffix name="OpenItemInIncognitoTab"
       label="Open a suggested item in an incognito tab."/>
   <suffix name="OpenItemInNewTab" label="Open a suggested item in a new tab."/>
+  <suffix name="OpenItemInNewTabInGroup"
+      label="Open a suggested item in a new tab in group."/>
   <suffix name="OpenItemInNewWindow"
       label="Open a suggested item in a new window."/>
   <suffix name="RemoveItem" label="Remove a suggested item."/>

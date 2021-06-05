@@ -4,6 +4,13 @@
 
 #include "base/values.h"
 
+// values.h is a widely included header and its size has significant impact on
+// build time. Try not to raise this limit unless absolutely necessary. See
+// https://chromium.googlesource.com/chromium/src/+/HEAD/docs/wmax_tokens.md
+#ifndef NACL_TC_REV
+#pragma clang max_tokens_here 547000
+#endif
+
 #include <algorithm>
 #include <cmath>
 #include <ostream>
@@ -14,6 +21,7 @@
 #include "base/bit_cast.h"
 #include "base/check_op.h"
 #include "base/containers/checked_iterators.h"
+#include "base/containers/contains.h"
 #include "base/json/json_writer.h"
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
@@ -1325,46 +1333,19 @@ bool DictionaryValue::GetList(StringPiece path, ListValue** out_value) {
                                  const_cast<const ListValue**>(out_value));
 }
 
-bool DictionaryValue::GetWithoutPathExpansion(StringPiece key,
-                                              const Value** out_value) const {
-  DCHECK(IsStringUTF8AllowingNoncharacters(key));
-  auto entry_iterator = dict().find(key);
-  if (entry_iterator == dict().end())
-    return false;
-
-  if (out_value)
-    *out_value = entry_iterator->second.get();
-  return true;
-}
-
-bool DictionaryValue::GetWithoutPathExpansion(StringPiece key,
-                                              Value** out_value) {
-  return as_const(*this).GetWithoutPathExpansion(
-      key, const_cast<const Value**>(out_value));
-}
-
 bool DictionaryValue::GetBooleanWithoutPathExpansion(StringPiece key,
                                                      bool* out_value) const {
-  const Value* value;
-  if (!GetWithoutPathExpansion(key, &value))
+  const Value* value = FindKey(key);
+  if (!value)
     return false;
 
   return value->GetAsBoolean(out_value);
 }
 
-bool DictionaryValue::GetIntegerWithoutPathExpansion(StringPiece key,
-                                                     int* out_value) const {
-  const Value* value;
-  if (!GetWithoutPathExpansion(key, &value))
-    return false;
-
-  return value->GetAsInteger(out_value);
-}
-
 bool DictionaryValue::GetDoubleWithoutPathExpansion(StringPiece key,
                                                     double* out_value) const {
-  const Value* value;
-  if (!GetWithoutPathExpansion(key, &value))
+  const Value* value = FindKey(key);
+  if (!value)
     return false;
 
   return value->GetAsDouble(out_value);
@@ -1373,8 +1354,8 @@ bool DictionaryValue::GetDoubleWithoutPathExpansion(StringPiece key,
 bool DictionaryValue::GetStringWithoutPathExpansion(
     StringPiece key,
     std::string* out_value) const {
-  const Value* value;
-  if (!GetWithoutPathExpansion(key, &value))
+  const Value* value = FindKey(key);
+  if (!value)
     return false;
 
   return value->GetAsString(out_value);
@@ -1383,8 +1364,8 @@ bool DictionaryValue::GetStringWithoutPathExpansion(
 bool DictionaryValue::GetStringWithoutPathExpansion(
     StringPiece key,
     std::u16string* out_value) const {
-  const Value* value;
-  if (!GetWithoutPathExpansion(key, &value))
+  const Value* value = FindKey(key);
+  if (!value)
     return false;
 
   return value->GetAsString(out_value);
@@ -1393,9 +1374,8 @@ bool DictionaryValue::GetStringWithoutPathExpansion(
 bool DictionaryValue::GetDictionaryWithoutPathExpansion(
     StringPiece key,
     const DictionaryValue** out_value) const {
-  const Value* value;
-  bool result = GetWithoutPathExpansion(key, &value);
-  if (!result || !value->is_dict())
+  const Value* value = FindKey(key);
+  if (!value || !value->is_dict())
     return false;
 
   if (out_value)
@@ -1414,9 +1394,8 @@ bool DictionaryValue::GetDictionaryWithoutPathExpansion(
 bool DictionaryValue::GetListWithoutPathExpansion(
     StringPiece key,
     const ListValue** out_value) const {
-  const Value* value;
-  bool result = GetWithoutPathExpansion(key, &value);
-  if (!result || !value->is_list())
+  const Value* value = FindKey(key);
+  if (!value || !value->is_list())
     return false;
 
   if (out_value)
@@ -1655,17 +1634,6 @@ bool ListValue::Remove(const Value& value, size_t* index) {
   return true;
 }
 
-ListValue::iterator ListValue::Erase(iterator iter,
-                                     std::unique_ptr<Value>* out_value) {
-  if (out_value)
-    *out_value = std::make_unique<Value>(std::move(*iter));
-
-  auto list_iter = list().begin() + (iter - GetList().begin());
-  CHECK(list_iter != list().end());
-  list_iter = list().erase(list_iter);
-  return GetList().begin() + (list_iter - list().begin());
-}
-
 void ListValue::Append(std::unique_ptr<Value> in_value) {
   list().push_back(std::move(*in_value));
 }
@@ -1684,12 +1652,6 @@ void ListValue::AppendString(StringPiece in_value) {
 
 void ListValue::AppendString(const std::u16string& in_value) {
   list().emplace_back(in_value);
-}
-
-void ListValue::AppendStrings(const std::vector<std::string>& in_values) {
-  list().reserve(list().size() + in_values.size());
-  for (const auto& in_value : in_values)
-    list().emplace_back(in_value);
 }
 
 bool ListValue::Insert(size_t index, std::unique_ptr<Value> in_value) {

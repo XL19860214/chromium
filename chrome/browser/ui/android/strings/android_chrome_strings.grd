@@ -266,9 +266,6 @@ CHAR_LIMIT guidelines:
       </message>
 
       <!-- Sign-in, sync and personalization preferences -->
-      <message name="IDS_PREFS_SECTION_ACCOUNT" desc="Title for the group of account-related entries in Settings. [CHAR_LIMIT=32]">
-        Account
-      </message>
       <message name="IDS_PREFS_SECTION_ACCOUNT_AND_GOOGLE_SERVICES" desc="Title for the group of account-related entries and google services in Settings. [CHAR_LIMIT=32]">
         You and Google
       </message>
@@ -543,6 +540,14 @@ CHAR_LIMIT guidelines:
       <message name="IDS_PASSWORDS_CHECK_DESCRIPTION" desc="Text explaining the benefits of checking the passwords, to be displayed under the Check Passwords button title.">
         Keep your passwords safe from data breaches and other security issues
       </message>
+      <!-- TODO(crbug.com/1202088): Remove "translateable=false" once definitive string is available, and update description. -->
+      <message translateable="false" name="IDS_ANDROID_TRUSTED_VAULT_OPT_IN_LABEL" desc="Title for the settings button to opt in to trusted vault encryption">
+        Trusted vault
+      </message>
+      <!-- TODO(crbug.com/1202088): Remove "translateable=false" once definitive string is available, and update description. -->
+      <message translateable="false" name="IDS_ANDROID_TRUSTED_VAULT_OPT_IN_SUB_LABEL" desc="Sub-label for the settings button to opt in to trusted vault encryption">
+        Opt in to trusted vault
+      </message>
       <message name="IDS_SECTION_SAVED_PASSWORDS_EXCEPTIONS" desc="Header for the list of websites for which user selected to never save passwords. [CHAR_LIMIT=32]">
         Never saved
       </message>
@@ -803,6 +808,11 @@ Privacy Sandbox preserves the vitality of the open web by creating better ways t
 
 Privacy Sandbox is still in active development and is available in selected regions. For now, sites may try out Privacy Sandbox while continuing to use current web technologies like third-party cookies. <ph name="BEGIN_LINK">&lt;link&gt;</ph>Learn more<ph name="END_LINK">&lt;/link&gt;</ph>
       </message>
+      <message name="IDS_PRIVACY_SANDBOX_DESCRIPTION_TWO" desc="Description of the 'Privacy Sandbox' when phase 2 flag is enabled.">
+        With <ph name="BEGIN_LINK">&lt;link&gt;</ph>Privacy Sandbox<ph name="END_LINK">&lt;/link&gt;</ph>, Chrome is developing new technologies to safeguard you from cross-site tracking while preserving the open web.
+
+Privacy Sandbox trials are still in active development and are available in selected regions. For now, sites may try out Privacy Sandbox while continuing to use current web technologies like third-party cookies.
+      </message>
       <message name="IDS_PRIVACY_SANDBOX_TOGGLE" desc="Title for the Privacy Sandbox toggle.">
         Privacy Sandbox trials
       </message>
@@ -813,26 +823,30 @@ Privacy Sandbox is still in active development and is available in selected regi
 
 <ph name="BEGIN_LIST_ITEM2">&lt;li2&gt;</ph>Advertisers can study the effectiveness of ads in a way that does not track you across sites.<ph name="END_LIST_ITEM2">&lt;/li2&gt;</ph>
       </message>
+      <message name="IDS_PRIVACY_SANDBOX_TOGGLE_DESCRIPTION_TWO" desc="Description for the Privacy Sandbox toggle when phase 2 flag is enabled.">
+        When on, sites may use the privacy-preserving techniques shown here to provide their content and services. These include alternatives to cross-site tracking. More trials may be added over time.
+
+<ph name="BEGIN_LIST_ITEM1">&lt;li1&gt;</ph>Advertisers and publishers can use FLoC.<ph name="END_LIST_ITEM1">&lt;/li1&gt;</ph>
+
+<ph name="BEGIN_LIST_ITEM2">&lt;li2&gt;</ph>Advertisers and publishers can study the effectiveness of ads in a way that does not track you across sites.<ph name="END_LIST_ITEM2">&lt;/li2&gt;</ph>
+      </message>
       <message name="IDS_PRIVACY_SANDBOX_SNACKBAR_MESSAGE" desc="The text displayed in the snackbar, which gives the user an option to navigate to the Privacy Sandbox settings page. 'Privacy sandbox' has TC ID 5753235213964358658.">
         Learn about and control new technologies that aim to replace third-party cookies
       </message>
       <message name="IDS_PREFS_PRIVACY_SANDBOX_FLOC" desc="Title for the FLoC preferences as part of the Privacy Sandbox.">
         FLoC
       </message>
-      <message name="IDS_PRIVACY_SANDBOX_FLOC_DESCRIPTION" desc="Describes the FLoC technology as part of Privacy Sandbox.">
-        When on and the status is active, Chrome uses your browsing history over 7 days to determine a group, or “cohort”, that you’re in. Advertisers can select ads for the group. Your browsing history is not shared and is kept private on your device. In some regions, this trial is not active.
+      <message name="IDS_PRIVACY_SANDBOX_FLOC_DESCRIPTION" desc="Sentence indicating that FLoC is only available in some regions, including a link to a page that describes exactly what regions it is available. This will only ever appear directly after another sentence.">
+        This trial is active only in <ph name="BEGIN_LINK">&lt;link&gt;</ph>some regions<ph name="END_LINK">&lt;/link&gt;</ph>.
       </message>
       <message name="IDS_PRIVACY_SANDBOX_FLOC_STATUS_TITLE" desc="Title for FLoC experiment status.">
         Status
       </message>
       <message name="IDS_PRIVACY_SANDBOX_FLOC_GROUP_TITLE" desc="Title for FLoC group.">
-        Group ID
+        Group number
       </message>
       <message name="IDS_PRIVACY_SANDBOX_FLOC_UPDATE_TITLE" desc="Title for FLoC update.">
         Next update
-      </message>
-      <message name="IDS_PRIVACY_SANDBOX_FLOC_RESET_DESCRIPTION" desc="Describes the ability to reset FLoC group ID.">
-        You can reset your group at any time. It takes 7 days to determine your group.
       </message>
       <message name="IDS_PRIVACY_SANDBOX_FLOC_RESET_BUTTON" desc="Button text to reset FLoC group ID.">
         Reset group
@@ -1610,9 +1624,6 @@ Your Google account may have other forms of browsing history like searches and a
       <message name="IDS_SYNC_DATA_TYPES_OFF" desc="Message to show when all sync data types are off">
         No data selected to sync
       </message>
-      <message name="IDS_SYNC_SETTINGS_NOT_CONFIRMED_LEGACY" desc="The error message to display when sign-in was interrupted and the user didn't review the sync settings.">
-        Initial sync setup was not finished. Sync is off.
-      </message>
       <message name="IDS_SYNC_SETTINGS_NOT_CONFIRMED" desc="The error message to display when sign-in was interrupted and the user didn't review the sync settings.">
         Tap to set up sync
       </message>
@@ -1854,6 +1865,9 @@ To change this setting, <ph name="BEGIN_LINK">&lt;resetlink&gt;</ph>reset sync<p
       <message name="IDS_BLUETOOTH_NEED_LOCATION_PERMISSION_HELP" desc="The status message to get more information about why Chrome needs the Location permission in order to scan for Bluetooth devices.">
         <ph name="BEGIN_LINK">&lt;link&gt;</ph>Get help<ph name="END_LINK">&lt;/link&gt;</ph>
       </message>
+      <message name="IDS_BLUETOOTH_NEED_NEARBY_DEVICES_PERMISSION" desc="The message to show when scanning cannot start because Chrome needs the Nearby devices permission in order for Android to return any Bluetooth devices from a scan.">
+        Chrome needs permission to scan for nearby devices. <ph name="BEGIN_LINK">&lt;permission_link&gt;</ph>Update permissions<ph name="END_LINK">&lt;/permission_link&gt;</ph>.
+      </message>
       <message name="IDS_BLUETOOTH_DEVICE_CONNECTED" desc="Content description for the connected icon next to connected Bluetooth devices.">
         Connected Device
       </message>
@@ -1887,6 +1901,12 @@ To change this setting, <ph name="BEGIN_LINK">&lt;resetlink&gt;</ph>reset sync<p
       <message name="IDS_HINT_SYNC_AUTH_ERROR" desc="Hint message to resolve sync auth error.">
         Sign in again to start sync
       </message>
+      <message name="IDS_HINT_SYNC_RECOVERABILITY_DEGRADED_FOR_EVERYTHING" desc="Hint message to resolve sync degraded recoverability, for users that have not chosen to encrypt all sync data">
+        Make sure you can always access your sync data
+      </message>
+      <message name="IDS_HINT_SYNC_RECOVERABILITY_DEGRADED_FOR_PASSWORDS" desc="Hint message to resolve sync degraded recoverability, for users that have chosen to encrypt all sync data.">
+        Make sure you can always access your saved passwords
+      </message>
       <message name="IDS_HINT_SYNC_RETRIEVE_KEYS_FOR_EVERYTHING" desc="Hint message to resolve sync encryption error, required to resume sync.">
         To start sync, verify it's you
       </message>
@@ -1898,9 +1918,6 @@ To change this setting, <ph name="BEGIN_LINK">&lt;resetlink&gt;</ph>reset sync<p
       </message>
       <message name="IDS_HINT_SYNC_SETTINGS_NOT_CONFIRMED_DESCRIPTION" desc="The error message to display when sign-in was interrupted and the user didn't review the sync settings.">
         Choose what to sync below
-      </message>
-      <message name="IDS_HINT_SYNC_SETTINGS_NOT_CONFIRMED_DESCRIPTION_LEGACY" desc="The error message to display when sign-in was interrupted and the user didn't review the sync settings.">
-        To start sync, turn on "Sync your Chrome data".
       </message>
       <message name="IDS_HINT_OTHER_SYNC_ERRORS" desc="Hint message to resolve sync errors not listed independently.">
         Try signing in again
@@ -2141,6 +2158,9 @@ To change this setting, <ph name="BEGIN_LINK">&lt;resetlink&gt;</ph>reset sync<p
       <!-- ContextMenu -->
       <message name="IDS_CONTEXTMENU_OPEN_IN_OTHER_WINDOW" desc="Context sensitive menu item to open the selected link in the other window. [CHAR_LIMIT=30]">
         Open in other window
+      </message>
+      <message name="IDS_CONTEXTMENU_OPEN_IN_NEW_WINDOW" desc="Context sensitive menu item to open the selected link in a new window. [CHAR_LIMIT=30]">
+        Open in new window
       </message>
       <message name="IDS_CONTEXTMENU_OPEN_IN_NEW_TAB" desc="Context sensitive menu item to open the selected link in a new tab. [CHAR_LIMIT=30]">
         Open in new tab
@@ -2646,19 +2666,7 @@ To change this setting, <ph name="BEGIN_LINK">&lt;resetlink&gt;</ph>reset sync<p
       <message name="IDS_SIGNIN_ADD_ACCOUNT_TO_DEVICE" desc="Text for adding another Google Account to device in the web sign-in flow and account picker dialog, users will be asked to add an account to his device when this text is tapped">
         Add account to device
       </message>
-      <message name="IDS_SIGNIN_INCOGNITO_BUTTON" desc="Button text to open the Incognito interstitial in the web sign-in account picker bottom sheet">
-        Open an Incognito tab
-      </message>
 
-      <!-- Strings for Incognito Interstitial. -->
-      <message name="IDS_INCOGNITO_INTERSTITIAL_TITLE" desc="The title of the Incognito interstitial bottom sheet.">
-        Use Incognito to sign in
-      </message>
-      <message name="IDS_INCOGNITO_INTERSTITIAL_MESSAGE" desc="The content of Incognito interstitial which is shown when a user is in the sign-in flow and they want to go Incognito mode to continue signing in. Before they go Incognito mode they would be presented with an Incognito interstitial and this message is part of that interstitial which would inform how activity in Incognito may be visbile to others and how data from the Incognito session can be cleared.">
-In Incognito, your activity <ph name="BEGIN_BOLD1">&lt;b1&gt;</ph>might still be visible <ph name="END_BOLD1">&lt;/b1&gt;</ph>to websites that you visit, your employer or school, and your internet service provider.
-
-Data from your Incognito session will only be cleared from Chrome when you <ph name="BEGIN_BOLD2">&lt;b2&gt;</ph>close all Incognito tabs<ph name="END_BOLD2">&lt;/b2&gt;</ph>.
-      </message>
       <!-- Strings for Streamlined Signin and Unified Consent. -->
       <message name="IDS_SIGNIN_TITLE" desc="Title for the screen that asks users to sign-in and turn on Sync. [CHAR_LIMIT=27]">
         Turn on sync?
@@ -2846,6 +2854,9 @@ Data from your Incognito session will only be cleared from Chrome when you <ph n
       <message name="IDS_FOLLOW_MANAGE_FOLLOWING" desc="Header for Following Management activity.">
         Following
       </message>
+      <message name="IDS_FOLLOW_MANAGE_FOLLOWING_EMPTY_STATE" desc="Message for Following Management activity when there are no followed sites to show.">
+        You'll find sites you follow here
+      </message>
       <message name="IDS_FOLLOW_MANAGE_UPDATES_UNAVAILABLE" desc="Label this web feed source as unavailable so the user will not expect updates from it.">
         Updates Unavailable
       </message>
@@ -2869,8 +2880,8 @@ Data from your Incognito session will only be cleared from Chrome when you <ph n
       </message>
       <message name="IDS_NTP_FOR_YOU" desc="Title in the feed header for interest-based feed.">For you</message>
       <message name="IDS_NTP_FOLLOWING" desc="Title in the feed header for user-customized following feed.">Following</message>
-      <message name="IDS_ACCESSIBILITY_NTP_FOLLOWING_UNREAD_CONTENT" desc="Content description for the feed header for user-customized following feed, when unread content is available.">
-      Following, unread stories ready
+      <message name="IDS_ACCESSIBILITY_NTP_FOLLOWING_UNREAD_CONTENT" desc="Content description for the feed header blue dot for user-customized following feed, which indicates that unread content is available.">
+      Unread stories ready
       </message>
       <message name="IDS_NTP_FEED_MENU_IPH" desc="In-product help that points at the menu icon for the news feed on Chrome's new tab page. This string instructs the user to open the menu for settings that let them control the content that appears on the feed.">
         Control your stories and activity here
@@ -2885,6 +2896,8 @@ Data from your Incognito session will only be cleared from Chrome when you <ph n
       <message name="IDS_DISCOVER_NO_CARDS_INSTRUCTIONS" desc="Message body for the article feed on the New Tab Page. Instructs the user to come back later when new feed content is available. Please translate 'stories' to match its use in TC ID 792300740424433300. Also see TC ID 7331961212006720987 for the corresponding message in Discover.">Check back later for new stories</message>
       <message name="IDS_DISCOVER_CANT_REFRESH" desc="Message title for the article feed on the New Tab Page. Shown when feed content is not available because there is no internet connection. Please use the branded term for Discover, as listed under Product Names in the Google Glossary Manager (TC ID 1799975766543019278). Also see TC ID 6114827482740570724 for the corresponding message in Discover.">Can't refresh Discover</message>
       <message name="IDS_DISCOVER_CANT_REFRESH_INSTRUCTIONS" desc="Message body for the article feed on the New Tab Page. Instructs the user to wait and try to refresh the feed once the internet connection returns. Please translate 'stories' to match its use in TC ID 792300740424433300. Also see TC ID 6114827482740570724 for the corresponding message in Discover.">Check back later for new stories</message>
+      <message name="IDS_WEB_FEED_NO_CARDS_TITLE" desc="Message title for the user-customizable web feed on the New Tab Page. Shown when the user either has not followed any websites or when the user has followed some websites but the sites do not have any new articles. Please translate 'stories' to match its use in TC ID 792300740424433300.">You'll find stories here</message>
+      <message name="IDS_WEB_FEED_NO_CARDS_INSTRUCTIONS" desc="Message body for the user-customizable web feed on the New Tab Page. Shown when the user either has not followed any websites or when the user has followed some websites but the sites do not have any new articles. Instructs the user to follow more sites or check back later. Please translate 'Follow' (with capital F) to match its use in TC ID 4108314971463891922.">To follow a site, go to the site, open the Chrome menu, and tap Follow.</message>
 
       <!-- Explore sites strings -->
       <message name="IDS_EXPLORE_SITES_TITLE" desc="Title of a section showing different categories, each with a number of popular websites">
@@ -2992,6 +3005,36 @@ Data from your Incognito session will only be cleared from Chrome when you <ph n
       </message>
       <message name="IDS_CUSTOM_TAB_AMP_PUBLISHER_URL" desc="Text shown in a Custom Tab toolbar for a web page that is hosted by the Google content delivery network but was originally published by someone else.">
         From <ph name="PUBLISHER_ORIGIN">&lt;pub&gt;%1$s&lt;/pub&gt;<ex>example.com</ex></ph> – <ph name="BEGIN_DEEMPHASIZED">&lt;bg&gt;</ph>delivered by Google<ph name="END_DEEMPHASIZED">&lt;/bg&gt;</ph>
+      </message>
+      <message name="IDS_ADAPTIVE_TOOLBAR_BUTTON_PREFERENCE_NEW_TAB" desc="Title name for the new tab option in the preference.">
+        New tab
+      </message>
+      <message name="IDS_ADAPTIVE_TOOLBAR_BUTTON_PREFERENCE_SHARE" desc="Title name for the share option in the preference.">
+        Share
+      </message>
+      <message name="IDS_ADAPTIVE_TOOLBAR_BUTTON_PREFERENCE_VOICE_SEARCH" desc="Title name for the voice search option in the preference.">
+        Voice search
+      </message>
+      <message name="IDS_ADAPTIVE_TOOLBAR_BUTTON_PREFERENCE_BASED_ON_YOUR_USAGE" desc="Title name for the based on your usage option in the preference.">
+        Based on your usage
+      </message>
+      <message name="IDS_ADAPTIVE_TOOLBAR_BUTTON_PREFERENCE_BASED_ON_YOUR_USAGE_DESCRIPTION" desc="Description for based on your usage option.">
+        Current recommendation:  <ph name="RECOMMENDATION">%1$s<ex>New tab</ex></ph>
+      </message>
+      <message name="IDS_TOOLBAR_SHORTCUT" desc="Title for toolbar shortcut toggle button in adaptive toolbar button preference page.">
+        Toolbar shortcut
+      </message>
+      <message name="IDS_ADAPTIVE_TOOLBAR_BUTTON_NEW_TAB_IPH" desc="An in-product-help message for the new tab button.">
+        Quickly open a new tab. To edit this shortcut, touch and hold.
+      </message>
+        <message name="IDS_ADAPTIVE_TOOLBAR_BUTTON_SHARE_IPH" desc="An in-product-help message for the share button.">
+        Quickly share this page. To edit this shortcut, touch and hold.
+      </message>
+      <message name="IDS_ADAPTIVE_TOOLBAR_BUTTON_VOICE_SEARCH_IPH" desc="An in-product-help message for the voice search button.">
+        Quickly search with your voice. To edit this shortcut, touch and hold.
+      </message>
+      <message name="IDS_ADAPTIVE_TOOLBAR_MENU_EDIT_SHORTCUT" desc="The menu option for opening adaptive toolbar settings.">
+        Edit shortcut
       </message>
 
       <!-- Main menu items -->
@@ -4004,6 +4047,9 @@ Data from your Incognito session will only be cleared from Chrome when you <ph n
       <message name="IDS_IPH_TRANSLATE_MENU_BUTTON_ACCESSIBILITY_TEXT" desc="The in-product-help accessibility text after a successful navigation prompting user to translate current page.">
         Translate this page to any language from the More options button
       </message>
+      <message name="IDS_IPH_SHARED_HIGHLIGHTING_BUILDER" desc="The in-product-help message to notify the user that the share action can preemptively share a link-to-text.">
+        New: share a link that scrolls to this text
+      </message>
 
       <!-- Search Widget strings -->
       <message name="IDS_SEARCH_WIDGET_DEFAULT" desc="Default text for the search widget">
@@ -4168,11 +4214,14 @@ Data from your Incognito session will only be cleared from Chrome when you <ph n
       </message>
 
       <!-- Sms Fetcher -->
+      <message name="IDS_SMS_FETCHER_NOTIFICATION_TITLE_UNKNOWN_DEVICE" translateable="false" desc="Title text shown when the browser has received an SMS on the user's behalf when the source device name is unknown.">
+        Allow Chrome to submit code on your remote device?
+      </message>
       <message name="IDS_SMS_FETCHER_NOTIFICATION_TITLE" translateable="false" desc="Title text shown when the browser has received an SMS on the user's behalf.">
-        Tap to verify your phone number on desktop
+        Allow Chrome to submit code on your <ph name="OS">%1$s<ex>mac</ex></ph>?
       </message>
       <message name="IDS_SMS_FETCHER_NOTIFICATION_TEXT" translateable="false" desc="Content text shown when the browser has received an SMS on the user's behalf.">
-        <ph name="ONE_TIME_CODE">%1$s<ex>123</ex></ph> is your code for <ph name="ORIGIN">%2$s<ex>example.com</ex></ph>
+        Tap OK to submit <ph name="ONE_TIME_CODE">%1$s<ex>123</ex></ph> on <ph name="ORIGIN">%2$s<ex>example.com</ex></ph>
       </message>
 
       <!-- Interventions -->
@@ -4376,6 +4425,14 @@ Data from your Incognito session will only be cleared from Chrome when you <ph n
         Your computer wants to use this device to sign in to a site
       </message>
 
+      <message name="IDS_CABLEV2_BLE_ENABLE_TITLE" desc="The title of a screen that'll appear on a phone when we need to enable Bluetooth on the device. This screen will appear for a couple of seconds to give context, then a prompt will appear to allow the user to confirm that they wish to enable Bluetooth. Bluetooth is a radio technology commonly found in phones.">
+        Switching on Bluetooth…
+      </message>
+
+      <message name="IDS_CABLEV2_BLE_ENABLE_BODY" desc="The subheading on a screen that'll appear on a phone when we need to enable Bluetooth on the device. This screen will appear for a couple of seconds to give context, then a prompt will appear to allow the user to confirm that they wish to enable Bluetooth. Bluetooth is a radio technology commonly found in phones. This subheading is informing the user that, if they opt to turn on Bluetooth for this operation, it'll automatically be switched off again afterwards.">
+        We'll switch it back off after we are done
+      </message>
+
       <!-- QR Code -->
       <message name="IDS_QR_CODE_SHARE_ICON_LABEL" desc="Icon label for sharing with QR Code activity.">
         QR Code
@@ -4435,6 +4492,26 @@ Data from your Incognito session will only be cleared from Chrome when you <ph n
 
       <message name="IDS_SHARING_LONG_SCREENSHOT" desc="Label for Long Screenshot button in the sharing hub.">
         Long Screenshot
+      </message>
+
+      <message name="IDS_SHARING_LONG_SCREENSHOT_INSTRUCTIONS" desc="Text message instructing users how to extend a screenshot region in the long screenshot capture dialog.">
+        Drag to take a long screenshot
+      </message>
+
+      <message name="IDS_SHARING_LONG_SCREENSHOT_REACHED_TOP" desc="Text shown in the toast notification when user reached the top of the available screenshot selection window, in the long screenshots feature.">
+        Can\u2019t go higher. Try starting from further up the page.
+      </message>
+
+      <message name="IDS_SHARING_LONG_SCREENSHOT_REACHED_BOTTOM" desc="Text shown in the toast notification when user reached the bottom of the available screenshot selection window, in the long screenshots feature.">
+        Can\u2019t go lower. Try starting from further down the page.
+      </message>
+
+      <message name="IDS_SHARING_LONG_SCREENSHOT_MEMORY_PRESSURE" desc="Text shown in the toast notification when additional screenshot data cannot be captured due to memory pressure, in the long screenshots feature.">
+        Can\u2019t extend screenshot. Try again when your phone isn\u2019t busy.
+      </message>
+
+      <message name="IDS_SHARING_LONG_SCREENSHOT_UNKNOWN_ERROR" desc="Text shown in the toast notification when screenshot data cannot be captured due to a general or unknown error, in the long screenshots feature.">
+        Something went wrong. Try again.
       </message>
 
       <message name="IDS_SHARING_HIGHLIGHTS" desc="Label for Link-to-text button in the sharing hub.">

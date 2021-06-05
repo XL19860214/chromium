@@ -12,9 +12,9 @@
 #include <iomanip>
 
 #include "base/bind.h"
+#include "base/cxx17_backports.h"
 #include "base/memory/ptr_util.h"
 #include "base/numerics/math_constants.h"
-#include "base/stl_util.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "base/win/scoped_propvariant.h"
@@ -490,7 +490,8 @@ bool PlatformSensorReaderWin32::SetReportingInterval(
 
 HRESULT PlatformSensorReaderWin32::SensorReadingChanged(
     ISensorDataReport* report,
-    SensorReading* reading) const {
+    SensorReading* reading) {
+  base::AutoLock autolock(lock_);
   if (!client_)
     return E_FAIL;
 
@@ -501,6 +502,7 @@ HRESULT PlatformSensorReaderWin32::SensorReadingChanged(
 }
 
 void PlatformSensorReaderWin32::SensorError() {
+  base::AutoLock autolock(lock_);
   if (client_)
     client_->OnSensorError();
 }

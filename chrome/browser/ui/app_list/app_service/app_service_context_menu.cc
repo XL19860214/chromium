@@ -30,6 +30,7 @@
 #include "chrome/browser/web_applications/components/app_registry_controller.h"
 #include "chrome/browser/web_applications/web_app_provider.h"
 #include "chrome/grit/generated_resources.h"
+#include "components/services/app_service/public/cpp/types_util.h"
 #include "content/public/browser/context_menu_params.h"
 #include "ui/display/scoped_display_for_new_windows.h"
 #include "ui/gfx/vector_icon_types.h"
@@ -40,19 +41,20 @@ bool MenuItemHasLauncherContext(const extensions::MenuItem* item) {
   return item->contexts().Contains(extensions::MenuItem::LAUNCHER);
 }
 
-web_app::DisplayMode ConvertUseLaunchTypeCommandToDisplayMode(int command_id) {
+apps::mojom::WindowMode ConvertUseLaunchTypeCommandToWindowMode(
+    int command_id) {
   DCHECK(command_id >= ash::USE_LAUNCH_TYPE_COMMAND_START &&
          command_id < ash::USE_LAUNCH_TYPE_COMMAND_END);
   switch (command_id) {
     case ash::USE_LAUNCH_TYPE_REGULAR:
-      return web_app::DisplayMode::kBrowser;
+      return apps::mojom::WindowMode::kBrowser;
     case ash::USE_LAUNCH_TYPE_WINDOW:
-      return web_app::DisplayMode::kStandalone;
+      return apps::mojom::WindowMode::kWindow;
     case ash::USE_LAUNCH_TYPE_PINNED:
     case ash::USE_LAUNCH_TYPE_FULLSCREEN:
     case ash::USE_LAUNCH_TYPE_TABBED_WINDOW:
     default:
-      return web_app::DisplayMode::kUndefined;
+      return apps::mojom::WindowMode::kUnknown;
   }
 }
 
@@ -67,10 +69,9 @@ AppServiceContextMenu::AppServiceContextMenu(
   apps::AppServiceProxyFactory::GetForProfile(profile)
       ->AppRegistryCache()
       .ForOneApp(app_id, [this](const apps::AppUpdate& update) {
-        app_type_ =
-            update.Readiness() == apps::mojom::Readiness::kUninstalledByUser
-                ? apps::mojom::AppType::kUnknown
-                : app_type_ = update.AppType();
+        app_type_ = apps_util::IsInstalled(update.Readiness())
+                        ? app_type_ = update.AppType()
+                        : apps::mojom::AppType::kUnknown;
       });
 }
 
@@ -186,11 +187,16 @@ bool AppServiceContextMenu::IsCommandIdChecked(int command_id) const {
           return command_id == ash::USE_LAUNCH_TYPE_TABBED_WINDOW;
         }
 
-        web_app::DisplayMode user_display_mode =
-            provider->registrar().GetAppUserDisplayMode(app_id());
-        return user_display_mode != web_app::DisplayMode::kUndefined &&
-               user_display_mode ==
-                   ConvertUseLaunchTypeCommandToDisplayMode(command_id);
+        auto user_window_mode = apps::mojom::WindowMode::kUnknown;
+        apps::AppServiceProxyFactory::GetForProfile(profile())
+            ->AppRegistryCache()
+            .ForOneApp(app_id(),
+                       [&user_window_mode](const apps::AppUpdate& update) {
+                         user_window_mode = update.WindowMode();
+                       });
+        return user_window_mode != apps::mojom::WindowMode::kUnknown &&
+               user_window_mode ==
+                   ConvertUseLaunchTypeCommandToWindowMode(command_id);
       }
       return AppContextMenu::IsCommandIdChecked(command_id);
 
@@ -311,16 +317,16 @@ void AppServiceContextMenu::ShowAppInfo() {
 void AppServiceContextMenu::SetLaunchType(int command_id) {
   switch (app_type_) {
     case apps::mojom::AppType::kWeb: {
-      // Web apps can only toggle between kStandalone and kBrowser.
-      web_app::DisplayMode user_display_mode =
-          ConvertUseLaunchTypeCommandToDisplayMode(command_id);
-      if (user_display_mode != web_app::DisplayMode::kUndefined) {
+      // Web apps can only toggle between kWindow and kBrowser.
+      apps::mojom::WindowMode user_window_mode =
+          ConvertUseLaunchTypeCommandToWindowMode(command_id);
+      if (user_window_mode != apps::mojom::WindowMode::kUnknown) {
         auto* provider = web_app::WebAppProvider::Get(profile());
         DCHECK(provider);
         provider->registry_controller().SetExperimentalTabbedWindowMode(
             app_id(), false, /*is_user_action=*/true);
-        provider->registry_controller().SetAppUserDisplayMode(
-            app_id(), user_display_mode, /*is_user_action=*/true);
+        apps::AppServiceProxyFactory::GetForProfile(profile())->SetWindowMode(
+            app_id(), user_window_mode);
       }
       return;
     }

@@ -7,7 +7,7 @@
 // NOTE: The format of types has changed. 'FooType' is now
 //   'chrome.automation.FooType'.
 // Please run the closure compiler before committing changes.
-// See https://chromium.googlesource.com/chromium/src/+/master/docs/closure_compilation.md
+// See https://chromium.googlesource.com/chromium/src/+/main/docs/closure_compilation.md
 
 /** @fileoverview Externs generated from namespace: automation */
 
@@ -35,6 +35,7 @@ chrome.automation.EventType = {
   CLICKED: 'clicked',
   COLLAPSED: 'collapsed',
   CONTROLS_CHANGED: 'controlsChanged',
+  DETAILS_CHANGED: 'detailsChanged',
   DESCRIBED_BY_CHANGED: 'describedByChanged',
   DESCRIPTION_CHANGED: 'descriptionChanged',
   DOCUMENT_SELECTION_CHANGED: 'documentSelectionChanged',
@@ -145,7 +146,6 @@ chrome.automation.RoleType = {
   ABBR: 'abbr',
   ALERT: 'alert',
   ALERT_DIALOG: 'alertDialog',
-  ANCHOR: 'anchor',
   APPLICATION: 'application',
   ARTICLE: 'article',
   AUDIO: 'audio',
@@ -378,6 +378,7 @@ chrome.automation.ActionType = {
   INTERNAL_INVALIDATE_TREE: 'internalInvalidateTree',
   LOAD_INLINE_TEXT_BOXES: 'loadInlineTextBoxes',
   REPLACE_SELECTED_TEXT: 'replaceSelectedText',
+  RESUME_MEDIA: 'resumeMedia',
   SCROLL_BACKWARD: 'scrollBackward',
   SCROLL_DOWN: 'scrollDown',
   SCROLL_FORWARD: 'scrollForward',
@@ -394,6 +395,9 @@ chrome.automation.ActionType = {
   SHOW_CONTEXT_MENU: 'showContextMenu',
   SIGNAL_END_OF_TEST: 'signalEndOfTest',
   SHOW_TOOLTIP: 'showTooltip',
+  START_DUCKING_MEDIA: 'startDuckingMedia',
+  STOP_DUCKING_MEDIA: 'stopDuckingMedia',
+  SUSPEND_MEDIA: 'suspendMedia',
 };
 
 /**
@@ -1531,13 +1535,6 @@ chrome.automation.AutomationNode.prototype.textSelStart;
 chrome.automation.AutomationNode.prototype.textSelEnd;
 
 /**
- * The input type, like email or number.
- * @type {(string|undefined)}
- * @see https://developer.chrome.com/extensions/automation#type-textInputType
- */
-chrome.automation.AutomationNode.prototype.textInputType;
-
-/**
  * An array of Marker objects for this node.
  * @type {(!Array<!chrome.automation.Marker>|undefined)}
  * @see https://developer.chrome.com/extensions/automation#type-markers
@@ -2021,11 +2018,11 @@ chrome.automation.AutomationNode.prototype.fontSize;
 chrome.automation.AutomationNode.prototype.fontFamily;
 
 /**
- * Indicates whether the object is at the root of a content editable region, or at a <body> element that has "design-mode" set to "on".
+ * Indicates whether the object functions as a text field which exposes its descendants. Use cases include the root of a content-editable region, an ARIA textbox which isn't currently editable and which has interactive descendants, and a <body> element that has "design-mode" set to "on".
  * @type {boolean}
- * @see https://developer.chrome.com/extensions/automation#type-contentEditableRoot
+ * @see https://developer.chrome.com/extensions/automation#type-nonAtomicTextFieldRoot
  */
-chrome.automation.AutomationNode.prototype.contentEditableRoot;
+chrome.automation.AutomationNode.prototype.nonAtomicTextFieldRoot;
 
 /**
  * Indicates aria-current state.

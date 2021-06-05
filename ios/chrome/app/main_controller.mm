@@ -36,6 +36,7 @@
 #import "ios/chrome/app/blocking_scene_commands.h"
 #import "ios/chrome/app/content_suggestions_scheduler_app_state_agent.h"
 #import "ios/chrome/app/deferred_initialization_runner.h"
+#import "ios/chrome/app/first_run_app_state_agent.h"
 #import "ios/chrome/app/memory_monitor.h"
 #import "ios/chrome/app/safe_mode_app_state_agent.h"
 #import "ios/chrome/app/spotlight/spotlight_manager.h"
@@ -94,7 +95,6 @@
 #import "ios/chrome/browser/ui/appearance/appearance_customization.h"
 #import "ios/chrome/browser/ui/commands/browser_commands.h"
 #import "ios/chrome/browser/ui/commands/command_dispatcher.h"
-#import "ios/chrome/browser/ui/first_run/first_run_util.h"
 #import "ios/chrome/browser/ui/first_run/welcome_to_chrome_view_controller.h"
 #import "ios/chrome/browser/ui/main/browser_view_wrangler.h"
 #import "ios/chrome/browser/ui/main/scene_delegate.h"
@@ -285,6 +285,12 @@ void MainControllerAuthenticationServiceDelegate::ClearBrowsingData(
 
   // Hander for the startup tasks, deferred or not.
   StartupTasks* _startupTasks;
+
+  // List of closure to run as part of shutdown. The closure will be called
+  // in reverse order of registration.
+  std::vector<base::OnceClosure> _cleanupClosures;
+
+  FirstRunAppAgent* _firstRunAppAgent;
 }
 
 // Handles collecting metrics on user triggered screenshots
@@ -346,6 +352,8 @@ void MainControllerAuthenticationServiceDelegate::ClearBrowsingData(
 // Initializes the browser objects for the browser UI (e.g., the browser
 // state).
 - (void)startUpBrowserForegroundInitialization;
+// Register a closure to be called as part of app cleanup.
+- (void)registerCleanupClosure:(base::OnceClosure)closure;
 @end
 
 @implementation MainController
@@ -358,6 +366,7 @@ void MainControllerAuthenticationServiceDelegate::ClearBrowsingData(
 // - StartupInformation
 @synthesize isColdStart = _isColdStart;
 @synthesize appLaunchTime = _appLaunchTime;
+@synthesize isFirstRun = _isFirstRun;
 
 #pragma mark - Application lifecycle
 
@@ -565,6 +574,10 @@ void MainControllerAuthenticationServiceDelegate::ClearBrowsingData(
                 self.appState.postCrashLaunch];
 }
 
+- (void)registerCleanupClosure:(base::OnceClosure)closure {
+  _cleanupClosures.push_back(std::move(closure));
+}
+
 - (void)initializeBrowserState:(ChromeBrowserState*)browserState {
   DCHECK(!browserState->IsOffTheRecord());
   search_engines::UpdateSearchEnginesIfNeeded(
@@ -578,11 +591,24 @@ void MainControllerAuthenticationServiceDelegate::ClearBrowsingData(
 - (void)appState:(AppState*)appState
     firstSceneHasInitializedUI:(SceneState*)sceneState {
   DCHECK(self.appState.initStage > InitStageSafeMode);
+
+  if (self.appState.initStage <= InitStageNormalUI) {
+    return;
+  }
+
+  // TODO(crbug.com/1213955): Pass the scene to this method to make sure that
+  // the chosen scene is initialized.
   [self startUpAfterFirstWindowCreated];
 }
 
 - (void)appState:(AppState*)appState
     didTransitionFromInitStage:(InitStage)previousInitStage {
+  // TODO(crbug.com/1213955): Remove this once the bug fixed.
+  if (previousInitStage == InitStageNormalUI &&
+      appState.firstSceneHasInitializedUI) {
+    [self startUpAfterFirstWindowCreated];
+  }
+
   switch (appState.initStage) {
     case InitStageStart:
       [appState queueTransitionToNextInitStage];
@@ -604,6 +630,14 @@ void MainControllerAuthenticationServiceDelegate::ClearBrowsingData(
       [self startUpBrowserForegroundInitialization];
       [appState queueTransitionToNextInitStage];
       break;
+    case InitStageNormalUI:
+      // Scene controllers use this stage to create the normal UI if needed.
+      // There is no specific agent (other than SceneController) handling
+      // this stage.
+      [appState queueTransitionToNextInitStage];
+      break;
+    case InitStageFirstRun:
+      break;
     case InitStageFinal:
       break;
   }
@@ -612,6 +646,10 @@ void MainControllerAuthenticationServiceDelegate::ClearBrowsingData(
 - (void)addPostSafeModeAgents {
   [self.appState addAgent:[[ContentSuggestionsSchedulerAppAgent alloc] init]];
   [self.appState addAgent:[[IncognitoUsageAppStateAgent alloc] init]];
+
+  FirstRunAppAgent* firstRunAppAgent = [[FirstRunAppAgent alloc] init];
+  _firstRunAppAgent = firstRunAppAgent;
+  [self.appState addAgent:firstRunAppAgent];
 }
 
 #pragma mark - Property implementation.
@@ -648,14 +686,6 @@ void MainControllerAuthenticationServiceDelegate::ClearBrowsingData(
 
 #pragma mark - StartupInformation implementation.
 
-- (BOOL)isPresentingFirstRunUI {
-  BOOL isPresentingFirstRunUI = NO;
-  for (SceneState* scene in self.appState.connectedScenes) {
-    isPresentingFirstRunUI |= scene.presentingFirstRunUI;
-  }
-
-  return isPresentingFirstRunUI;
-}
 
 - (FirstUserActionRecorder*)firstUserActionRecorder {
   return _firstUserActionRecorder.get();
@@ -702,9 +732,20 @@ void MainControllerAuthenticationServiceDelegate::ClearBrowsingData(
 
   _extensionSearchEngineDataUpdater = nullptr;
 
-  ios::GetChromeBrowserProvider()
-      ->GetMailtoHandlerProvider()
-      ->RemoveMailtoHandling();
+  if (!_cleanupClosures.empty()) {
+    std::vector<base::OnceClosure> cleanupClosures;
+    cleanupClosures.swap(_cleanupClosures);
+
+    while (!cleanupClosures.empty()) {
+      base::OnceClosure closure = std::move(cleanupClosures.back());
+      cleanupClosures.pop_back();
+      std::move(closure).Run();
+    }
+
+    DCHECK(_cleanupClosures.empty())
+        << "-registerCleanupClosure must not be called during shutdown";
+  }
+
   // _localStatePrefChangeRegistrar is observing the PrefService, which is owned
   // indirectly by _chromeMain (through the ChromeBrowserState).
   // Unregister the observer before the service is destroyed.
@@ -906,6 +947,12 @@ void MainControllerAuthenticationServiceDelegate::ClearBrowsingData(
                         ->GetMailtoHandlerProvider()
                         ->PrepareMailtoHandling(
                             strongSelf.appState.mainBrowserState);
+
+                    [strongSelf registerCleanupClosure:base::BindOnce([] {
+                                  ios::GetChromeBrowserProvider()
+                                      ->GetMailtoHandlerProvider()
+                                      ->RemoveMailtoHandling();
+                                })];
                   }];
 }
 
@@ -1247,6 +1294,10 @@ void MainControllerAuthenticationServiceDelegate::ClearBrowsingData(
 #pragma mark - TestingOnly
 
 @implementation MainController (TestingOnly)
+
+- (FirstRunAppAgent*)firstRunAppAgent {
+  return _firstRunAppAgent;
+}
 
 - (void)setStartupParametersWithURL:(const GURL&)launchURL {
   NSString* sourceApplication = @"Fake App";

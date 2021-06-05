@@ -6,7 +6,7 @@
 
 #include <utility>
 
-#include "ash/public/cpp/app_types.h"
+#include "ash/constants/app_types.h"
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/callback_helpers.h"
@@ -277,17 +277,6 @@ void AddSpinner(crostini::CrostiniManager::RestartId restart_id,
   }
 }
 
-bool MaybeShowCrostiniDialogBeforeLaunch(Profile* profile,
-                                         CrostiniResult result) {
-  if (result == CrostiniResult::OFFLINE_WHEN_UPGRADE_REQUIRED ||
-      result == CrostiniResult::LOAD_COMPONENT_FAILED) {
-    ShowCrostiniUpdateComponentView(profile, CrostiniUISurface::kAppList);
-    VLOG(1) << "Update Component dialog";
-    return true;
-  }
-  return false;
-}
-
 void LaunchCrostiniAppImpl(
     Profile* profile,
     const std::string& app_id,
@@ -346,10 +335,6 @@ void LaunchCrostiniAppImpl(
                                  "crostini restart to launch app %s failed: %d",
                                  app_id.c_str(), result),
                              result);
-              if (crostini::MaybeShowCrostiniDialogBeforeLaunch(profile,
-                                                                result)) {
-                VLOG(1) << "Crostini restart blocked by dialog";
-              }
               return;
             }
 

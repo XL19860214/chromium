@@ -13,16 +13,17 @@
 #include "ash/app_list/views/app_list_item_view.h"
 #include "ash/app_list/views/app_list_main_view.h"
 #include "ash/app_list/views/app_list_view.h"
-#include "ash/app_list/views/apps_grid_view.h"
 #include "ash/app_list/views/contents_view.h"
 #include "ash/app_list/views/folder_background_view.h"
 #include "ash/app_list/views/page_switcher.h"
+#include "ash/app_list/views/paged_apps_grid_view.h"
 #include "ash/app_list/views/search_box_view.h"
 #include "ash/app_list/views/suggestion_chip_container_view.h"
 #include "ash/keyboard/ui/keyboard_ui_controller.h"
 #include "ash/public/cpp/app_list/app_list_config.h"
 #include "ash/public/cpp/app_list/app_list_switches.h"
 #include "ash/search_box/search_box_constants.h"
+#include "base/bind.h"
 #include "base/command_line.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/compositor/layer.h"
@@ -66,8 +67,11 @@ AppsContainerView::AppsContainerView(ContentsView* contents_view,
   suggestion_chip_container_view_ = AddChildView(
       std::make_unique<SuggestionChipContainerView>(contents_view));
 
-  apps_grid_view_ =
-      AddChildView(std::make_unique<AppsGridView>(contents_view, nullptr));
+  AppListViewDelegate* view_delegate =
+      contents_view_->GetAppListMainView()->view_delegate();
+  apps_grid_view_ = AddChildView(std::make_unique<PagedAppsGridView>(
+      contents_view, /*folder_delegate=*/nullptr));
+  apps_grid_view_->Init();
 
   // Page switcher should be initialized after AppsGridView.
   auto page_switcher = std::make_unique<PageSwitcher>(
@@ -75,8 +79,8 @@ AppsContainerView::AppsContainerView(ContentsView* contents_view,
       contents_view->app_list_view()->is_tablet_mode());
   page_switcher_ = AddChildView(std::move(page_switcher));
 
-  auto app_list_folder_view =
-      std::make_unique<AppListFolderView>(this, model, contents_view);
+  auto app_list_folder_view = std::make_unique<AppListFolderView>(
+      this, model, contents_view_, view_delegate);
   // The folder view is initially hidden.
   app_list_folder_view->SetVisible(false);
   auto folder_background_view =

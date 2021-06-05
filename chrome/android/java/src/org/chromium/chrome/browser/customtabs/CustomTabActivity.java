@@ -86,7 +86,8 @@ public class CustomTabActivity extends BaseCustomTabActivity {
 
     @Override
     protected Drawable getBackgroundDrawable() {
-        int initialBackgroundColor = mIntentDataProvider.getInitialBackgroundColor();
+        int initialBackgroundColor =
+                mIntentDataProvider.getColorProvider().getInitialBackgroundColor();
         if (mIntentDataProvider.isTrustedIntent() && initialBackgroundColor != Color.TRANSPARENT) {
             return new ColorDrawable(initialBackgroundColor);
         } else {
@@ -134,7 +135,7 @@ public class CustomTabActivity extends BaseCustomTabActivity {
 
         // Setting task title and icon to be null will preserve the client app's title and icon.
         setTaskDescription(new ActivityManager.TaskDescription(
-                null, null, mIntentDataProvider.getToolbarColor()));
+                null, null, mIntentDataProvider.getColorProvider().getToolbarColor()));
 
         getComponent().resolveBottomBarDelegate().showBottomBarIfNecessary();
     }
@@ -188,8 +189,8 @@ public class CustomTabActivity extends BaseCustomTabActivity {
                 CustomTabAppMenuPropertiesDelegate.getIndexOfMenuItemFromBundle(menuItemData);
         if (menuIndex >= 0) {
             ((CustomTabIntentDataProvider) mIntentDataProvider)
-                    .clickMenuItemWithUrlAndTitle(this, menuIndex, getActivityTab().getUrlString(),
-                            getActivityTab().getTitle());
+                    .clickMenuItemWithUrlAndTitle(this, menuIndex,
+                            getActivityTab().getUrl().getSpec(), getActivityTab().getTitle());
             RecordUserAction.record("CustomTabsMenuCustomMenuItem");
             return true;
         }

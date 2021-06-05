@@ -682,6 +682,8 @@ source_set("browser") {
     "conversions/conversion_storage_sql_migrations.h",
     "conversions/rate_limit_table.cc",
     "conversions/rate_limit_table.h",
+    "conversions/sent_report_info.cc",
+    "conversions/sent_report_info.h",
     "conversions/sql_utils.cc",
     "conversions/sql_utils.h",
     "conversions/storable_conversion.cc",
@@ -1019,8 +1021,6 @@ source_set("browser") {
     "indexed_db/transaction_impl.h",
     "installedapp/installed_app_provider_impl.cc",
     "installedapp/installed_app_provider_impl.h",
-    "interest_group/ad_auction.cc",
-    "interest_group/ad_auction.h",
     "interest_group/ad_auction_service_impl.cc",
     "interest_group/ad_auction_service_impl.h",
     "interest_group/auction_runner.cc",
@@ -1107,6 +1107,8 @@ source_set("browser") {
     "media/capture/desktop_capture_device_uma_types.h",
     "media/capture/desktop_streams_registry_impl.cc",
     "media/capture/desktop_streams_registry_impl.h",
+    "media/capture_handle_manager.cc",
+    "media/capture_handle_manager.h",
     "media/cdm_registry_impl.cc",
     "media/cdm_registry_impl.h",
     "media/desktop_media_window_registry.cc",
@@ -1269,6 +1271,8 @@ source_set("browser") {
     "portal/portal.h",
     "portal/portal_navigation_throttle.cc",
     "portal/portal_navigation_throttle.h",
+    "prerender/prerender_commit_deferring_condition.cc",
+    "prerender/prerender_commit_deferring_condition.h",
     "prerender/prerender_host.cc",
     "prerender/prerender_host.h",
     "prerender/prerender_host_registry.cc",
@@ -1542,6 +1546,8 @@ source_set("browser") {
     "renderer_host/overscroll_controller_delegate.h",
     "renderer_host/p2p/socket_dispatcher_host.cc",
     "renderer_host/p2p/socket_dispatcher_host.h",
+    "renderer_host/page_impl.cc",
+    "renderer_host/page_impl.h",
     "renderer_host/page_lifecycle_state_manager.cc",
     "renderer_host/page_lifecycle_state_manager.h",
     "renderer_host/policy_container_host.cc",
@@ -1759,6 +1765,8 @@ source_set("browser") {
     "sms/user_consent_handler.h",
     "sms/webotp_service.cc",
     "sms/webotp_service.h",
+    "speculation_rules/speculation_host_impl.cc",
+    "speculation_rules/speculation_host_impl.h",
     "speech/speech_recognition_dispatcher_host.cc",
     "speech/speech_recognition_dispatcher_host.h",
     "speech/speech_recognition_manager_impl.cc",
@@ -2364,6 +2372,8 @@ source_set("browser") {
       ]
       deps += [ "//ui/base/cursor" ]
     }
+
+    # TODO(crbug.com/1210549): Slow capturer should be removed once new path is stable.
     if (is_chromeos_ash) {
       sources += [
         "media/capture/slow_capture_overlay_chromeos.cc",
@@ -2734,6 +2744,8 @@ source_set("browser") {
       # The Direct Sockets API is not implemented on Android.
       "direct_sockets/direct_sockets_service_impl.cc",
       "direct_sockets/direct_sockets_service_impl.h",
+      "direct_sockets/direct_udp_socket_impl.cc",
+      "direct_sockets/direct_udp_socket_impl.h",
 
       # The Serial API is not implemented on Android.
       "serial/serial_service.cc",

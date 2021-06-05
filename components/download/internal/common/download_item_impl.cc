@@ -34,7 +34,6 @@
 #include "base/json/string_escape.h"
 #include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/stl_util.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
@@ -153,6 +152,8 @@ std::string GetDownloadDangerNames(DownloadDangerType type) {
       return "POTENTIALLY_UNWANTED";
     case DOWNLOAD_DANGER_TYPE_ALLOWLISTED_BY_POLICY:
       return "ALLOWLISTED_BY_POLICY";
+    case DOWNLOAD_DANGER_TYPE_DANGEROUS_ACCOUNT_COMPROMISE:
+      return "DANGEROUS_ACCOUNT_COMPROMISE";
     default:
       NOTREACHED();
       return "UNKNOWN_DANGER_TYPE";
@@ -1000,7 +1001,8 @@ bool DownloadItemImpl::IsDangerous() const {
          danger_type_ == DOWNLOAD_DANGER_TYPE_BLOCKED_TOO_LARGE ||
          danger_type_ == DOWNLOAD_DANGER_TYPE_SENSITIVE_CONTENT_WARNING ||
          danger_type_ == DOWNLOAD_DANGER_TYPE_SENSITIVE_CONTENT_BLOCK ||
-         danger_type_ == DOWNLOAD_DANGER_TYPE_PROMPT_FOR_SCANNING;
+         danger_type_ == DOWNLOAD_DANGER_TYPE_PROMPT_FOR_SCANNING ||
+         danger_type_ == DOWNLOAD_DANGER_TYPE_DANGEROUS_ACCOUNT_COMPROMISE;
 }
 
 bool DownloadItemImpl::IsMixedContent() const {
@@ -1582,7 +1584,12 @@ void DownloadItemImpl::Start(
     destination_info_.hash.clear();
     deferred_interrupt_reason_ = new_create_info.result;
     TransitionTo(INTERRUPTED_TARGET_PENDING_INTERNAL);
-    DetermineDownloadTarget();
+    // We're posting the call to DetermineDownloadTarget() instead of calling it
+    // directly to ensure that OnDownloadTargetDetermined() is not called
+    // synchronously. See crbug.com/1209856 for more details.
+    base::SequencedTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE, base::BindOnce(&DownloadItemImpl::DetermineDownloadTarget,
+                                  weak_ptr_factory_.GetWeakPtr()));
     return;
   }
 
@@ -1630,7 +1637,7 @@ void DownloadItemImpl::Start(
 
   job_->Start(download_file_.get(),
               base::BindRepeating(&DownloadItemImpl::OnDownloadFileInitialized,
-                         weak_ptr_factory_.GetWeakPtr()),
+                                  weak_ptr_factory_.GetWeakPtr()),
               GetReceivedSlices());
 }
 
@@ -1666,7 +1673,7 @@ void DownloadItemImpl::DetermineDownloadTarget() {
                                 download_source_);
   delegate_->DetermineDownloadTarget(
       this, base::BindOnce(&DownloadItemImpl::OnDownloadTargetDetermined,
-                       weak_ptr_factory_.GetWeakPtr()));
+                           weak_ptr_factory_.GetWeakPtr()));
 }
 
 // Called by delegate_ when the download target path has been determined.
@@ -1756,7 +1763,7 @@ void DownloadItemImpl::OnDownloadTargetDetermined(
   DCHECK(!IsSavePackageDownload());
   DownloadFile::RenameCompletionCallback callback =
       base::BindOnce(&DownloadItemImpl::OnDownloadRenamedToIntermediateName,
-                 weak_ptr_factory_.GetWeakPtr());
+                     weak_ptr_factory_.GetWeakPtr());
 #if defined(OS_ANDROID)
   if ((download_type_ == TYPE_ACTIVE_DOWNLOAD && !transient_ &&
        DownloadCollectionBridge::ShouldPublishDownload(GetTargetFilePath())) ||

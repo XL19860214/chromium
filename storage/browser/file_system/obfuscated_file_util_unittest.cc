@@ -31,6 +31,7 @@
 #include "storage/browser/file_system/file_system_backend.h"
 #include "storage/browser/file_system/file_system_context.h"
 #include "storage/browser/file_system/file_system_operation_context.h"
+#include "storage/browser/file_system/file_system_url.h"
 #include "storage/browser/file_system/file_system_usage_cache.h"
 #include "storage/browser/file_system/obfuscated_file_util.h"
 #include "storage/browser/file_system/obfuscated_file_util_memory_delegate.h"
@@ -38,6 +39,7 @@
 #include "storage/browser/file_system/sandbox_file_system_backend_delegate.h"
 #include "storage/browser/file_system/sandbox_origin_database.h"
 #include "storage/browser/quota/quota_manager.h"
+#include "storage/browser/quota/quota_manager_proxy.h"
 #include "storage/browser/test/async_file_test_helper.h"
 #include "storage/browser/test/file_system_test_file_set.h"
 #include "storage/browser/test/mock_file_change_observer.h"
@@ -45,6 +47,7 @@
 #include "storage/browser/test/sandbox_file_system_test_helper.h"
 #include "storage/browser/test/test_file_system_context.h"
 #include "storage/common/database/database_identifier.h"
+#include "storage/common/file_system/file_system_types.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/leveldatabase/leveldb_chrome.h"
 #include "url/gurl.h"
@@ -167,8 +170,8 @@ class ObfuscatedFileUtilTest : public testing::Test,
 
     quota_manager_ = base::MakeRefCounted<QuotaManager>(
         is_incognito(), data_dir_.GetPath(),
-        base::ThreadTaskRunnerHandle::Get().get(),
-        /*quota_change_callback=*/base::DoNothing(), storage_policy_.get(),
+        base::ThreadTaskRunnerHandle::Get(),
+        /*quota_change_callback=*/base::DoNothing(), storage_policy_,
         GetQuotaSettingsFunc());
     QuotaSettings settings;
     settings.per_host_quota = 25 * 1024 * 1024;
@@ -189,7 +192,7 @@ class ObfuscatedFileUtilTest : public testing::Test,
                        : CreateFileSystemContextForTesting(
                              quota_manager_->proxy(), data_dir_.GetPath());
 
-    sandbox_file_system_.SetUp(file_system_context_.get());
+    sandbox_file_system_.SetUp(file_system_context_);
 
     change_observers_ = MockFileChangeObserver::CreateList(&change_observer_);
 
@@ -247,17 +250,16 @@ class ObfuscatedFileUtilTest : public testing::Test,
     SandboxFileSystemTestHelper* file_system =
         new SandboxFileSystemTestHelper(origin, type);
 
-    file_system->SetUp(file_system_context_.get());
+    file_system->SetUp(file_system_context_);
     return file_system;
   }
 
   std::unique_ptr<ObfuscatedFileUtil> CreateObfuscatedFileUtil(
-      SpecialStoragePolicy* storage_policy) {
-    return std::unique_ptr<ObfuscatedFileUtil>(
-        ObfuscatedFileUtil::CreateForTesting(
-            storage_policy, data_dir_path(),
-            is_incognito() ? incognito_leveldb_environment_.get() : nullptr,
-            is_incognito()));
+      scoped_refptr<SpecialStoragePolicy> storage_policy) {
+    return ObfuscatedFileUtil::CreateForTesting(
+        std::move(storage_policy), data_dir_path(),
+        is_incognito() ? incognito_leveldb_environment_.get() : nullptr,
+        is_incognito());
   }
 
   ObfuscatedFileUtil* ofu() {
@@ -695,7 +697,7 @@ class ObfuscatedFileUtilTest : public testing::Test,
 
   void MaybeDropDatabasesAliveCaseTestBody() {
     std::unique_ptr<ObfuscatedFileUtil> file_util =
-        CreateObfuscatedFileUtil(nullptr);
+        CreateObfuscatedFileUtil(/*storage_policy=*/nullptr);
     file_util->InitOriginDatabase(Origin(), true /*create*/);
     ASSERT_TRUE(file_util->origin_database_ != nullptr);
 
@@ -713,7 +715,7 @@ class ObfuscatedFileUtilTest : public testing::Test,
     // doesn't cause a crash for use after free.
     {
       std::unique_ptr<ObfuscatedFileUtil> file_util =
-          CreateObfuscatedFileUtil(nullptr);
+          CreateObfuscatedFileUtil(/*storage_policy=*/nullptr);
       file_util->InitOriginDatabase(Origin(), true /*create*/);
       file_util->db_flush_delay_seconds_ = 0;
       file_util->MarkUsed();
@@ -726,7 +728,7 @@ class ObfuscatedFileUtilTest : public testing::Test,
   void DestroyDirectoryDatabase_IsolatedTestBody() {
     storage_policy_->AddIsolated(origin_.GetURL());
     std::unique_ptr<ObfuscatedFileUtil> file_util =
-        CreateObfuscatedFileUtil(storage_policy_.get());
+        CreateObfuscatedFileUtil(/*storage_policy=*/storage_policy_);
     const FileSystemURL url = FileSystemURL::CreateForTest(
         origin_, kFileSystemTypePersistent, base::FilePath());
 
@@ -744,7 +746,7 @@ class ObfuscatedFileUtilTest : public testing::Test,
   void GetDirectoryDatabase_IsolatedTestBody() {
     storage_policy_->AddIsolated(origin_.GetURL());
     std::unique_ptr<ObfuscatedFileUtil> file_util =
-        CreateObfuscatedFileUtil(storage_policy_.get());
+        CreateObfuscatedFileUtil(storage_policy_);
     const FileSystemURL url = FileSystemURL::CreateForTest(
         origin_, kFileSystemTypePersistent, base::FilePath());
 

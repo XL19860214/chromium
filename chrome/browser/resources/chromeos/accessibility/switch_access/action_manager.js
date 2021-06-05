@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import {FocusRingManager} from './focus_ring_manager.js';
 import {MenuManager} from './menu_manager.js';
 import {Navigator} from './navigator.js';
 import {SAChildNode, SARootNode} from './nodes/switch_access_node.js';
@@ -112,6 +113,7 @@ export class ActionManager {
       case SwitchAccessMenuAction.RIGHT_CLICK:
         // Exit menu, then click (so the action will hit the desired target,
         // instead of the menu).
+        FocusRingManager.clearAll();
         ActionManager.exitCurrentMenu();
         Navigator.byPoint.performMouseAction(action);
         break;
@@ -283,21 +285,23 @@ export class ActionManager {
     // having the menu on the group stack interferes with some actions. We do
     // not close the menu bubble until we receive the ActionResponse CLOSE_MENU.
     // If we receive a different response, we re-enter the menu.
-    Navigator.byItem.exitIfInGroup(MenuManager.menuAutomationNode);
+    Navigator.byItem.suspendCurrentGroup();
 
     const response = this.actionNode_.performAction(action);
-    if (response === SAConstants.ActionResponse.CLOSE_MENU) {
-      ActionManager.exitAllMenus();
-      return;
-    }
 
     switch (response) {
-      case SAConstants.ActionResponse.EXIT_MENU:
+      case SAConstants.ActionResponse.CLOSE_MENU:
+        ActionManager.exitAllMenus();
+        return;
+      case SAConstants.ActionResponse.EXIT_SUBMENU:
         ActionManager.exitCurrentMenu();
+        return;
+      case SAConstants.ActionResponse.REMAIN_OPEN:
+        Navigator.byItem.restoreSuspendedGroup();
         return;
       case SAConstants.ActionResponse.RELOAD_MENU:
         ActionManager.refreshMenuUnconditionally();
-        break;
+        return;
       case SAConstants.ActionResponse.OPEN_TEXT_NAVIGATION_MENU:
         if (SwitchAccess.instance.improvedTextInputEnabled()) {
           this.menuStack_.push(SAConstants.MenuType.TEXT_NAVIGATION);

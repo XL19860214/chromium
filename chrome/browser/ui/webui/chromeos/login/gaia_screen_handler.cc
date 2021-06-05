@@ -24,7 +24,6 @@
 #include "base/memory/ref_counted.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/system/sys_info.h"
@@ -44,6 +43,7 @@
 #include "chrome/browser/ash/login/screens/signin_fatal_error_screen.h"
 #include "chrome/browser/ash/login/session/user_session_manager.h"
 #include "chrome/browser/ash/login/signin_partition_manager.h"
+#include "chrome/browser/ash/login/startup_utils.h"
 #include "chrome/browser/ash/login/ui/login_display_host.h"
 #include "chrome/browser/ash/login/ui/login_display_host_webui.h"
 #include "chrome/browser/ash/login/ui/signin_ui.h"
@@ -56,7 +56,7 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_process_platform_part.h"
 #include "chrome/browser/chromeos/policy/browser_policy_connector_chromeos.h"
-#include "chrome/browser/chromeos/policy/device_network_configuration_updater.h"
+#include "chrome/browser/chromeos/policy/networking/device_network_configuration_updater.h"
 #include "chrome/browser/lifetime/browser_shutdown.h"
 #include "chrome/browser/net/system_network_context_manager.h"
 #include "chrome/browser/profiles/profile.h"
@@ -116,9 +116,24 @@ const char kAuthIframeParentName[] = "signin-frame";
 
 const char kEndpointGen[] = "1.0";
 
-bool IsSyncTrustedVaultKeysEnabled() {
-  return base::FeatureList::IsEnabled(
-      ::switches::kSyncSupportTrustedVaultPassphraseRecovery);
+absl::optional<SyncTrustedVaultKeys> GetSyncTrustedVaultKeysForUserContext(
+    const base::DictionaryValue* js_object,
+    const std::string& gaia_id) {
+  if (!base::FeatureList::IsEnabled(
+          ::switches::kSyncSupportTrustedVaultPassphraseRecovery)) {
+    return absl::nullopt;
+  }
+
+  // |js_object| is not expected to be null, but as extra precaution, guard
+  // against crashes.
+  if (!js_object)
+    return absl::nullopt;
+
+  SyncTrustedVaultKeys parsed_keys = SyncTrustedVaultKeys::FromJs(*js_object);
+  if (parsed_keys.gaia_id() != gaia_id)
+    return absl::nullopt;
+
+  return absl::make_optional(std::move(parsed_keys));
 }
 
 // Must be kept consistent with ChromeOSSamlApiUsed in enums.xml
@@ -652,6 +667,7 @@ void GaiaScreenHandler::RegisterMessages() {
               &GaiaScreenHandler::HandleSecurityTokenPinEntered);
   AddCallback("onFatalError", &GaiaScreenHandler::HandleOnFatalError);
   AddCallback("removeUserByEmail", &GaiaScreenHandler::HandleUserRemoved);
+  AddCallback("passwordEntered", &GaiaScreenHandler::HandlePasswordEntered);
 
   BaseScreenHandler::RegisterMessages();
 }
@@ -760,6 +776,11 @@ void GaiaScreenHandler::HandleCompleteAuthentication(
   DCHECK(!email.empty());
   DCHECK(!gaia_id.empty());
 
+  if (!using_saml) {
+    base::UmaHistogramEnumeration("OOBE.GaiaScreen.SuccessLoginRequests",
+                                  login_request_variant_);
+  }
+
   // Execute delayed allowlist check that is based on user type.
   const user_manager::UserType user_type =
       login::GetUsertypeFromServicesString(services);
@@ -801,10 +822,8 @@ void GaiaScreenHandler::HandleCompleteAuthentication(
           GetAccountId(email, gaia_id, AccountType::GOOGLE), using_saml,
           using_saml_api_, password,
           SamlPasswordAttributes::FromJs(*password_attributes),
-          IsSyncTrustedVaultKeysEnabled()
-              ? absl::make_optional(
-                    SyncTrustedVaultKeys::FromJs(*sync_trusted_vault_keys))
-              : absl::nullopt,
+          GetSyncTrustedVaultKeysForUserContext(sync_trusted_vault_keys,
+                                                gaia_id),
           *extension_provided_client_cert_usage_observer_,
           pending_user_context_.get(), &error)) {
     LoginDisplayHost::default_host()->GetSigninUI()->ShowSigninError(
@@ -994,6 +1013,11 @@ void GaiaScreenHandler::HandleUserRemoved(const std::string& email) {
   }
 }
 
+void GaiaScreenHandler::HandlePasswordEntered() {
+  base::UmaHistogramEnumeration("OOBE.GaiaScreen.LoginRequests",
+                                login_request_variant_);
+}
+
 void GaiaScreenHandler::OnShowAddUser() {
   LoginDisplayHost::default_host()->ShowGaiaDialog(populated_account_id_);
 }
@@ -1146,6 +1170,18 @@ void GaiaScreenHandler::SetGaiaPath(GaiaScreenHandler::GaiaPath gaia_path) {
 
 void GaiaScreenHandler::LoadGaiaAsync(const AccountId& account_id) {
   populated_account_id_ = account_id;
+
+  login_request_variant_ = GaiaLoginVariant::kUnknown;
+  if (account_id.is_valid()) {
+    login_request_variant_ = GaiaLoginVariant::kOnlineSignin;
+  } else {
+    if (StartupUtils::IsOobeCompleted() && StartupUtils::IsDeviceOwned()) {
+      login_request_variant_ = GaiaLoginVariant::kAddUser;
+    } else {
+      login_request_variant_ = GaiaLoginVariant::kOobe;
+    }
+  }
+
   if (gaia_silent_load_ && !populated_account_id_.is_valid()) {
     dns_cleared_ = true;
     cookies_cleared_ = true;

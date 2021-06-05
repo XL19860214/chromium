@@ -326,6 +326,15 @@ base::scoped_nsobject<NSMenuItem> BuildHistoryMenu(
               Item(IDS_HISTORY_SHOWFULLHISTORY_LINK)
                   .command_id(IDC_SHOW_HISTORY)
                   .remove_if(is_pwa),
+              Item()
+                  .tag(HistoryMenuBridge::kIncognitoDisclaimerSeparator)
+                  .is_separator()
+                  .set_hidden(true)
+                  .remove_if(is_pwa),
+              Item(IDS_HISTORY_INCOGNITO_DISCLAIMER_MAC)
+                  .tag(HistoryMenuBridge::kIncognitoDisclaimerLabel)
+                  .set_hidden(true)
+                  .remove_if(is_pwa),
           })
           .Build();
   return item;
@@ -358,14 +367,10 @@ base::scoped_nsobject<NSMenuItem> BuildPeopleMenu(
     id app_delegate,
     const std::u16string& product_name,
     bool is_pwa) {
-  const bool new_picker =
-      base::FeatureList::IsEnabled(features::kNewProfilePicker);
-  base::scoped_nsobject<NSMenuItem> item =
-      Item(new_picker ? IDS_PROFILES_MENU_NAME
-                      : IDS_PROFILES_OPTIONS_GROUP_NAME)
-          .tag(IDC_PROFILE_MAIN_MENU)
-          .submenu({})
-          .Build();
+  base::scoped_nsobject<NSMenuItem> item = Item(IDS_PROFILES_MENU_NAME)
+                                               .tag(IDC_PROFILE_MAIN_MENU)
+                                               .submenu({})
+                                               .Build();
   return item;
 }
 
@@ -528,6 +533,7 @@ base::scoped_nsobject<NSMenuItem> MenuItemBuilder::Build() const {
     if (tag_) {
       [item setTag:tag_];
     }
+    [item setHidden:is_hidden_];
     return item;
   }
 
@@ -560,6 +566,7 @@ base::scoped_nsobject<NSMenuItem> MenuItemBuilder::Build() const {
   [item setTag:tag_];
   [item setKeyEquivalentModifierMask:key_equivalent_flags];
   [item setAlternate:is_alternate_];
+  [item setHidden:is_hidden_];
 
   if (submenu_.has_value()) {
     base::scoped_nsobject<NSMenu> menu([[NSMenu alloc] initWithTitle:title]);

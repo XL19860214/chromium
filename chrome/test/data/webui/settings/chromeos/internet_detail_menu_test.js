@@ -11,7 +11,8 @@
 // #import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 // #import {assertEquals, assertTrue} from '../../chai_assert.js';
 // #import {OncMojo} from 'chrome://resources/cr_components/chromeos/network/onc_mojo.m.js';
-// #import {eventToPromise, flushTasks} from 'chrome://test/test_util.m.js';
+// #import {eventToPromise, flushTasks, waitAfterNextRender} from 'chrome://test/test_util.m.js';
+// #import {getDeepActiveElement} from 'chrome://resources/js/util.m.js';
 // #import {setESimManagerRemoteForTesting} from 'chrome://resources/cr_components/chromeos/cellular_setup/mojo_interface_provider.m.js';
 // #import {FakeESimManagerRemote} from 'chrome://test/cr_components/chromeos/cellular_setup/fake_esim_manager_remote.m.js';
 // clang-format on
@@ -32,6 +33,11 @@ suite('InternetDetailMenu', function() {
 
     mojom = chromeos.networkConfig.mojom;
     mojoApi_.setNetworkTypeEnabledState(mojom.NetworkType.kCellular, true);
+  });
+
+  teardown(function() {
+    internetDetailMenu.remove();
+    internetDetailMenu = null;
   });
 
   function getManagedProperties(type, name) {
@@ -68,11 +74,48 @@ suite('InternetDetailMenu', function() {
     await flushAsync();
   }
 
+  /**
+   * Asserts that current UI element with id |elementId| is focused
+   * when |deepLinkId| is search params.
+   * @param {number} deepLinkId
+   * @param {string} elementId
+   */
+  async function assertElementIsDeepLinked(deepLinkId, elementId) {
+    const params = new URLSearchParams;
+    params.append('guid', 'cellular_guid');
+    params.append('settingId', deepLinkId);
+    settings.Router.getInstance().navigateTo(
+        settings.routes.NETWORK_DETAIL, params);
+
+    await test_util.waitAfterNextRender(internetDetailMenu);
+    const actionMenu =
+        internetDetailMenu.shadowRoot.querySelector('cr-action-menu');
+    assertTrue(!!actionMenu);
+    assertTrue(actionMenu.open);
+    const deepLinkElement = actionMenu.querySelector(`#${elementId}`);
+    assertTrue(!!deepLinkElement);
+
+    await test_util.waitAfterNextRender(deepLinkElement);
+    assertEquals(deepLinkElement, getDeepActiveElement());
+  }
+
   function flushAsync() {
     Polymer.dom.flush();
     // Use setTimeout to wait for the next macrotask.
     return new Promise(resolve => setTimeout(resolve));
   }
+
+  test('Deep link to remove profile', async function() {
+    addEsimCellularNetwork('100000', '11111111111111111111111111111111');
+    await init();
+    await assertElementIsDeepLinked(27, 'removeBtn');
+  });
+
+  test('Deep link to rename profile', async function() {
+    addEsimCellularNetwork('100000', '11111111111111111111111111111111');
+    await init();
+    await assertElementIsDeepLinked(28, 'renameBtn');
+  });
 
   test('Do not show triple dot when no iccid is present', async function() {
     addEsimCellularNetwork(null, '11111111111111111111111111111111');
@@ -219,46 +262,67 @@ suite('InternetDetailMenu', function() {
     assertFalse(tripleDot.disabled);
   });
 
-  test('Raname Dialog ', async function() {
-    const profileName = 'test profile name';
-    const iccid = '100000';
-    const eid = '1111111111';
+  test(
+      'Esim profile name is updated when value changes in eSIM manager',
+      async function() {
+        const profileName = 'test profile name';
+        const iccid = '100000';
+        const eid = '1111111111';
 
-    addEsimCellularNetwork(iccid, eid);
-    init();
-    await flushAsync();
-    const tripleDot = internetDetailMenu.$$('#moreNetworkDetail');
-    assertTrue(!!tripleDot);
-    assertFalse(tripleDot.disabled);
+        addEsimCellularNetwork(iccid, eid);
+        init();
+        await flushAsync();
+        const tripleDot = internetDetailMenu.$$('#moreNetworkDetail');
+        assertTrue(!!tripleDot);
+        assertFalse(tripleDot.disabled);
 
-    // Change esim profile name.
-    const cellular =
-        getManagedProperties(mojom.NetworkType.kCellular, 'cellular');
-    cellular.typeProperties.cellular.iccid = iccid;
-    cellular.typeProperties.cellular.eid = eid;
-    cellular.name.activeValue = profileName;
-    mojoApi_.setManagedPropertiesForTest(cellular);
+        // Change esim profile name.
+        const cellular =
+            getManagedProperties(mojom.NetworkType.kCellular, 'cellular');
+        cellular.typeProperties.cellular.iccid = iccid;
+        cellular.typeProperties.cellular.eid = eid;
+        cellular.name.activeValue = profileName;
+        mojoApi_.setManagedPropertiesForTest(cellular);
+        await flushAsync();
+
+        // Trigger change in esim manager listener
+        eSimManagerRemote.notifyProfileChangedForTest(null);
+        await flushAsync();
+
+        tripleDot.click();
+        await flushAsync();
+
+        const actionMenu =
+            internetDetailMenu.shadowRoot.querySelector('cr-action-menu');
+        assertTrue(!!actionMenu);
+        assertTrue(actionMenu.open);
+
+        const renameBtn = actionMenu.querySelector('#renameBtn');
+        assertTrue(!!renameBtn);
+
+        const renameProfilePromise = test_util.eventToPromise(
+            'show-esim-profile-rename-dialog', internetDetailMenu);
+        renameBtn.click();
+        const event = await renameProfilePromise;
+        assertEquals(profileName, event.detail.networkState.name);
+      });
+
+  test('Network state is null if no profile is found', async function() {
+    const getTrippleDot = () => {
+      return internetDetailMenu.$$('#moreNetworkDetail');
+    };
+    addEsimCellularNetwork('1', '1');
+    await init();
+    assertTrue(!!getTrippleDot());
+
+    // Remove current eSIM profile.
+    mojoApi_.resetForTest();
     await flushAsync();
 
     // Trigger change in esim manager listener
     eSimManagerRemote.notifyProfileChangedForTest(null);
     await flushAsync();
 
-    tripleDot.click();
-    await flushAsync();
-
-    const actionMenu =
-        internetDetailMenu.shadowRoot.querySelector('cr-action-menu');
-    assertTrue(!!actionMenu);
-    assertTrue(actionMenu.open);
-
-    const renameBtn = actionMenu.querySelector('#renameBtn');
-    assertTrue(!!renameBtn);
-
-    const renameProfilePromise = test_util.eventToPromise(
-        'show-esim-profile-rename-dialog', internetDetailMenu);
-    renameBtn.click();
-    const event = await renameProfilePromise;
-    assertEquals(profileName, event.detail.networkState.name);
+    assertFalse(!!getTrippleDot());
   });
 });

@@ -37,11 +37,10 @@ void RemoveFakeCredentials(const onc::OncValueSignature& signature,
   std::vector<std::string> entries_to_remove;
   for (base::DictionaryValue::Iterator it(*onc_object); !it.IsAtEnd();
        it.Advance()) {
-    base::Value* value = nullptr;
     std::string field_name = it.key();
     // We need the non-const entry to remove nested values but DictionaryValue
     // has no non-const iterator.
-    onc_object->GetWithoutPathExpansion(field_name, &value);
+    base::Value* value = onc_object->FindKey(field_name);
 
     // If |value| is a dictionary, recurse.
     base::DictionaryValue* nested_object = nullptr;
@@ -153,9 +152,7 @@ bool IsAutoConnectEnabledInPolicy(const base::DictionaryValue& policy) {
     return false;
   }
 
-  bool autoconnect = false;
-  network_dict->GetBooleanWithoutPathExpansion(autoconnect_key, &autoconnect);
-  return autoconnect;
+  return network_dict->FindBoolKey(autoconnect_key).value_or(false);
 }
 
 base::Value* GetOrCreateNestedDictionary(const std::string& key1,
@@ -246,10 +243,11 @@ std::unique_ptr<base::DictionaryValue> CreateManagedONC(
   // If present, apply the Autoconnect policy only to networks that are not
   // managed by policy.
   if (!network_policy && global_policy && profile) {
-    bool allow_only_policy_autoconnect = false;
-    global_policy->GetBooleanWithoutPathExpansion(
-        ::onc::global_network_config::kAllowOnlyPolicyNetworksToAutoconnect,
-        &allow_only_policy_autoconnect);
+    bool allow_only_policy_autoconnect =
+        global_policy
+            ->FindBoolKey(::onc::global_network_config::
+                              kAllowOnlyPolicyNetworksToAutoconnect)
+            .value_or(false);
     if (allow_only_policy_autoconnect) {
       ApplyGlobalAutoconnectPolicy(profile->type(),
                                    augmented_onc_network.get());
@@ -271,17 +269,17 @@ void SetShillPropertiesForGlobalPolicy(
     return;  // Autoconnect for Ethernet cannot be configured.
 
   // By default all networks are allowed to autoconnect.
-  bool only_policy_autoconnect = false;
-  global_network_policy.GetBooleanWithoutPathExpansion(
-      ::onc::global_network_config::kAllowOnlyPolicyNetworksToAutoconnect,
-      &only_policy_autoconnect);
+  bool only_policy_autoconnect =
+      global_network_policy
+          .FindBoolKey(::onc::global_network_config::
+                           kAllowOnlyPolicyNetworksToAutoconnect)
+          .value_or(false);
   if (!only_policy_autoconnect)
     return;
 
-  bool old_autoconnect = false;
-  if (shill_dictionary.GetBooleanWithoutPathExpansion(
-          shill::kAutoConnectProperty, &old_autoconnect) &&
-      !old_autoconnect) {
+  bool old_autoconnect =
+      shill_dictionary.FindBoolKey(shill::kAutoConnectProperty).value_or(false);
+  if (!old_autoconnect) {
     // Autoconnect is already explicitly disabled. No need to set it again.
     return;
   }

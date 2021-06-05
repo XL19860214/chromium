@@ -8,6 +8,7 @@
 #include <cctype>
 #include <numeric>
 
+#include "base/metrics/histogram_functions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/trace_event/memory_usage_estimator.h"
 #include "components/omnibox/browser/buildflags.h"
@@ -198,6 +199,19 @@ size_t OmniboxPedal::SynonymGroup::EstimateMemoryUsage() const {
   return base::trace_event::EstimateMemoryUsage(synonyms_);
 }
 
+void OmniboxPedal::SynonymGroup::EraseIgnoreGroup(
+    const SynonymGroup& ignore_group) {
+  for (auto& synonym : synonyms_) {
+    ignore_group.EraseMatchesIn(synonym, true);
+    synonym.ResetLinks();
+  }
+}
+
+bool OmniboxPedal::SynonymGroup::IsValid() const {
+  return std::all_of(synonyms_.begin(), synonyms_.end(),
+                     [](const auto& synonym) { return synonym.Size() > 0; });
+}
+
 // =============================================================================
 
 OmniboxPedal::OmniboxPedal(OmniboxPedalId id, LabelStrings strings, GURL url)
@@ -241,11 +255,30 @@ void OmniboxPedal::AddSynonymGroup(SynonymGroup&& group) {
   synonym_groups_.push_back(std::move(group));
 }
 
+std::vector<OmniboxPedal::SynonymGroupSpec>
+OmniboxPedal::SpecifySynonymGroups() {
+  return {};
+}
+
+void OmniboxPedal::RecordActionShown() const {
+  base::UmaHistogramEnumeration("Omnibox.PedalShown", id(),
+                                OmniboxPedalId::TOTAL_COUNT);
+}
+
+void OmniboxPedal::RecordActionExecuted() const {
+  base::UmaHistogramEnumeration("Omnibox.SuggestionUsed.Pedal", id(),
+                                OmniboxPedalId::TOTAL_COUNT);
+}
+
 size_t OmniboxPedal::EstimateMemoryUsage() const {
   size_t total = 0;
   total += OmniboxAction::EstimateMemoryUsage();
   total += base::trace_event::EstimateMemoryUsage(synonym_groups_);
   return total;
+}
+
+int32_t OmniboxPedal::GetID() const {
+  return static_cast<int32_t>(id());
 }
 
 bool OmniboxPedal::IsConceptMatch(TokenSequence& match_sequence) const {

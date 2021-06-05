@@ -24,7 +24,6 @@ import org.chromium.base.Log;
 import org.chromium.base.metrics.RecordUserAction;
 import org.chromium.base.supplier.ObservableSupplierImpl;
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.AppHooks;
 import org.chromium.chrome.browser.IntentHandler;
 import org.chromium.chrome.browser.WebContentsFactory;
 import org.chromium.chrome.browser.app.tabmodel.TabWindowManagerSingleton;
@@ -34,6 +33,7 @@ import org.chromium.chrome.browser.customtabs.CustomTabsConnection;
 import org.chromium.chrome.browser.document.ChromeLauncherActivity;
 import org.chromium.chrome.browser.init.AsyncInitializationActivity;
 import org.chromium.chrome.browser.init.SingleWindowKeyboardVisibilityDelegate;
+import org.chromium.chrome.browser.locale.LocaleManager;
 import org.chromium.chrome.browser.omnibox.BackKeyBehaviorDelegate;
 import org.chromium.chrome.browser.omnibox.LocationBarCoordinator;
 import org.chromium.chrome.browser.omnibox.OverrideUrlLoadingDelegate;
@@ -57,12 +57,13 @@ import org.chromium.components.url_formatter.UrlFormatter;
 import org.chromium.content_public.browser.LoadUrlParams;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.content_public.common.ContentUrlConstants;
-import org.chromium.ui.base.ActivityKeyboardVisibilityDelegate;
 import org.chromium.ui.base.ActivityWindowAndroid;
 import org.chromium.ui.base.PageTransition;
 import org.chromium.ui.base.WindowDelegate;
 import org.chromium.ui.modaldialog.ModalDialogManager;
 import org.chromium.url.GURL;
+
+import java.lang.ref.WeakReference;
 
 /** Queries the user's default search engine and shows autocomplete suggestions. */
 public class SearchActivity extends AsyncInitializationActivity
@@ -91,7 +92,7 @@ public class SearchActivity extends AsyncInitializationActivity
          */
         void showSearchEngineDialogIfNeeded(
                 Activity activity, Callback<Boolean> onSearchEngineFinalized) {
-            AppHooks.get().getLocaleManager().showSearchEnginePromoIfNeeded(
+            LocaleManager.getInstance().showSearchEnginePromoIfNeeded(
                     activity, onSearchEngineFinalized);
         }
 
@@ -143,11 +144,8 @@ public class SearchActivity extends AsyncInitializationActivity
 
     @Override
     protected ActivityWindowAndroid createWindowAndroid() {
-        return new ActivityWindowAndroid(this) {
-            @Override
-            protected ActivityKeyboardVisibilityDelegate createKeyboardVisibilityDelegate() {
-                return new SingleWindowKeyboardVisibilityDelegate(getActivity());
-            }
+        return new ActivityWindowAndroid(this, /* listenToActivityState= */ true,
+                new SingleWindowKeyboardVisibilityDelegate(new WeakReference(this))) {
             @Override
             public ModalDialogManager getModalDialogManager() {
                 return SearchActivity.this.getModalDialogManager();
@@ -179,6 +177,7 @@ public class SearchActivity extends AsyncInitializationActivity
             loadUrl(url, transition, postDataType, postData);
             return true;
         };
+        // clang-format off
         mLocationBarCoordinator = new LocationBarCoordinator(mSearchBox, anchorView,
                 mProfileSupplier, PrivacyPreferencesManagerImpl.getInstance(),
                 mSearchBoxDataProvider, null, new WindowDelegate(getWindow()), getWindowAndroid(),
@@ -187,9 +186,10 @@ public class SearchActivity extends AsyncInitializationActivity
                 getLifecycleDispatcher(), overrideUrlLoadingDelegate, /*backKeyBehavior=*/this,
                 SearchEngineLogoUtils.getInstance(), /*launchAssistanceSettingsAction=*/() -> {},
                 /*pageInfoAction=*/(tab, permission) -> {},
-                /*spareRendererCreator=*/(profile) -> {}, IntentHandler::bringTabToFront,
+                IntentHandler::bringTabToFront,
                 /*saveOfflineButtonState=*/(tab) -> false, /*omniboxUma*/(url, transition) -> {},
                 TabWindowManagerSingleton::getInstance, /*bookmarkState=*/(url) -> false);
+        // clang-format on
         mLocationBarCoordinator.setUrlBarFocusable(true);
         mLocationBarCoordinator.setShouldShowMicButtonWhenUnfocused(true);
         mLocationBarCoordinator.getOmniboxStub().addUrlFocusChangeListener(this);
@@ -397,7 +397,7 @@ public class SearchActivity extends AsyncInitializationActivity
                         .makeCustomAnimation(this, android.R.anim.fade_in, android.R.anim.fade_out)
                         .toBundle());
         RecordUserAction.record("SearchWidget.SearchMade");
-        AppHooks.get().getLocaleManager().recordLocaleBasedSearchMetrics(true, url, transition);
+        LocaleManager.getInstance().recordLocaleBasedSearchMetrics(true, url, transition);
         finish();
     }
 

@@ -372,9 +372,15 @@ void ChromeClientImpl::CloseWindowSoon() {
 bool ChromeClientImpl::OpenJavaScriptAlertDelegate(LocalFrame* frame,
                                                    const String& message) {
   NotifyPopupOpeningObservers();
+  bool disable_suppression = false;
+  if (frame && frame->GetDocument()) {
+    disable_suppression = RuntimeEnabledFeatures::
+        DisableDifferentOriginSubframeDialogSuppressionEnabled(
+            frame->GetDocument()->GetExecutionContext());
+  }
   // Synchronous mojo call.
   frame->GetLocalFrameHostRemote().RunModalAlertDialog(
-      TruncateDialogMessage(message));
+      TruncateDialogMessage(message), disable_suppression);
   return true;
 }
 
@@ -382,9 +388,15 @@ bool ChromeClientImpl::OpenJavaScriptConfirmDelegate(LocalFrame* frame,
                                                      const String& message) {
   NotifyPopupOpeningObservers();
   bool success = false;
+  bool disable_suppression = false;
+  if (frame && frame->GetDocument()) {
+    disable_suppression = RuntimeEnabledFeatures::
+        DisableDifferentOriginSubframeDialogSuppressionEnabled(
+            frame->GetDocument()->GetExecutionContext());
+  }
   // Synchronous mojo call.
   frame->GetLocalFrameHostRemote().RunModalConfirmDialog(
-      TruncateDialogMessage(message), &success);
+      TruncateDialogMessage(message), disable_suppression, &success);
   return success;
 }
 
@@ -394,11 +406,17 @@ bool ChromeClientImpl::OpenJavaScriptPromptDelegate(LocalFrame* frame,
                                                     String& result) {
   NotifyPopupOpeningObservers();
   bool success = false;
+  bool disable_suppression = false;
+  if (frame && frame->GetDocument()) {
+    disable_suppression = RuntimeEnabledFeatures::
+        DisableDifferentOriginSubframeDialogSuppressionEnabled(
+            frame->GetDocument()->GetExecutionContext());
+  }
   // Synchronous mojo call.
   frame->GetLocalFrameHostRemote().RunModalPromptDialog(
       TruncateDialogMessage(message),
-      default_value.IsNull() ? g_empty_string : default_value, &success,
-      &result);
+      default_value.IsNull() ? g_empty_string : default_value,
+      disable_suppression, &success, &result);
   return success;
 }
 bool ChromeClientImpl::TabsToLinks() {
@@ -567,7 +585,9 @@ void ChromeClientImpl::UpdateTooltipFromKeyboard(LocalFrame& frame,
   if (!RuntimeEnabledFeatures::KeyboardAccessibleTooltipEnabled())
     return;
 
-  // TODO(bebeaudr): Add WidgetHost function and call it here.
+  WebLocalFrameImpl::FromFrame(frame)
+      ->LocalRootFrameWidget()
+      ->UpdateTooltipFromKeyboard(tooltip_text, dir, bounds);
 }
 
 void ChromeClientImpl::DispatchViewportPropertiesDidChange(
@@ -577,8 +597,8 @@ void ChromeClientImpl::DispatchViewportPropertiesDidChange(
 
 void ChromeClientImpl::PrintDelegate(LocalFrame* frame) {
   NotifyPopupOpeningObservers();
-  if (web_view_->Client())
-    web_view_->Client()->PrintPage(WebLocalFrameImpl::FromFrame(frame));
+  WebLocalFrameImpl* web_frame = WebLocalFrameImpl::FromFrame(frame);
+  web_frame->Client()->ScriptedPrint();
 }
 
 ColorChooser* ChromeClientImpl::OpenColorChooser(
@@ -641,13 +661,9 @@ void ChromeClientImpl::OpenFileChooser(
     scoped_refptr<FileChooser> file_chooser) {
   NotifyPopupOpeningObservers();
 
-  Document* doc = frame->GetDocument();
-  if (doc)
-    doc->MaybeQueueSendDidEditFieldInInsecureContext();
-
   static const wtf_size_t kMaximumPendingFileChooseRequests = 4;
   if (file_chooser_queue_.size() > kMaximumPendingFileChooseRequests) {
-    // This sanity check prevents too many file choose requests from getting
+    // This check prevents too many file choose requests from getting
     // queued which could DoS the user. Getting these is most likely a
     // programming error (there are many ways to DoS the user so it's not
     // considered a "real" security check), either in JS requesting many file
@@ -1081,7 +1097,6 @@ void ChromeClientImpl::DidChangeValueInTextField(
     UseCounter::Count(doc, doc.GetExecutionContext()->IsSecureContext()
                                ? WebFeature::kFieldEditInSecureContext
                                : WebFeature::kFieldEditInNonSecureContext);
-    doc.MaybeQueueSendDidEditFieldInInsecureContext();
     // The resource coordinator is not available in some tests.
     if (auto* rc = doc.GetResourceCoordinator())
       rc->SetHadFormInteraction();

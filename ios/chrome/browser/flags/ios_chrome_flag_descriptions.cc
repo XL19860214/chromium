@@ -299,6 +299,10 @@ const char kLockBottomToolbarDescription[] =
     "When enabled, the bottom toolbar will not get collapsed when scrolling "
     "into fullscreen mode.";
 
+const char kMICEWebSignInName[] = "MICE Web Sign-in";
+const char kMICEWebSignInDescription[] =
+    "Enables MICE web sign-in. Requires #mobile-identity-consistency.";
+
 const char kMobileGoogleSRPName[] = "Mobile version of Google SRP by default";
 const char kMobileGoogleSRPDescription[] =
     "Request the Mobile version of Google SRP by default when the desktop mode "
@@ -352,6 +356,11 @@ const char kPasswordReuseDetectionName[] =
 const char kPasswordReuseDetectionDescription[] =
     "Displays warning when user types or pastes a saved password into a "
     "phishing website.";
+
+const char kReadingListMessagesName[] = "Enables Reading List Messages";
+const char kReadingListMessagesDescription[] =
+    "When enabled, a Messages prompt may be presented to allow the user to "
+    "save the current page to Reading List";
 
 const char kRefactoredNTPName[] = "Enables refactored new tab page";
 const char kRefactoredNTPDescription[] =
@@ -436,7 +445,7 @@ const char kToolbarContainerDescription[] =
     "managed by the toolbar container coordinator rather than BVC.";
 
 const char kUpdateHistoryEntryPointsInIncognitoName[] =
-    "Update history entry points in Incongito.";
+    "Update history entry points in Incognito.";
 const char kUpdateHistoryEntryPointsInIncognitoDescription[] =
     "When enabled, the entry points to history UI from Incognito mode will be "
     "removed.";

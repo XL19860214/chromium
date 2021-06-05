@@ -13,7 +13,7 @@
 #include <utility>
 
 #include "base/check_op.h"
-#include "base/feature_list.h"
+#include "base/containers/contains.h"
 #include "base/files/file_path.h"
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
@@ -32,7 +32,6 @@
 #include "ui/base/clipboard/custom_data_helper.h"
 #include "ui/base/data_transfer_policy/data_transfer_endpoint.h"
 #include "ui/base/data_transfer_policy/data_transfer_policy_controller.h"
-#include "ui/base/ui_base_features.h"
 #include "ui/gfx/geometry/size.h"
 
 namespace ui {
@@ -180,10 +179,18 @@ class ClipboardInternal {
     *result = data->rtf_data();
   }
 
+  // Reads png from the ClipboardData.
+  std::vector<uint8_t> ReadPng() const {
+    if (!HasFormat(ClipboardInternalFormat::kPng))
+      return std::vector<uint8_t>();
+
+    return GetData()->png();
+  }
+
   // Reads image from the ClipboardData.
   SkBitmap ReadImage() const {
     SkBitmap img;
-    if (!HasFormat(ClipboardInternalFormat::kBitmap))
+    if (!HasFormat(ClipboardInternalFormat::kPng))
       return img;
 
     // A shallow copy should be fine here, but just to be safe...
@@ -435,15 +442,15 @@ bool ClipboardNonBacked::IsFormatAvailable(
   if (format == ClipboardFormatType::GetRtfType())
     return clipboard_internal_->IsFormatAvailable(
         ClipboardInternalFormat::kRtf);
-  if (format == ClipboardFormatType::GetBitmapType())
+  if (format == ClipboardFormatType::GetPngType() ||
+      format == ClipboardFormatType::GetBitmapType())
     return clipboard_internal_->IsFormatAvailable(
-        ClipboardInternalFormat::kBitmap);
+        ClipboardInternalFormat::kPng);
   if (format == ClipboardFormatType::GetWebKitSmartPasteType())
     return clipboard_internal_->IsFormatAvailable(
         ClipboardInternalFormat::kWeb);
   // Only support filenames if chrome://flags#clipboard-filenames is enabled.
-  if (format == ClipboardFormatType::GetFilenamesType() &&
-      base::FeatureList::IsEnabled(features::kClipboardFilenames))
+  if (format == ClipboardFormatType::GetFilenamesType())
     return clipboard_internal_->IsFormatAvailable(
         ClipboardInternalFormat::kFilenames);
   const ClipboardData* data = clipboard_internal_->GetData();
@@ -608,8 +615,18 @@ void ClipboardNonBacked::ReadPng(ClipboardBuffer buffer,
                                  const DataTransferEndpoint* data_dst,
                                  ReadPngCallback callback) const {
   DCHECK(CalledOnValidThread());
-  // TODO(crbug.com/1201018): Implement this.
-  NOTIMPLEMENTED();
+
+  if (!clipboard_internal_->IsReadAllowed(data_dst)) {
+    std::move(callback).Run(std::vector<uint8_t>());
+    return;
+  }
+
+  RecordRead(ClipboardFormatMetric::kPng);
+  std::move(callback).Run(clipboard_internal_->ReadPng());
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  ClipboardMonitor::GetInstance()->NotifyClipboardDataRead();
+#endif
 }
 
 void ClipboardNonBacked::ReadImage(ClipboardBuffer buffer,

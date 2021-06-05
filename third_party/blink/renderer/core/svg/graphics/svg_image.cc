@@ -96,7 +96,6 @@ class FailingLoader final : public WebURLLoader {
   void LoadSynchronously(
       std::unique_ptr<network::ResourceRequest> request,
       scoped_refptr<WebURLRequestExtraData> url_request_extra_data,
-      int requestor_id,
       bool pass_response_pipe_to_client,
       bool no_mime_sniffing,
       base::TimeDelta timeout_interval,
@@ -114,14 +113,13 @@ class FailingLoader final : public WebURLLoader {
   void LoadAsynchronously(
       std::unique_ptr<network::ResourceRequest> request,
       scoped_refptr<WebURLRequestExtraData> url_request_extra_data,
-      int requestor_id,
       bool no_mime_sniffing,
       std::unique_ptr<blink::ResourceLoadInfoNotifierWrapper>
           resource_load_info_notifier_wrapper,
       WebURLLoaderClient* client) override {
     NOTREACHED();
   }
-  void SetDefersLoading(DeferType) override {}
+  void Freeze(LoaderFreezeMode) override {}
   void DidChangePriority(WebURLRequest::Priority, int) override {}
   scoped_refptr<base::SingleThreadTaskRunner> GetTaskRunnerForBodyLoader()
       override {
@@ -373,7 +371,7 @@ SVGImage::DrawInfo::DrawInfo(const FloatSize& container_size,
                              float zoom,
                              const KURL& url)
     : container_size_(container_size),
-      rounded_container_size_(RoundedLayoutSize(container_size)),
+      rounded_container_size_(RoundedIntSize(container_size)),
       zoom_(zoom),
       url_(url) {}
 
@@ -483,7 +481,7 @@ bool SVGImage::ApplyShaderInternal(const DrawInfo& draw_info,
 
   const FloatRect bounds(FloatPoint(), draw_info.ContainerSize());
   flags.setShader(PaintShader::MakePaintRecord(
-      std::move(record), bounds, SkTileMode::kRepeat, SkTileMode::kRepeat,
+      std::move(record), bounds, SkTileMode::kClamp, SkTileMode::kClamp,
       &local_matrix));
 
   // Animation is normally refreshed in Draw() impls, which we don't reach when
@@ -529,11 +527,10 @@ sk_sp<PaintRecord> SVGImage::PaintRecordForCurrentFrame(
   // re-laying out the image.
   ImageObserverDisabler disable_image_observer(this);
 
-  const LayoutSize layout_container_size = draw_info.RoundedContainerSize();
   if (LayoutSVGRoot* layout_root = LayoutRoot())
-    layout_root->SetContainerSize(layout_container_size);
+    layout_root->SetContainerSize(RoundedLayoutSize(draw_info.ContainerSize()));
   LocalFrameView* view = GetFrame()->View();
-  const IntSize rounded_container_size = RoundedIntSize(layout_container_size);
+  const IntSize rounded_container_size = draw_info.RoundedContainerSize();
   view->Resize(rounded_container_size);
   page_->GetVisualViewport().SetSize(rounded_container_size);
 

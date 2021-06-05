@@ -10,6 +10,8 @@
 #include <vector>
 
 #include "ash/public/cpp/login_accelerators.h"
+// TODO(https://crbug.com/1164001): use forward declaration.
+#include "chrome/browser/ash/login/app_mode/kiosk_launch_controller.h"
 #include "chrome/browser/ash/login/ui/kiosk_app_menu_controller.h"
 #include "chrome/browser/ash/login/ui/login_display_host.h"
 #include "chrome/browser/ash/login/ui/signin_ui.h"
@@ -65,7 +67,7 @@ class LoginDisplayHostCommon : public LoginDisplayHost,
   // SigninUI:
   void SetAuthSessionForOnboarding(const UserContext& user_context) final;
   void StartUserOnboarding() final;
-  void StartSupervisionTransition() final;
+  void StartManagementTransition() final;
   void StartEncryptionMigration(
       const UserContext& user_context,
       EncryptionMigrationMode migration_mode,

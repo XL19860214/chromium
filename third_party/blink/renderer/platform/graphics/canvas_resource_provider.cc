@@ -6,7 +6,6 @@
 
 #include "base/bind.h"
 #include "base/metrics/histogram_functions.h"
-#include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/trace_event/memory_dump_manager.h"
 #include "base/trace_event/process_memory_dump.h"
@@ -224,16 +223,7 @@ class CanvasResourceProviderSharedImage : public CanvasResourceProvider {
             skia_use_dawn ? kSkiaDawnSharedImage : kSharedImage,
             size,
             filter_quality,
-            // TODO(khushalsagar): The software path seems to be assuming N32
-            // somewhere in the later pipeline but for offscreen canvas only.
-            // TODO(https://crbug.com/1157747): This is RGBA, but the above
-            // comment suggests N32. See if this can be N32.
-            CanvasResourceParams(params.ColorSpace(),
-                                 is_accelerated && params.GetSkColorType() !=
-                                                       kRGBA_F16_SkColorType
-                                     ? kRGBA_8888_SkColorType
-                                     : params.GetSkColorType(),
-                                 params.GetSkAlphaType()),
+            params,
             is_origin_top_left,
             std::move(context_provider_wrapper),
             nullptr /* resource_dispatcher */),
@@ -965,8 +955,25 @@ CanvasResourceProvider::CreateSharedImageProvider(
     return nullptr;
   }
 
+  const bool is_accelerated = raster_mode == RasterMode::kGPU;
+
+  CanvasResourceParams adjusted_params = params;
+  // TODO(https://crbug.com/1210946): Pass in params as is for all cases.
+  // Overriding the params to use RGBA instead of N32 is needed because code
+  // elsewhere assumes RGBA. OTOH the software path seems to be assuming N32
+  // somewhere in the later pipeline but for offscreen canvas only.
+  if (!(shared_image_usage_flags & gpu::SHARED_IMAGE_USAGE_WEBGPU)) {
+    adjusted_params = CanvasResourceParams(
+        params.ColorSpace(),
+        is_accelerated && params.GetSkColorType() != kRGBA_F16_SkColorType
+            ? kRGBA_8888_SkColorType
+            : params.GetSkColorType(),
+        params.GetSkAlphaType());
+  }
+
   const bool is_gpu_memory_buffer_image_allowed =
-      is_gpu_compositing_enabled && IsGMBAllowed(size, params, capabilities) &&
+      is_gpu_compositing_enabled &&
+      IsGMBAllowed(size, adjusted_params, capabilities) &&
       Platform::Current()->GetGpuMemoryBufferManager();
 
   if (raster_mode == RasterMode::kCPU && !is_gpu_memory_buffer_image_allowed)
@@ -981,8 +988,8 @@ CanvasResourceProvider::CreateSharedImageProvider(
   }
 
   auto provider = std::make_unique<CanvasResourceProviderSharedImage>(
-      size, filter_quality, params, context_provider_wrapper,
-      is_origin_top_left, raster_mode == RasterMode::kGPU, skia_use_dawn,
+      size, filter_quality, adjusted_params, context_provider_wrapper,
+      is_origin_top_left, is_accelerated, skia_use_dawn,
       shared_image_usage_flags);
   if (provider->IsValid()) {
     if (should_initialize ==
@@ -1261,8 +1268,12 @@ CanvasResourceProvider::GetOrCreateCanvasImageProvider() {
   return canvas_image_provider_.get();
 }
 
-cc::PaintCanvas* CanvasResourceProvider::Canvas() {
-  WillDrawIfNeeded();
+cc::PaintCanvas* CanvasResourceProvider::Canvas(bool needs_will_draw) {
+  // TODO(https://crbug.com/1211912): Video frames don't work without
+  // WillDrawIfNeeded(), but we are getting memory leak on CreatePattern
+  // with it. There should be a better way to solve this.
+  if (needs_will_draw)
+    WillDrawIfNeeded();
 
   if (!recorder_) {
     // A raw pointer is safe here because the callback is only used by the

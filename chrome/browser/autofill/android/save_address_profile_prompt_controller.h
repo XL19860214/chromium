@@ -14,6 +14,7 @@
 #include "components/autofill/core/browser/autofill_client.h"
 #include "components/autofill/core/browser/data_model/autofill_profile.h"
 #include "content/public/browser/web_contents.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace autofill {
 
@@ -46,10 +47,10 @@ class SaveAddressProfilePromptController {
   std::u16string GetPhoneNumber();
   // For update prompt:
   std::u16string GetSubtitle();
-  // Returns two newline-separated lists of field values for all fields that
-  // will change when the `original_profile_` is updated to `profile_`. The old
-  // values, which will be replaced, are the first value, and the new values,
-  // which will be saved, are the second value.
+  // Returns two strings listing formatted profile data that will change when
+  // the `original_profile_` is updated to `profile_`. The old values, which
+  // will be replaced, are the first value, and the new values, which will be
+  // saved, are the second value.
   std::pair<std::u16string, std::u16string> GetDiffFromOldToNewProfile();
 
   base::android::ScopedJavaLocalRef<jobject> GetJavaObject();

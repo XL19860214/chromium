@@ -49,11 +49,7 @@ class COMPONENT_EXPORT(UI_BASE_IME) MockInputMethod : public InputMethod {
   void OnCaretBoundsChanged(const TextInputClient* client) override;
   void CancelComposition(const TextInputClient* client) override;
   TextInputType GetTextInputType() const override;
-  TextInputMode GetTextInputMode() const override;
-  int GetTextInputFlags() const override;
-  bool CanComposeInline() const override;
   bool IsCandidatePopupOpen() const override;
-  bool GetClientShouldDoLearning() override;
   void ShowVirtualKeyboardIfEnabled() override;
   void AddObserver(InputMethodObserver* observer) override;
   void RemoveObserver(InputMethodObserver* observer) override;

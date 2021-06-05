@@ -162,6 +162,10 @@ id ExecuteJavaScript(NSString* javascript, NSError** out_error);
 // Clears fake sync server data if the server is running.
 - (void)clearSyncServerData;
 
+// Revokes the sync consent for the primary account. The user will continue
+// to be signed-in to Chrome.
+- (void)revokeSyncConsent;
+
 // Clears the first sync setup preference. The user will be effectively in
 // the signed-in state with no syncing consent.
 - (void)clearSyncFirstSetupComplete;
@@ -195,11 +199,11 @@ id ExecuteJavaScript(NSString* javascript, NSError** out_error);
                      autofillProfileName:(const std::string&)fullName
     WARN_UNUSED_RESULT;
 
-// Sets up a fake sync server to be used by the ProfileSyncService.
+// Sets up a fake sync server to be used by the SyncServiceImpl.
 - (void)setUpFakeSyncServer;
 
-// Tears down the fake sync server used by the ProfileSyncService and restores
-// the real one.
+// Tears down the fake sync server used by the SyncServiceImpl and restores the
+// real one.
 - (void)tearDownFakeSyncServer;
 
 // Gets the number of entities of the given |type|.
@@ -616,9 +620,6 @@ id ExecuteJavaScript(NSString* javascript, NSError** out_error);
 
 // Returns whether the mobile version of the websites are requested by default.
 - (BOOL)isMobileModeByDefault WARN_UNUSED_RESULT;
-
-// Returns whether the illustrated empty stated feature is enabled.
-- (BOOL)isIllustratedEmptyStatesEnabled;
 
 // Returns whether the native context menus feature is enabled or not.
 - (BOOL)isNativeContextMenusEnabled;

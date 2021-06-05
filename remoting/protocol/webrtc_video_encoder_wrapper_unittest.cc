@@ -79,8 +79,10 @@ VideoCodec GetVp9Codec() {
 VideoFrame MakeVideoFrame() {
   DesktopSize size(kInputFrameWidth, kInputFrameHeight);
   auto frame = std::make_unique<BasicDesktopFrame>(size);
+  auto stats = std::make_unique<WebrtcVideoEncoder::FrameStats>();
   frame->mutable_updated_region()->SetRect(webrtc::DesktopRect::MakeSize(size));
-  return WebrtcVideoFrameAdapter::CreateVideoFrame(std::move(frame));
+  return WebrtcVideoFrameAdapter::CreateVideoFrame(std::move(frame),
+                                                   std::move(stats));
 }
 
 class MockVideoChannelStateObserver : public VideoChannelStateObserver {
@@ -209,6 +211,22 @@ TEST_F(WebrtcVideoEncoderWrapperTest, NotifiesFrameEncodedAndReturned) {
   std::vector<VideoFrameType> frame_types;
   frame_types.push_back(VideoFrameType::kVideoFrameKey);
   encoder->Encode(MakeVideoFrame(), &frame_types);
+
+  PostQuitAndRun();
+}
+
+TEST_F(WebrtcVideoEncoderWrapperTest, FrameDroppedIfEncoderBusy) {
+  EXPECT_CALL(callback_, OnEncodedImage(_, Field(&CodecSpecificInfo::codecType,
+                                                 kVideoCodecVP9)))
+      .WillOnce(Return(kResultOk));
+
+  auto frame1 = MakeVideoFrame();
+  auto frame2 = MakeVideoFrame();
+  auto encoder = InitEncoder(GetVp9Format(), GetVp9Codec());
+  std::vector<VideoFrameType> frame_types;
+  frame_types.push_back(VideoFrameType::kVideoFrameKey);
+  encoder->Encode(frame1, &frame_types);
+  encoder->Encode(frame1, &frame_types);
 
   PostQuitAndRun();
 }

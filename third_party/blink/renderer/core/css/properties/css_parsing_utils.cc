@@ -4870,6 +4870,43 @@ CSSValue* ParseSpacing(CSSParserTokenRange& range,
   return ConsumeLength(range, context, kValueRangeAll, UnitlessQuirk::kAllow);
 }
 
+CSSValue* ConsumeContainerName(CSSParserTokenRange& range,
+                               const CSSParserContext& context) {
+  if (CSSValue* value = ConsumeIdent<CSSValueID::kNone>(range))
+    return value;
+  // TODO(crbug.com/1066390): ConsumeCustomIdent should not allow "default".
+  if (range.Peek().Id() == CSSValueID::kDefault)
+    return nullptr;
+  return ConsumeCustomIdent(range, context);
+}
+
+CSSValue* ConsumeContainerType(CSSParserTokenRange& range) {
+  if (CSSValue* value = ConsumeIdent<CSSValueID::kNone>(range))
+    return value;
+
+  CSSIdentifierValue* inline_size = nullptr;
+  CSSIdentifierValue* block_size = nullptr;
+
+  while (!range.AtEnd()) {
+    CSSValueID id = range.Peek().Id();
+    if (id == CSSValueID::kInlineSize && !inline_size) {
+      inline_size = ConsumeIdent(range);
+    } else if (id == CSSValueID::kBlockSize && !block_size) {
+      block_size = ConsumeIdent(range);
+    } else {
+      return nullptr;
+    }
+  }
+
+  CSSValueList* list = CSSValueList::CreateSpaceSeparated();
+
+  if (inline_size)
+    list->Append(*inline_size);
+  if (block_size)
+    list->Append(*block_size);
+
+  return list;
+}
 CSSValue* ConsumeSVGPaint(CSSParserTokenRange& range,
                           const CSSParserContext& context) {
   if (range.Peek().Id() == CSSValueID::kNone)
@@ -4902,8 +4939,6 @@ UnitlessQuirk UnitlessUnlessShorthand(
 
 bool ShouldLowerCaseCounterStyleNameOnParse(const AtomicString& name,
                                             const CSSParserContext& context) {
-  DCHECK(RuntimeEnabledFeatures::CSSAtRuleCounterStyleEnabled());
-
   if (context.Mode() == kUASheetMode) {
     // Names in UA sheet should be already in lower case.
     DCHECK_EQ(name, name.LowerASCII());
@@ -4915,8 +4950,6 @@ bool ShouldLowerCaseCounterStyleNameOnParse(const AtomicString& name,
 
 CSSCustomIdentValue* ConsumeCounterStyleName(CSSParserTokenRange& range,
                                              const CSSParserContext& context) {
-  DCHECK(RuntimeEnabledFeatures::CSSAtRuleCounterStyleEnabled());
-
   CSSParserTokenRange original_range = range;
 
   // <counter-style-name> is a <custom-ident> that is not an ASCII

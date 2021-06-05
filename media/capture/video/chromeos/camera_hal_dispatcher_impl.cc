@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include "media/capture/video/chromeos/camera_hal_dispatcher_impl.h"
+
 #include <fcntl.h>
 #include <grp.h>
 #include <poll.h>
@@ -12,6 +13,8 @@
 #include <vector>
 
 #include "base/bind.h"
+#include "base/command_line.h"
+#include "base/cxx17_backports.h"
 #include "base/files/file.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
@@ -19,13 +22,15 @@
 #include "base/posix/eintr_wrapper.h"
 #include "base/rand_util.h"
 #include "base/single_thread_task_runner.h"
-#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/synchronization/waitable_event.h"
+#include "base/threading/sequenced_task_runner_handle.h"
 #include "base/trace_event/trace_event.h"
+#include "chromeos/components/sensors/sensor_util.h"
 #include "components/device_event_log/device_event_log.h"
 #include "media/base/bind_to_current_loop.h"
 #include "media/capture/video/chromeos/mojom/camera_common.mojom.h"
+#include "media/capture/video/chromeos/mojom/cros_camera_client.mojom.h"
 #include "media/capture/video/chromeos/video_capture_features_chromeos.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/platform/named_platform_channel.h"
@@ -41,7 +46,9 @@ const base::FilePath::CharType kArcCamera3SocketPath[] =
     "/run/camera/camera3.sock";
 const char kArcCameraGroup[] = "arc-camera";
 const base::FilePath::CharType kForceEnableAePath[] =
-    "/run/camera/force_enable_ae";
+    "/run/camera/force_enable_face_ae";
+const base::FilePath::CharType kForceDisableAePath[] =
+    "/run/camera/force_disable_face_ae";
 
 std::string GenerateRandomToken() {
   char random_bytes[16];
@@ -167,15 +174,24 @@ bool CameraHalDispatcherImpl::Start(
   TRACE_EVENT0("camera", "CameraHalDispatcherImpl");
   base::trace_event::TraceLog::GetInstance()->AddEnabledStateObserver(this);
 
-  base::FilePath file_path(kForceEnableAePath);
-  if (base::FeatureList::IsEnabled(media::features::kForceEnableFaceAe)) {
-    if (!base::PathExists(file_path)) {
-      base::File file(file_path, base::File::FLAG_CREATE_ALWAYS);
+  base::FilePath enable_file_path(kForceEnableAePath);
+  base::FilePath disable_file_path(kForceDisableAePath);
+  if (!base::DeleteFile(enable_file_path)) {
+    LOG(WARNING) << "Could not delete " << kForceEnableAePath;
+  }
+  if (!base::DeleteFile(disable_file_path)) {
+    LOG(WARNING) << "Could not delete " << kForceDisableAePath;
+  }
+  const base::CommandLine* command_line =
+      base::CommandLine::ForCurrentProcess();
+  if (command_line->HasSwitch(media::switches::kForceControlFaceAe)) {
+    if (command_line->GetSwitchValueASCII(
+            media::switches::kForceControlFaceAe) == "enable") {
+      base::File file(enable_file_path, base::File::FLAG_CREATE_ALWAYS);
       file.Close();
-    }
-  } else {
-    if (base::PathExists(file_path)) {
-      base::DeleteFile(file_path);
+    } else {
+      base::File file(disable_file_path, base::File::FLAG_CREATE_ALWAYS);
+      file.Close();
     }
   }
 
@@ -194,6 +210,11 @@ bool CameraHalDispatcherImpl::Start(
     LOG(ERROR) << "Failed to generate token for test client";
     return false;
   }
+  if (!token_manager_.GenerateServerSensorClientToken()) {
+    LOG(ERROR) << "Failed to generate authentication token for server as a "
+                  "sensor client";
+  }
+
   blocking_io_task_runner_->PostTask(
       FROM_HERE,
       base::BindOnce(&CameraHalDispatcherImpl::CreateSocket,
@@ -265,6 +286,7 @@ void CameraHalDispatcherImpl::UnregisterPluginVmToken(
 CameraHalDispatcherImpl::CameraHalDispatcherImpl()
     : proxy_thread_("CameraProxyThread"),
       blocking_io_thread_("CameraBlockingIOThread"),
+      main_task_runner_(base::SequencedTaskRunnerHandle::Get()),
       camera_hal_server_callbacks_(this),
       active_client_observers_(
           new base::ObserverListThreadSafe<CameraActiveClientObserver>()),
@@ -357,6 +379,20 @@ void CameraHalDispatcherImpl::GetJpegEncodeAccelerator(
     mojo::PendingReceiver<chromeos_camera::mojom::JpegEncodeAccelerator>
         jea_receiver) {
   jea_factory_.Run(std::move(jea_receiver));
+}
+
+void CameraHalDispatcherImpl::RegisterSensorClientWithToken(
+    mojo::PendingRemote<chromeos::sensors::mojom::SensorHalClient> client,
+    const base::UnguessableToken& auth_token,
+    RegisterSensorClientWithTokenCallback callback) {
+  DCHECK(proxy_task_runner_->BelongsToCurrentThread());
+
+  main_task_runner_->PostTask(
+      FROM_HERE,
+      base::BindOnce(
+          &CameraHalDispatcherImpl::RegisterSensorClientWithTokenOnUIThread,
+          weak_factory_.GetWeakPtr(), std::move(client), auth_token,
+          BindToCurrentLoop(std::move(callback))));
 }
 
 void CameraHalDispatcherImpl::CameraDeviceActivityChange(
@@ -655,6 +691,26 @@ void CameraHalDispatcherImpl::OnCameraHalClientConnectionError(
     client_observers_.erase(it);
     CAMERA_LOG(EVENT) << "Camera HAL client connection lost";
   }
+}
+
+void CameraHalDispatcherImpl::RegisterSensorClientWithTokenOnUIThread(
+    mojo::PendingRemote<chromeos::sensors::mojom::SensorHalClient> client,
+    const base::UnguessableToken& auth_token,
+    RegisterSensorClientWithTokenCallback callback) {
+  DCHECK(main_task_runner_->RunsTasksInCurrentSequence());
+
+  if (!token_manager_.AuthenticateServerSensorClient(auth_token)) {
+    std::move(callback).Run(-EPERM);
+    return;
+  }
+
+  if (!chromeos::sensors::BindSensorHalClient(std::move(client))) {
+    LOG(ERROR) << "Failed to bind SensorHalClient to SensorHalDispatcher";
+    std::move(callback).Run(-ENOSYS);
+    return;
+  }
+
+  std::move(callback).Run(0);
 }
 
 void CameraHalDispatcherImpl::StopOnProxyThread() {

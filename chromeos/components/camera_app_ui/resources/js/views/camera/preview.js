@@ -83,6 +83,12 @@ export class Preview {
      */
     this.facing_ = Facing.NOT_SET;
 
+    /**
+     * @type {?string}
+     * @private
+     */
+    this.vidPid_ = null;
+
     window.addEventListener('resize', () => this.onWindowStatusChanged_());
 
     windowController.addListener(() => this.onWindowStatusChanged_());
@@ -123,6 +129,15 @@ export class Preview {
    */
   getFacing() {
     return this.facing_;
+  }
+
+  /**
+   * USB camera vid:pid identifier of the opened stream.
+   * @return {?string} Identifier formatted as "vid:pid" or null for non-USB
+   *     camera.
+   */
+  getVidPid() {
+    return this.vidPid_;
   }
 
   /**
@@ -194,8 +209,7 @@ export class Preview {
     });
     await video.play();
     this.video_.parentElement.replaceChild(tpl, this.video_);
-    this.video_.removeAttribute('srcObject');
-    this.video_.load();
+    this.video_.srcObject = null;
     this.video_ = video;
     video.addEventListener('resize', () => this.onIntrinsicSizeChanged_());
     video.addEventListener(
@@ -243,6 +257,7 @@ export class Preview {
               'Cannot disable camera frame rotation. ' +
               'The camera is probably being used by another app.');
         }
+        this.vidPid_ = await deviceOperator.getVidPid(deviceId);
       }
 
       state.set(state.State.STREAMING, true);

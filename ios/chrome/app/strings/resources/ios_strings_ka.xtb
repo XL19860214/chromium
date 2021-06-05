@@ -51,7 +51,6 @@
 <translation id="1377255359165588604">სინქრონიზაციის პროცესი შეწყდა.</translation>
 <translation id="1377321085342047638">ბარათის ნომერი</translation>
 <translation id="1383876407941801731">ძიება</translation>
-<translation id="1389974829397082527">სანიშნეები არ არის</translation>
 <translation id="1400642268715879018">ბოლო 4 კვირა</translation>
 <translation id="1407135791313364759">ყველას გახსნა</translation>
 <translation id="1430915738399379752">ბეჭდვა</translation>
@@ -88,7 +87,6 @@
 <translation id="1692118695553449118">სინქრონიზაცია ჩართულია</translation>
 <translation id="1700629756560807968"><ph name="NUMBER_OF_SELECTED_BOOKMARKS" /> არჩეულია</translation>
 <translation id="1740468249224277719">დასაინსტალირებლად, შეეხეთ ორმაგად.</translation>
-<translation id="1746815479209538200">ვების დასათვალიერებლად დაამატეთ ახალი ჩანართი.</translation>
 <translation id="1752547299766512813">პაროლების შენახვა</translation>
 <translation id="1753905327828125965">ყველაზე ხშირად მონახულებადი</translation>
 <translation id="1803264062614276815">ბარათის მფლობელის სახელი</translation>
@@ -125,7 +123,6 @@
 <translation id="2218443599109088993">მასშტაბის შემცირება</translation>
 <translation id="2230173723195178503">ვებგვერდი ჩაიტვირთა</translation>
 <translation id="2239626343334228536">მიმდინარეობს დათვალიერების მონაცემების გასუფთავება…</translation>
-<translation id="2257567812274161158">სინქრონიზაცია არ მუშაობს.</translation>
 <translation id="225943865679747347">შეცდომის კოდი: <ph name="ERROR_CODE" /></translation>
 <translation id="2267753748892043616">ანგარიშის დამატება</translation>
 <translation id="2268044343513325586">დახვეწა</translation>
@@ -143,7 +140,6 @@
 საიტებს არ შეუძლია ქუქი-ჩანაწერების გამოყენება სხვადასხვა საიტის თქვენ მიერ დათვალიერების აქტივობის სანახავად, მაგალითად, რეკლამის თქვენზე მოსარგებად.</translation>
 <translation id="2381405137052800939">ძირითადი</translation>
 <translation id="2386793615875593361">1 არჩეულია</translation>
-<translation id="2410754283952462441">აირჩიეთ ანგარიში</translation>
 <translation id="2421004566762153674">მესამე მხარის ქუქი-ჩანაწერების დაბლოკვა</translation>
 <translation id="2421044535038393232">რედაქტირების გაგრძელება</translation>
 <translation id="2435457462613246316">პაროლის ჩვენება</translation>
@@ -362,7 +358,6 @@
 <translation id="473775607612524610">განახლება</translation>
 <translation id="4747097190499141774">საიდუმლო ფრაზით დაშიფვრა არ მოიცავს Google Pay-ში შენახულ გადახდის მეთოდებსა და მისამართებს. თქვენი დაშიფრული მონაცემების წაკითხვა შეუძლია მხოლოდ მას, ვინც იცის თქვენი საიდუმლო ფრაზა. საიდუმლო ფრაზა არ იგზავნება Google-ში და არ ინახება მის მიერ. საიდუმლო ფრაზის დავიწყების ან ამ პარამეტრის შეცვლის შემთხვევაში, სინქრონიზაციის გადაყენება მოგიწევთ. <ph name="BEGIN_LINK" />შეიტყვეთ მეტი<ph name="END_LINK" /></translation>
 <translation id="4751645464639803239">ახალი ინკოგნიტო ჩანართი</translation>
-<translation id="4766678251456904326">ანგარიშის დამატება მოწყობილობაზე</translation>
 <translation id="4775879719735953715">ნაგულისხმევი ბრაუზერი</translation>
 <translation id="4778644898150334464">სხვა პაროლის გამოყენება</translation>
 <translation id="4802417911091824046">საიდუმლო ფრაზით დაშიფვრა არ მოიცავს Google Pay-ში შენახულ გადახდის მეთოდებსა და მისამართებს.
@@ -393,6 +388,7 @@
 <translation id="4979397965658815378">თქვენი სანიშნეების, პაროლების, ისტორიის და სხვა პარამეტრების ყველა თქვენს მოწყობილობაში მისაღებად, შედით სისტემაში თქვენი Google ანგარიშით</translation>
 <translation id="5005498671520578047">პაროლის კოპირება</translation>
 <translation id="5017828934289857214">მოგვიანებით შეხსენება</translation>
+<translation id="5037676449506322593">აირჩიეთ ყველა</translation>
 <translation id="5039804452771397117">დაშვება</translation>
 <translation id="5056446788882570708">პრობლემები ნაპოვნია: <ph name="TIME" />.</translation>
 <translation id="5059136629401106827">კარგი</translation>
@@ -460,6 +456,7 @@ Handoff ასევე უნდა იყოს ჩართული პა�
 <translation id="5782227691023083829">მიმდინარეობს თარგმნა...</translation>
 <translation id="5797070761912323120">Google-მა შეიძლება გამოიყენოს თქვენი ისტორია Search-ის, რეკლამისა და Google-ის სხვა სერვისების თქვენზე მოსარგებად</translation>
 <translation id="5803566855766646066">ნამდვილად გსურთ ამ ახალი ბარათის გაუქმება?</translation>
+<translation id="5812974770859303494">დამატება...</translation>
 <translation id="5816228676161003208">საშუალებას გაძლევთ, უფრო სწრაფად განახორციელოთ ძიება ხმის მეშვეობით.</translation>
 <translation id="581659025233126501">სინქრონიზაციის ჩართვა</translation>
 <translation id="5819208479324046259">მართავს <ph name="MANAGER" />. <ph name="BEGIN_LINK" />შეიტყვეთ მეტი<ph name="END_LINK" /></translation>
@@ -495,6 +492,7 @@ Handoff ასევე უნდა იყოს ჩართული პა�
 <translation id="6059830886158432458">აქ შეგიძლიათ მართოთ ამბები და აქტივობა</translation>
 <translation id="6066301408025741299">შეეხეთ გასაუქმებლად.</translation>
 <translation id="60829778314739003">დათანხმება და გაგრძელება</translation>
+<translation id="6084848228346514841">აირჩიეთ ჩანართები</translation>
 <translation id="6108923351542677676">მიმდინარეობს დაყენება…</translation>
 <translation id="6119050551270742952">ამჟამად გახსნილი ვებგვერდი ინკოგნიტო რეჟიმშია</translation>
 <translation id="6122191549521593678">ონლაინ</translation>
@@ -526,6 +524,7 @@ Handoff ასევე უნდა იყოს ჩართული პა�
 <translation id="634878792104344809">შეასრულეთ თქვენი პაროლების, ისტორიისა და სხვა კონტენტის სინქრონიზაცია თქვენს ყველა მოწყობილობას შორის</translation>
 <translation id="6362362396625799311">ინკოგნიტო ჩანართები არ არის</translation>
 <translation id="6363526231572697780">მომხმარებლის სახელის გარეშე</translation>
+<translation id="6366663624406569102">გასვლა და სინქრონიზაციის გამორთვა</translation>
 <translation id="6374469231428023295">ხელახლა ცდა</translation>
 <translation id="6377118281273296434">საიტის უსაფრთხოება</translation>
 <translation id="6380866119319257197">საიდუმლო ფრაზის დავიწყების ან ამ პარამეტრის შეცვლის სურვილის შემთხვევაში, <ph name="BEGIN_LINK" />გადააყენეთ სინქრონიზაცია<ph name="END_LINK" /></translation>
@@ -618,7 +617,6 @@ Handoff ასევე უნდა იყოს ჩართული პა�
 <translation id="7029809446516969842">პაროლები</translation>
 <translation id="7053983685419859001">დაბლოკვა</translation>
 <translation id="7062545763355031412">მიღება და ანგარიშების გადართვა</translation>
-<translation id="708844789167408367">გამოსვლა და სინქრონიზაციის გამორთვა...</translation>
 <translation id="7099761977003084116">ბოლოდროინდელი ჩანართები</translation>
 <translation id="7102005569666697658">მიმდინარეობს ჩამოტვირთვა… <ph name="FILE_SIZE" /></translation>
 <translation id="7108338896283013870">დამალვა</translation>
@@ -676,7 +674,6 @@ Handoff ასევე უნდა იყოს ჩართული პა�
 <translation id="7646772052135772216">პაროლების სინქრონიზაცია არ მუშაობს</translation>
 <translation id="7649070708921625228">დახმარება</translation>
 <translation id="7658239707568436148">გაუქმება</translation>
-<translation id="766891008101699113">ვების კონფიდენციალურად დასათვალიერებლად დაამატეთ ახალი ჩანართი.</translation>
 <translation id="7671141431838911305">ინსტალაცია</translation>
 <translation id="7701040980221191251">არცერთი</translation>
 <translation id="7741325291586284254">ახალი ინკოგნიტო ჩანართის გვერდი</translation>
@@ -771,6 +768,7 @@ Handoff ასევე უნდა იყოს ჩართული პა�
 <translation id="8654802032646794042">გაუქმება</translation>
 <translation id="8668210798914567634">ეს გვერდი შენახულია თქვენს საკითხავ სიაში.</translation>
 <translation id="8680787084697685621">ანგარიშზე შესვლის დეტალები მოძველებულია.</translation>
+<translation id="8693663554456874301">{count,plural, =1{ჩანართის დახურვა}other{ჩანართების დახურვა}}</translation>
 <translation id="8706588385081740091">პაროლები</translation>
 <translation id="8717864919010420084">ბმულის კოპირება</translation>
 <translation id="8721297211384281569">ხელსაწყოების მენიუ</translation>
@@ -785,6 +783,7 @@ Handoff ასევე უნდა იყოს ჩართული პა�
 <ph name="BEGIN_LINK" />შეიტყვეთ მეტი<ph name="END_LINK" /></translation>
 <translation id="8820817407110198400">სანიშნეები</translation>
 <translation id="8840513115188359703">თქვენ არ გამოხვალთ თქვენი Google ანგარიშიდან.</translation>
+<translation id="8868471676553493380">{count,plural, =1{{count} ჩანართი}other{{count} ჩანართი}}</translation>
 <translation id="8870413625673593573">ბოლოს დახურული</translation>
 <translation id="8876882697946675716">შეინარჩუნეთ მოწყობილობები სინქრონიზებულ მდგომარეობაში</translation>
 <translation id="8881801611828450202">ამ სურათის ძიება <ph name="SEARCH_ENGINE" />-ში</translation>
@@ -816,6 +815,7 @@ Handoff ასევე უნდა იყოს ჩართული პა�
 <translation id="9203116392574189331">Handoff</translation>
 <translation id="9223358826628549784">მოხსენება შეცდომების შესახებ გაიგზავნა.</translation>
 <translation id="952704832371081537">გაუქმება</translation>
+<translation id="984509647832111802">სინქრონიზაცია არ მუშაობს.</translation>
 <translation id="988141524645182168">სხვა მოწყობილობები</translation>
 <translation id="989988560359834682">მისამართის რედაქტირება</translation>
 <translation id="994757059139821576">სტატიების შემოთავაზება</translation>

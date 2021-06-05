@@ -5,8 +5,8 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_MODULES_WEBTRANSPORT_OUTGOING_STREAM_H_
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_WEBTRANSPORT_OUTGOING_STREAM_H_
 
-#include <stddef.h>
-#include <stdint.h>
+#include <cstddef>
+#include <cstdint>
 
 #include "base/containers/span.h"
 #include "base/types/strong_alias.h"
@@ -17,13 +17,11 @@
 #include "third_party/blink/renderer/core/execution_context/execution_context_lifecycle_observer.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
 #include "third_party/blink/renderer/platform/heap/thread_state.h"
-
-namespace v8 {
-class Isolate;
-}
+#include "v8/include/v8.h"
 
 namespace blink {
 
+class ExceptionState;
 class ScriptState;
 class StreamAbortInfo;
 class WritableStream;
@@ -61,8 +59,11 @@ class MODULES_EXPORT OutgoingStream final
   OutgoingStream(ScriptState*, Client*, mojo::ScopedDataPipeProducerHandle);
   ~OutgoingStream();
 
-  // Init() must be called before the stream is used.
-  void Init();
+  // Init() or InitWithExistingWritableStream() must be called before the stream
+  // is used.
+  void Init(ExceptionState&);
+
+  void InitWithExistingWritableStream(WritableStream*, ExceptionState&);
 
   // Implementation of OutgoingStream IDL, used by client classes to implement
   // it. https://wicg.github.io/web-transport/#outgoing-stream

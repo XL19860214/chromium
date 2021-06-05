@@ -8,6 +8,7 @@
 #include "content/browser/prerender/prerender_host.h"
 #include "content/browser/renderer_host/render_frame_host_delegate.h"
 #include "content/browser/renderer_host/render_frame_host_impl.h"
+#include "content/browser/webui/url_data_manager_backend.h"
 #include "third_party/blink/public/common/features.h"
 
 namespace content {
@@ -19,6 +20,12 @@ PrerenderProcessor::PrerenderProcessor(
       registry_(
           initiator_render_frame_host.delegate()->GetPrerenderHostRegistry()) {
   DCHECK(blink::features::IsPrerender2Enabled());
+
+  // The prerender request from a page being prerendered should be deferred
+  // until activation by the Mojo capability control.
+  DCHECK_NE(RenderFrameHostImpl::LifecycleStateImpl::kPrerendering,
+            initiator_render_frame_host.lifecycle_state());
+
   observation_.Observe(registry_);
 }
 
@@ -48,11 +55,11 @@ void PrerenderProcessor::Start(
     return;
   }
 
-  // Prerendering is only supported for <link rel=prerender>.
-  // We may want to support it for <link rel=next> if NoStatePrefetch re-enables
-  // it again. See https://crbug.com/1161545.
+  // Prerendering is only supported for <link rel=prerender> and
+  // SpeculationRules.
   switch (attributes->trigger_type) {
     case blink::mojom::PrerenderTriggerType::kLinkRelPrerender:
+    case blink::mojom::PrerenderTriggerType::kSpeculationRule:
       break;
     case blink::mojom::PrerenderTriggerType::kLinkRelNext:
       return;
@@ -69,6 +76,14 @@ void PrerenderProcessor::Start(
   // after the PrerenderProcessor was created.
   if (initiator_render_frame_host_.GetLastCommittedOrigin() !=
       initiator_origin_) {
+    return;
+  }
+
+  // Report bad message if asked to prerender webUI.
+  std::string scheme = attributes->url.scheme();
+  const auto& webui_schemes = URLDataManagerBackend::GetWebUISchemes();
+  if (base::Contains(webui_schemes, scheme)) {
+    mojo::ReportBadMessage("PP_WEBUI");
     return;
   }
 
@@ -100,7 +115,10 @@ void PrerenderProcessor::CancelPrerendering() {
 
   if (!registry_)
     return;
-  registry_->AbandonHost(prerender_frame_tree_node_id_);
+  // TODO(https://crbug.com/1169594): Pass kCanceled or a more detailed
+  // cancellation reason instead of kDestroyed.
+  registry_->AbandonHost(prerender_frame_tree_node_id_,
+                         PrerenderHost::FinalStatus::kDestroyed);
 }
 
 }  // namespace content

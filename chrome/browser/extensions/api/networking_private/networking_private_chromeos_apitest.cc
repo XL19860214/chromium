@@ -241,6 +241,9 @@ class NetworkingPrivateChromeOSApiTest : public extensions::ExtensionApiTest {
                shill::kStateIdle);
     service_test()->SetServiceProperty(
         kCellular1ServicePath, shill::kAutoConnectProperty, base::Value(true));
+    service_test()->SetServiceProperty(kCellular1ServicePath,
+                                       shill::kIccidProperty,
+                                       base::Value("test_iccid"));
     service_test()->SetServiceProperty(
         kCellular1ServicePath, shill::kNetworkTechnologyProperty,
         base::Value(shill::kNetworkTechnologyGsm));
@@ -417,8 +420,6 @@ class NetworkingPrivateChromeOSApiTest : public extensions::ExtensionApiTest {
         base::Value("third_party_provider_extension_id"));
     profile_test()->AddService(kUser1ProfilePath, "stub_vpn2");
 
-    chromeos::CellularMetricsLogger::RegisterLocalStatePrefs(
-        local_state_.registry());
     chromeos::CellularESimProfileHandlerImpl::RegisterLocalStatePrefs(
         local_state_.registry());
     PrefProxyConfigTrackerImpl::RegisterProfilePrefs(user_prefs_.registry());

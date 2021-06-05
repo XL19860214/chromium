@@ -38,7 +38,6 @@ class HTMLFormControlElement;
 class HTMLFormControlsCollection;
 class HTMLImageElement;
 class ListedElement;
-class RadioNodeListOrElement;
 class V8UnionElementOrRadioNodeList;
 
 class CORE_EXPORT HTMLFormElement final : public HTMLElement {
@@ -106,10 +105,7 @@ class CORE_EXPORT HTMLFormElement final : public HTMLElement {
   const ListedElement::List& ListedElements() const;
   const HeapVector<Member<HTMLImageElement>>& ImageElements();
 
-#if defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
   V8UnionElementOrRadioNodeList* AnonymousNamedGetter(const AtomicString& name);
-#endif  // defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
-  void AnonymousNamedGetter(const AtomicString& name, RadioNodeListOrElement&);
   void InvalidateDefaultButtonStyle() const;
 
   // 'construct the entry list'

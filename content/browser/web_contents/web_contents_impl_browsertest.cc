@@ -551,6 +551,31 @@ IN_PROC_BROWSER_TEST_F(WebContentsImplBrowserTest, OpenURLSubframe) {
                 controller->GetPendingEntry())->frame_tree_node_id());
 }
 
+IN_PROC_BROWSER_TEST_F(WebContentsImplBrowserTest, OpenURLNonExistentSubframe) {
+  // Navigate to a page with frames and grab a subframe's FrameTreeNode ID.
+  ASSERT_TRUE(embedded_test_server()->Start());
+  EXPECT_TRUE(
+      NavigateToURL(shell(), embedded_test_server()->GetURL("/title1.html")));
+  WebContentsImpl* wc = static_cast<WebContentsImpl*>(shell()->web_contents());
+
+  // Take a FrameTreeNodeID that doesn't represent any frames.
+  int frame_tree_node_id = 100;
+  ASSERT_FALSE(FrameTreeNode::GloballyFindByID(frame_tree_node_id));
+
+  // Navigate with the invalid FrameTreeNode ID.
+  const GURL url(embedded_test_server()->GetURL("/title2.html"));
+  OpenURLParams params(url, Referrer(), frame_tree_node_id,
+                       WindowOpenDisposition::CURRENT_TAB,
+                       ui::PAGE_TRANSITION_LINK, true);
+  params.initiator_origin = wc->GetMainFrame()->GetLastCommittedOrigin();
+  WebContents* new_web_contents = shell()->web_contents()->OpenURL(params);
+
+  // The navigation should have been ignored.
+  EXPECT_EQ(new_web_contents, nullptr);
+  NavigationController* controller = &shell()->web_contents()->GetController();
+  EXPECT_EQ(controller->GetPendingEntry(), nullptr);
+}
+
 IN_PROC_BROWSER_TEST_F(WebContentsImplBrowserTest,
                        AppendingFrameInWebUIDoesNotCrash) {
   const GURL kWebUIUrl(GetWebUIURL("gpu"));
@@ -1833,6 +1858,85 @@ IN_PROC_BROWSER_TEST_F(WebContentsImplBrowserTest,
   EXPECT_TRUE(ExecJs(wc, alert));
   test_delegate.Wait();
   EXPECT_EQ("1\n2\n3\n4", test_delegate.last_message());
+}
+
+class WebContentsImplBrowserTestWithDifferentOriginSubframeDialogSuppression
+    : public WebContentsImplBrowserTest {
+ public:
+  void SetUp() override {
+    scoped_feature_list_.InitAndEnableFeature(
+        features::kSuppressDifferentOriginSubframeJSDialogs);
+    WebContentsImplBrowserTest::SetUp();
+  }
+
+ private:
+  base::test::ScopedFeatureList scoped_feature_list_;
+};
+
+IN_PROC_BROWSER_TEST_F(
+    WebContentsImplBrowserTestWithDifferentOriginSubframeDialogSuppression,
+    OriginTrialDisablesSuppression) {
+  // Generated with tools/origin_trials/generate_token.py --expire-days 5000
+  // http://allowdialogs.test:9999
+  // DisableDifferentOriginSubframeDialogSuppression
+  std::string origin_trial_token =
+      "AwcVbxsLRzn8IXBNaeCrK7amKs211vWkv5oCYo+gssujKeltEtcIaQD+O9hWO+"
+      "GT3WtKUFhEA30+QuqyU3TUvQkAAAB/"
+      "eyJvcmlnaW4iOiAiaHR0cDovL2FsbG93ZGlhbG9ncy50ZXN0Ojk5OTkiLCAiZmVhdHVyZSI6"
+      "ICJEaXNhYmxlRGlmZmVyZW50T3JpZ2luU3ViZnJhbWVEaWFsb2dTdXBwcmVzc2lvbiIsICJl"
+      "eHBpcnkiOiAyMDU0NzU5MTcyfQ==";
+  GURL origin_trial_url = GURL("http://allowdialogs.test:9999");
+
+  WebContentsImpl* wc = static_cast<WebContentsImpl*>(shell()->web_contents());
+  TestWCDelegateForDialogsAndFullscreen test_delegate(wc);
+
+  ASSERT_TRUE(embedded_test_server()->Start());
+
+  EXPECT_TRUE(NavigateToURL(
+      shell(), embedded_test_server()->GetURL("a.com", "/title1.html")));
+  EXPECT_TRUE(WaitForLoadStop(wc));
+
+  FrameTreeNode* root = wc->GetFrameTree()->root();
+  ASSERT_EQ(0U, root->child_count());
+
+  std::string script =
+      "var iframe = document.createElement('iframe');"
+      "document.body.appendChild(iframe);";
+  EXPECT_TRUE(ExecJs(root->current_frame_host(), script));
+  EXPECT_TRUE(WaitForLoadStop(shell()->web_contents()));
+
+  ASSERT_EQ(1U, root->child_count());
+  FrameTreeNode* frame = root->child_at(0);
+  ASSERT_NE(nullptr, frame);
+
+  // We need to use a URLLoaderInterceptor for the subframe since origin trial
+  // is origin bound, and embedded test server randomizes ports.
+  URLLoaderInterceptor interceptor(base::BindLambdaForTesting(
+      [&](URLLoaderInterceptor::RequestParams* params) {
+        if (params->url_request.url != origin_trial_url)
+          return false;
+        URLLoaderInterceptor::WriteResponse(
+            "HTTP/1.1 200 OK\n"
+            "Content-type: text/html\n"
+            "Origin-Trial: " +
+                origin_trial_token + "\n\n",
+            "", params->client.get());
+        return true;
+      }));
+
+  // A dialog from the subframe.
+  // Navigate the subframe to the site with the origin trial meta tag.
+  EXPECT_TRUE(NavigateToURLFromRenderer(frame, origin_trial_url));
+  EXPECT_TRUE(WaitForLoadStop(wc));
+
+  // A dialog from the subframe, which should show even though different origin
+  // subframe dialog suppression is enabled, since the origin trial overrides
+  // it.
+  std::string alert_location = "alert(document.location)";
+  test_delegate.WillWaitForDialog();
+  EXPECT_TRUE(ExecJs(frame->current_frame_host(), alert_location));
+  test_delegate.Wait();
+  EXPECT_EQ(origin_trial_url, GURL(test_delegate.last_message()));
 }
 
 IN_PROC_BROWSER_TEST_F(WebContentsImplBrowserTest,
@@ -3498,44 +3602,70 @@ IN_PROC_BROWSER_TEST_F(WebContentsImplBrowserTest, SetVisibilityBeforeLoad) {
 IN_PROC_BROWSER_TEST_F(WebContentsImplBrowserTest,
                        AttachNestedInnerWebContents) {
   ASSERT_TRUE(embedded_test_server()->Start());
-  GURL main_url(embedded_test_server()->GetURL(
+  const GURL url_a(embedded_test_server()->GetURL(
       "a.com", "/cross_site_iframe_factory.html?a(a)"));
-  EXPECT_TRUE(NavigateToURL(shell(), main_url));
-
+  const GURL url_b(embedded_test_server()->GetURL(
+      "b.com", "/cross_site_iframe_factory.html?b(b)"));
+  ASSERT_TRUE(NavigateToURL(shell(), url_a));
   auto* root_web_contents =
       static_cast<WebContentsImpl*>(shell()->web_contents());
-  FrameTreeNode* root = root_web_contents->GetFrameTree()->root();
-  ASSERT_EQ(1u, root->child_count());
-  FrameTreeNode* child_to_replace = root->child_at(0);
-  auto* child_to_replace_rfh = child_to_replace->current_frame_host();
 
+  // Create a child WebContents but don't attach it to the root contents yet.
   WebContents::CreateParams inner_params(
       root_web_contents->GetBrowserContext());
-
   std::unique_ptr<WebContents> child_contents_ptr =
       WebContents::Create(inner_params);
-  auto* child_rfh =
-      static_cast<RenderFrameHostImpl*>(child_contents_ptr->GetMainFrame());
+  WebContents* child_contents = child_contents_ptr.get();
+  // Navigate the child to a page with a subframe, at which we will attach the
+  // grandchild.
+  ASSERT_TRUE(NavigateToURL(child_contents, url_b));
 
+  // Create and attach grandchild to child.
   std::unique_ptr<WebContents> grandchild_contents_ptr =
       WebContents::Create(inner_params);
-
-  // Attach grandchild to child.
-  child_contents_ptr->AttachInnerWebContents(
-      std::move(grandchild_contents_ptr), child_rfh, false /* is_full_page */);
+  WebContents* grandchild_contents = grandchild_contents_ptr.get();
+  RenderFrameHost* child_contents_subframe =
+      ChildFrameAt(child_contents->GetMainFrame(), 0);
+  ASSERT_TRUE(child_contents_subframe);
+  child_contents->AttachInnerWebContents(std::move(grandchild_contents_ptr),
+                                         child_contents_subframe,
+                                         false /* is_full_page */);
 
   // At this point the child hasn't been attached to the root.
-  EXPECT_EQ(1U, root_web_contents->GetInputEventRouter()
-                    ->RegisteredViewCountForTesting());
+  {
+    auto* root_view = static_cast<RenderWidgetHostViewBase*>(
+        root_web_contents->GetRenderWidgetHostView());
+    ASSERT_TRUE(root_view);
+    auto* root_event_router = root_web_contents->GetInputEventRouter();
+    EXPECT_EQ(1U, root_event_router->RegisteredViewCountForTesting());
+    EXPECT_TRUE(root_event_router->IsViewInMap(root_view));
+  }
 
   // Attach child+grandchild subtree to root.
+  RenderFrameHost* root_contents_subframe =
+      ChildFrameAt(root_web_contents->GetMainFrame(), 0);
+  ASSERT_TRUE(root_contents_subframe);
   root_web_contents->AttachInnerWebContents(std::move(child_contents_ptr),
-                                            child_to_replace_rfh,
+                                            root_contents_subframe,
                                             false /* is_full_page */);
 
   // Verify views registered for both child and grandchild.
-  EXPECT_EQ(3U, root_web_contents->GetInputEventRouter()
-                    ->RegisteredViewCountForTesting());
+  {
+    auto* root_view = static_cast<RenderWidgetHostViewBase*>(
+        root_web_contents->GetRenderWidgetHostView());
+    auto* child_view = static_cast<RenderWidgetHostViewBase*>(
+        child_contents->GetRenderWidgetHostView());
+    auto* grandchild_view = static_cast<RenderWidgetHostViewBase*>(
+        grandchild_contents->GetRenderWidgetHostView());
+    ASSERT_TRUE(root_view);
+    ASSERT_TRUE(child_view);
+    ASSERT_TRUE(grandchild_view);
+    auto* root_event_router = root_web_contents->GetInputEventRouter();
+    EXPECT_EQ(3U, root_event_router->RegisteredViewCountForTesting());
+    EXPECT_TRUE(root_event_router->IsViewInMap(root_view));
+    EXPECT_TRUE(root_event_router->IsViewInMap(child_view));
+    EXPECT_TRUE(root_event_router->IsViewInMap(grandchild_view));
+  }
 }
 
 IN_PROC_BROWSER_TEST_F(WebContentsImplBrowserTest,
@@ -3846,6 +3976,44 @@ IN_PROC_BROWSER_TEST_F(WebContentsImplBrowserTest,
   histogram_tester.ExpectTotalCount(kMaxFrameCountUMA, 1);
   histogram_tester.ExpectBucketCount(kMaxFrameCountUMA, /* bucket */ 3,
                                      /* count */ 1);
+}
+
+IN_PROC_BROWSER_TEST_F(WebContentsImplBrowserTest, ForEachRenderFrameHost) {
+  ASSERT_TRUE(embedded_test_server()->Start());
+  const GURL url =
+      embedded_test_server()->GetURL("a.com", "/page_with_iframe.html");
+  ASSERT_TRUE(NavigateToURL(shell(), url));
+  auto* web_contents = static_cast<WebContentsImpl*>(shell()->web_contents());
+
+  // In the absence of any pages besides the primary page (e.g. nothing in
+  // bfcache, no prerendered pages), iterating over the RenderFrameHosts of the
+  // WebContents would just produce the RenderFrameHosts of the primary page.
+  EXPECT_THAT(CollectAllRenderFrameHosts(web_contents),
+              testing::ContainerEq(
+                  CollectAllRenderFrameHosts(web_contents->GetMainFrame())));
+}
+
+IN_PROC_BROWSER_TEST_F(WebContentsImplBrowserTest,
+                       ForEachRenderFrameHostInnerContents) {
+  ASSERT_TRUE(embedded_test_server()->Start());
+  const GURL url_a(
+      embedded_test_server()->GetURL("a.com", "/page_with_iframe.html"));
+  const GURL url_b(embedded_test_server()->GetURL("b.com", "/title1.html"));
+  ASSERT_TRUE(NavigateToURL(shell(), url_a));
+  auto* web_contents = static_cast<WebContentsImpl*>(shell()->web_contents());
+
+  auto* inner_contents = CreateAndAttachInnerContents(
+      web_contents->GetMainFrame()->child_at(0)->current_frame_host());
+  ASSERT_TRUE(NavigateToURLFromRenderer(inner_contents, url_b));
+
+  // Calling |WebContents::ForEachRenderFrameHost| on an inner contents does not
+  // add much value over |RenderFrameHost::ForEachRenderFrameHost|, since we
+  // don't have any pages besides the primary page, however for completeness, we
+  // allow it to be called and confirm that it just returns the RenderFrameHosts
+  // of the primary page.
+  EXPECT_THAT(CollectAllRenderFrameHosts(inner_contents),
+              testing::ContainerEq(
+                  CollectAllRenderFrameHosts(inner_contents->GetMainFrame())));
 }
 
 namespace {
@@ -4402,87 +4570,95 @@ class WebContentsImplBrowserTestWindowControlsOverlay
                    name)));
   }
 
+  void ValidateWindowsControlOverlayState(WebContents* web_contents,
+                                          const gfx::Rect& expected_rect,
+                                          int css_fallback_value) {
+    EXPECT_EQ(!expected_rect.IsEmpty(),
+              EvalJs(web_contents, "navigator.windowControlsOverlay.visible"));
+    EXPECT_EQ(
+        expected_rect.x(),
+        EvalJs(web_contents,
+               "navigator.windowControlsOverlay.getBoundingClientRect().x"));
+    EXPECT_EQ(
+        expected_rect.y(),
+        EvalJs(web_contents,
+               "navigator.windowControlsOverlay.getBoundingClientRect().y"));
+    EXPECT_EQ(
+        expected_rect.width(),
+        EvalJs(
+            web_contents,
+            "navigator.windowControlsOverlay.getBoundingClientRect().width"));
+    EXPECT_EQ(
+        expected_rect.height(),
+        EvalJs(
+            web_contents,
+            "navigator.windowControlsOverlay.getBoundingClientRect().height"));
+
+    // When the overlay is not visible, the environment variables should be
+    // undefined, and the the fallback value should be used.
+    gfx::Rect css_rect = expected_rect;
+    if (css_rect.IsEmpty()) {
+      css_rect.SetRect(css_fallback_value, css_fallback_value,
+                       css_fallback_value, css_fallback_value);
+    }
+
+    auto FormatPx = [](int value) { return base::StringPrintf("%dpx", value); };
+
+    ValidateTitlebarAreaCSSValue("left", FormatPx(css_rect.x()));
+    ValidateTitlebarAreaCSSValue("top", FormatPx(css_rect.y()));
+    ValidateTitlebarAreaCSSValue("width", FormatPx(css_rect.width()));
+    ValidateTitlebarAreaCSSValue("height", FormatPx(css_rect.height()));
+  }
+
  private:
   base::test::ScopedFeatureList scoped_feature_list_;
 };
 
 IN_PROC_BROWSER_TEST_F(WebContentsImplBrowserTestWindowControlsOverlay,
-                       UpdateWindowControlsOverlay) {
+                       ValidateWindowControlsOverlayToggleOn) {
   auto* web_contents = shell()->web_contents();
 
   GURL url(
-      "data:text/html,<body><div id=target style=\"position=absolute;"
-      "left: env(titlebar-area-x, 50px);"
-      "top: env(titlebar-area-y, 50px);"
-      "width: env(titlebar-area-width, 50px);"
-      "height: env(titlebar-area-height, 50px);\"></div></body>");
+      R"(data:text/html,<body><div id=target style="position=absolute;
+      left: env(titlebar-area-x, 50px);
+      top: env(titlebar-area-y, 50px);
+      width: env(titlebar-area-width, 50px);
+      height: env(titlebar-area-height, 50px);"></div></body>)");
 
   EXPECT_TRUE(NavigateToURL(shell(), url));
 
   // In the initial state, the overlay is not visible and the bounding rect is
   // empty.
-  int empty_rect_value = 0;
-
-  EXPECT_EQ(false,
-            EvalJs(web_contents, "navigator.windowControlsOverlay.visible"));
-  EXPECT_EQ(
-      empty_rect_value,
-      EvalJs(web_contents,
-             "navigator.windowControlsOverlay.getBoundingClientRect().x"));
-  EXPECT_EQ(
-      empty_rect_value,
-      EvalJs(web_contents,
-             "navigator.windowControlsOverlay.getBoundingClientRect().y"));
-  EXPECT_EQ(
-      empty_rect_value,
-      EvalJs(web_contents,
-             "navigator.windowControlsOverlay.getBoundingClientRect().width"));
-  EXPECT_EQ(
-      empty_rect_value,
-      EvalJs(web_contents,
-             "navigator.windowControlsOverlay.getBoundingClientRect().height"));
-
-  // When the overlay is not visble, the environment variables should be
-  // undefined, and the the fallback value of 50px should be used.
-  ValidateTitlebarAreaCSSValue("left", "50px");
-  ValidateTitlebarAreaCSSValue("top", "50px");
-  ValidateTitlebarAreaCSSValue("width", "50px");
-  ValidateTitlebarAreaCSSValue("height", "50px");
+  ValidateWindowsControlOverlayState(web_contents, gfx::Rect(), 50);
 
   // Update bounds and ensure that JS APIs and CSS variables are updated.
-  const int new_x = 1;
-  const int new_y = 2;
-  const int new_width = 3;
-  const int new_height = 4;
-
-  gfx::Rect bounding_client_rect =
-      gfx::Rect(new_x, new_y, new_width, new_height);
-
+  gfx::Rect bounding_client_rect(1, 2, 3, 4);
   web_contents->UpdateWindowControlsOverlay(bounding_client_rect);
+  ValidateWindowsControlOverlayState(web_contents, bounding_client_rect, 50);
+}
 
-  EXPECT_EQ(true,
-            EvalJs(web_contents, "navigator.windowControlsOverlay.visible"));
-  EXPECT_EQ(
-      new_x,
-      EvalJs(web_contents,
-             "navigator.windowControlsOverlay.getBoundingClientRect().x"));
-  EXPECT_EQ(
-      new_y,
-      EvalJs(web_contents,
-             "navigator.windowControlsOverlay.getBoundingClientRect().y"));
-  EXPECT_EQ(
-      new_width,
-      EvalJs(web_contents,
-             "navigator.windowControlsOverlay.getBoundingClientRect().width"));
-  EXPECT_EQ(
-      new_height,
-      EvalJs(web_contents,
-             "navigator.windowControlsOverlay.getBoundingClientRect().height"));
+IN_PROC_BROWSER_TEST_F(WebContentsImplBrowserTestWindowControlsOverlay,
+                       ValidateWindowControlsOverlayToggleOff) {
+  auto* web_contents = shell()->web_contents();
 
-  ValidateTitlebarAreaCSSValue("left", "1px");
-  ValidateTitlebarAreaCSSValue("top", "2px");
-  ValidateTitlebarAreaCSSValue("width", "3px");
-  ValidateTitlebarAreaCSSValue("height", "4px");
+  GURL url(
+      R"(data:text/html,<body><div id=target style="position=absolute;
+      left: env(titlebar-area-x, 55px);
+      top: env(titlebar-area-y, 55px);
+      width: env(titlebar-area-width, 55px);
+      height: env(titlebar-area-height, 55px);"></div></body>)");
+
+  EXPECT_TRUE(NavigateToURL(shell(), url));
+
+  // Update bounds and ensure that JS APIs and CSS variables are updated.
+  gfx::Rect bounding_client_rect(0, 0, 100, 32);
+  web_contents->UpdateWindowControlsOverlay(bounding_client_rect);
+  ValidateWindowsControlOverlayState(web_contents, bounding_client_rect, 55);
+
+  // Now toggle Windows Controls Overlay off.
+  gfx::Rect empty_rect;
+  web_contents->UpdateWindowControlsOverlay(empty_rect);
+  ValidateWindowsControlOverlayState(web_contents, empty_rect, 55);
 }
 
 IN_PROC_BROWSER_TEST_F(WebContentsImplBrowserTestWindowControlsOverlay,
@@ -4526,4 +4702,5 @@ IN_PROC_BROWSER_TEST_F(WebContentsImplBrowserTestWindowControlsOverlay,
   EXPECT_EQ(width, EvalJs(web_contents, "rect.width"));
   EXPECT_EQ(height, EvalJs(web_contents, "rect.height"));
 }
+
 }  // namespace content

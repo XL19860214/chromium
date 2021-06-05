@@ -13,8 +13,9 @@
 namespace chromeos {
 namespace {
 
-using TextSuggestion = ::chromeos::ime::TextSuggestion;
-using TextSuggestionType = ::chromeos::ime::TextSuggestionType;
+using ::chromeos::ime::TextSuggestion;
+using ::chromeos::ime::TextSuggestionMode;
+using ::chromeos::ime::TextSuggestionType;
 
 absl::optional<TextSuggestion> GetMultiWordSuggestion(
     const std::vector<TextSuggestion>& suggestions) {
@@ -26,6 +27,23 @@ absl::optional<TextSuggestion> GetMultiWordSuggestion(
     return suggestions[0];
   }
   return absl::nullopt;
+}
+
+int CalculateConfirmedLength(const std::u16string& suggestion,
+                             const std::u16string& last_known_text_) {
+  int last_space_index = last_known_text_.rfind(u' ');
+  int offset = last_space_index < 0 ? 0 : last_space_index + 1;
+
+  int matching_character_count = 0;
+  for (int i = 0; i < suggestion.size(); i++) {
+    if (last_known_text_.size() < i + offset)
+      break;
+    if (last_known_text_[i + offset] != suggestion[i])
+      break;
+    matching_character_count++;
+  }
+
+  return matching_character_count;
 }
 
 }  // namespace
@@ -42,6 +60,14 @@ void MultiWordSuggester::OnFocus(int context_id) {
 
 void MultiWordSuggester::OnBlur() {
   focused_context_id_ = 0;
+}
+
+void MultiWordSuggester::OnSurroundingTextChanged(const std::u16string& text,
+                                                  int cursor_pos,
+                                                  int anchor_pos) {
+  last_known_text_ = text;
+  last_known_cursor_pos_ = cursor_pos;
+  last_known_anchor_pos_ = anchor_pos;
 }
 
 void MultiWordSuggester::OnExternalSuggestionsUpdated(
@@ -65,7 +91,9 @@ SuggestionStatus MultiWordSuggester::HandleKeyEvent(const ui::KeyEvent& event) {
   }
 }
 
-bool MultiWordSuggester::Suggest(const std::u16string& text) {
+bool MultiWordSuggester::Suggest(const std::u16string& text,
+                                 size_t cursor_pos,
+                                 size_t anchor_pos) {
   return false;
 }
 
@@ -107,13 +135,14 @@ std::vector<TextSuggestion> MultiWordSuggester::GetSuggestions() {
 void MultiWordSuggester::DisplaySuggestion(const TextSuggestion& suggestion) {
   ui::ime::SuggestionDetails details;
   details.text = base::UTF8ToUTF16(suggestion.text);
+  details.show_accept_annotation = false;
+  details.show_quick_accept_annotation = true;
 
-  // TODO(crbug/1146266): Handle completion candidates where part of the
-  // suggested text is already written by the user.
-  details.confirmed_length = 0;
-
-  // TODO(crbug/1146266): Handle the suggestion ui annotation.
-  details.show_annotation = false;
+  // TODO(crbug/1146266): Move to suggestions service
+  details.confirmed_length =
+      suggestion.mode == TextSuggestionMode::kCompletion
+          ? CalculateConfirmedLength(details.text, last_known_text_)
+          : 0;
 
   // TODO(crbug/1146266): Add required pref counter to hide settings link.
   details.show_setting_link = false;

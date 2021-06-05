@@ -14,6 +14,7 @@ import("//v8/gni/v8.gni")
 buildflag_header("buildflags") {
   header = "buildflags.h"
   flags = [
+    "ENABLE_INK=$enable_ink",
     "ENABLE_PDF=$enable_pdf",
     "ENABLE_PDF_UNSEASONED=$enable_pdf_unseasoned",
   ]
@@ -83,7 +84,13 @@ if (enable_pdf) {
   }
 
   source_set("internal") {
-    visibility = [ ":*" ]
+    visibility = [
+      ":*",
+
+      # TODO(crbug.com/1158929): Eliminate chrome_find_request_manager_browsertest.cc's dependence
+      # on document_loader_impl.h.
+      "//chrome/test:browser_tests",
+    ]
 
     sources = [
       "accessibility.cc",
@@ -175,10 +182,12 @@ if (enable_pdf) {
       "//components/strings",
       "//gin",
       "//net",
+      "//pdf:buildflags",
       "//pdf/pdfium/fuzzers",
       "//ppapi/cpp:objects",
       "//ppapi/cpp/private:internal_module",
       "//printing",
+      "//third_party/blink/public:blink_headers",
       "//third_party/blink/public/common:headers",
       "//third_party/icu",
       "//third_party/pdfium",
@@ -276,6 +285,13 @@ if (enable_pdf) {
       "//ui/base/cursor/mojom:cursor_type",
       "//ui/gfx",
     ]
+
+    if (is_linux || is_chromeos) {
+      sources += [
+        "ppapi_migration/pdfium_font_linux.cc",
+        "ppapi_migration/pdfium_font_linux.h",
+      ]
+    }
   }
 
   source_set("out_of_process_instance") {
@@ -298,6 +314,7 @@ if (enable_pdf) {
       "//base:i18n",
       "//build:chromeos_buildflags",
       "//net",
+      "//pdf:buildflags",
       "//ppapi/cpp:objects",
       "//ppapi/cpp/private:internal_module",
       "//skia",
@@ -331,6 +348,7 @@ if (enable_pdf) {
       ":internal",
       ":ppapi_migration",
       "//base",
+      "//base:i18n",
       "//cc/paint",
       "//content/public/renderer",
       "//gin",

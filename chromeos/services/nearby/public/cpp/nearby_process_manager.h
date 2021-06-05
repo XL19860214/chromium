@@ -34,8 +34,9 @@ class NearbyProcessManager : public KeyedService {
   enum class NearbyProcessShutdownReason {
     kNormal = 0,
     kCrash = 1,
-    kMojoPipeDisconnection = 2,
-    kMaxValue = kMojoPipeDisconnection
+    kDecoderMojoPipeDisconnection = 3,
+    kConnectionsMojoPipeDisconnection = 4,
+    kMaxValue = kConnectionsMojoPipeDisconnection
   };
 
   using NearbyProcessStoppedCallback =
@@ -62,6 +63,9 @@ class NearbyProcessManager : public KeyedService {
   // shutting down.
   virtual std::unique_ptr<NearbyProcessReference> GetNearbyProcessReference(
       NearbyProcessStoppedCallback on_process_stopped_callback) = 0;
+
+ private:
+  using KeyedService::Shutdown;
 };
 
 std::ostream& operator<<(

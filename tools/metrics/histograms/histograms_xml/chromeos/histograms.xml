@@ -38,10 +38,15 @@ incoming reviews. Googlers can read more about this at go/gwsq-gerrit.
     <owner>cros-oac@google.com</owner>
     <owner>chromeos-fingerprint@google.com</owner>
   </variant>
+  <variant name="NearbyShare" summary="Nearby Share">
+    <owner>nohle@chromium.org</owner>
+    <owner>vecore@chromium.org</owner>
+    <owner>nearby-share-chromeos-eng@google.com</owner>
+  </variant>
 </variants>
 
 <histogram name="ChromeOS.Apps.ExternalProtocolDialog"
-    enum="ArcIntentHandlerAction" expires_after="M94">
+    enum="ArcIntentHandlerAction" expires_after="2021-11-21">
   <owner>dominickn@chromium.org</owner>
   <owner>melzhang@chromium.org</owner>
   <owner>mxcai@chromium.org</owner>
@@ -366,7 +371,7 @@ incoming reviews. Googlers can read more about this at go/gwsq-gerrit.
 </histogram>
 
 <histogram name="ChromeOS.CWP.UploadPerf" units="reports"
-    expires_after="2021-09-19">
+    expires_after="2021-11-21">
   <owner>aalexand@google.com</owner>
   <owner>gmx@chromium.org</owner>
   <summary>
@@ -388,7 +393,7 @@ incoming reviews. Googlers can read more about this at go/gwsq-gerrit.
 </histogram>
 
 <histogram name="ChromeOS.DiagnosticsUi.MemoryRoutineDuration" units="s"
-    expires_after="2021-09-19">
+    expires_after="2021-11-21">
   <owner>gavindodd@chromium.org</owner>
   <owner>zentaro@chromium.org</owner>
   <owner>cros-peripherals@google.com</owner>
@@ -399,7 +404,7 @@ incoming reviews. Googlers can read more about this at go/gwsq-gerrit.
 </histogram>
 
 <histogram name="ChromeOS.DiagnosticsUi.OpenDuration" units="ms"
-    expires_after="2021-09-19">
+    expires_after="2021-11-21">
   <owner>gavindodd@chromium.org</owner>
   <owner>zentaro@chromium.org</owner>
   <owner>cros-peripherals@google.com</owner>
@@ -410,7 +415,7 @@ incoming reviews. Googlers can read more about this at go/gwsq-gerrit.
 </histogram>
 
 <histogram name="ChromeOS.DiagnosticsUi.RoutineCount" units="routines"
-    expires_after="2021-09-19">
+    expires_after="2021-11-21">
   <owner>gavindodd@chromium.org</owner>
   <owner>zentaro@chromium.org</owner>
   <owner>cros-peripherals@google.com</owner>
@@ -632,7 +637,7 @@ incoming reviews. Googlers can read more about this at go/gwsq-gerrit.
 </histogram>
 
 <histogram name="ChromeOS.HardwareVerifier.TimeToFinish" units="ms"
-    expires_after="2021-09-19">
+    expires_after="2021-11-21">
   <owner>itspeter@chromium.org</owner>
   <owner>stimim@chromium.org</owner>
   <owner>chromeos-hw-checker@google.com</owner>
@@ -642,11 +647,61 @@ incoming reviews. Googlers can read more about this at go/gwsq-gerrit.
 </histogram>
 
 <histogram name="ChromeOS.HardwareVerifier.TimeToProbe" units="ms"
-    expires_after="2021-09-19">
+    expires_after="2021-11-21">
   <owner>itspeter@chromium.org</owner>
   <owner>stimim@chromium.org</owner>
   <owner>chromeos-hw-checker@google.com</owner>
   <summary>The amount of time it takes to probe hardware components.</summary>
+</histogram>
+
+<histogram name="ChromeOS.IioService.SensorClientConcurrent" units="clients"
+    expires_after="2021-11-01">
+  <owner>chenghaoyang@chromium.org</owner>
+  <owner>chromeos-sensors-eng@google.com</owner>
+  <summary>
+    Records the maximum number of concurrent sensor clients within an hour,
+    which indicates how many apps are using sensors. Recorded once every hour.
+    Might not be recorded for tail-end usage during a session.
+  </summary>
+</histogram>
+
+<histogram name="ChromeOS.IioService.SensorObserver" units="observers"
+    expires_after="2021-11-01">
+  <owner>chenghaoyang@chromium.org</owner>
+  <owner>chromeos-sensors-eng@google.com</owner>
+  <summary>
+    Records the maximum number of running observers within an hour to any
+    sensor. It indicates how widely used the sensor samples are. Recorded once
+    every hour. Might not be recorded for tail-end usage during a session.
+  </summary>
+</histogram>
+
+<histogram name="ChromeOS.IioService.SensorObserverOpen" units="observers"
+    expires_after="2021-11-01">
+  <owner>chenghaoyang@chromium.org</owner>
+  <owner>chromeos-sensors-eng@google.com</owner>
+  <summary>
+    Records the number of opened observer within an hour, which indicates how
+    often sensors are enabled and disabled. Recorded once every hour. Might not
+    be recorded for tail-end usage during a session.
+  </summary>
+</histogram>
+
+<histogram name="ChromeOS.IioService.SensorUsage.{Frequency}Hz"
+    enum="ChromeOSIioServiceSensorUsage" expires_after="2021-11-01">
+  <owner>chenghaoyang@chromium.org</owner>
+  <owner>chromeos-sensors-eng@google.com</owner>
+  <summary>
+    Records the usage of the sensor within an hour with at least {Frequency} Hz.
+    Recorded once every hour. Might not be recorded for tail-end usage during a
+    session.
+  </summary>
+  <token key="Frequency">
+    <variant name="0"/>
+    <variant name="10"/>
+    <variant name="50"/>
+    <variant name="100"/>
+  </token>
 </histogram>
 
 <histogram name="ChromeOS.IsLacrosBrowser" enum="Boolean" expires_after="never">
@@ -967,6 +1022,19 @@ incoming reviews. Googlers can read more about this at go/gwsq-gerrit.
     Whether one of the scraped passwords was successfully verified as the user's
     password. This is set only when the Chrome Credentials Passing API is not
     used.
+  </summary>
+</histogram>
+
+<histogram name="ChromeOS.SecurityAnomaly" enum="SecurityAnomaly"
+    expires_after="M98">
+  <owner>jorgelo@chromium.org</owner>
+  <owner>chromeos-security-core@google.com</owner>
+  <summary>
+    Records when an event representing a deviation from the Chrome OS security
+    posture happens.
+
+    Writable+executable mount events are checked every thirty seconds, but each
+    anomalous event is reported only once per boot.
   </summary>
 </histogram>
 
@@ -1382,6 +1450,10 @@ incoming reviews. Googlers can read more about this at go/gwsq-gerrit.
 
 <histogram name="ChromeOS.Sharesheet.AppCount.{AppType}" units="apps"
     expires_after="M95">
+  <obsolete>
+    Replaced with pattern histogram ChromeOS.Sharesheet.AppCount2.{AppType}.
+    (2021-06)
+  </obsolete>
   <owner>dominickn@chromium.org</owner>
   <owner>melzhang@chromium.org</owner>
   <summary>
@@ -1395,11 +1467,57 @@ incoming reviews. Googlers can read more about this at go/gwsq-gerrit.
   </token>
 </histogram>
 
+<histogram name="ChromeOS.Sharesheet.AppCount2.{AppType}" units="apps"
+    expires_after="M95">
+  <owner>dominickn@chromium.org</owner>
+  <owner>melzhang@chromium.org</owner>
+  <summary>
+    Records number of {AppType} apps found for a given intent in the Sharesheet
+    when the sharesheet is invoked. Has 100 exponential buckets. (The original
+    histogram had 1000 linear buckets).
+  </summary>
+  <token key="AppType">
+    <variant name="All" summary="all apps"/>
+    <variant name="Arc" summary="arc app"/>
+    <variant name="Web" summary="web app"/>
+  </token>
+</histogram>
+
+<histogram name="ChromeOS.Sharesheet.FileCount" units="files"
+    expires_after="M97">
+  <owner>dominickn@chromium.org</owner>
+  <owner>melzhang@chromium.org</owner>
+  <summary>
+    Records the number of files a user is trying to share from the Sharesheet
+    when the sharesheet is invoked.
+  </summary>
+</histogram>
+
 <histogram name="ChromeOS.Sharesheet.FormFactor"
     enum="ChromeOSSharesheetFormFactor" expires_after="M95">
   <owner>dominickn@chromium.org</owner>
   <owner>melzhang@chromium.org</owner>
   <summary>Records the form factor when the Sharesheet is invoked.</summary>
+</histogram>
+
+<histogram name="ChromeOS.Sharesheet.IsDriveFolder" enum="Boolean"
+    expires_after="M97">
+  <owner>dominickn@chromium.org</owner>
+  <owner>melzhang@chromium.org</owner>
+  <summary>
+    If the value is true, the data being shared from the Sharesheet is a folder
+    from Drive. Recorded when the sharesheet is invoked.
+  </summary>
+</histogram>
+
+<histogram name="ChromeOS.Sharesheet.IsImagePreviewPressed"
+    enum="BooleanSelected" expires_after="M97">
+  <owner>dominickn@chromium.org</owner>
+  <owner>melzhang@chromium.org</owner>
+  <summary>
+    If the value is true, the image preview was pressed during the current
+    invocation. Recorded when the sharesheet closes.
+  </summary>
 </histogram>
 
 <histogram name="ChromeOS.Sharesheet.LaunchSource"
@@ -1617,6 +1735,17 @@ incoming reviews. Googlers can read more about this at go/gwsq-gerrit.
     This value represents the type of a USB Type-C peripheral (the Partner)
     which is connected to a device. It is recorded every time a new peripheral
     is connected.
+  </summary>
+</histogram>
+
+<histogram name="ChromeOS.TypeC.WrongConfiguration"
+    enum="WrongConfigurationMetric" expires_after="2021-10-31">
+  <owner>pmalani@chromium.org</owner>
+  <owner>chromeos-power@google.com</owner>
+  <summary>
+    This value represents events where a USB Type-C peripheral couldn't be
+    configured correctly, or experienced some other unexpected behaviour. It is
+    recorded every time a new peripheral is connected.
   </summary>
 </histogram>
 

@@ -18,6 +18,7 @@
 #include "chrome/browser/themes/theme_service_factory.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_finder.h"
+#include "chrome/browser/ui/browser_navigator.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/browser/ui/views/frame/toolbar_button_provider.h"
 #include "chrome/browser/ui/views/profiles/avatar_toolbar_button.h"
@@ -35,6 +36,7 @@
 #include "content/public/browser/web_contents.h"
 #include "google_apis/gaia/gaia_auth_util.h"
 #include "google_apis/gaia/gaia_urls.h"
+#include "net/base/url_util.h"
 #include "ui/base/theme_provider.h"
 #include "ui/views/controls/webview/web_contents_set_background_color.h"
 
@@ -44,10 +46,14 @@ namespace {
 // color is enforced by policy or downloaded through Sync. An IPH is shown after
 // the bubble, or right away if the bubble cannot be shown.
 void ShowCustomizationBubble(SkColor new_profile_color, Browser* browser) {
+  if (!browser)
+    return;
   BrowserView* browser_view = BrowserView::GetBrowserViewForBrowser(browser);
+  if (!browser_view || !browser_view->toolbar_button_provider())
+    return;
   views::View* anchor_view =
       browser_view->toolbar_button_provider()->GetAvatarToolbarButton();
-  DCHECK(anchor_view);
+  CHECK(anchor_view);
 
   // Don't show the customization bubble if a valid policy theme is set.
   if (ThemeServiceFactory::GetForProfile(browser->profile())
@@ -512,7 +518,7 @@ void ProfilePickerSignInFlowController::OnBrowserOpened(
     BrowserOpenedCallback finish_flow_callback,
     Profile* profile,
     Profile::CreateStatus profile_create_status) {
-  DCHECK_EQ(profile, profile_);
+  CHECK_EQ(profile, profile_);
 
   // Hide the flow window. This posts a task on the message loop to destroy the
   // window incl. this view.
@@ -522,6 +528,6 @@ void ProfilePickerSignInFlowController::OnBrowserOpened(
     return;
 
   Browser* browser = chrome::FindLastActiveWithProfile(profile);
-  DCHECK(browser);
+  CHECK(browser);
   std::move(finish_flow_callback).Run(browser);
 }

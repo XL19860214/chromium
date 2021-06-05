@@ -37,7 +37,6 @@
 #include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted.h"
 #include "base/run_loop.h"
-#include "base/stl_util.h"
 #include "base/strings/strcat.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
@@ -346,9 +345,7 @@ IN_PROC_BROWSER_TEST_F(PolicyTest, DISABLED_DisableScreenshotsFile) {
   ASSERT_EQ(CountScreenshots(), screenshot_count + 1);
 }
 
-// Disabled, see http://crbug.com/554728.
-IN_PROC_BROWSER_TEST_F(PolicyTest,
-                       DISABLED_PRE_WaitForInitialUserActivityUnsatisfied) {
+IN_PROC_BROWSER_TEST_F(PolicyTest, PRE_WaitForInitialUserActivityUnsatisfied) {
   // Indicate that the session started 2 hours ago and no user activity has
   // occurred yet.
   g_browser_process->local_state()->SetInt64(
@@ -356,9 +353,7 @@ IN_PROC_BROWSER_TEST_F(PolicyTest,
       (base::Time::Now() - base::TimeDelta::FromHours(2)).ToInternalValue());
 }
 
-// Disabled, see http://crbug.com/554728.
-IN_PROC_BROWSER_TEST_F(PolicyTest,
-                       DISABLED_WaitForInitialUserActivityUnsatisfied) {
+IN_PROC_BROWSER_TEST_F(PolicyTest, WaitForInitialUserActivityUnsatisfied) {
   content::MockNotificationObserver observer;
   content::NotificationRegistrar registrar;
   registrar.Add(&observer, chrome::NOTIFICATION_APP_TERMINATING,

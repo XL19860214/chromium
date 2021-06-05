@@ -6,13 +6,13 @@ import("//build/config/chromeos/ui_mode.gni")
 import("//build/config/features.gni")
 import("//build/config/ozone.gni")
 import("//build/config/ui.gni")
-import("//chrome/browser/resources/pdf/ink/ink.gni")
 import("//chrome/common/features.gni")
 import("//chromeos/components/chromebox_for_meetings/buildflags/buildflags.gni")
 import("//components/nacl/features.gni")
 import("//extensions/buildflags/buildflags.gni")
 import("//mojo/public/tools/bindings/mojom.gni")
 import("//pdf/features.gni")
+import("//printing/buildflags/buildflags.gni")
 import("//rlz/buildflags/buildflags.gni")
 
 assert(enable_extensions)
@@ -803,7 +803,6 @@ static_library("extensions") {
     "//chrome/browser/profiles:profile",
     "//chrome/browser/resource_coordinator:intervention_policy_database_proto",
     "//chrome/browser/resource_coordinator:mojo_bindings",
-    "//chrome/browser/resources/pdf/ink:buildflags",
     "//chrome/browser/safe_browsing",
     "//chrome/browser/safe_browsing:metrics_collector",
     "//chrome/browser/web_applications",
@@ -916,6 +915,7 @@ static_library("extensions") {
     "//google_apis",
     "//media:media_buildflags",
     "//net",
+    "//pdf:buildflags",
     "//ppapi/buildflags",
     "//printing/buildflags",
     "//rlz/buildflags",
@@ -1007,7 +1007,11 @@ static_library("extensions") {
       deps += [ "//chromeos/lacros" ]
     } else {
       sources += [ "api/messaging/native_message_host_chromeos.cc" ]
-      deps += [ "//remoting/host" ]
+      deps += [
+        "//chrome/browser/ash/crosapi",
+        "//remoting/host",
+      ]
+      allow_circular_includes_from += [ "//chrome/browser/ash/crosapi" ]
     }
   } else {
     sources += [
@@ -1257,6 +1261,14 @@ static_library("extensions") {
       "plugin_manager.cc",
       "plugin_manager.h",
     ]
+  }
+
+  if (enable_basic_printing && (is_win || is_mac || is_linux || is_chromeos)) {
+    # Needed by files which include //chrome/browser/service_sandbox_type.h.
+    # Inclusion of print_backend_service_manager.h depends on this.
+    # TODO(crbug.com/1213762)  Replace this with more accurate dependency
+    # once //chrome/browser/printing build is able to be cleanly targeted.
+    deps += [ "//chrome/services/printing/public/mojom" ]
   }
 
   if (enable_service_discovery) {

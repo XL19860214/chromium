@@ -193,7 +193,7 @@ void ConversionHost::VerifyAndStoreImpression(
   if (!GetContentClient()->browser()->IsConversionMeasurementOperationAllowed(
           web_contents()->GetBrowserContext(),
           ContentBrowserClient::ConversionMeasurementOperation::kImpression,
-          &impression_origin, nullptr /* conversion_origin */,
+          &impression_origin, /*conversion_origin=*/nullptr,
           &reporting_origin)) {
     return;
   }
@@ -251,7 +251,7 @@ void ConversionHost::RegisterConversion(
   if (!GetContentClient()->browser()->IsConversionMeasurementOperationAllowed(
           web_contents()->GetBrowserContext(),
           ContentBrowserClient::ConversionMeasurementOperation::kConversion,
-          nullptr /* impression_origin */, &main_frame_origin,
+          /*impression_origin=*/nullptr, &main_frame_origin,
           &conversion->reporting_origin)) {
     return;
   }
@@ -261,7 +261,10 @@ void ConversionHost::RegisterConversion(
   StorableConversion storable_conversion(
       conversion_manager->GetConversionPolicy().GetSanitizedConversionData(
           conversion->conversion_data),
-      conversion_destination, conversion->reporting_origin);
+      conversion_destination, conversion->reporting_origin,
+      conversion_manager->GetConversionPolicy()
+          .GetSanitizedEventSourceTriggerData(
+              conversion->event_source_trigger_data));
 
   if (conversion_page_metrics_)
     conversion_page_metrics_->OnConversion(storable_conversion);

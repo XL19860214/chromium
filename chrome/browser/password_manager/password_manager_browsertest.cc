@@ -3845,8 +3845,8 @@ IN_PROC_BROWSER_TEST_F(PasswordManagerBrowserTest,
   controller = autofill_client->popup_controller_for_testing().get();
   ASSERT_TRUE(controller);
   EXPECT_EQ(2, controller->GetLineCount());
-  EXPECT_EQ(u"user", controller->GetSuggestionValueAt(0));
-  EXPECT_NE(u"admin", controller->GetSuggestionValueAt(1));
+  EXPECT_EQ(u"user", controller->GetSuggestionMainTextAt(0));
+  EXPECT_NE(u"admin", controller->GetSuggestionMainTextAt(1));
 
   // The username_field should get re-filled with "user" instead of "admin".
   WaitForElementValue("username_field", "user");
@@ -4269,7 +4269,7 @@ IN_PROC_BROWSER_TEST_F(PasswordManagerPrerenderBrowserTest,
   login_observer.Register(
       content::Source<content::NavigationController>(nav_controller));
 
-  GURL url = embedded_test_server()->GetURL("/prerender/add_prerender.html");
+  GURL url = embedded_test_server()->GetURL("/empty.html");
   ui_test_utils::NavigateToURL(browser(), url);
 
   content::test::PrerenderHostRegistryObserver registry_observer(
@@ -4314,6 +4314,77 @@ IN_PROC_BROWSER_TEST_F(PasswordManagerPrerenderBrowserTest,
 
   // Make sure that the prerender was not activated.
   EXPECT_FALSE(host_observer.was_activated());
+}
+
+// Tests that saving password doesn't work in the prerendering.
+IN_PROC_BROWSER_TEST_F(PasswordManagerPrerenderBrowserTest,
+                       SavePasswordInPrerender) {
+  GURL url = embedded_test_server()->GetURL("/empty.html");
+  ui_test_utils::NavigateToURL(browser(), url);
+
+  auto prerender_url =
+      embedded_test_server()->GetURL("/password/password_form.html");
+  // Loads a page in the prerender.
+  int host_id = prerender_helper()->AddPrerender(prerender_url);
+  content::test::PrerenderHostObserver host_observer(*WebContents(), host_id);
+  content::RenderFrameHost* render_frame_host =
+      prerender_helper()->GetPrerenderedMainFrameHost(host_id);
+  // Fills a form and submits through a <input type="submit"> button.
+  std::string fill_and_submit =
+      "document.getElementById('username_field').value = 'temp';"
+      "document.getElementById('password_field').value = 'random';"
+      "document.getElementById('input_submit_button').click()";
+  ASSERT_TRUE(content::ExecuteScript(render_frame_host, fill_and_submit));
+  // Since navigation from a prerendering page is disallowed, prerendering is
+  // canceled.
+  host_observer.WaitForDestroyed();
+  BubbleObserver bubble_observer(WebContents());
+  EXPECT_FALSE(bubble_observer.IsSavePromptShownAutomatically());
+
+  // Navigates the primary page to the URL.
+  prerender_helper()->NavigatePrimaryPage(prerender_url);
+  // Makes sure that the page is not from the prerendering.
+  EXPECT_FALSE(host_observer.was_activated());
+
+  // After loading the primary page, try to submit the password.
+  NavigationObserver observer(WebContents());
+  ASSERT_TRUE(content::ExecuteScript(WebContents(), fill_and_submit));
+  observer.Wait();
+
+  // Saves the password and checks the store.
+  EXPECT_TRUE(bubble_observer.IsSavePromptShownAutomatically());
+  bubble_observer.AcceptSavePrompt();
+
+  WaitForPasswordStore();
+  CheckThatCredentialsStored("temp", "random");
+}
+
+// Tests that it defers to bind mojom::CredentialManager in the prerendering.
+IN_PROC_BROWSER_TEST_F(PasswordManagerPrerenderBrowserTest,
+                       BindCredentialManagerInPrerender) {
+  GURL url = embedded_test_server()->GetURL("/empty.html");
+  ui_test_utils::NavigateToURL(browser(), url);
+
+  auto prerender_url =
+      embedded_test_server()->GetURL("/password/credentials.html");
+  // Loads a page in the prerender.
+  int host_id = prerender_helper()->AddPrerender(prerender_url);
+  content::test::PrerenderHostObserver host_observer(*WebContents(), host_id);
+
+  // It should not have binding mojom::CredentialManager.
+  EXPECT_FALSE(ChromePasswordManagerClient::FromWebContents(WebContents())
+                   ->has_binding_for_credential_manager());
+
+  // Navigates the primary page to the URL.
+  prerender_helper()->NavigatePrimaryPage(prerender_url);
+  // Waits until credentials.get() is handled.
+  base::RunLoop().RunUntilIdle();
+
+  // Make sure that the prerender was activated.
+  EXPECT_TRUE(host_observer.was_activated());
+  // After the page is activated, it gets binding mojom::CredentialManager.
+  EXPECT_TRUE(ChromePasswordManagerClient::FromWebContents(WebContents())
+                  ->has_binding_for_credential_manager());
 }
 
 }  // namespace

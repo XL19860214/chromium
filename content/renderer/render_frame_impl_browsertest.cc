@@ -11,7 +11,6 @@
 #include "base/command_line.h"
 #include "base/debug/leak_annotations.h"
 #include "base/run_loop.h"
-#include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/bind.h"
@@ -51,8 +50,10 @@
 #include "third_party/blink/public/common/widget/screen_infos.h"
 #include "third_party/blink/public/mojom/frame/frame_owner_properties.mojom.h"
 #include "third_party/blink/public/mojom/frame/frame_replication_state.mojom.h"
+#include "third_party/blink/public/mojom/frame/tree_scope_type.mojom.h"
 #include "third_party/blink/public/mojom/frame/viewport_intersection_state.mojom-blink.h"
 #include "third_party/blink/public/mojom/page/record_content_to_visible_time_request.mojom.h"
+#include "third_party/blink/public/mojom/page/widget.mojom.h"
 #include "third_party/blink/public/platform/web_runtime_features.h"
 #include "third_party/blink/public/platform/web_string.h"
 #include "third_party/blink/public/platform/web_url.h"
@@ -129,18 +130,30 @@ class RenderFrameImplTest : public RenderViewTest {
     frame_replication_state->name = "frame";
     frame_replication_state->unique_name = "frame-uniqueName";
 
+    auto remote_main_frame_interfaces = mojom::RemoteMainFrameInterfaces::New();
+    mojo::AssociatedRemote<blink::mojom::RemoteMainFrame> main_frame;
+    remote_main_frame_interfaces->main_frame =
+        main_frame.BindNewEndpointAndPassDedicatedReceiver();
+
+    mojo::AssociatedRemote<blink::mojom::RemoteMainFrameHost> main_frame_host;
+    ignore_result(main_frame_host.BindNewEndpointAndPassDedicatedReceiver());
+    remote_main_frame_interfaces->main_frame_host = main_frame_host.Unbind();
+
     RenderFrameImpl::FromWebFrame(
-        view_->GetMainRenderFrame()->GetWebFrame()->FirstChild())
+        GetMainRenderFrame()->GetWebFrame()->FirstChild())
         ->Unload(kFrameProxyRouteId, false, frame_replication_state->Clone(),
-                 blink::RemoteFrameToken());
+                 blink::RemoteFrameToken(),
+                 std::move(remote_main_frame_interfaces));
     MockPolicyContainerHost mock_policy_container_host;
     RenderFrameImpl::CreateFrame(
         *agent_scheduling_group_, blink::LocalFrameToken(), kSubframeRouteId,
         TestRenderFrame::CreateStubFrameReceiver(),
         TestRenderFrame::CreateStubBrowserInterfaceBrokerRemote(),
         MSG_ROUTING_NONE, absl::nullopt, kFrameProxyRouteId, MSG_ROUTING_NONE,
-        base::UnguessableToken::Create(), std::move(frame_replication_state),
-        std::move(widget_params), blink::mojom::FrameOwnerProperties::New(),
+        base::UnguessableToken::Create(),
+        blink::mojom::TreeScopeType::kDocument,
+        std::move(frame_replication_state), std::move(widget_params),
+        blink::mojom::FrameOwnerProperties::New(),
         /*has_committed_real_load=*/true,
         blink::mojom::PolicyContainer::New(
             blink::mojom::PolicyContainerPolicies::New(),
@@ -162,7 +175,7 @@ class RenderFrameImplTest : public RenderViewTest {
   }
 
   TestRenderFrame* GetMainRenderFrame() {
-    return static_cast<TestRenderFrame*>(view_->GetMainRenderFrame());
+    return static_cast<TestRenderFrame*>(RenderViewTest::GetMainRenderFrame());
   }
 
   TestRenderFrame* frame() { return frame_; }
@@ -180,7 +193,7 @@ class RenderFrameImplTest : public RenderViewTest {
   }
 
   static int32_t AutoplayFlagsForFrame(TestRenderFrame* frame) {
-    return frame->render_view()->GetWebView()->AutoplayFlagsForTest();
+    return frame->GetWebView()->AutoplayFlagsForTest();
   }
 
  private:
@@ -219,8 +232,7 @@ class RenderFrameTestObserver : public RenderFrameObserver {
 TEST_F(RenderFrameImplTest, SubframeWidget) {
   EXPECT_TRUE(frame_widget());
 
-  RenderFrameImpl* main_frame =
-      static_cast<RenderViewImpl*>(view_)->GetMainRenderFrame();
+  RenderFrameImpl* main_frame = GetMainRenderFrame();
   blink::WebFrameWidget* main_frame_widget =
       main_frame->GetLocalRootWebFrameWidget();
   EXPECT_NE(frame_widget(), main_frame_widget);
@@ -247,9 +259,8 @@ TEST_F(RenderFrameImplTest, FrameResize) {
   main_frame_widget->ApplyVisualProperties(visual_properties);
   // The main frame widget's size is the "widget size", not the visible viewport
   // size, which is given to blink separately.
-  EXPECT_EQ(gfx::Size(view_->GetWebView()->MainFrameWidget()->Size()),
-            widget_size);
-  EXPECT_EQ(gfx::SizeF(view_->GetWebView()->VisualViewportSize()),
+  EXPECT_EQ(gfx::Size(web_view_->MainFrameWidget()->Size()), widget_size);
+  EXPECT_EQ(gfx::SizeF(web_view_->VisualViewportSize()),
             gfx::SizeF(visible_size));
   // The main frame doesn't change other local roots directly.
   EXPECT_NE(gfx::Size(frame_widget()->Size()), visible_size);
@@ -282,8 +293,9 @@ class DownloadURLMockLocalFrameHost : public LocalFrameHostInterceptor {
       blink::AssociatedInterfaceProvider* provider)
       : LocalFrameHostInterceptor(provider) {}
 
-  MOCK_METHOD2(RunModalAlertDialog,
+  MOCK_METHOD3(RunModalAlertDialog,
                void(const std::u16string& alert_message,
+                    bool disable_third_party_subframe_suppresion,
                     RunModalAlertDialogCallback callback));
   MOCK_METHOD1(DownloadURL, void(blink::mojom::DownloadURLParamsPtr params));
 };
@@ -803,7 +815,7 @@ class RenderFrameRemoteInterfacesTest : public RenderViewTest {
   }
 
   TestRenderFrame* GetMainRenderFrame() {
-    return static_cast<TestRenderFrame*>(view_->GetMainRenderFrame());
+    return static_cast<TestRenderFrame*>(RenderViewTest::GetMainRenderFrame());
   }
 
   ContentRendererClient* CreateContentRendererClient() override {
@@ -1039,6 +1051,16 @@ TEST_F(RenderFrameImplTest, LastCommittedUrlForUKM) {
   LoadHTMLWithUrlOverride("Test", "http://example.com");
   waiter->Wait();
   EXPECT_EQ(GURL(GetMainRenderFrame()->LastCommittedUrlForUKM()), override_url);
+}
+
+// Verify that a frame with a pending update is cancelled when a forced update
+// is sent.
+TEST_F(RenderFrameImplTest, SendUpdateCancelsPending) {
+  RenderFrameImpl* main_frame = GetMainRenderFrame();
+  main_frame->StartDelayedSyncTimer();
+  EXPECT_TRUE(main_frame->delayed_state_sync_timer_.IsRunning());
+  main_frame->SendUpdateState();
+  EXPECT_FALSE(main_frame->delayed_state_sync_timer_.IsRunning());
 }
 
 }  // namespace content

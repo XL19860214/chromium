@@ -44,6 +44,7 @@
 #include "third_party/blink/public/mojom/frame/frame.mojom-forward.h"
 #include "third_party/blink/public/platform/scheduler/web_resource_loading_task_runner_handle.h"
 #include "third_party/blink/public/platform/web_common.h"
+#include "third_party/blink/public/platform/web_loader_freeze_mode.h"
 #include "third_party/blink/public/platform/web_string.h"
 #include "third_party/blink/public/platform/web_url_request.h"
 #include "third_party/blink/public/platform/web_vector.h"
@@ -109,7 +110,6 @@ class BLINK_PLATFORM_EXPORT WebURLLoader {
   virtual void LoadSynchronously(
       std::unique_ptr<network::ResourceRequest> request,
       scoped_refptr<WebURLRequestExtraData> url_request_extra_data,
-      int requestor_id,
       bool pass_response_pipe_to_client,
       bool no_mime_sniffing,
       base::TimeDelta timeout_interval,
@@ -129,25 +129,15 @@ class BLINK_PLATFORM_EXPORT WebURLLoader {
   virtual void LoadAsynchronously(
       std::unique_ptr<network::ResourceRequest> request,
       scoped_refptr<WebURLRequestExtraData> url_request_extra_data,
-      int requestor_id,
       bool no_mime_sniffing,
       std::unique_ptr<ResourceLoadInfoNotifierWrapper>
           resource_load_info_notifier_wrapper,
       WebURLLoaderClient* client);
 
-  // |kDeferred| is when an asynchronous load is suspended.
-  // |kDeferredWithBackForwardCache| is when an asynchronous load is suspended
-  // with BackForwardCache, and BackForwardCache entry can be evicted when
-  // redirects etc. happen.
-  // |kNotDeferred| is when an asynchronous load is resumed.
-  // SetDefersLoading can be called with any value at any point.
-  enum class DeferType {
-    kDeferred,
-    kDeferredWithBackForwardCache,
-    kNotDeferred
-  };
-  // Suspends/resumes an asynchronous load.
-  virtual void SetDefersLoading(DeferType value);
+  // Freezes the loader. See blink/renderer/platform/loader/README.md for the
+  // general concept of "freezing" in the loading module. See
+  // blink/public/platform/web_loader_freezing_mode.h for `mode`.
+  virtual void Freeze(WebLoaderFreezeMode mode);
 
   // Notifies the loader that the priority of a WebURLRequest has changed from
   // its previous value. For example, a preload request starts with low

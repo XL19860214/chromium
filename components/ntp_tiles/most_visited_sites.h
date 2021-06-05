@@ -29,8 +29,7 @@
 #include "components/ntp_tiles/popular_sites.h"
 #include "components/ntp_tiles/section_type.h"
 #include "components/ntp_tiles/tile_source.h"
-#include "components/search/repeatable_queries/repeatable_queries_service.h"
-#include "components/search/repeatable_queries/repeatable_queries_service_observer.h"
+#include "components/prefs/pref_change_registrar.h"
 #include "components/suggestions/proto/suggestions.pb.h"
 #include "components/suggestions/suggestions_service.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
@@ -84,8 +83,7 @@ class MostVisitedSitesSupervisor {
 
 // Tracks the list of most visited sites.
 class MostVisitedSites : public history::TopSitesObserver,
-                         public MostVisitedSitesSupervisor::Observer,
-                         public RepeatableQueriesServiceObserver {
+                         public MostVisitedSitesSupervisor::Observer {
  public:
   // The observer to be notified when the list of most visited sites changes.
   class Observer {
@@ -126,7 +124,6 @@ class MostVisitedSites : public history::TopSitesObserver,
   //  optional and if null, the associated features will be disabled.
   MostVisitedSites(PrefService* prefs,
                    scoped_refptr<history::TopSites> top_sites,
-                   RepeatableQueriesService* repeatable_queries,
                    suggestions::SuggestionsService* suggestions,
                    std::unique_ptr<PopularSites> popular_sites,
                    std::unique_ptr<CustomLinksManager> custom_links,
@@ -182,10 +179,21 @@ class MostVisitedSites : public history::TopSitesObserver,
   // Returns true if custom links has been initialized and not disabled, false
   // otherwise.
   bool IsCustomLinksInitialized();
-  // Enables or disables custom links, but does not (un)initialize them. Called
-  // when a third-party NTP is being used, or when the user switches between
-  // custom links and Most Visited sites.
+  // Enables or disables custom links, but does not (un)initialize them. This is
+  // a Desktop-only setting and is remembered in the user prefs. Called when:
+  // 1) MV tiles are shown on any of the NTPs to override this setting based on
+  //    current default search provider selection, if applicable.
+  // 2) User switches between custom links and Most Visited sites on the 1P NTP.
   void EnableCustomLinks(bool enable);
+  // Returns whether custom links are enabled. In addition to this setting, the
+  // user must have Google as their default search provider for custom links to
+  // be shown on the 1P and 3P local NTPs.
+  bool IsCustomLinksEnabled() const;
+  // Sets the visibility of the NTP tiles. This is a Desktop-only setting and is
+  // remembered in the user prefs.
+  void SetShortcutsVisible(bool visible);
+  // Returns whether NTP tiles should be shown.
+  bool IsShortcutsVisible() const;
   // Adds a custom link. If the number of current links is maxed, returns false
   // and does nothing. Will initialize custom links if they have not been
   // initialized yet, unless the action fails. Custom links must be enabled.
@@ -223,6 +231,7 @@ class MostVisitedSites : public history::TopSitesObserver,
   void OnBlockedSitesChanged() override;
 
   static void RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry);
+  static void ResetProfilePrefs(PrefService* prefs);
 
   // Workhorse for SaveNewTilesAndNotify. Implemented as a separate static and
   // public method for ease of testing.
@@ -238,6 +247,14 @@ class MostVisitedSites : public history::TopSitesObserver,
                            ShouldDeduplicateDomainByRemovingMobilePrefixes);
   FRIEND_TEST_ALL_PREFIXES(MostVisitedSitesTest,
                            ShouldDeduplicateDomainByReplacingMobilePrefixes);
+
+#if !defined(OS_IOS) && !defined(OS_ANDROID)
+  // Callback for when the value of the pref for showing custom links vs. most
+  // visited sites in the NTP tiles changes.
+  void OnCustomLinksEnabledPrefChanged();
+  // Callback for when the value of the pref for showing the NTP tiles changes.
+  void OnTilesVisibilityPrefChanged();
+#endif  // !defined(OS_IOS) && !defined(OS_ANDROID)
 
   // This function tries to match the given |host| to a close fit in
   // |hosts_to_skip| by removing a prefix that is commonly used to redirect from
@@ -265,8 +282,6 @@ class MostVisitedSites : public history::TopSitesObserver,
   // Callback for when data is available from TopSites.
   void OnMostVisitedURLsAvailable(
       const history::MostVisitedURLList& visited_list);
-
-  NTPTilesVector InsertRepeatableQueryTiles(NTPTilesVector tiles);
 
   // Callback for when an update is reported by the SuggestionsService.
   void OnSuggestionsProfileChanged(
@@ -349,13 +364,8 @@ class MostVisitedSites : public history::TopSitesObserver,
   void TopSitesChanged(history::TopSites* top_sites,
                        ChangeReason change_reason) override;
 
-  // RepeatableQueriesServiceObserver implementation.
-  void OnRepeatableQueriesUpdated() override;
-  void OnRepeatableQueriesServiceShuttingDown() override;
-
   PrefService* prefs_;
   scoped_refptr<history::TopSites> top_sites_;
-  RepeatableQueriesService* repeatable_queries_;
   suggestions::SuggestionsService* suggestions_service_;
   std::unique_ptr<PopularSites> const popular_sites_;
   std::unique_ptr<CustomLinksManager> const custom_links_;
@@ -366,13 +376,12 @@ class MostVisitedSites : public history::TopSitesObserver,
 
   Observer* observer_;
 
+  PrefChangeRegistrar pref_change_registrar_;
+
   // The maximum number of most visited sites to return.
   // Do not use directly. Use GetMaxNumSites() instead.
   size_t max_num_sites_;
 
-  // False if custom links is disabled and Most Visited sites should be returned
-  // instead.
-  bool custom_links_enabled_ = true;
   // Number of actions after custom link initialization. Set to -1 and not
   // incremented if custom links was not initialized during this session.
   int custom_links_action_count_ = -1;
@@ -381,10 +390,6 @@ class MostVisitedSites : public history::TopSitesObserver,
 
   base::ScopedObservation<history::TopSites, history::TopSitesObserver>
       top_sites_observation_{this};
-
-  base::ScopedObservation<RepeatableQueriesService,
-                          RepeatableQueriesServiceObserver>
-      repeatable_queries_observation_{this};
 
   base::CallbackListSubscription custom_links_subscription_;
 
@@ -399,6 +404,9 @@ class MostVisitedSites : public history::TopSitesObserver,
   // For callbacks may be run after destruction, used exclusively for TopSites
   // (since it's used to detect whether there's a query in flight).
   base::WeakPtrFactory<MostVisitedSites> top_sites_weak_ptr_factory_{this};
+
+  // For callbacks may be run after destruction.
+  base::WeakPtrFactory<MostVisitedSites> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(MostVisitedSites);
 };

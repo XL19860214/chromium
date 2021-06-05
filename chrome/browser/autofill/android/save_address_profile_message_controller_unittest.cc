@@ -15,8 +15,10 @@
 #include "components/autofill/core/browser/autofill_test_utils.h"
 #include "components/autofill/core/common/autofill_features.h"
 #include "components/messages/android/mock_message_dispatcher_bridge.h"
+#include "components/strings/grit/components_strings.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "ui/base/l10n/l10n_util.h"
 
 namespace autofill {
 
@@ -100,6 +102,7 @@ void SaveAddressProfileMessageControllerTest::EnqueueMessage(
   controller_.DisplayMessage(web_contents(), profile, original_profile,
                              std::move(save_callback),
                              std::move(action_callback));
+  EXPECT_TRUE(controller_.IsMessageDisplayed());
 }
 
 void SaveAddressProfileMessageControllerTest::ExpectDismissMessageCall() {
@@ -114,12 +117,14 @@ void SaveAddressProfileMessageControllerTest::ExpectDismissMessageCall() {
 
 void SaveAddressProfileMessageControllerTest::TriggerActionClick() {
   GetMessageWrapper()->HandleActionClick(base::android::AttachCurrentThread());
+  EXPECT_TRUE(controller_.IsMessageDisplayed());
 }
 
 void SaveAddressProfileMessageControllerTest::TriggerMessageDismissedCallback(
     messages::DismissReason dismiss_reason) {
   GetMessageWrapper()->HandleDismissCallback(
       base::android::AttachCurrentThread(), static_cast<int>(dismiss_reason));
+  EXPECT_FALSE(controller_.IsMessageDisplayed());
 }
 
 messages::MessageWrapper*
@@ -132,10 +137,14 @@ SaveAddressProfileMessageControllerTest::GetMessageWrapper() {
 TEST_F(SaveAddressProfileMessageControllerTest, SaveMessageContent) {
   EnqueueSaveMessage(profile_, save_callback_.Get(), action_callback_.Get());
 
-  EXPECT_EQ(u"Save address?", GetMessageWrapper()->GetTitle());
-  EXPECT_EQ(u"Save…", GetMessageWrapper()->GetPrimaryButtonText());
+  EXPECT_EQ(l10n_util::GetStringUTF16(IDS_AUTOFILL_SAVE_ADDRESS_PROMPT_TITLE),
+            GetMessageWrapper()->GetTitle());
+  EXPECT_EQ(l10n_util::GetStringUTF16(
+                IDS_AUTOFILL_SAVE_ADDRESS_PROMPT_OK_BUTTON_LABEL),
+            GetMessageWrapper()->GetPrimaryButtonText());
   EXPECT_EQ(u"John H. Doe, 666 Erebus St.",
             GetMessageWrapper()->GetDescription());
+  EXPECT_EQ(1, GetMessageWrapper()->GetDescriptionMaxLines());
   EXPECT_EQ(ResourceMapper::MapToJavaDrawableId(IDR_ANDROID_AUTOFILL_ADDRESS),
             GetMessageWrapper()->GetIconResourceId());
 
@@ -148,10 +157,14 @@ TEST_F(SaveAddressProfileMessageControllerTest, UpdateMessageContent) {
   EnqueueUpdateMessage(profile_, &original_profile_, save_callback_.Get(),
                        action_callback_.Get());
 
-  EXPECT_EQ(u"Update address?", GetMessageWrapper()->GetTitle());
-  EXPECT_EQ(u"Update…", GetMessageWrapper()->GetPrimaryButtonText());
+  EXPECT_EQ(l10n_util::GetStringUTF16(IDS_AUTOFILL_UPDATE_ADDRESS_PROMPT_TITLE),
+            GetMessageWrapper()->GetTitle());
+  EXPECT_EQ(l10n_util::GetStringUTF16(
+                IDS_AUTOFILL_UPDATE_ADDRESS_PROMPT_OK_BUTTON_LABEL),
+            GetMessageWrapper()->GetPrimaryButtonText());
   EXPECT_EQ(u"Jane A. Smith, 123 Main Street",
             GetMessageWrapper()->GetDescription());
+  EXPECT_EQ(1, GetMessageWrapper()->GetDescriptionMaxLines());
   EXPECT_EQ(ResourceMapper::MapToJavaDrawableId(IDR_ANDROID_AUTOFILL_ADDRESS),
             GetMessageWrapper()->GetIconResourceId());
 
@@ -162,15 +175,12 @@ TEST_F(SaveAddressProfileMessageControllerTest, UpdateMessageContent) {
 // primary action button of the save message.
 TEST_F(SaveAddressProfileMessageControllerTest, ProceedOnActionClickWhenSave) {
   EnqueueSaveMessage(profile_, save_callback_.Get(), action_callback_.Get());
-  EXPECT_NE(nullptr, GetMessageWrapper());
 
   EXPECT_CALL(action_callback_, Run(_, profile_, nullptr, _));
   TriggerActionClick();
-  EXPECT_NE(nullptr, GetMessageWrapper());
 
   EXPECT_CALL(save_callback_, Run(_, profile_)).Times(0);
   TriggerMessageDismissedCallback(messages::DismissReason::PRIMARY_ACTION);
-  EXPECT_EQ(nullptr, GetMessageWrapper());
 }
 
 // Tests that the action callback is triggered when the user clicks on the
@@ -179,44 +189,40 @@ TEST_F(SaveAddressProfileMessageControllerTest,
        ProceedOnActionClickWhenUpdate) {
   EnqueueUpdateMessage(profile_, &original_profile_, save_callback_.Get(),
                        action_callback_.Get());
-  EXPECT_NE(nullptr, GetMessageWrapper());
 
   EXPECT_CALL(action_callback_, Run(_, profile_, &original_profile_, _));
   TriggerActionClick();
-  EXPECT_NE(nullptr, GetMessageWrapper());
 
   EXPECT_CALL(save_callback_, Run(_, profile_)).Times(0);
   TriggerMessageDismissedCallback(messages::DismissReason::PRIMARY_ACTION);
-  EXPECT_EQ(nullptr, GetMessageWrapper());
 }
 
 // Tests that the save callback is triggered with
-// |SaveAddressProfileOfferUserDecision::kDeclined| when the user dismisses the
-// message.
-TEST_F(SaveAddressProfileMessageControllerTest, DeclineOnGestureDismiss) {
+// |SaveAddressProfileOfferUserDecision::kMessageDeclined| when the user
+// dismisses the message via gesture.
+TEST_F(SaveAddressProfileMessageControllerTest,
+       DecisionIsMessageDeclinedOnGestureDismiss) {
   EnqueueSaveMessage(profile_, save_callback_.Get(), action_callback_.Get());
-  EXPECT_NE(nullptr, GetMessageWrapper());
 
   EXPECT_CALL(
       save_callback_,
-      Run(AutofillClient::SaveAddressProfileOfferUserDecision::kDeclined,
+      Run(AutofillClient::SaveAddressProfileOfferUserDecision::kMessageDeclined,
           profile_));
   TriggerMessageDismissedCallback(messages::DismissReason::GESTURE);
-  EXPECT_EQ(nullptr, GetMessageWrapper());
 }
 
 // Tests that the save callback is triggered with
-// |SaveAddressProfileOfferUserDecision::kIgnored| when the message is
-// autodismissed.
-TEST_F(SaveAddressProfileMessageControllerTest, IgnoreOnTimerAutodismiss) {
+// |SaveAddressProfileOfferUserDecision::kMessageTimeout| when the message is
+// auto-dismissed after a timeout.
+TEST_F(SaveAddressProfileMessageControllerTest,
+       DecisionIsMessageTimeoutOnTimerAutodismiss) {
   EnqueueSaveMessage(profile_, save_callback_.Get(), action_callback_.Get());
-  EXPECT_NE(nullptr, GetMessageWrapper());
 
-  EXPECT_CALL(save_callback_,
-              Run(AutofillClient::SaveAddressProfileOfferUserDecision::kIgnored,
-                  profile_));
+  EXPECT_CALL(
+      save_callback_,
+      Run(AutofillClient::SaveAddressProfileOfferUserDecision::kMessageTimeout,
+          profile_));
   TriggerMessageDismissedCallback(messages::DismissReason::TIMER);
-  EXPECT_EQ(nullptr, GetMessageWrapper());
 }
 
 // Tests that the previous prompt gets dismissed when the new one is enqueued.

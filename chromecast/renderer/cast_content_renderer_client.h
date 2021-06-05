@@ -6,7 +6,6 @@
 #define CHROMECAST_RENDERER_CAST_CONTENT_RENDERER_CLIENT_H_
 
 #include <memory>
-#include <string>
 #include <vector>
 
 #include "base/macros.h"
@@ -53,7 +52,7 @@ class CastContentRendererClient
 
   // ContentRendererClient implementation:
   void RenderThreadStarted() override;
-  void RenderViewCreated(content::RenderView* render_view) override;
+  void WebViewCreated(blink::WebView* web_view) override;
   void RenderFrameCreated(content::RenderFrame* render_frame) override;
   void RunScriptsAtDocumentStart(content::RenderFrame* render_frame) override;
   void RunScriptsAtDocumentEnd(content::RenderFrame* render_frame) override;

@@ -115,9 +115,18 @@ int ConfigurableStorageDelegate::GetMaxImpressionsPerOrigin() const {
 int ConfigurableStorageDelegate::GetMaxConversionsPerOrigin() const {
   return max_conversions_per_origin_;
 }
+int ConfigurableStorageDelegate::GetMaxAttributionDestinationsPerEventSource()
+    const {
+  return max_attribution_destinations_per_event_source_;
+}
 ConversionStorage::Delegate::RateLimitConfig
 ConfigurableStorageDelegate::GetRateLimits() const {
   return rate_limits_;
+}
+StorableImpression::AttributionLogic
+ConfigurableStorageDelegate::SelectAttributionLogic(
+    const StorableImpression& impression) const {
+  return attribution_logic_;
 }
 
 ConversionManager* TestManagerProvider::GetManager(
@@ -149,10 +158,15 @@ void TestConversionManager::GetActiveImpressionsForWebUI(
   std::move(callback).Run(impressions_);
 }
 
-void TestConversionManager::GetReportsForWebUI(
+void TestConversionManager::GetPendingReportsForWebUI(
     base::OnceCallback<void(std::vector<ConversionReport>)> callback,
     base::Time max_report_time) {
   std::move(callback).Run(reports_);
+}
+
+const base::circular_deque<SentReportInfo>&
+TestConversionManager::GetSentReportsForWebUI() {
+  return sent_reports_;
 }
 
 void TestConversionManager::SendReportsForWebUI(base::OnceClosure done) {
@@ -184,6 +198,11 @@ void TestConversionManager::SetReportsForWebUI(
   reports_ = std::move(reports);
 }
 
+void TestConversionManager::SetSentReportsForWebUI(
+    base::circular_deque<SentReportInfo> reports) {
+  sent_reports_ = std::move(reports);
+}
+
 void TestConversionManager::Reset() {
   num_impressions_ = 0u;
   num_conversions_ = 0u;
@@ -192,7 +211,7 @@ void TestConversionManager::Reset() {
 // Builds an impression with default values. This is done as a builder because
 // all values needed to be provided at construction time.
 ImpressionBuilder::ImpressionBuilder(base::Time time)
-    : impression_data_("123"),
+    : impression_data_(123),
       impression_time_(time),
       expiry_(base::TimeDelta::FromMilliseconds(kExpiryTime)),
       impression_origin_(url::Origin::Create(GURL(kDefaultImpressionOrigin))),
@@ -208,7 +227,7 @@ ImpressionBuilder& ImpressionBuilder::SetExpiry(base::TimeDelta delta) {
   return *this;
 }
 
-ImpressionBuilder& ImpressionBuilder::SetData(const std::string& data) {
+ImpressionBuilder& ImpressionBuilder::SetData(uint64_t data) {
   impression_data_ = data;
   return *this;
 }
@@ -252,16 +271,17 @@ StorableImpression ImpressionBuilder::Build() const {
   return StorableImpression(impression_data_, impression_origin_,
                             conversion_origin_, reporting_origin_,
                             impression_time_,
-                            impression_time_ + expiry_ /* expiry_time */,
+                            /*expiry_time=*/impression_time_ + expiry_,
                             source_type_, priority_, impression_id_);
 }
 
-StorableConversion DefaultConversion() {
+StorableConversion DefaultConversion(uint64_t event_source_trigger_data) {
   StorableConversion conversion(
-      "111" /* conversion_data */,
-      net::SchemefulSite(
-          GURL(kDefaultConversionDestination)) /* conversion_destination */,
-      url::Origin::Create(GURL(kDefaultReportOrigin)) /* reporting_origin */);
+      /*conversion_data=*/111,
+      /*conversion_destination=*/
+      net::SchemefulSite(GURL(kDefaultConversionDestination)),
+      /*reporting_origin=*/url::Origin::Create(GURL(kDefaultReportOrigin)),
+      event_source_trigger_data);
   return conversion;
 }
 
@@ -274,7 +294,7 @@ testing::AssertionResult ImpressionsEqual(const StorableImpression& expected,
         impression.impression_data(), impression.impression_origin(),
         impression.conversion_origin(), impression.reporting_origin(),
         impression.impression_time(), impression.expiry_time(),
-        impression.priority());
+        impression.source_type(), impression.priority());
   };
 
   if (tie(expected) != tie(actual)) {
@@ -296,8 +316,33 @@ testing::AssertionResult ReportsEqual(
                            conversion.impression.reporting_origin(),
                            conversion.impression.impression_time(),
                            conversion.impression.expiry_time(),
+                           conversion.impression.source_type(),
                            conversion.impression.priority(),
-                           conversion.conversion_data, conversion.report_time);
+                           conversion.conversion_data, conversion.report_time,
+                           conversion.extra_delay);
+  };
+
+  if (expected.size() != actual.size())
+    return testing::AssertionFailure() << "Expected length " << expected.size()
+                                       << ", actual: " << actual.size();
+
+  for (size_t i = 0; i < expected.size(); i++) {
+    if (tie(expected[i]) != tie(actual[i])) {
+      return testing::AssertionFailure()
+             << "Expected " << expected[i] << " at index " << i
+             << ", actual: " << actual[i];
+    }
+  }
+
+  return testing::AssertionSuccess();
+}
+
+testing::AssertionResult SentReportInfosEqual(
+    const base::circular_deque<SentReportInfo>& expected,
+    const base::circular_deque<SentReportInfo>& actual) {
+  const auto tie = [](const SentReportInfo& info) {
+    return std::make_tuple(info.report_url, info.report_body,
+                           info.http_response_code);
   };
 
   if (expected.size() != actual.size())

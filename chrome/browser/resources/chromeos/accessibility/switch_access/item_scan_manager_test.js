@@ -14,11 +14,16 @@ SwitchAccessItemScanManagerTest = class extends SwitchAccessE2ETest {
           'BackButtonNode', '/switch_access/nodes/back_button_node.js');
       await importModule(
           ['BasicNode', 'BasicRootNode'], '/switch_access/nodes/basic_node.js');
+      await importModule(
+          ['KeyboardNode', 'KeyboardRootNode'],
+          '/switch_access/nodes/keyboard_node.js');
       await importModule('SACache', '/switch_access/cache.js');
+      await importModule(
+          'SwitchAccessMenuAction',
+          '/switch_access/switch_access_constants.js');
       await importModule(
           'SwitchAccessPredicate', '/switch_access/switch_access_predicate.js');
       await importModule('Navigator', '/switch_access/navigator.js');
-      this.navigator = Navigator.byItem;
       BackButtonNode
           .locationForTesting = {top: 10, left: 10, width: 20, height: 20};
 
@@ -38,7 +43,7 @@ SwitchAccessItemScanManagerTest = class extends SwitchAccessE2ETest {
     }
     assertNotNullNorUndefined(
         pageContents, 'Could not find group corresponding to page contents');
-    this.navigator.moveTo_(pageContents);
+    Navigator.byItem.moveTo_(pageContents);
     Navigator.byItem.enterGroup();
   }
 };
@@ -68,17 +73,17 @@ TEST_F('SwitchAccessItemScanManagerTest', 'MoveTo', function() {
     const group = this.findNodeById('group');
     const outerGroup = this.findNodeById('outerGroup');
 
-    this.navigator.moveTo_(omnibar);
+    Navigator.byItem.moveTo_(omnibar);
     assertEquals(
-        chrome.automation.RoleType.TEXT_FIELD, this.navigator.node_.role,
+        chrome.automation.RoleType.TEXT_FIELD, Navigator.byItem.node_.role,
         'Did not successfully move to the omnibar');
     assertFalse(
-        this.navigator.group_.isEquivalentTo(group),
+        Navigator.byItem.group_.isEquivalentTo(group),
         'Omnibar is in the group in page contents somehow');
     assertFalse(
-        this.navigator.group_.isEquivalentTo(outerGroup),
+        Navigator.byItem.group_.isEquivalentTo(outerGroup),
         'Omnibar is in the outer group in page contents somehow');
-    const grandGroup = this.navigator.history_.peek().group;
+    const grandGroup = Navigator.byItem.history_.peek().group;
     assertFalse(
         grandGroup.isEquivalentTo(group),
         'Group stack contains the group from page contents');
@@ -86,26 +91,26 @@ TEST_F('SwitchAccessItemScanManagerTest', 'MoveTo', function() {
         grandGroup.isEquivalentTo(outerGroup),
         'Group stack contains the outer group from page contents');
 
-    this.navigator.moveTo_(textInput);
+    Navigator.byItem.moveTo_(textInput);
     assertEquals(
-        chrome.automation.RoleType.TEXT_FIELD, this.navigator.node_.role,
+        chrome.automation.RoleType.TEXT_FIELD, Navigator.byItem.node_.role,
         'Did not successfully move to the text input');
     assertTrue(
-        this.navigator.group_.isEquivalentTo(group),
+        Navigator.byItem.group_.isEquivalentTo(group),
         'Group node was not successfully populated');
     assertTrue(
-        this.navigator.history_.peek().group.isEquivalentTo(outerGroup),
+        Navigator.byItem.history_.peek().group.isEquivalentTo(outerGroup),
         'History was not built properly');
 
-    this.navigator.moveTo_(slider);
+    Navigator.byItem.moveTo_(slider);
     assertEquals(
-        chrome.automation.RoleType.SLIDER, this.navigator.node_.role,
+        chrome.automation.RoleType.SLIDER, Navigator.byItem.node_.role,
         'Did not successfully move to the slider');
 
-    this.navigator.moveTo_(group);
-    assertTrue(this.navigator.node_.isGroup(), 'Current node is not a group');
+    Navigator.byItem.moveTo_(group);
+    assertTrue(Navigator.byItem.node_.isGroup(), 'Current node is not a group');
     assertTrue(
-        this.navigator.node_.isEquivalentTo(group),
+        Navigator.byItem.node_.isEquivalentTo(group),
         'Did not find the right group');
   });
 });
@@ -127,25 +132,25 @@ TEST_F('SwitchAccessItemScanManagerTest', 'JumpTo', function() {
     const group1 = this.findNodeById('group1');
     const group2 = this.findNodeById('group2');
 
-    this.navigator.moveTo_(textInput);
-    const textInputNode = this.navigator.node_;
+    Navigator.byItem.moveTo_(textInput);
+    const textInputNode = Navigator.byItem.node_;
     assertEquals(
         chrome.automation.RoleType.TEXT_FIELD, textInputNode.role,
         'Did not successfully move to the text input');
     assertTrue(
-        this.navigator.group_.isEquivalentTo(group1),
+        Navigator.byItem.group_.isEquivalentTo(group1),
         'Group is initialized in an unexpected manner');
 
-    this.navigator.jumpTo_(BasicRootNode.buildTree(group2));
+    Navigator.byItem.jumpTo_(BasicRootNode.buildTree(group2));
     assertFalse(
-        this.navigator.group_.isEquivalentTo(group1), 'Jump did nothing');
+        Navigator.byItem.group_.isEquivalentTo(group1), 'Jump did nothing');
     assertTrue(
-        this.navigator.group_.isEquivalentTo(group2),
+        Navigator.byItem.group_.isEquivalentTo(group2),
         'Jumped to the wrong group');
 
-    this.navigator.exitGroup_();
+    Navigator.byItem.exitGroup_();
     assertTrue(
-        this.navigator.group_.isEquivalentTo(group1),
+        Navigator.byItem.group_.isEquivalentTo(group1),
         'Did not jump back to the right group.');
   });
 });
@@ -189,24 +194,24 @@ TEST_F('SwitchAccessItemScanManagerTest', 'EnterGroup', function() {
                    <input type="range">`;
   this.runWithLoadedTree(website, (root) => {
     const targetGroup = this.findNodeById('group');
-    this.navigator.moveTo_(targetGroup);
+    Navigator.byItem.moveTo_(targetGroup);
 
-    const originalGroup = this.navigator.group_;
+    const originalGroup = Navigator.byItem.group_;
     assertEquals(
-        this.navigator.node_.automationNode.htmlAttributes.id, 'group',
+        Navigator.byItem.node_.automationNode.htmlAttributes.id, 'group',
         'Did not move to group properly');
 
     Navigator.byItem.enterGroup();
     assertEquals(
-        chrome.automation.RoleType.BUTTON, this.navigator.node_.role,
+        chrome.automation.RoleType.BUTTON, Navigator.byItem.node_.role,
         'Current node is not a button');
     assertTrue(
-        this.navigator.group_.isEquivalentTo(targetGroup),
+        Navigator.byItem.group_.isEquivalentTo(targetGroup),
         'Target group was not entered');
 
-    this.navigator.exitGroup_();
+    Navigator.byItem.exitGroup_();
     assertTrue(
-        originalGroup.equals(this.navigator.group_),
+        originalGroup.equals(Navigator.byItem.group_),
         'Did not move back to the original group');
   });
 });
@@ -218,8 +223,8 @@ TEST_F('SwitchAccessItemScanManagerTest', 'MoveForward', function() {
                      <button id="button3"></button>
                    </div>`;
   this.runWithLoadedTree(website, (root) => {
-    this.navigator.moveTo_(this.findNodeById('button1'));
-    const button1 = this.navigator.node_;
+    Navigator.byItem.moveTo_(this.findNodeById('button1'));
+    const button1 = Navigator.byItem.node_;
     assertFalse(
         button1 instanceof BackButtonNode,
         'button1 should not be a BackButtonNode');
@@ -229,9 +234,9 @@ TEST_F('SwitchAccessItemScanManagerTest', 'MoveForward', function() {
 
     Navigator.byItem.moveForward();
     assertFalse(
-        button1.equals(this.navigator.node_),
+        button1.equals(Navigator.byItem.node_),
         'Still on button1 after moveForward()');
-    const button2 = this.navigator.node_;
+    const button2 = Navigator.byItem.node_;
     assertFalse(
         button2 instanceof BackButtonNode,
         'button2 should not be a BackButtonNode');
@@ -241,12 +246,12 @@ TEST_F('SwitchAccessItemScanManagerTest', 'MoveForward', function() {
 
     Navigator.byItem.moveForward();
     assertFalse(
-        button1.equals(this.navigator.node_),
+        button1.equals(Navigator.byItem.node_),
         'Unexpected navigation to button1');
     assertFalse(
-        button2.equals(this.navigator.node_),
+        button2.equals(Navigator.byItem.node_),
         'Still on button2 after moveForward()');
-    const button3 = this.navigator.node_;
+    const button3 = Navigator.byItem.node_;
     assertFalse(
         button3 instanceof BackButtonNode,
         'button3 should not be a BackButtonNode');
@@ -256,12 +261,12 @@ TEST_F('SwitchAccessItemScanManagerTest', 'MoveForward', function() {
 
     Navigator.byItem.moveForward();
     assertTrue(
-        this.navigator.node_ instanceof BackButtonNode,
+        Navigator.byItem.node_ instanceof BackButtonNode,
         'BackButtonNode should come after button3');
 
     Navigator.byItem.moveForward();
     assertTrue(
-        button1.equals(this.navigator.node_),
+        button1.equals(Navigator.byItem.node_),
         'button1 should come after the BackButtonNode');
   });
 });
@@ -273,8 +278,8 @@ TEST_F('SwitchAccessItemScanManagerTest', 'MoveBackward', function() {
                      <button id="button3"></button>
                    </div>`;
   this.runWithLoadedTree(website, (root) => {
-    this.navigator.moveTo_(this.findNodeById('button1'));
-    const button1 = this.navigator.node_;
+    Navigator.byItem.moveTo_(this.findNodeById('button1'));
+    const button1 = Navigator.byItem.node_;
     assertFalse(
         button1 instanceof BackButtonNode,
         'button1 should not be a BackButtonNode');
@@ -284,14 +289,14 @@ TEST_F('SwitchAccessItemScanManagerTest', 'MoveBackward', function() {
 
     Navigator.byItem.moveBackward();
     assertTrue(
-        this.navigator.node_ instanceof BackButtonNode,
+        Navigator.byItem.node_ instanceof BackButtonNode,
         'BackButtonNode should come before button1');
 
     Navigator.byItem.moveBackward();
     assertFalse(
-        button1.equals(this.navigator.node_),
+        button1.equals(Navigator.byItem.node_),
         'Unexpected navigation to button1');
-    const button3 = this.navigator.node_;
+    const button3 = Navigator.byItem.node_;
     assertFalse(
         button3 instanceof BackButtonNode,
         'button3 should not be a BackButtonNode');
@@ -301,10 +306,10 @@ TEST_F('SwitchAccessItemScanManagerTest', 'MoveBackward', function() {
 
     Navigator.byItem.moveBackward();
     assertFalse(
-        button3.equals(this.navigator.node_),
+        button3.equals(Navigator.byItem.node_),
         'Still on button3 after moveBackward()');
-    assertFalse(button1.equals(this.navigator.node_), 'Skipped button2');
-    const button2 = this.navigator.node_;
+    assertFalse(button1.equals(Navigator.byItem.node_), 'Skipped button2');
+    const button2 = Navigator.byItem.node_;
     assertFalse(
         button2 instanceof BackButtonNode,
         'button2 should not be a BackButtonNode');
@@ -314,7 +319,7 @@ TEST_F('SwitchAccessItemScanManagerTest', 'MoveBackward', function() {
 
     Navigator.byItem.moveBackward();
     assertTrue(
-        button1.equals(this.navigator.node_),
+        button1.equals(Navigator.byItem.node_),
         'button1 should come before button2');
   });
 });
@@ -326,8 +331,8 @@ TEST_F(
                      <button id="button1"></button>
                    </div>`;
       this.runWithLoadedTree(website, (root) => {
-        this.navigator.moveTo_(this.findNodeById('button1'));
-        const button1 = this.navigator.node_;
+        Navigator.byItem.moveTo_(this.findNodeById('button1'));
+        const button1 = Navigator.byItem.node_;
         assertFalse(
             button1 instanceof BackButtonNode,
             'button1 should not be a BackButtonNode');
@@ -347,3 +352,89 @@ TEST_F(
             {type: chrome.automation.TreeChangeType.NODE_REMOVED});
       });
     });
+
+TEST_F(
+    'SwitchAccessItemScanManagerTest', 'ScanAndTypeVirtualKeyboard',
+    function() {
+      const website = `<input type="text" id="input"></input>`;
+      this.runWithLoadedTree(website, async (root) => {
+        // SA initially focuses this node; wait for it first.
+        await this.untilFocusIs(
+            {className: 'BrowserNonClientFrameViewChromeOS'});
+
+        // Move to the text field.
+        Navigator.byItem.moveTo_(this.findNodeById('input'));
+        const input = Navigator.byItem.node_;
+        assertEquals(
+            'input', input.automationNode.htmlAttributes.id,
+            'Current node is not input');
+        input.performAction(SwitchAccessMenuAction.KEYBOARD);
+
+        const keyboard = await this.untilFocusIs(
+            {role: chrome.automation.RoleType.KEYBOARD});
+        keyboard.performAction('select');
+
+        const key = await this.untilFocusIs({instance: KeyboardNode});
+
+        key.performAction('select');
+
+        if (input.automationNode.value !== 'q') {
+          // Wait for the potential value change.
+          await new Promise(resolve => {
+            input.automationNode.addEventListener(
+                chrome.automation.EventType.VALUE_CHANGED, (event) => {
+                  if (event.target.value === 'q') {
+                    resolve();
+                  }
+                });
+          });
+        }
+      });
+    });
+
+TEST_F('SwitchAccessItemScanManagerTest', 'DismissVirtualKeyboard', function() {
+  const website = `<input type="text" id="input"></input><button>ok</button>`;
+  this.runWithLoadedTree(website, async (root) => {
+    // SA initially focuses this node; wait for it first.
+    await this.untilFocusIs({className: 'BrowserNonClientFrameViewChromeOS'});
+
+    // Move to the text field.
+    Navigator.byItem.moveTo_(this.findNodeById('input'));
+    const input = Navigator.byItem.node_;
+    assertEquals(
+        'input', input.automationNode.htmlAttributes.id,
+        'Current node is not input');
+    input.performAction(SwitchAccessMenuAction.KEYBOARD);
+
+    const keyboard =
+        await this.untilFocusIs({role: chrome.automation.RoleType.KEYBOARD});
+    keyboard.performAction('select');
+
+    // Grab the key.
+    const key = await this.untilFocusIs({instance: KeyboardNode});
+
+    // Simulate a page focusing the ok button.
+    const okButton = root.find({attributes: {name: 'ok'}});
+    okButton.focus();
+
+    // Wait for the keyboard to become invisible and the ok button to be focused
+    // by automation.
+    await new Promise(resolve => {
+      okButton.addEventListener(chrome.automation.EventType.FOCUS, resolve);
+    });
+    await new Promise(resolve => {
+      keyboard.automationNode.addEventListener(
+          chrome.automation.EventType.STATE_CHANGED, (event) => {
+            if (event.target.role === chrome.automation.RoleType.KEYBOARD &&
+                event.target.state.invisible) {
+              resolve();
+            }
+          });
+    });
+
+    // We should end up back on the focused button in SA.
+    const button =
+        await this.untilFocusIs({role: chrome.automation.RoleType.BUTTON});
+    assertEquals('ok', button.automationNode.name);
+  });
+});

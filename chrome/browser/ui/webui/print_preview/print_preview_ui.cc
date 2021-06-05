@@ -288,11 +288,13 @@ void AddPrintPreviewStrings(content::WebUIDataSource* source) {
     {"optionCustomPages", IDS_PRINT_PREVIEW_OPTION_CUSTOM_PAGES},
     {"optionCustomScaling", IDS_PRINT_PREVIEW_OPTION_CUSTOM_SCALING},
     {"optionDefaultScaling", IDS_PRINT_PREVIEW_OPTION_DEFAULT_SCALING},
+    {"optionEvenPages", IDS_PRINT_PREVIEW_OPTION_EVEN_PAGES},
     {"optionFitToPage", IDS_PRINT_PREVIEW_OPTION_FIT_TO_PAGE},
     {"optionFitToPaper", IDS_PRINT_PREVIEW_OPTION_FIT_TO_PAPER},
     {"optionHeaderFooter", IDS_PRINT_PREVIEW_OPTION_HEADER_FOOTER},
     {"optionLandscape", IDS_PRINT_PREVIEW_OPTION_LANDSCAPE},
     {"optionLongEdge", IDS_PRINT_PREVIEW_OPTION_LONG_EDGE},
+    {"optionOddPages", IDS_PRINT_PREVIEW_OPTION_ODD_PAGES},
     {"optionPortrait", IDS_PRINT_PREVIEW_OPTION_PORTRAIT},
     {"optionRasterize", IDS_PRINT_PREVIEW_OPTION_RASTERIZE},
     {"optionSelectionOnly", IDS_PRINT_PREVIEW_OPTION_SELECTION_ONLY},
@@ -409,22 +411,6 @@ void AddPrintPreviewFlags(content::WebUIDataSource* source, Profile* profile) {
   source->AddBoolean(
       "forceEnablePrivetPrinting",
       profile->GetPrefs()->GetBoolean(prefs::kForceEnablePrivetPrinting));
-#endif
-
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-  source->AddBoolean(
-      "showPrinterStatus",
-      base::FeatureList::IsEnabled(chromeos::features::kPrinterStatus));
-  source->AddBoolean(
-      "showPrinterStatusInDialog",
-      base::FeatureList::IsEnabled(chromeos::features::kPrinterStatusDialog));
-  source->AddBoolean(
-      "printServerScaling",
-      base::FeatureList::IsEnabled(chromeos::features::kPrintServerScaling));
-#elif BUILDFLAG(IS_CHROMEOS_LACROS)
-  source->AddBoolean("showPrinterStatus", true);
-  source->AddBoolean("showPrinterStatusInDialog", true);
-  source->AddBoolean("printServerScaling", true);
 #endif
 }
 

@@ -19,6 +19,7 @@
 
 #include "base/at_exit.h"
 #include "base/command_line.h"
+#include "base/cxx17_backports.h"
 #include "base/file_version_info.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
@@ -33,7 +34,6 @@
 #include "base/process/memory.h"
 #include "base/process/process.h"
 #include "base/process/process_metrics.h"
-#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
@@ -926,15 +926,35 @@ bool HandleNonInstallCmdLineOptions(installer::ModifyParams& modify_params,
         status = installer::IN_USE_UPDATED;
       }
     } else if (cmd_line.HasSwitch(
-                   installer::switches::kDeregisterURLProtocol)) {
-      const std::wstring protocols_value = cmd_line.GetSwitchValueNative(
-          installer::switches::kDeregisterURLProtocol);
-      std::vector<std::wstring> protocols = base::SplitString(
-          protocols_value, L",", base::WhitespaceHandling::TRIM_WHITESPACE,
+                   installer::switches::kRegisterWebAppURLProtocols)) {
+      const std::wstring switch_value = cmd_line.GetSwitchValueNative(
+          installer::switches::kRegisterWebAppURLProtocols);
+      std::vector<std::wstring> switch_parts = base::SplitString(
+          switch_value, L":", base::WhitespaceHandling::TRIM_WHITESPACE,
           base::SplitResult::SPLIT_WANT_NONEMPTY);
 
-      if (!protocols.empty() && ShellUtil::RemoveAppProtocolAssociations(
-                                    protocols, chrome_exe, false)) {
+      if (switch_parts.size() == 2) {
+        std::wstring prog_id = switch_parts[0];
+        std::vector<std::wstring> protocols = base::SplitString(
+            switch_parts[1], L",", base::WhitespaceHandling::TRIM_WHITESPACE,
+            base::SplitResult::SPLIT_WANT_NONEMPTY);
+
+        // ShellUtil::RegisterChromeForProtocol performs all registration
+        // done by ShellUtil::RegisterChromeBrowser, as well as registering
+        // with Windows as capable of handling the supplied protocols.
+        if (!protocols.empty() && !prog_id.empty() &&
+            ShellUtil::RegisterApplicationForProtocols(protocols, prog_id,
+                                                       chrome_exe, false)) {
+          status = installer::IN_USE_UPDATED;
+        }
+      }
+    } else if (cmd_line.HasSwitch(
+                   installer::switches::kUnregisterWebAppProgId)) {
+      const std::wstring prog_id = cmd_line.GetSwitchValueNative(
+          installer::switches::kUnregisterWebAppProgId);
+
+      if (!prog_id.empty() &&
+          ShellUtil::RemoveAppProtocolAssociations(prog_id, false)) {
         status = installer::IN_USE_UPDATED;
       }
     } else {

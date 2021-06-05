@@ -17,45 +17,44 @@
 #include <vector>
 
 #include "base/callback.h"
-#include "base/compiler_specific.h"
-#include "base/containers/circular_deque.h"
+#include "base/containers/flat_map.h"
 #include "base/containers/flat_set.h"
-#include "base/containers/id_map.h"
 #include "base/containers/unique_ptr_adapters.h"
+#include "base/files/file_path.h"
 #include "base/gtest_prod_util.h"
 #include "base/i18n/rtl.h"
 #include "base/macros.h"
+#include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
+#include "base/process/kill.h"
 #include "base/sequenced_task_runner.h"
 #include "base/strings/string_piece.h"
 #include "base/supports_user_data.h"
 #include "base/time/time.h"
+#include "base/timer/timer.h"
+#include "base/unguessable_token.h"
 #include "build/build_config.h"
 #include "content/browser/accessibility/browser_accessibility_manager.h"
 #include "content/browser/bad_message.h"
 #include "content/browser/browser_interface_broker_impl.h"
 #include "content/browser/can_commit_status.h"
-#include "content/browser/feature_observer.h"
-#include "content/browser/idle/idle_manager_impl.h"
 #include "content/browser/net/cross_origin_opener_policy_reporter.h"
 #include "content/browser/prerender/prerender_host.h"
 #include "content/browser/renderer_host/back_forward_cache_metrics.h"
 #include "content/browser/renderer_host/keep_alive_handle_factory.h"
 #include "content/browser/renderer_host/media/render_frame_audio_input_stream_factory.h"
 #include "content/browser/renderer_host/media/render_frame_audio_output_stream_factory.h"
+#include "content/browser/renderer_host/page_impl.h"
 #include "content/browser/renderer_host/policy_container_host.h"
 #include "content/browser/renderer_host/render_widget_host_impl.h"
 #include "content/browser/site_instance_impl.h"
-#include "content/browser/web_exposed_isolation_info.h"
 #include "content/browser/webui/web_ui_impl.h"
 #include "content/common/buildflags.h"
 #include "content/common/content_export.h"
-#include "content/common/content_navigation_policy.h"
 #include "content/common/dom_automation_controller.mojom.h"
 #include "content/common/frame.mojom.h"
 #include "content/common/input/input_injector.mojom-forward.h"
 #include "content/common/navigation_client.mojom-forward.h"
-#include "content/common/navigation_params.mojom.h"
 #include "content/common/render_accessibility.mojom.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/content_browser_client.h"
@@ -71,7 +70,6 @@
 #include "media/mojo/services/media_metrics_provider.h"
 #include "mojo/public/cpp/bindings/associated_receiver.h"
 #include "mojo/public/cpp/bindings/associated_remote.h"
-#include "mojo/public/cpp/bindings/message.h"
 #include "mojo/public/cpp/bindings/pending_associated_remote.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
@@ -80,89 +78,60 @@
 #include "mojo/public/cpp/system/data_pipe.h"
 #include "net/base/isolation_info.h"
 #include "net/base/network_isolation_key.h"
-#include "net/cookies/canonical_cookie.h"
-#include "net/cookies/cookie_inclusion_status.h"
-#include "net/http/http_response_headers.h"
-#include "services/device/public/mojom/sensor_provider.mojom.h"
-#include "services/device/public/mojom/wake_lock_context.mojom.h"
-#include "services/metrics/public/cpp/ukm_recorder.h"
+#include "services/device/public/mojom/sensor_provider.mojom-forward.h"
 #include "services/metrics/public/cpp/ukm_source_id.h"
-#include "services/network/public/cpp/content_security_policy/csp_context.h"
 #include "services/network/public/cpp/cross_origin_embedder_policy.h"
 #include "services/network/public/cpp/cross_origin_opener_policy.h"
 #include "services/network/public/mojom/fetch_api.mojom-forward.h"
-#include "services/network/public/mojom/network_context.mojom.h"
-#include "services/network/public/mojom/trust_tokens.mojom.h"
+#include "services/network/public/mojom/mdns_responder.mojom.h"
 #include "services/network/public/mojom/url_loader_network_service_observer.mojom-forward.h"
-#include "services/service_manager/public/mojom/interface_provider.mojom.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/common/loader/previews_state.h"
-#include "third_party/blink/public/common/permissions_policy/document_policy.h"
 #include "third_party/blink/public/common/permissions_policy/permissions_policy.h"
 #include "third_party/blink/public/common/scheduler/web_scheduler_tracked_feature.h"
-#include "third_party/blink/public/mojom/bluetooth/web_bluetooth.mojom.h"
-#include "third_party/blink/public/mojom/choosers/file_chooser.mojom.h"
-#include "third_party/blink/public/mojom/choosers/popup_menu.mojom.h"
-#include "third_party/blink/public/mojom/commit_result/commit_result.mojom.h"
+#include "third_party/blink/public/mojom/bluetooth/web_bluetooth.mojom-forward.h"
 #include "third_party/blink/public/mojom/compute_pressure/compute_pressure.mojom-forward.h"
-#include "third_party/blink/public/mojom/contacts/contacts_manager.mojom.h"
-#include "third_party/blink/public/mojom/devtools/devtools_agent.mojom.h"
-#include "third_party/blink/public/mojom/devtools/inspector_issue.mojom.h"
-#include "third_party/blink/public/mojom/favicon/favicon_url.mojom.h"
+#include "third_party/blink/public/mojom/contacts/contacts_manager.mojom-forward.h"
+#include "third_party/blink/public/mojom/feature_observer/feature_observer.mojom-forward.h"
 #include "third_party/blink/public/mojom/file_system_access/file_system_access_manager.mojom-forward.h"
-#include "third_party/blink/public/mojom/font_access/font_access.mojom.h"
+#include "third_party/blink/public/mojom/font_access/font_access.mojom-forward.h"
 #include "third_party/blink/public/mojom/frame/back_forward_cache_controller.mojom.h"
-#include "third_party/blink/public/mojom/frame/blocked_navigation_types.mojom.h"
 #include "third_party/blink/public/mojom/frame/find_in_page.mojom.h"
 #include "third_party/blink/public/mojom/frame/frame.mojom-forward.h"
-#include "third_party/blink/public/mojom/frame/frame_owner_element_type.mojom.h"
 #include "third_party/blink/public/mojom/frame/frame_owner_properties.mojom-forward.h"
 #include "third_party/blink/public/mojom/frame/reporting_observer.mojom-forward.h"
-#include "third_party/blink/public/mojom/frame/tree_scope_type.mojom.h"
-#include "third_party/blink/public/mojom/frame/user_activation_update_types.mojom.h"
-#include "third_party/blink/public/mojom/idle/idle_manager.mojom.h"
+#include "third_party/blink/public/mojom/idle/idle_manager.mojom-forward.h"
 #include "third_party/blink/public/mojom/image_downloader/image_downloader.mojom.h"
 #include "third_party/blink/public/mojom/input/focus_type.mojom-forward.h"
-#include "third_party/blink/public/mojom/input/input_handler.mojom.h"
-#include "third_party/blink/public/mojom/installedapp/installed_app_provider.mojom.h"
+#include "third_party/blink/public/mojom/installedapp/installed_app_provider.mojom-forward.h"
 #include "third_party/blink/public/mojom/loader/resource_load_info.mojom-forward.h"
-#include "third_party/blink/public/mojom/loader/transferrable_url_loader.mojom.h"
 #include "third_party/blink/public/mojom/notifications/notification_service.mojom-forward.h"
-#include "third_party/blink/public/mojom/payments/payment_app.mojom.h"
-#include "third_party/blink/public/mojom/peerconnection/peer_connection_tracker.mojom.h"
-#include "third_party/blink/public/mojom/permissions/permission.mojom.h"
+#include "third_party/blink/public/mojom/peerconnection/peer_connection_tracker.mojom-forward.h"
 #include "third_party/blink/public/mojom/portal/portal.mojom-forward.h"
-#include "third_party/blink/public/mojom/prerender/prerender.mojom.h"
-#include "third_party/blink/public/mojom/presentation/presentation.mojom.h"
+#include "third_party/blink/public/mojom/presentation/presentation.mojom-forward.h"
 #include "third_party/blink/public/mojom/screen_enumeration/screen_enumeration.mojom-forward.h"
-#include "third_party/blink/public/mojom/scroll/scroll_into_view_params.mojom.h"
 #include "third_party/blink/public/mojom/security_context/insecure_request_policy.mojom-forward.h"
-#include "third_party/blink/public/mojom/service_worker/service_worker_provider.mojom.h"
 #include "third_party/blink/public/mojom/sms/webotp_service.mojom-forward.h"
 #include "third_party/blink/public/mojom/speech/speech_synthesis.mojom-forward.h"
-#include "third_party/blink/public/mojom/usb/web_usb_service.mojom.h"
 #include "third_party/blink/public/mojom/webaudio/audio_context_manager.mojom-forward.h"
-#include "third_party/blink/public/mojom/webauthn/authenticator.mojom.h"
-#include "third_party/blink/public/mojom/webauthn/virtual_authenticator.mojom.h"
+#include "third_party/blink/public/mojom/webauthn/authenticator.mojom-forward.h"
+#include "third_party/blink/public/mojom/webauthn/virtual_authenticator.mojom-forward.h"
 #include "third_party/blink/public/mojom/webid/federated_auth_request.mojom-forward.h"
 #include "third_party/blink/public/mojom/webid/federated_auth_response.mojom-forward.h"
-#include "third_party/blink/public/mojom/websockets/websocket_connector.mojom.h"
-#include "third_party/blink/public/mojom/webtransport/web_transport_connector.mojom.h"
-#include "third_party/blink/public/mojom/worker/dedicated_worker_host_factory.mojom.h"
+#include "third_party/blink/public/mojom/webtransport/web_transport_connector.mojom-forward.h"
+#include "third_party/blink/public/mojom/worker/dedicated_worker_host_factory.mojom-forward.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/accessibility/ax_action_handler_base.h"
-#include "ui/accessibility/ax_event.h"
-#include "ui/accessibility/ax_mode.h"
-#include "ui/accessibility/ax_node_data.h"
 #include "ui/accessibility/ax_tree_update.h"
 #include "ui/base/page_transition_types.h"
 #include "ui/gfx/geometry/rect.h"
 
 #if defined(OS_ANDROID)
+#include "base/containers/id_map.h"
 #include "services/device/public/mojom/nfc.mojom.h"
 #else
-#include "third_party/blink/public/mojom/hid/hid.mojom.h"
-#include "third_party/blink/public/mojom/serial/serial.mojom.h"
+#include "third_party/blink/public/mojom/hid/hid.mojom-forward.h"
+#include "third_party/blink/public/mojom/serial/serial.mojom-forward.h"
 #endif
 
 #if BUILDFLAG(ENABLE_MEDIA_REMOTING)
@@ -178,6 +147,7 @@ class GURL;
 namespace blink {
 class AssociatedInterfaceProvider;
 class AssociatedInterfaceRegistry;
+class DocumentPolicy;
 struct FramePolicy;
 struct TransferableMessage;
 struct UntrustworthyContextMenuParams;
@@ -195,6 +165,10 @@ namespace gfx {
 class Range;
 }
 
+namespace mojo {
+class MessageFilter;
+}
+
 namespace network {
 class ResourceRequestBody;
 }  // namespace network
@@ -207,18 +181,25 @@ namespace ui {
 class ClipboardFormatType;
 }
 
+namespace ukm {
+class UkmRecorder;
+}
+
 namespace content {
+class ServiceWorkerContainerHost;
 class AgentSchedulingGroupHost;
 class AppCacheNavigationHandle;
-class BackForwardCacheMetrics;
 class CrossOriginEmbedderPolicyReporter;
+class FeatureObserver;
 class FrameTree;
 class FrameTreeNode;
 class GeolocationServiceImpl;
+class IdleManager;
+class IdleManagerImpl;
 class MediaInterfaceProxy;
 class NavigationEarlyHintsManager;
-class NavigationEntryImpl;
 class NavigationRequest;
+class PeakGpuMemoryTracker;
 class PeerConnectionTrackerHost;
 class PepperPluginInstanceHost;
 class Portal;
@@ -235,16 +216,16 @@ class RenderWidgetHostView;
 class RenderWidgetHostViewBase;
 class ScreenEnumerationImpl;
 class SensorProviderProxyImpl;
-class SerialService;
 class SpeechSynthesisImpl;
+class SubresourceWebBundleNavigationInfo;
 class TimeoutMonitor;
 class WebAuthRequestSecurityChecker;
 class WebBluetoothServiceImpl;
 class WebBundleHandle;
-class SubresourceWebBundleNavigationInfo;
 class WebBundleHandleTracker;
+class WebExposedIsolationInfo;
+class WebUIImpl;
 struct PendingNavigation;
-
 struct ResourceTimingInfo;
 struct SubresourceLoaderParams;
 
@@ -324,6 +305,7 @@ class CONTENT_EXPORT RenderFrameHostImpl
   RenderWidgetHostView* GetView() override;
   RenderFrameHostImpl* GetParent() override;
   RenderFrameHostImpl* GetMainFrame() override;
+  PageImpl& GetPage() override;
   std::vector<RenderFrameHost*> GetFramesInSubtree() override;
   bool IsDescendantOf(RenderFrameHost*) override;
   void ForEachRenderFrameHost(FrameIterationCallback on_frame) override;
@@ -373,7 +355,7 @@ class CONTENT_EXPORT RenderFrameHostImpl
   bool IsRenderFrameCreated() override;
   bool IsRenderFrameLive() override;
   LifecycleState GetLifecycleState() override;
-  bool IsCurrent() override;
+  bool IsActive() override;
   bool IsInactiveAndDisallowActivation() override;
   size_t GetProxyCount() override;
   bool HasSelection() override;
@@ -416,7 +398,7 @@ class CONTENT_EXPORT RenderFrameHostImpl
                                   bool animate) override;
   bool Reload() override;
   bool IsDOMContentLoaded() override;
-  void UpdateAdFrameType(blink::mojom::AdFrameType ad_frame_type) override;
+  void UpdateIsAdSubframe(bool is_ad_subframe) override;
   blink::mojom::AuthenticatorStatus PerformGetAssertionWebAuthSecurityChecks(
       const std::string& relying_party_id,
       const url::Origin& effective_origin) override;
@@ -596,6 +578,14 @@ class CONTENT_EXPORT RenderFrameHostImpl
   // The most recent non-net-error URL to commit in this frame.  In almost all
   // cases, use GetLastCommittedURL instead.
   const GURL& last_successful_url() { return last_successful_url_; }
+
+  // The current URL of the document in the renderer process. Note that this
+  // includes URL updates due to document.open(), so it might be different than
+  // the "last committed URL" provided by GetLastCommittedURL(). In almost all
+  // cases, use GetLastCommittedURL() instead, as this should only be used when
+  // the caller wants to know the current state of the URL in the renderer (e.g.
+  // when predicting whether a navigation will do a replacement or not).
+  const GURL& last_url_in_renderer() const { return last_url_in_renderer_; }
 
   // Returns the http method of the last committed navigation.
   const std::string& last_http_method() { return last_http_method_; }
@@ -1545,6 +1535,9 @@ class CONTENT_EXPORT RenderFrameHostImpl
   void CreateInstalledAppProvider(
       mojo::PendingReceiver<blink::mojom::InstalledAppProvider> receiver);
 
+  void CreateCodeCacheHost(
+      mojo::PendingReceiver<blink::mojom::CodeCacheHost> receiver);
+
 #if defined(OS_ANDROID)
   void BindNFCReceiver(mojo::PendingReceiver<device::mojom::NFC> receiver);
 #endif
@@ -1722,6 +1715,10 @@ class CONTENT_EXPORT RenderFrameHostImpl
   // NavigationEntry this RenderFrameHostImpl committed.
   BackForwardCacheMetrics* GetBackForwardCacheMetrics();
 
+  blink::mojom::PreferredColorScheme GetPreferredColorScheme() const {
+    return preferred_color_scheme_;
+  }
+
   const std::string& GetEncoding() const { return canonical_encoding_; }
 
   // Returns a base salt used to generate frame-specific IDs for media-device
@@ -1759,6 +1756,30 @@ class CONTENT_EXPORT RenderFrameHostImpl
       FrameIterationCallbackImpl on_frame);
   void ForEachRenderFrameHostIncludingSpeculative(
       FrameIterationAlwaysContinueCallbackImpl on_frame);
+
+  // |ForEachRenderFrameHost| has multiple overloads for convenience of the
+  // caller that only differ by the provided callback's signature.
+  // |FrameIterationWrapper| converts to a common callback signature for the
+  // implementation to use.
+  template <typename RfhType>
+  static FrameIterationCallbackImpl FrameIterationWrapper(
+      base::RepeatingCallback<FrameIterationAction(RfhType*)> on_frame) {
+    return base::BindRepeating(
+        [](base::RepeatingCallback<FrameIterationAction(RfhType*)> on_frame,
+           RenderFrameHostImpl* rfh) { return on_frame.Run(rfh); },
+        on_frame);
+  }
+  template <typename RfhType>
+  static FrameIterationCallbackImpl FrameIterationWrapper(
+      base::RepeatingCallback<void(RfhType*)> on_frame) {
+    return base::BindRepeating(
+        [](base::RepeatingCallback<void(RfhType*)> on_frame,
+           RenderFrameHostImpl* rfh) {
+          on_frame.Run(rfh);
+          return FrameIterationAction::kContinue;
+        },
+        on_frame);
+  }
 
   bool DocumentUsedWebOTP() override;
 
@@ -1829,11 +1850,14 @@ class CONTENT_EXPORT RenderFrameHostImpl
       blink::mojom::ResourceTimingInfoPtr timing) override;
   void DidFinishDocumentLoad() override;
   void RunModalAlertDialog(const std::u16string& alert_message,
+                           bool disable_third_party_subframe_suppresion,
                            RunModalAlertDialogCallback callback) override;
   void RunModalConfirmDialog(const std::u16string& alert_message,
+                             bool disable_third_party_subframe_suppresion,
                              RunModalConfirmDialogCallback callback) override;
   void RunModalPromptDialog(const std::u16string& alert_message,
                             const std::u16string& default_value,
+                            bool disable_third_party_subframe_suppresion,
                             RunModalPromptDialogCallback callback) override;
   void RunBeforeUnloadConfirm(bool is_reload,
                               RunBeforeUnloadConfirmCallback callback) override;
@@ -2079,8 +2103,12 @@ class CONTENT_EXPORT RenderFrameHostImpl
   void EnableWebRtcEventLogOutput(int lid, int output_period_ms) override;
   void DisableWebRtcEventLogOutput(int lid) override;
   bool IsDocumentOnLoadCompletedInMainFrame() override;
-  const GURL& ManifestURL() override;
   const std::vector<blink::mojom::FaviconURLPtr>& FaviconURLs() override;
+
+#if BUILDFLAG(ENABLE_MDNS)
+  void CreateMdnsResponder(
+      mojo::PendingReceiver<network::mojom::MdnsResponder> receiver);
+#endif  // BUILDFLAG(ENABLE_MDNS)
 
 #if BUILDFLAG(ENABLE_PLUGINS)
   void PepperInstanceClosed(int32_t instance_id);
@@ -2203,6 +2231,8 @@ class CONTENT_EXPORT RenderFrameHostImpl
   FRIEND_TEST_ALL_PREFIXES(RenderFrameHostImplBrowserTest,
                            CheckIsCurrentBeforeAndAfterUnload);
   FRIEND_TEST_ALL_PREFIXES(RenderFrameHostImplBrowserTest,
+                           FindImmediateLocalRoots);
+  FRIEND_TEST_ALL_PREFIXES(RenderFrameHostImplBrowserTest,
                            HasCommittedAnyNavigation);
   FRIEND_TEST_ALL_PREFIXES(RenderFrameHostImplBrowserTest, GetUkmSourceIds);
   FRIEND_TEST_ALL_PREFIXES(RenderFrameHostManagerTest,
@@ -2222,7 +2252,6 @@ class CONTENT_EXPORT RenderFrameHostImpl
   FRIEND_TEST_ALL_PREFIXES(
       RenderFrameHostManagerUnloadBrowserTest,
       PendingDeleteRFHProcessShutdownDoesNotRemoveSubframes);
-  FRIEND_TEST_ALL_PREFIXES(SitePerProcessBrowserTest, FindImmediateLocalRoots);
   FRIEND_TEST_ALL_PREFIXES(SitePerProcessBrowserTest,
                            RenderViewHostIsNotReusedAfterDelayedUnloadACK);
   FRIEND_TEST_ALL_PREFIXES(SitePerProcessBrowserTest,
@@ -2274,6 +2303,7 @@ class CONTENT_EXPORT RenderFrameHostImpl
   FRIEND_TEST_ALL_PREFIXES(WebContentsImplBrowserTest, FrozenAndUnfrozenIPC);
 
   class DroppedInterfaceRequestLogger;
+  class SubresourceLoaderFactoriesConfig;
 
   RenderFrameHostImpl* FindAndVerifyChildInternal(
       RenderFrameHostOrProxy child_frame_or_proxy,
@@ -2326,7 +2356,7 @@ class CONTENT_EXPORT RenderFrameHostImpl
       mojom::DidCommitProvisionalLoadParamsPtr params,
       mojom::DidCommitSameDocumentNavigationParamsPtr same_document_params)
       override;
-
+  void DidOpenDocumentInputStream(const GURL& url) override;
   // |initiator_policy_container_host_keep_alive_handle| is needed to
   // ensure that the PolicyContainerHost of the initiator RenderFrameHost
   // can still be retrieved even if the RenderFrameHost has been deleted in
@@ -2345,6 +2375,8 @@ class CONTENT_EXPORT RenderFrameHostImpl
   void DidChangeName(const std::string& name,
                      const std::string& unique_name) override;
   void CancelInitialHistoryLoad() override;
+  void DidUpdatePreferredColorScheme(
+      blink::mojom::PreferredColorScheme preferred_color_scheme) override;
   void UpdateEncoding(const std::string& encoding) override;
   void UpdateState(const blink::PageState& state) override;
   void OpenURL(blink::mojom::OpenURLParamsPtr params) override;
@@ -2421,7 +2453,8 @@ class CONTENT_EXPORT RenderFrameHostImpl
   // RenderProcessHost::FilterURL, since it will be used to kill processes that
   // commit unauthorized origins.
   CanCommitStatus CanCommitOriginAndUrl(const url::Origin& origin,
-                                        const GURL& url);
+                                        const GURL& url,
+                                        bool is_same_document_navigation);
 
   // Asserts that the given RenderFrameHostImpl is part of the same browser
   // context (and crashes if not), then returns whether the given frame is
@@ -2459,24 +2492,12 @@ class CONTENT_EXPORT RenderFrameHostImpl
   // exists.
   NavigationRequest* FindLatestNavigationRequestThatIsStillCommitting();
 
-  // Extracts all the |out_...| values from either the |navigation_request| (if
-  // present) or from |this| (if |navigation_request| is null).
-  void ExtractFactoryParamsFromNavigationRequestOrLastCommittedNavigation(
-      NavigationRequest* navigation_request,
-      url::Origin* out_main_world_origin,
-      net::IsolationInfo* out_isolation_info,
-      network::mojom::ClientSecurityStatePtr* out_client_security_state,
-      mojo::PendingRemote<network::mojom::CrossOriginEmbedderPolicyReporter>*
-          coep_reporter_pending_remote,
-      network::mojom::TrustTokenRedemptionPolicy*
-          out_trust_token_redemption_policy);
-
   // Creates URLLoaderFactoryParams for main world of |this|, either based on
   // the |navigation_request|, or (if |navigation_request| is null) on the last
   // committed navigation.
   network::mojom::URLLoaderFactoryParamsPtr
   CreateURLLoaderFactoryParamsForMainWorld(
-      NavigationRequest* navigation_request,
+      const SubresourceLoaderFactoriesConfig& config,
       base::StringPiece debug_tag);
 
   // Like CreateNetworkServiceDefaultFactoryInternal but also sets up a
@@ -2657,13 +2678,6 @@ class CONTENT_EXPORT RenderFrameHostImpl
   // based on its parent frame.
   void ResetPermissionsPolicy();
 
-  // TODO(ekaramad): One major purpose behind the API is to traverse the frame
-  // tree top-down to visit the  RenderWidgetHostViews of interest in the most
-  // efficient way. We might want to revisit this API, remove it from RFHImpl,
-  // and perhaps consolidate it with some of the existing ones such as
-  // WebContentsImpl::GetRenderWidgetHostViewsInTree() into a new more
-  // appropriate API for dealing with (virtual) RenderWidgetHost(View) tree.
-  // (see https://crbug.com/754726).
   // Runs |callback| for all the local roots immediately under this frame, i.e.
   // local roots which are under this frame and their first ancestor which is a
   // local root is either this frame or this frame's local root. For instance,
@@ -2675,7 +2689,7 @@ class CONTENT_EXPORT RenderFrameHostImpl
   //              D  A2    C   F             //
   // RFHs at nodes B, E, D, C, and F are all local roots in the given frame tree
   // under the root at A0, but only B, C, and E are considered immediate local
-  // roots of A0. Note that this will exclude any speculative or pending RFHs.
+  // roots of A0. Note that this will exclude any speculative RFHs.
   void ForEachImmediateLocalRoot(
       const base::RepeatingCallback<void(RenderFrameHostImpl*)>& callback);
 
@@ -2696,6 +2710,13 @@ class CONTENT_EXPORT RenderFrameHostImpl
   bool ValidateDidCommitParams(NavigationRequest* navigation_request,
                                mojom::DidCommitProvisionalLoadParams* params,
                                bool is_same_document_navigation);
+  // Validates whether we can commit |url| and |origin| for a navigation or a
+  // document.open() URL update.
+  // A return value of true means that the URL & origin can be committed.
+  bool ValidateURLAndOrigin(const GURL& url,
+                            const url::Origin& origin,
+                            bool is_same_document_navigation,
+                            NavigationRequest* navigation_request);
 
   // Updates the site url if the navigation was successful and the page is not
   // an interstitial.
@@ -2742,7 +2763,7 @@ class CONTENT_EXPORT RenderFrameHostImpl
   // the last committed navigation.
   blink::PendingURLLoaderFactoryBundle::OriginMap
   CreateURLLoaderFactoriesForIsolatedWorlds(
-      NavigationRequest* navigation_request,
+      const SubresourceLoaderFactoriesConfig& config,
       const base::flat_set<url::Origin>& isolated_world_origins);
 
   // Based on the termination |status| and |exit_code|, may generate a crash
@@ -2830,6 +2851,7 @@ class CONTENT_EXPORT RenderFrameHostImpl
   void RunJavaScriptDialog(const std::u16string& message,
                            const std::u16string& default_prompt,
                            JavaScriptDialogType dialog_type,
+                           bool disable_third_party_subframe_suppresion,
                            JavaScriptDialogCallback callback);
 
   // Callback function used to handle the dialog being closed. It will reset
@@ -2897,6 +2919,9 @@ class CONTENT_EXPORT RenderFrameHostImpl
   void SetPolicyContainerHost(
       scoped_refptr<PolicyContainerHost> policy_container_host);
 
+  // Initializes |private_network_request_policy_|. Constructor helper.
+  void InitializePrivateNetworkRequestPolicy();
+
   // Returns true if this frame requires a proxy to talk to its parent.
   // Note: Using a proxy to talk to a parent does not imply that the parent
   // is in a different process.
@@ -2954,8 +2979,14 @@ class CONTENT_EXPORT RenderFrameHostImpl
   // FrameTreeNode has changed its current RenderFrameHost.
   RenderFrameHostImpl* const parent_;
 
-  // Track this frame's last committed URL.
+  // Track this frame's last committed URL. Note that this will be empty before
+  // the first commit in this *RenderFrameHost*, even if the FrameTreeNode has
+  // committed before with a different RenderFrameHost.
   GURL last_committed_url_;
+
+  // Track this frame's last URL on the renderer side, which might be different
+  // than `last_committed_url_` if the frame did document.open().
+  GURL last_url_in_renderer_;
 
   // Track this frame's last committed origin.
   //
@@ -2987,8 +3018,7 @@ class CONTENT_EXPORT RenderFrameHostImpl
   // TODO(https://crbug.com/888079): Simplify the above comment when the
   // behavior it explains is fixed.
   network::mojom::PrivateNetworkRequestPolicy private_network_request_policy_ =
-      network::mojom::PrivateNetworkRequestPolicy::
-          kBlockFromInsecureToMorePrivate;
+      network::mojom::PrivateNetworkRequestPolicy::kBlock;
 
   network::CrossOriginEmbedderPolicy cross_origin_embedder_policy_;
 
@@ -3562,6 +3592,10 @@ class CONTENT_EXPORT RenderFrameHostImpl
   scoped_refptr<WebAuthRequestSecurityChecker>
       webauth_request_security_checker_;
 
+  // The preferred color scheme for this frame.
+  blink::mojom::PreferredColorScheme preferred_color_scheme_ =
+      blink::mojom::PreferredColorScheme::kLight;
+
   // Container for arbitrary document-associated feature-specific data. Should
   // be reset when committing a cross-document navigation in this
   // RenderFrameHost. RenderFrameHostImpl stores internal members here
@@ -3569,22 +3603,20 @@ class CONTENT_EXPORT RenderFrameHostImpl
   // GetRenderDocumentHostUserData(). Please refer to the description at
   // content/public/browser/render_document_host_user_data.h for more details.
   struct DocumentAssociatedData : public base::SupportsUserData {
-    DocumentAssociatedData();
+    DocumentAssociatedData(RenderFrameHostImpl& document);
     ~DocumentAssociatedData() override;
     DocumentAssociatedData(const DocumentAssociatedData&) = delete;
     DocumentAssociatedData& operator=(const DocumentAssociatedData&) = delete;
 
-    // True if we've received a notification that the onload() handler has
-    // run in the main frame.
-    bool is_on_load_completed = false;
+    // The Page object associated with the main document. It is nullptr for
+    // subframes.
+    std::unique_ptr<PageImpl> owned_page;
 
-    // Web application manifest URL (or empty URL if none) for this main frame.
-    // See https://w3c.github.io/manifest/#web-application-manifest
-    GURL manifest_url;
-
-    // Candidate favicon URLs. Each main frame may have a collection and will
-    // be displayed when active (i.e., upon activation for prerendering).
-    std::vector<blink::mojom::FaviconURLPtr> favicon_urls;
+    // Prerender2:
+    // The activation start time for prerendering which is passed to the
+    // renderer process, and will be accessible in the prerendered page as
+    // PerformanceNavigationTiming.activationStart.
+    absl::optional<base::TimeTicks> activation_start_time_for_prerendering;
   };
 
   std::unique_ptr<DocumentAssociatedData> document_associated_data_;
@@ -3699,6 +3731,19 @@ class CONTENT_EXPORT RenderFrameHostImpl
   // A counter which is incremented by one every time this RenderFrameHost sends
   // a `CommitNavigation` or `CommitFailedNavigation` IPC to the renderer.
   int commit_navigation_sent_counter_ = 0;
+
+  // CodeCacheHost processes requests to fetch / write generated code for
+  // JavaScript / WebAssembly resources.
+  mojo::UniqueReceiverSet<blink::mojom::CodeCacheHost>
+      code_cache_host_receivers_;
+
+  // Holds the mapping of names to URLs of reporting endpoints for the current
+  // document, as parsed from the Reporting-Endpoints response header. This data
+  // comes directly from the structured header parser, and does not necessarily
+  // represent a valid reporting configuration. This is passed to the network
+  // service to set up the actual endpoint configuration once the document load
+  // commits.
+  base::flat_map<std::string, std::string> reporting_endpoints_;
 
   // NOTE: This must be the last member.
   base::WeakPtrFactory<RenderFrameHostImpl> weak_ptr_factory_{this};

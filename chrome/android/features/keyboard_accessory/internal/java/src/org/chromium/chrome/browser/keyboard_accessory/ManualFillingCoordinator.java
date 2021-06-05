@@ -10,6 +10,7 @@ import android.view.ViewStub;
 import androidx.annotation.VisibleForTesting;
 
 import org.chromium.base.ObserverList;
+import org.chromium.base.supplier.ObservableSupplier;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.keyboard_accessory.bar_component.KeyboardAccessoryCoordinator;
 import org.chromium.chrome.browser.keyboard_accessory.data.KeyboardAccessoryData;
@@ -126,6 +127,11 @@ class ManualFillingCoordinator implements ManualFillingComponent {
     }
 
     @Override
+    public void showAccessorySheetTab(@AccessoryTabType int tabType) {
+        mMediator.showAccessorySheetTab(tabType);
+    }
+
+    @Override
     public void onResume() {
         mMediator.resume();
     }
@@ -138,6 +144,11 @@ class ManualFillingCoordinator implements ManualFillingComponent {
     @Override
     public boolean isFillingViewShown(View view) {
         return mMediator.isFillingViewShown(view);
+    }
+
+    @Override
+    public ObservableSupplier<Integer> getBottomInsetSupplier() {
+        return mMediator.getBottomInsetSupplier();
     }
 
     @Override

@@ -44,16 +44,19 @@ import './os_printing_page/cups_printers.js';
 import './os_printing_page/cups_saved_printers.js';
 import './os_printing_page/cups_settings_add_printer_dialog.js';
 import './os_printing_page/os_printing_page.js';
-import './os_privacy_page/os_privacy_page.m.js';
-import './os_privacy_page/peripheral_data_access_protection_dialog.m.js';
+import './os_privacy_page/os_privacy_page.js';
+import './os_privacy_page/peripheral_data_access_protection_dialog.js';
 import './os_reset_page/os_powerwash_dialog.js';
 import './os_reset_page/os_powerwash_dialog_esim_item.js';
 import './os_reset_page/os_reset_page.js';
 import './os_files_page/smb_shares_page.js';
+import '../privacy_page/secure_dns.js';
+import '../privacy_page/secure_dns_input.js';
 
 export {SmbBrowserProxyImpl, SmbMountResult} from 'chrome://resources/cr_components/chromeos/smb_shares/smb_browser_proxy.m.js';
 export {LanguagesBrowserProxy, LanguagesBrowserProxyImpl} from '../languages_page/languages_browser_proxy.js';
 export {LifetimeBrowserProxyImpl} from '../lifetime_browser_proxy.js';
+export {PrivacyPageBrowserProxy, PrivacyPageBrowserProxyImpl, ResolverOption, SecureDnsMode, SecureDnsSetting, SecureDnsUiManagementMode} from '../privacy_page/privacy_page_browser_proxy.js';
 export {CrostiniBrowserProxy, CrostiniBrowserProxyImpl} from './crostini_page/crostini_browser_proxy.m.js';
 export {TimeZoneAutoDetectMethod} from './date_time_page/date_time_types.m.js';
 export {TimeZoneBrowserProxyImpl} from './date_time_page/timezone_browser_proxy.m.js';
@@ -62,5 +65,5 @@ export {LanguagesMetricsProxy, LanguagesMetricsProxyImpl, LanguagesPageInteracti
 export {PrinterType} from './os_printing_page/cups_printer_types.js';
 export {CupsPrintersBrowserProxy, CupsPrintersBrowserProxyImpl, PrinterSetupResult, PrintServerResult} from './os_printing_page/cups_printers_browser_proxy.js';
 export {CupsPrintersEntryManager} from './os_printing_page/cups_printers_entry_manager.js';
-export {PeripheralDataAccessBrowserProxy, PeripheralDataAccessBrowserProxyImpl} from './os_privacy_page/peripheral_data_access_browser_proxy.m.js';
+export {PeripheralDataAccessBrowserProxy, PeripheralDataAccessBrowserProxyImpl} from './os_privacy_page/peripheral_data_access_browser_proxy.js';
 export {OsResetBrowserProxyImpl} from './os_reset_page/os_reset_browser_proxy.js';

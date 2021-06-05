@@ -30,11 +30,6 @@ COMPONENT_EXPORT(CHROME_FEATURES)
 extern const base::Feature kActivityReportingSessionType;
 #endif  // defined(IS_CHROMEOS_ASH)
 
-#if defined(OS_ANDROID)
-COMPONENT_EXPORT(CHROME_FEATURES)
-extern const base::Feature kAdaptiveButtonInTopToolbar;
-#endif  // defined(OS_ANDROID)
-
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 COMPONENT_EXPORT(CHROME_FEATURES)
 extern const base::Feature kAdaptiveScreenBrightnessLogging;
@@ -116,6 +111,8 @@ extern const base::FeatureParam<std::string> kPrivacySandboxSettingsURL;
 
 COMPONENT_EXPORT(CHROME_FEATURES)
 extern const base::Feature kPrivacySandboxSettings2;
+COMPONENT_EXPORT(CHROME_FEATURES)
+extern const base::FeatureParam<std::string> kPrivacySandboxSettings2FlocURL;
 
 #if defined(OS_ANDROID)
 COMPONENT_EXPORT(CHROME_FEATURES)
@@ -205,6 +202,9 @@ extern const base::Feature kDesktopPWAsRunOnOsLogin;
 
 COMPONENT_EXPORT(CHROME_FEATURES)
 extern const base::Feature kDesktopPWAsSharedStoreService;
+
+COMPONENT_EXPORT(CHROME_FEATURES)
+extern const base::Feature kDesktopPWAsSubApps;
 
 COMPONENT_EXPORT(CHROME_FEATURES)
 extern const base::Feature kDesktopPWAsTabStrip;
@@ -378,6 +378,9 @@ extern const base::Feature kIncognitoBrandConsistencyForAndroid;
     defined(OS_CHROMEOS)
 COMPONENT_EXPORT(CHROME_FEATURES)
 extern const base::Feature kIncognitoBrandConsistencyForDesktop;
+
+COMPONENT_EXPORT(CHROME_FEATURES)
+extern const base::Feature kIncognitoClearBrowsingDataDialogForDesktop;
 #endif
 
 COMPONENT_EXPORT(CHROME_FEATURES)
@@ -499,6 +502,8 @@ extern const base::Feature kPermissionAuditing;
 
 COMPONENT_EXPORT(CHROME_FEATURES)
 extern const base::Feature kPermissionPredictions;
+COMPONENT_EXPORT(CHROME_FEATURES)
+extern const base::FeatureParam<double> kPermissionPredictionsHoldbackChance;
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 COMPONENT_EXPORT(CHROME_FEATURES)
@@ -582,6 +587,11 @@ COMPONENT_EXPORT(CHROME_FEATURES)
 extern const base::Feature kChromeOSSharingHub;
 #endif
 
+#if defined(OS_ANDROID)
+COMPONENT_EXPORT(CHROME_FEATURES)
+extern const base::Feature kShareUsageRanking;
+#endif
+
 #if defined(OS_MAC)
 COMPONENT_EXPORT(CHROME_FEATURES)
 extern const base::Feature kShow10_10ObsoleteInfobar;
@@ -595,6 +605,9 @@ COMPONENT_EXPORT(CHROME_FEATURES) extern const base::Feature kSmartDim;
 
 COMPONENT_EXPORT(CHROME_FEATURES)
 extern const base::Feature kSoundContentSetting;
+
+COMPONENT_EXPORT(CHROME_FEATURES)
+extern const base::Feature kSSLCipher3DES;
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 COMPONENT_EXPORT(CHROME_FEATURES)

@@ -377,7 +377,7 @@ class MockService : public TestExtensionService {
       ExtensionDownloaderDelegate* delegate) {
     identity_test_env_ = std::make_unique<signin::IdentityTestEnvironment>();
     account_info_ = identity_test_env_->MakePrimaryAccountAvailable(
-        "bobloblaw@lawblog.example.com");
+        "bobloblaw@lawblog.example.com", signin::ConsentLevel::kSync);
 
     std::unique_ptr<ExtensionDownloader> downloader(
         CreateExtensionDownloader(delegate));
@@ -1074,9 +1074,8 @@ class ExtensionUpdaterTest : public testing::Test {
         CreateManifestFetchData(GURL("http://localhost/foo")));
     UpdateManifestResults updates;
 
-    std::list<std::string> ids_for_update_check;
-    pending_extension_manager->GetPendingIdsForUpdateCheck(
-        &ids_for_update_check);
+    std::list<std::string> ids_for_update_check =
+        pending_extension_manager->GetPendingIdsForUpdateCheck();
 
     for (const std::string& id : ids_for_update_check) {
       fetch_data->AddExtension(id, "1.0.0.0", &kNeverPingedData,

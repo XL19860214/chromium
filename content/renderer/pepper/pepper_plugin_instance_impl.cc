@@ -14,7 +14,6 @@
 #include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/single_thread_task_runner.h"
-#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_offset_string_conversions.h"
@@ -1974,7 +1973,7 @@ bool PepperPluginInstanceImpl::SetFullscreen(bool fullscreen) {
     return false;
 
   if (fullscreen) {
-    if (!render_frame_->render_view()
+    if (!render_frame_->GetWebView()
              ->GetRendererPreferences()
              .plugin_fullscreen_allowed) {
       return false;

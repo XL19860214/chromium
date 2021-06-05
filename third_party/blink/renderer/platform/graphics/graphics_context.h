@@ -159,9 +159,8 @@ class PLATFORM_EXPORT GraphicsContext {
   }
 
   SkSamplingOptions ImageSamplingOptions() const {
-    return SkSamplingOptions(
-        static_cast<SkFilterQuality>(ImageInterpolationQuality()),
-        SkSamplingOptions::kMedium_asMipmapLinear);
+    return PaintFlags::FilterQualityToSkSamplingOptions(
+        static_cast<SkFilterQuality>(ImageInterpolationQuality()));
   }
 
   // Specify the device scale factor which may change the way document markers
@@ -312,6 +311,14 @@ class PLATFORM_EXPORT GraphicsContext {
                 const PaintFlags&,
                 DOMNodeId);
 
+  // TODO(layout-dev): This method is only used by NGTextPainter, see if the
+  // four parameter overload can be removed or if it can wrap this method.
+  void DrawText(const Font&,
+                const NGTextFragmentPaintInfo&,
+                const FloatPoint&,
+                const PaintFlags&,
+                DOMNodeId);
+
   void DrawEmphasisMarks(const Font&,
                          const TextRunPaintInfo&,
                          const AtomicString& mark,
@@ -392,8 +399,8 @@ class PLATFORM_EXPORT GraphicsContext {
   SkSamplingOptions ComputeSamplingOptions(Image* image,
                                            const FloatRect& dest,
                                            const FloatRect& src) const {
-    return SkSamplingOptions(ComputeFilterQuality(image, dest, src),
-                             SkSamplingOptions::kMedium_asMipmapLinear);
+    return PaintFlags::FilterQualityToSkSamplingOptions(
+        ComputeFilterQuality(image, dest, src));
   }
 
   // Sets target URL of a clickable area.

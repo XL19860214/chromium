@@ -5,11 +5,13 @@
 #include "ash/projector/ui/projector_bar_view.h"
 
 #include "ash/projector/projector_controller_impl.h"
+#include "ash/projector/projector_metrics.h"
 #include "ash/resources/vector_icons/vector_icons.h"
 #include "ash/shell.h"
 #include "ash/strings/grit/ash_strings.h"
 #include "ash/style/ash_color_provider.h"
 #include "ash/wm/work_area_insets.h"
+#include "base/bind.h"
 #include "components/vector_icons/vector_icons.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -389,18 +391,22 @@ void ProjectorBarView::OnChangeBarLocationButtonPressed() {
     case BarLocation::kUpperLeft:
       bar_location_ = BarLocation::kUpperRight;
       bar_location_button_->SetVectorIcon(kAutoclickPositionTopRightIcon);
+      RecordToolbarMetrics(ProjectorToolbar::kToolbarLocationTopRight);
       break;
     case BarLocation::kUpperRight:
       bar_location_ = BarLocation::kLowerRight;
       bar_location_button_->SetVectorIcon(kAutoclickPositionBottomRightIcon);
+      RecordToolbarMetrics(ProjectorToolbar::kToolbarLocationBottomRight);
       break;
     case BarLocation::kLowerRight:
       bar_location_ = BarLocation::kLowerLeft;
       bar_location_button_->SetVectorIcon(kAutoclickPositionBottomLeftIcon);
+      RecordToolbarMetrics(ProjectorToolbar::kToolbarLocationBottomLeft);
       break;
     case BarLocation::kLowerLeft:
       bar_location_ = BarLocation::kUpperLeft;
       bar_location_button_->SetVectorIcon(kAutoclickPositionTopLeftIcon);
+      RecordToolbarMetrics(ProjectorToolbar::kToolbarLocationTopLeft);
       break;
   }
   GetWidget()->SetBounds(CalculateBoundsInScreen());
@@ -410,6 +416,8 @@ void ProjectorBarView::OnCaretButtonPressed(bool expand) {
   marker_bar_state_ =
       expand ? MarkerBarState::kExpanded : MarkerBarState::kHighlighted;
   UpdateToolbarButtonsVisibility();
+  RecordToolbarMetrics(expand ? ProjectorToolbar::kExpandMarkerTools
+                              : ProjectorToolbar::kCollapseMarkerTools);
 }
 
 void ProjectorBarView::OnUndoButtonPressed() {

@@ -70,6 +70,8 @@ class TestAppRegistrar : public AppRegistrar {
       const AppId& app_id) const override;
   const apps::FileHandlers* GetAppFileHandlers(
       const AppId& app_id) const override;
+  const apps::ProtocolHandlers* GetAppProtocolHandlers(
+      const AppId& app_id) const override;
   bool IsAppFileHandlerPermissionBlocked(
       const web_app::AppId& app_id) const override;
   absl::optional<GURL> GetAppScopeInternal(const AppId& app_id) const override;
@@ -91,6 +93,7 @@ class TestAppRegistrar : public AppRegistrar {
   std::vector<IconSizes> GetAppDownloadedShortcutsMenuIconsSizes(
       const AppId& app_id) const override;
   RunOnOsLoginMode GetAppRunOnOsLoginMode(const AppId& app_id) const override;
+  bool GetWindowControlsOverlayEnabled(const AppId& app_id) const override;
   std::vector<AppId> GetAppIds() const override;
   WebAppRegistrar* AsWebAppRegistrar() override;
   const WebAppRegistrar* AsWebAppRegistrar() const override;

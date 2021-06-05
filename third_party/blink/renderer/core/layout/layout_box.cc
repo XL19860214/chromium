@@ -1860,18 +1860,19 @@ IntPoint LayoutBox::ScrollOrigin() const {
   return GetScrollableArea() ? GetScrollableArea()->ScrollOrigin() : IntPoint();
 }
 
-LayoutSize LayoutBox::ScrolledContentOffset() const {
+PhysicalOffset LayoutBox::ScrolledContentOffset() const {
   NOT_DESTROYED();
   DCHECK(IsScrollContainer());
   DCHECK(GetScrollableArea());
-  return LayoutSize(GetScrollableArea()->GetScrollOffset());
+  return PhysicalOffset::FromFloatSizeFloor(
+      GetScrollableArea()->GetScrollOffset());
 }
 
-LayoutSize LayoutBox::PixelSnappedScrolledContentOffset() const {
+IntPoint LayoutBox::PixelSnappedScrolledContentOffset() const {
   NOT_DESTROYED();
   DCHECK(IsScrollContainer());
   DCHECK(GetScrollableArea());
-  return LayoutSize(GetScrollableArea()->ScrollOffsetInt());
+  return IntPoint(GetScrollableArea()->ScrollOffsetInt());
 }
 
 PhysicalRect LayoutBox::ClippingRect(const PhysicalOffset& location) const {
@@ -1973,9 +1974,9 @@ bool LayoutBox::MapVisualRectToContainer(
   // c) Container scroll offset.
   if (container_object->IsBox() && container_object != ancestor &&
       To<LayoutBox>(container_object)->ContainedContentsScroll(*this)) {
-    LayoutSize offset(
+    PhysicalOffset offset(
         -To<LayoutBox>(container_object)->ScrolledContentOffset());
-    transform.PostTranslate(offset.Width(), offset.Height());
+    transform.PostTranslate(offset.left, offset.top);
   }
 
   bool has_perspective = container_object && container_object->HasLayer() &&
@@ -1994,7 +1995,7 @@ bool LayoutBox::MapVisualRectToContainer(
 
     TransformationMatrix perspective_matrix;
     perspective_matrix.ApplyPerspective(
-        container_object->StyleRef().Perspective());
+        container_object->StyleRef().UsedPerspective());
     perspective_matrix.ApplyTransformOrigin(perspective_origin.X(),
                                             perspective_origin.Y(), 0);
 
@@ -2026,7 +2027,7 @@ bool LayoutBox::MapContentsRectToBoxSpace(
     return true;
 
   if (ContainedContentsScroll(contents))
-    transform_state.Move(PhysicalOffset(-ScrolledContentOffset()));
+    transform_state.Move(-ScrolledContentOffset());
 
   return ApplyBoxClips(transform_state, accumulation, visual_rect_flags);
 }
@@ -2547,8 +2548,8 @@ bool LayoutBox::GetBackgroundPaintedExtent(PhysicalRect& painted_extent) const {
     return true;
   }
 
-  if (!StyleRef().BackgroundLayers().GetImage() ||
-      StyleRef().BackgroundLayers().Next()) {
+  const FillLayer& fill_layer = StyleRef().BackgroundLayers();
+  if (!fill_layer.GetImage() || fill_layer.Next()) {
     painted_extent = background_rect;
     return true;
   }
@@ -2557,13 +2558,13 @@ bool LayoutBox::GetBackgroundPaintedExtent(PhysicalRect& painted_extent) const {
   // TODO(schenney): This function should be rethought as it's called during
   // and outside of the paint phase. Potentially returning different results at
   // different phases. crbug.com/732934
-  geometry.Calculate(nullptr, PaintPhase::kBlockBackground,
-                     kGlobalPaintNormalPhase, StyleRef().BackgroundLayers(),
+  geometry.Calculate(nullptr, PaintPhase::kBlockBackground, fill_layer,
                      background_rect);
-  if (geometry.HasNonLocalGeometry())
-    return false;
-  painted_extent = PhysicalRect(geometry.SnappedDestRect());
-  return true;
+  if (!geometry.HasNonLocalGeometry()) {
+    painted_extent = geometry.SnappedDestRect();
+    return true;
+  }
+  return false;
 }
 
 bool LayoutBox::BackgroundIsKnownToBeOpaqueInRect(
@@ -3281,6 +3282,8 @@ void LayoutBox::AddLayoutResult(scoped_refptr<const NGLayoutResult> result,
 
 void LayoutBox::AddLayoutResult(scoped_refptr<const NGLayoutResult> result) {
   const auto& fragment = To<NGPhysicalBoxFragment>(result->PhysicalFragment());
+  // |layout_results_| is particulary critical when |SideEffectsDisabled|.
+  DCHECK(!result->GetConstraintSpaceForCaching().SideEffectsDisabled());
   layout_results_.push_back(std::move(result));
   CheckDidAddFragment(*this, fragment);
 
@@ -3316,6 +3319,8 @@ void LayoutBox::ReplaceLayoutResult(scoped_refptr<const NGLayoutResult> result,
       NGFragmentItems::ClearAssociatedFragments(this);
     }
   }
+  // |layout_results_| is particulary critical when |SideEffectsDisabled|.
+  DCHECK(!result->GetConstraintSpaceForCaching().SideEffectsDisabled());
   layout_results_[index] = std::move(result);
   CheckDidAddFragment(*this, fragment);
 

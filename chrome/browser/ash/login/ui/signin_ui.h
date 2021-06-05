@@ -43,8 +43,8 @@ class SigninUI {
 
   // Starts user onboarding after successful sign-in for new users.
   virtual void StartUserOnboarding() = 0;
-  // Show UI for supervision transition flow.
-  virtual void StartSupervisionTransition() = 0;
+  // Show UI for management transition flow.
+  virtual void StartManagementTransition() = 0;
 
   virtual void StartEncryptionMigration(
       const UserContext& user_context,
@@ -71,6 +71,7 @@ class SigninUI {
 // source migration is finished.
 namespace ash {
 using ::chromeos::SigninError;
+using ::chromeos::SigninUI;
 }
 
 #endif  // CHROME_BROWSER_ASH_LOGIN_UI_SIGNIN_UI_H_

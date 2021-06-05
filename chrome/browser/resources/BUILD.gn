@@ -31,7 +31,6 @@ group("resources") {
       "feedback_webui:resources",
       "gaia_auth_host:resources",
       "history:resources",
-      "media_router:resources",
       "memories:resources",
       "new_tab_page:resources",
       "new_tab_page_instant:resources",
@@ -40,6 +39,9 @@ group("resources") {
       "settings:resources",
       "tab_search:resources",
     ]
+    if (is_chrome_branded) {
+      public_deps += [ "media_router:cast_feedback_ui_resources" ]
+    }
   }
 
   if (is_chromeos_ash) {
@@ -50,6 +52,7 @@ group("resources") {
       "chromeos:multidevice_setup_resources",
       "chromeos/accessibility:build",
       "chromeos/emoji_picker:resources",
+      "chromeos/launcher_internals:resources",
       "chromeos/login:resources",
       "chromeos/multidevice_internals:resources",
       "chromeos/network_ui:resources",
@@ -103,15 +106,12 @@ if (enable_js_type_check) {
     if (is_linux || is_chromeos || is_win || is_mac) {
       deps += [
         "bluetooth_internals:closure_compile",
-        "bookmarks:closure_compile",
         "commander:closure_compile",
         "discards:closure_compile",
         "download_internals:closure_compile",
         "download_shelf:closure_compile",
-        "downloads:closure_compile",
         "feedback_webui/js:closure_compile",
         "gaia_auth_host:closure_compile",
-        "history:closure_compile",
         "inline_login:closure_compile",
         "internals/user_education:closure_compile",
         "management:closure_compile",
@@ -147,9 +147,6 @@ if (enable_js_type_check) {
         "nearby_share/shared:closure_compile",
         "nearby_share/shared:closure_compile_module",
       ]
-    }
-    if (enable_extensions) {
-      deps += [ "extensions:closure_compile" ]
     }
     if (enable_nacl) {
       deps += [ "about_nacl:closure_compile" ]

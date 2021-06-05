@@ -23,46 +23,11 @@
 #include "ui/gfx/geometry/rect_conversions.h"
 #include "ui/gl/ca_renderer_layer_params.h"
 #include "ui/gl/dc_renderer_layer_params.h"
+#include "ui/gl/gl_utils.h"
 #include "ui/gl/gl_version_info.h"
 
 namespace gpu {
 namespace gles2 {
-
-// Temporarily allows compilation of shaders that use the
-// ARB_texture_rectangle/ANGLE_texture_rectangle extension. We don't want to
-// expose the extension to WebGL user shaders but we still need to use it for
-// parts of the implementation on macOS. Note that the extension is always
-// enabled on macOS and this only controls shader compilation.
-class GLES2DecoderPassthroughImpl::
-    ScopedEnableTextureRectangleInShaderCompiler {
- public:
-  ScopedEnableTextureRectangleInShaderCompiler(
-      const ScopedEnableTextureRectangleInShaderCompiler&) = delete;
-  ScopedEnableTextureRectangleInShaderCompiler& operator=(
-      const ScopedEnableTextureRectangleInShaderCompiler&) = delete;
-
-  // This class is a no-op except on macOS.
-#if !defined(OS_MAC)
-  explicit ScopedEnableTextureRectangleInShaderCompiler(
-      GLES2DecoderPassthroughImpl* decoder) {}
-
- private:
-#else
-  explicit ScopedEnableTextureRectangleInShaderCompiler(
-      GLES2DecoderPassthroughImpl* decoder)
-      : decoder_(decoder) {
-    if (decoder_->feature_info_->IsWebGLContext())
-      decoder_->api_->glEnableFn(GL_TEXTURE_RECTANGLE_ANGLE);
-  }
-  ~ScopedEnableTextureRectangleInShaderCompiler() {
-    if (decoder_->feature_info_->IsWebGLContext())
-      decoder_->api_->glDisableFn(GL_TEXTURE_RECTANGLE_ANGLE);
-  }
-
- private:
-  GLES2DecoderPassthroughImpl* decoder_;
-#endif
-};
 
 namespace {
 
@@ -4505,7 +4470,8 @@ error::Error GLES2DecoderPassthroughImpl::DoCopyTextureCHROMIUM(
     GLboolean unpack_flip_y,
     GLboolean unpack_premultiply_alpha,
     GLboolean unpack_unmultiply_alpha) {
-  ScopedEnableTextureRectangleInShaderCompiler enable(this);
+  gl::ScopedEnableTextureRectangleInShaderCompiler enable(
+      feature_info_->IsWebGLContext() ? api() : nullptr);
   BindPendingImageForClientIDIfNeeded(source_id);
   api()->glCopyTextureCHROMIUMFn(
       GetTextureServiceID(api(), source_id, resources_, false), source_level,
@@ -4533,7 +4499,8 @@ error::Error GLES2DecoderPassthroughImpl::DoCopySubTextureCHROMIUM(
     GLboolean unpack_flip_y,
     GLboolean unpack_premultiply_alpha,
     GLboolean unpack_unmultiply_alpha) {
-  ScopedEnableTextureRectangleInShaderCompiler enable(this);
+  gl::ScopedEnableTextureRectangleInShaderCompiler enable(
+      feature_info_->IsWebGLContext() ? api() : nullptr);
   BindPendingImageForClientIDIfNeeded(source_id);
   api()->glCopySubTextureCHROMIUMFn(
       GetTextureServiceID(api(), source_id, resources_, false), source_level,
@@ -5010,7 +4977,8 @@ error::Error GLES2DecoderPassthroughImpl::DoScheduleDCLayerCHROMIUM(
     return error::kNoError;
   }
 
-  ui::DCRendererLayerParams params;
+  std::unique_ptr<ui::DCRendererLayerParams> params =
+      std::make_unique<ui::DCRendererLayerParams>();
   GLuint texture_ids[] = {texture_0, texture_1};
   size_t i = 0;
   for (GLuint texture_id : texture_ids) {
@@ -5030,22 +4998,22 @@ error::Error GLES2DecoderPassthroughImpl::DoScheduleDCLayerCHROMIUM(
       InsertError(GL_INVALID_VALUE, "unsupported texture format");
       return error::kNoError;
     }
-    params.images[i++] = scoped_refptr<gl::GLImage>(image);
+    params->images[i++] = scoped_refptr<gl::GLImage>(image);
   }
-  params.z_order = z_order;
-  params.content_rect =
+  params->z_order = z_order;
+  params->content_rect =
       gfx::Rect(content_x, content_y, content_width, content_height);
-  params.quad_rect = gfx::Rect(quad_x, quad_y, quad_width, quad_height);
-  params.transform =
+  params->quad_rect = gfx::Rect(quad_x, quad_y, quad_width, quad_height);
+  params->transform =
       gfx::Transform(transform_c1r1, transform_c2r1, transform_c1r2,
                      transform_c2r2, transform_tx, transform_ty);
   if (is_clipped) {
-    params.clip_rect = gfx::Rect(clip_x, clip_y, clip_width, clip_height);
+    params->clip_rect = gfx::Rect(clip_x, clip_y, clip_width, clip_height);
   }
-  params.protected_video_type =
+  params->protected_video_type =
       static_cast<gfx::ProtectedVideoType>(protected_video_type);
 
-  if (!surface_->ScheduleDCLayer(params))
+  if (!surface_->ScheduleDCLayer(std::move(params)))
     InsertError(GL_INVALID_OPERATION, "failed to schedule DCLayer");
 
   return error::kNoError;

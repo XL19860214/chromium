@@ -100,8 +100,8 @@ class WebBundleLoader : public GarbageCollected<WebBundleLoader>,
     // Drain |consumer| so that DidFinishLoading is surely called later.
     consumer.DrainAsDataPipe();
   }
-  void DidFail(const ResourceError&) override { DidFailInternal(); }
-  void DidFailRedirectCheck() override { DidFailInternal(); }
+  void DidFail(uint64_t, const ResourceError&) override { DidFailInternal(); }
+  void DidFailRedirectCheck(uint64_t) override { DidFailInternal(); }
 
   // network::mojom::WebBundleHandle
   void Clone(mojo::PendingReceiver<network::mojom::WebBundleHandle> receiver)
@@ -126,6 +126,12 @@ class WebBundleLoader : public GarbageCollected<WebBundleLoader>,
   }
   const base::UnguessableToken& WebBundleToken() const {
     return web_bundle_token_;
+  }
+
+  void ClearReceivers() {
+    // Clear receivers_ explicitly so that resources in the netwok process are
+    // released.
+    receivers_.Clear();
   }
 
  private:
@@ -210,7 +216,7 @@ void LinkWebBundle::Process() {
       // clang-format on
       if (bundle_loader_) {
         active_bundles->Remove(*this);
-        bundle_loader_ = nullptr;
+        ReleaseBundleLoader();
       }
       NotifyLoaded();
       OnWebBundleError("A nested bundle is not supported: " +
@@ -243,7 +249,8 @@ void LinkWebBundle::OwnerRemoved() {
   SubresourceWebBundleList* active_bundles =
       resource_fetcher->GetOrCreateSubresourceWebBundleList();
   active_bundles->Remove(*this);
-  bundle_loader_ = nullptr;
+  if (bundle_loader_)
+    ReleaseBundleLoader();
 }
 
 bool LinkWebBundle::CanHandleRequest(const KURL& url) const {
@@ -297,6 +304,13 @@ const KURL& LinkWebBundle::GetBundleUrl() const {
 const base::UnguessableToken& LinkWebBundle::WebBundleToken() const {
   DCHECK(bundle_loader_);
   return bundle_loader_->WebBundleToken();
+}
+
+void LinkWebBundle::ReleaseBundleLoader() {
+  DCHECK(bundle_loader_);
+  // Clear receivers explicitly here, instead of waiting for Blink GC.
+  bundle_loader_->ClearReceivers();
+  bundle_loader_ = nullptr;
 }
 
 // static

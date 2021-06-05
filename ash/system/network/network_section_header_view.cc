@@ -7,12 +7,14 @@
 #include "ash/constants/ash_features.h"
 #include "ash/metrics/user_metrics_recorder.h"
 #include "ash/public/cpp/system_tray_client.h"
+#include "ash/resources/vector_icons/vector_icons.h"
 #include "ash/session/session_controller_impl.h"
 #include "ash/shell.h"
 #include "ash/strings/grit/ash_strings.h"
 #include "ash/system/bluetooth/bluetooth_power_controller.h"
 #include "ash/system/model/system_tray_model.h"
 #include "ash/system/network/tray_network_state_model.h"
+#include "ash/system/tray/tray_toggle_button.h"
 #include "base/bind.h"
 #include "chromeos/dbus/hermes/hermes_manager_client.h"
 #include "chromeos/services/network_config/public/cpp/cros_network_config_util.h"
@@ -20,6 +22,7 @@
 #include "chromeos/strings/grit/chromeos_strings.h"
 #include "components/onc/onc_constants.h"
 #include "components/vector_icons/vector_icons.h"
+#include "ui/base/l10n/l10n_util.h"
 #include "ui/views/controls/image_view.h"
 
 using chromeos::network_config::IsInhibited;
@@ -101,6 +104,30 @@ bool IsESimSupported() {
   return false;
 }
 
+int GetAddESimTooltipMessageId() {
+  const DeviceStateProperties* cellular_device =
+      Shell::Get()->system_tray_model()->network_state_model()->GetDevice(
+          NetworkType::kCellular);
+  if (!cellular_device) {
+    return 0;
+  }
+
+  switch (cellular_device->inhibit_reason) {
+    case chromeos::network_config::mojom::InhibitReason::kInstallingProfile:
+      return IDS_ASH_STATUS_TRAY_INHIBITED_CELLULAR_INSTALLING_PROFILE;
+    case chromeos::network_config::mojom::InhibitReason::kRenamingProfile:
+      return IDS_ASH_STATUS_TRAY_INHIBITED_CELLULAR_RENAMING_PROFILE;
+    case chromeos::network_config::mojom::InhibitReason::kRemovingProfile:
+      return IDS_ASH_STATUS_TRAY_INHIBITED_CELLULAR_REMOVING_PROFILE;
+    case chromeos::network_config::mojom::InhibitReason::kConnectingToProfile:
+      return IDS_ASH_STATUS_TRAY_INHIBITED_CELLULAR_CONNECTING_TO_PROFILE;
+    case chromeos::network_config::mojom::InhibitReason::kRefreshingProfileList:
+      return IDS_ASH_STATUS_TRAY_INHIBITED_CELLULAR_REFRESHING_PROFILE_LIST;
+    case chromeos::network_config::mojom::InhibitReason::kNotInhibited:
+      return IDS_ASH_STATUS_TRAY_ADD_CELLULAR_LABEL;
+  }
+}
+
 }  // namespace
 
 NetworkSectionHeaderView::NetworkSectionHeaderView(int title_id)
@@ -147,7 +174,7 @@ void NetworkSectionHeaderView::InitializeLayout() {
 }
 
 void NetworkSectionHeaderView::AddToggleButton(bool enabled) {
-  toggle_ = TrayPopupUtils::CreateToggleButton(
+  toggle_ = new TrayToggleButton(
       base::BindRepeating(&NetworkSectionHeaderView::ToggleButtonPressed,
                           base::Unretained(this)),
       title_id_);
@@ -343,19 +370,18 @@ void MobileSectionHeaderView::DeviceStateListChanged() {
     return;
   add_esim_button_->SetEnabled(can_add_esim_button_be_enabled_ &&
                                !IsCellularDeviceInhibited());
+  add_esim_button_->SetTooltipText(
+      l10n_util::GetStringUTF16(GetAddESimTooltipMessageId()));
 }
 
 void MobileSectionHeaderView::PerformAddExtraButtons(bool enabled) {
   can_add_esim_button_be_enabled_ = enabled;
-  // If the device state is inhibited, add a tool tip specific to modem
-  // reset.
-  int tooltip_message_id = IsCellularDeviceInhibited()
-                               ? IDS_ASH_STATUS_TRAY_INHIBITED_CELLULAR
-                               : IDS_ASH_STATUS_TRAY_ADD_CELLULAR_LABEL;
+  const gfx::VectorIcon& icon = base::i18n::IsRTL() ? kAddCellularNetworkRtlIcon
+                                                    : kAddCellularNetworkIcon;
   add_esim_button_ = new TopShortcutButton(
       base::BindRepeating(&MobileSectionHeaderView::AddCellularButtonPressed,
                           base::Unretained(this)),
-      vector_icons::kAddCellularNetworkIcon, tooltip_message_id);
+      icon, GetAddESimTooltipMessageId());
 
   add_esim_button_->SetEnabled(enabled && !IsCellularDeviceInhibited());
 

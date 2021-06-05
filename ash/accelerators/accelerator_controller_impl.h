@@ -18,12 +18,14 @@
 #include "ash/accessibility/ui/accessibility_confirmation_dialog.h"
 #include "ash/ash_export.h"
 #include "ash/public/cpp/accelerators.h"
+#include "ash/public/cpp/session/session_observer.h"
 #include "base/compiler_specific.h"
 #include "base/gtest_prod_util.h"
-#include "base/macros.h"
 #include "ui/base/accelerators/accelerator.h"
 #include "ui/base/accelerators/accelerator_map.h"
 #include "ui/base/ime/chromeos/input_method_manager.h"
+
+class PrefRegistrySimple;
 
 namespace ui {
 class AcceleratorManager;
@@ -56,8 +58,14 @@ enum class WindowSnapAcceleratorAction {
   kMaxValue = kCycleRightSnapInTablet,
 };
 
+// Notification ID for shortcut shown to tell users about new shortcuts.
+ASH_EXPORT extern const char kStartupNewShortcutNotificationId[];
+
 // Histogram for volume adjustment in tablet mode.
 ASH_EXPORT extern const char kTabletCountOfVolumeAdjustType[];
+
+// URL for keyboard shortcut help.
+ASH_EXPORT extern const char kKeyboardShortcutHelpPageUrl[];
 
 // Identifiers for toggling accelerator notifications.
 ASH_EXPORT extern const char kHighContrastToggleAccelNotificationId[];
@@ -79,6 +87,7 @@ ASH_EXPORT extern const char kAccelWindowSnap[];
 class ASH_EXPORT AcceleratorControllerImpl
     : public ui::AcceleratorTarget,
       public AcceleratorController,
+      public SessionObserver,
       public chromeos::input_method::InputMethodManager::Observer {
  public:
   // Some Chrome OS devices have volume up and volume down buttons on their
@@ -146,11 +155,22 @@ class ASH_EXPORT AcceleratorControllerImpl
   static constexpr const char* kVolumeButtonSideBottom = "bottom";
 
   AcceleratorControllerImpl();
+  AcceleratorControllerImpl(const AcceleratorControllerImpl&) = delete;
+  AcceleratorControllerImpl& operator=(const AcceleratorControllerImpl&) =
+      delete;
   ~AcceleratorControllerImpl() override;
+
+  static void RegisterProfilePrefs(PrefRegistrySimple* registry);
+
+  // Allows overriding whether the new shortcuts notification should be shown
+  // for tests.
+  static void SetShouldShowShortcutNotificationForTest(bool value) {
+    should_show_shortcut_notification_ = value;
+  }
 
   // A list of possible ways in which an accelerator should be restricted before
   // processing. Any target registered with this controller should respect
-  // restrictions by calling |GetCurrentAcceleratorRestriction| during
+  // restrictions by calling GetAcceleratorProcessingRestriction() during
   // processing.
   enum AcceleratorProcessingRestriction {
     // Process the accelerator normally.
@@ -162,6 +182,9 @@ class ASH_EXPORT AcceleratorControllerImpl
     // Don't process the accelerator and prevent propagation to other targets.
     RESTRICTION_PREVENT_PROCESSING_AND_PROPAGATION
   };
+
+  // SessionObserver overrides:
+  void OnActiveUserPrefServiceChanged(PrefService* pref_service) override;
 
   // chromeos::input_method::InputMethodManager::Observer overrides:
   void InputMethodChanged(chromeos::input_method::InputMethodManager* manager,
@@ -202,16 +225,9 @@ class ASH_EXPORT AcceleratorControllerImpl
   // is always handled and will never be passed to an window/web contents.
   bool IsReserved(const ui::Accelerator& accelerator) const;
 
-  // Returns the restriction for the current context.
-  AcceleratorProcessingRestriction GetCurrentAcceleratorRestriction();
-
   // Provides access to the ExitWarningHandler for testing.
   ExitWarningHandler* GetExitWarningHandlerForTest() {
     return &exit_warning_handler_;
-  }
-
-  AcceleratorHistoryImpl* accelerator_history() {
-    return accelerator_history_.get();
   }
 
   // Overridden from ui::AcceleratorTarget:
@@ -232,10 +248,8 @@ class ASH_EXPORT AcceleratorControllerImpl
                                    base::OnceClosure on_accept_callback,
                                    base::OnceClosure on_cancel_callback);
 
-  // Read the side volume button location info from local file under
-  // kSideVolumeButtonLocationFilePath, parse and write it into
-  // |side_volume_button_location_|.
-  void ParseSideVolumeButtonLocationInfo();
+  // Remove the observers.
+  void Shutdown();
 
  private:
   // A map for looking up actions from accelerators.
@@ -292,6 +306,11 @@ class ASH_EXPORT AcceleratorControllerImpl
   // SideVolumeButonLocation for the details.
   bool ShouldSwapSideVolumeButtons(int source_device_id) const;
 
+  // Read the side volume button location info from local file under
+  // kSideVolumeButtonLocationFilePath, parse and write it into
+  // |side_volume_button_location_|.
+  void ParseSideVolumeButtonLocationInfo();
+
   // The metrics recorded include accidental volume adjustments (defined as a
   // sequence of volume button events in close succession starting with a
   // volume-up event but ending with an overall-decreased volume, or vice versa)
@@ -302,6 +321,13 @@ class ASH_EXPORT AcceleratorControllerImpl
   // Starts |tablet_mode_volume_adjust_timer_| while see VOLUME_UP or
   // VOLUME_DOWN acceleration action when in tablet mode.
   void StartTabletModeVolumeAdjustTimer(AcceleratorAction action);
+
+  // Determines whether the notification about changed shortcuts at startup
+  // should show. This needs to be overridden in tests and set to false,
+  // because many tests rely on knowing the current active window, or test
+  // for the number of notifications visible.
+  // TODO(crbug.com/1179893): Remove in M94.
+  static bool should_show_shortcut_notification_;
 
   std::unique_ptr<ui::AcceleratorManager> accelerator_manager_;
 
@@ -364,8 +390,6 @@ class ASH_EXPORT AcceleratorControllerImpl
 
   // The initial volume percentage when volume adjust starts.
   int initial_volume_percent_ = 0;
-
-  DISALLOW_COPY_AND_ASSIGN(AcceleratorControllerImpl);
 };
 
 }  // namespace ash

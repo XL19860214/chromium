@@ -416,13 +416,6 @@ TEST_F(InputMethodChromeOSTest, OnTextInputTypeChangedChangesInputType) {
   ime.SetFocusedTextInputClient(nullptr);
 }
 
-TEST_F(InputMethodChromeOSTest, CanComposeInline) {
-  EXPECT_TRUE(ime_->CanComposeInline());
-  can_compose_inline_ = false;
-  ime_->OnTextInputTypeChanged(this);
-  EXPECT_FALSE(ime_->CanComposeInline());
-}
-
 TEST_F(InputMethodChromeOSTest, GetTextInputClient) {
   EXPECT_EQ(this, ime_->GetTextInputClient());
   ime_->SetFocusedTextInputClient(nullptr);
@@ -1337,6 +1330,18 @@ TEST_F(InputMethodChromeOSTest, AddsAndClearsGrammarFragments) {
   EXPECT_EQ(get_grammar_fragments(), fragments);
   ime_->ClearGrammarFragments(gfx::Range(0, 10));
   EXPECT_EQ(get_grammar_fragments().size(), 0u);
+}
+
+TEST_F(InputMethodChromeOSTest, GetsGrammarFragments) {
+  input_type_ = TEXT_INPUT_TYPE_TEXT;
+  GrammarFragment fragment(gfx::Range(0, 5), "fake");
+  ime_->AddGrammarFragments({fragment});
+
+  EXPECT_EQ(ime_->GetGrammarFragment(gfx::Range(3, 3)), fragment);
+  EXPECT_EQ(ime_->GetGrammarFragment(gfx::Range(2, 4)), fragment);
+
+  EXPECT_EQ(ime_->GetGrammarFragment(gfx::Range(7, 7)), absl::nullopt);
+  EXPECT_EQ(ime_->GetGrammarFragment(gfx::Range(4, 7)), absl::nullopt);
 }
 
 }  // namespace ui

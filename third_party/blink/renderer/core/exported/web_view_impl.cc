@@ -167,6 +167,7 @@
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 #include "third_party/blink/renderer/platform/scheduler/public/page_lifecycle_state.h"
 #include "third_party/blink/renderer/platform/scheduler/public/page_scheduler.h"
+#include "third_party/blink/renderer/platform/theme/web_theme_engine_helper.h"
 #include "third_party/blink/renderer/platform/weborigin/known_ports.h"
 #include "third_party/blink/renderer/platform/widget/widget_base.h"
 #include "third_party/icu/source/common/unicode/uscript.h"
@@ -1906,6 +1907,11 @@ WebFrame* WebViewImpl::MainFrame() {
   return WebFrame::FromCoreFrame(page ? page->MainFrame() : nullptr);
 }
 
+const WebFrame* WebViewImpl::MainFrame() const {
+  Page* page = page_.Get();
+  return WebFrame::FromCoreFrame(page ? page->MainFrame() : nullptr);
+}
+
 WebLocalFrameImpl* WebViewImpl::MainFrameImpl() const {
   Page* page = page_.Get();
   if (!page)
@@ -1952,18 +1958,19 @@ void WebViewImpl::DidAttachLocalMainFrame() {
   }
 }
 
-void WebViewImpl::DidAttachRemoteMainFrame() {
+void WebViewImpl::DidAttachRemoteMainFrame(
+    CrossVariantMojoAssociatedRemote<
+        mojom::blink::RemoteMainFrameHostInterfaceBase> main_frame_host,
+    CrossVariantMojoAssociatedReceiver<
+        mojom::blink::RemoteMainFrameInterfaceBase> main_frame) {
+  DCHECK(main_frame_host);
+  DCHECK(main_frame);
   DCHECK(!MainFrameImpl());
 
   RemoteFrame* remote_frame = DynamicTo<RemoteFrame>(GetPage()->MainFrame());
-  remote_frame->WasAttachedAsRemoteMainFrame();
+  remote_frame->WasAttachedAsRemoteMainFrame(std::move(main_frame));
 
-  remote_frame->GetRemoteAssociatedInterfaces()->GetInterface(
-      remote_main_frame_host_remote_.BindNewEndpointAndPassReceiver(
-          GetPage()
-              ->GetPageScheduler()
-              ->GetAgentGroupScheduler()
-              .DefaultTaskRunner()));
+  remote_main_frame_host_remote_.Bind(std::move(main_frame_host));
 
   auto& viewport = GetPage()->GetVisualViewport();
   viewport.Reset();
@@ -2349,8 +2356,18 @@ void WebViewImpl::SetPageLifecycleStateInternal(
   if (storing_in_bfcache) {
     Scheduler()->SetPageBackForwardCached(new_state->is_in_back_forward_cache);
   }
-  if (freezing_page)
+
+  if (freezing_page) {
+    // Notify all local frames that we are about to freeze.
+    for (WebFrame* frame = MainFrame(); frame; frame = frame->TraverseNext()) {
+      if (frame->IsWebLocalFrame()) {
+        frame->ToWebLocalFrame()->Client()->WillFreezePage();
+      }
+    }
+
     SetPageFrozen(true);
+  }
+
   if (restoring_from_bfcache) {
     DCHECK(page_restore_params);
     // Update the history offset and length value, as pages that are kept in
@@ -3131,7 +3148,7 @@ void WebViewImpl::SetRendererPreferences(
   UpdateRendererPreferences(preferences);
 }
 
-const RendererPreferences& WebViewImpl::GetRendererPreferences() {
+const RendererPreferences& WebViewImpl::GetRendererPreferences() const {
   return renderer_preferences_;
 }
 
@@ -3143,9 +3160,7 @@ void WebViewImpl::UpdateRendererPreferences(
   for (auto& watcher : renderer_preference_watchers_)
     watcher->NotifyUpdate(renderer_preferences_);
 
-  // TODO(crbug.com/1102442): Remove once we no longer need to update theme
-  // preferences on Windows via content::WebThemeEngineDefault.
-  web_view_client_->DidUpdateRendererPreferences();
+  WebThemeEngineHelper::DidUpdateRendererPreferences(preferences);
   UpdateFontRenderingFromRendererPrefs();
 
   blink::SetCaretBlinkInterval(
@@ -3165,8 +3180,7 @@ void WebViewImpl::UpdateRendererPreferences(
   }
 #endif
 
-  if (::features::IsFormControlsRefreshEnabled() &&
-      renderer_preferences_.use_custom_colors) {
+  if (renderer_preferences_.use_custom_colors) {
     SetFocusRingColor(renderer_preferences_.focus_ring_color);
   }
 
@@ -3600,7 +3614,6 @@ LocalFrame* WebViewImpl::FocusedLocalFrameInWidget() const {
 
 void WebViewImpl::SetPageFrozen(bool frozen) {
   Scheduler()->SetPageFrozen(frozen);
-  web_view_client_->OnPageFrozenChanged(frozen);
 }
 
 WebFrameWidget* WebViewImpl::MainFrameWidget() {

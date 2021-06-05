@@ -13,9 +13,9 @@
 #include "base/compiler_specific.h"
 #include "base/containers/flat_map.h"
 #include "base/containers/flat_set.h"
+#include "base/cxx17_backports.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/stl_util.h"
 #include "base/threading/sequenced_task_runner_handle.h"
 #include "base/trace_event/memory_dump_request_args.h"
 #include "build/build_config.h"
@@ -173,6 +173,8 @@ const Metric kAllocatorDumpNamesForMetrics[] = {
      EmitTo::kSizeInUkmAndUma, &Memory_Experimental::SetDiscardable},
     {"discardable", "Discardable.FreelistSize", MetricSize::kSmall,
      "freelist_size", EmitTo::kSizeInUmaOnly, nullptr},
+    {"discardable", "Discardable.FreelistSize.Dirty", MetricSize::kSmall,
+     "freelist_size_dirty", EmitTo::kSizeInUmaOnly, nullptr},
     {"discardable", "Discardable.ResidentSize", MetricSize::kSmall,
      "resident_size", EmitTo::kSizeInUmaOnly, nullptr},
     {"discardable", "Discardable.VirtualSize", MetricSize::kSmall,

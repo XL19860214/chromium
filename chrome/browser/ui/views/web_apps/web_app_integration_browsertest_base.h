@@ -5,14 +5,17 @@
 #ifndef CHROME_BROWSER_UI_VIEWS_WEB_APPS_WEB_APP_INTEGRATION_BROWSERTEST_BASE_H_
 #define CHROME_BROWSER_UI_VIEWS_WEB_APPS_WEB_APP_INTEGRATION_BROWSERTEST_BASE_H_
 
+#include "base/containers/flat_set.h"
 #include "chrome/browser/banners/test_app_banner_manager_desktop.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/views/page_action/page_action_icon_view.h"
+#include "chrome/browser/web_applications/components/app_registrar_observer.h"
 #include "chrome/browser/web_applications/components/os_integration_manager.h"
 #include "chrome/browser/web_applications/components/web_app_id.h"
 #include "chrome/browser/web_applications/web_app_provider.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace web_app {
 
@@ -86,7 +89,7 @@ struct StateSnapshot {
   base::flat_map<Profile*, ProfileState> profiles;
 };
 
-class WebAppIntegrationBrowserTestBase {
+class WebAppIntegrationBrowserTestBase : public AppRegistrarObserver {
  public:
   struct TestDelegate {
     virtual Browser* CreateBrowser(Profile* profile) = 0;
@@ -100,7 +103,11 @@ class WebAppIntegrationBrowserTestBase {
   };
 
   explicit WebAppIntegrationBrowserTestBase(TestDelegate* delegate);
-  ~WebAppIntegrationBrowserTestBase();
+  ~WebAppIntegrationBrowserTestBase() override;
+
+  // AppRegistrarObserver
+  void OnWebAppManifestUpdated(const AppId& app_id,
+                               base::StringPiece old_name) override;
 
   static absl::optional<ProfileState> GetStateForProfile(
       StateSnapshot* state_snapshot,
@@ -149,8 +156,16 @@ class WebAppIntegrationBrowserTestBase {
   void ExecuteAction(const std::string& action_string);
 
   // Automated Testing Actions
+  //
+  // Actions are defined in the following spreadsheet:
+  // https://docs.google.com/spreadsheets/d/1d3iAOAnojp4_WrPky9exz1-mjkeulOJVUav5QYG99MQ/edit#gid=2008870403
+  //
+  // Internal actions are actions that do not test the entire user-action-flow,
+  // but give partial coverage (as close to complete as possible) of said code
+  // paths.
   void AddPolicyAppInternal(const std::string& action_param,
-                            base::Value default_launch_container);
+                            base::Value default_launch_container,
+                            const bool create_shortcut);
   void ClosePWA();
   void InstallCreateShortcut(bool open_in_window);
   void InstallLocally();
@@ -171,6 +186,7 @@ class WebAppIntegrationBrowserTestBase {
   void UserSigninInternal();
 
   // Assert Actions
+  void AssertAppLocallyInstalledInternal();
   void AssertAppNotLocallyInstalledInternal();
   void AssertAppNotInList(const std::string& action_param);
   void AssertInstallable();
@@ -200,7 +216,15 @@ class WebAppIntegrationBrowserTestBase {
   GURL GetInstallableAppURL(const std::string& action_param);
   WebAppProvider* GetProviderForProfile(Profile* profile);
 
+  // Allow test-driving classes to reset the ScopedObservation of the
+  // AppRegistrar at the end of each test, but before the tear down sequence
+  // begins.
+  void ResetRegistrarObserver();
+
  private:
+  base::ScopedObservation<web_app::AppRegistrar, web_app::AppRegistrarObserver>
+      observation_{this};
+
   StateSnapshot ConstructStateSnapshot();
   const net::EmbeddedTestServer* embedded_test_server();
 
@@ -219,10 +243,13 @@ class WebAppIntegrationBrowserTestBase {
 
   content::WebContents* GetCurrentTab(Browser* browser);
   WebAppProvider* GetProvider() { return WebAppProvider::Get(profile()); }
+
   // This action only works if no navigations to the given app_url occur
   // between app installation and calls to this action.
+  bool AreNoAppWindowsOpen(Profile* profile, const AppId& app_id);
   void ForceUpdateManifestContents(const std::string& app_scope,
                                    GURL app_url_with_manifest_param);
+  void MaybeWaitForManifestUpdates(Profile* profile);
 
   Browser* browser();
   Profile* profile() {
@@ -233,6 +260,16 @@ class WebAppIntegrationBrowserTestBase {
   }
   Browser* app_browser() { return app_browser_; }
   PageActionIconView* pwa_install_view();
+
+  // Variables used to facilitate waiting for manifest updates, as there isn't
+  // a formal 'action' that a user can take to wait for this, as it happens
+  // behind the scenes.
+  base::flat_set<AppId> app_ids_with_pending_manifest_updates_;
+  // |waiting_for_update_*| variables are either all populated or all not
+  // populated. These signify that the test is currently waiting for the
+  // given |waiting_for_update_id_| to receive an update before continuing.
+  absl::optional<AppId> waiting_for_update_id_;
+  std::unique_ptr<base::RunLoop> waiting_for_update_run_loop_;
 
   TestDelegate* delegate_;
   std::unique_ptr<StateSnapshot> before_action_state_;

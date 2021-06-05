@@ -4,6 +4,7 @@
 
 import 'chrome://resources/cr_elements/cr_button/cr_button.m.js';
 import './shimless_rma_shared_css.js';
+import './base_page.js';
 
 import {html, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
@@ -101,7 +102,7 @@ export class OnboardingUpdatePageElement extends PolymerElement {
   }
 
   /** @protected */
-  onUpdateCheckBtnClicked_() {
+  onUpdateCheckButtonClicked_() {
     this.checkInProgress_ = true;
     this.shimlessRmaService_.checkForChromeUpdates().then((res) => {
       if (res.updateAvailable) {
@@ -119,14 +120,14 @@ export class OnboardingUpdatePageElement extends PolymerElement {
   }
 
   /** @protected */
-  onUpdateBtnClicked_() {
+  onUpdateButtonClicked_() {
     // TODO(joonbug): trigger update
   }
 
   /**
    * @protected
    */
-  updateCheckBtnHidden_() {
+  updateCheckButtonHidden_() {
     return !this.networkAvailable || this.updateAvailable_;
   }
 };

@@ -5,10 +5,12 @@
 #ifndef CONTENT_BROWSER_CONVERSIONS_CONVERSION_TEST_UTILS_H_
 #define CONTENT_BROWSER_CONVERSIONS_CONVERSION_TEST_UTILS_H_
 
+#include <stdint.h>
+
 #include <list>
-#include <string>
 #include <vector>
 
+#include "base/containers/circular_deque.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/sequenced_task_runner.h"
 #include "base/time/time.h"
@@ -16,6 +18,7 @@
 #include "content/browser/conversions/conversion_manager_impl.h"
 #include "content/browser/conversions/conversion_report.h"
 #include "content/browser/conversions/conversion_storage.h"
+#include "content/browser/conversions/sent_report_info.h"
 #include "content/browser/conversions/storable_conversion.h"
 #include "content/browser/conversions/storable_impression.h"
 #include "content/test/test_content_browser_client.h"
@@ -86,6 +89,9 @@ class ConfigurableStorageDelegate : public ConversionStorage::Delegate {
   int GetMaxImpressionsPerOrigin() const override;
   int GetMaxConversionsPerOrigin() const override;
   RateLimitConfig GetRateLimits() const override;
+  StorableImpression::AttributionLogic SelectAttributionLogic(
+      const StorableImpression& impression) const override;
+  int GetMaxAttributionDestinationsPerEventSource() const override;
 
   void set_max_conversions_per_impression(int max) {
     max_conversions_per_impression_ = max;
@@ -99,7 +105,16 @@ class ConfigurableStorageDelegate : public ConversionStorage::Delegate {
     max_conversions_per_origin_ = max;
   }
 
+  void set_max_attribution_destinations_per_event_source(int max) {
+    max_attribution_destinations_per_event_source_ = max;
+  }
+
   void set_rate_limits(RateLimitConfig c) { rate_limits_ = c; }
+
+  void set_attribution_logic(
+      StorableImpression::AttributionLogic attribution_logic) {
+    attribution_logic_ = attribution_logic;
+  }
 
   void set_report_time_ms(int report_time_ms) {
     report_time_ms_ = report_time_ms;
@@ -109,11 +124,15 @@ class ConfigurableStorageDelegate : public ConversionStorage::Delegate {
   int max_conversions_per_impression_ = INT_MAX;
   int max_impressions_per_origin_ = INT_MAX;
   int max_conversions_per_origin_ = INT_MAX;
+  int max_attribution_destinations_per_event_source_ = INT_MAX;
 
   RateLimitConfig rate_limits_ = {
       .time_window = base::TimeDelta::Max(),
       .max_attributions_per_window = INT_MAX,
   };
+
+  StorableImpression::AttributionLogic attribution_logic_ =
+      StorableImpression::AttributionLogic::kTruthfully;
 
   int report_time_ms_ = 0;
 };
@@ -144,9 +163,10 @@ class TestConversionManager : public ConversionManager {
   void GetActiveImpressionsForWebUI(
       base::OnceCallback<void(std::vector<StorableImpression>)> callback)
       override;
-  void GetReportsForWebUI(
+  void GetPendingReportsForWebUI(
       base::OnceCallback<void(std::vector<ConversionReport>)> callback,
       base::Time max_report_time) override;
+  const base::circular_deque<SentReportInfo>& GetSentReportsForWebUI() override;
   void SendReportsForWebUI(base::OnceClosure done) override;
   const ConversionPolicy& GetConversionPolicy() const override;
   void ClearData(base::Time delete_begin,
@@ -157,6 +177,8 @@ class TestConversionManager : public ConversionManager {
   void SetActiveImpressionsForWebUI(
       std::vector<StorableImpression> impressions);
   void SetReportsForWebUI(std::vector<ConversionReport> reports);
+  void SetSentReportsForWebUI(
+      base::circular_deque<SentReportInfo> sent_reports);
 
   // Resets all counters on this.
   void Reset();
@@ -192,6 +214,7 @@ class TestConversionManager : public ConversionManager {
 
   std::vector<StorableImpression> impressions_;
   std::vector<ConversionReport> reports_;
+  base::circular_deque<SentReportInfo> sent_reports_;
 };
 
 // Helper class to construct a StorableImpression for tests using default data.
@@ -204,7 +227,7 @@ class ImpressionBuilder {
 
   ImpressionBuilder& SetExpiry(base::TimeDelta delta);
 
-  ImpressionBuilder& SetData(const std::string& data);
+  ImpressionBuilder& SetData(uint64_t data);
 
   ImpressionBuilder& SetImpressionOrigin(const url::Origin& origin);
 
@@ -221,7 +244,7 @@ class ImpressionBuilder {
   StorableImpression Build() const;
 
  private:
-  std::string impression_data_;
+  uint64_t impression_data_;
   base::Time impression_time_;
   base::TimeDelta expiry_;
   url::Origin impression_origin_;
@@ -234,7 +257,7 @@ class ImpressionBuilder {
 
 // Returns a StorableConversion with default data which matches the default
 // impressions created by ImpressionBuilder.
-StorableConversion DefaultConversion();
+StorableConversion DefaultConversion(uint64_t event_source_trigger_data = 0);
 
 testing::AssertionResult ImpressionsEqual(const StorableImpression& expected,
                                           const StorableImpression& actual);
@@ -242,6 +265,10 @@ testing::AssertionResult ImpressionsEqual(const StorableImpression& expected,
 testing::AssertionResult ReportsEqual(
     const std::vector<ConversionReport>& expected,
     const std::vector<ConversionReport>& actual);
+
+testing::AssertionResult SentReportInfosEqual(
+    const base::circular_deque<SentReportInfo>& expected,
+    const base::circular_deque<SentReportInfo>& actual);
 
 std::vector<ConversionReport> GetConversionsToReportForTesting(
     ConversionManagerImpl* manager,

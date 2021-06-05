@@ -4,7 +4,7 @@
 
 #include "components/feature_engagement/public/feature_list.h"
 
-#include "base/stl_util.h"
+#include "base/cxx17_backports.h"
 #include "components/feature_engagement/public/feature_constants.h"
 
 namespace feature_engagement {
@@ -49,6 +49,7 @@ const base::Feature* const kAllFeatures[] = {
     &kIPHKeyboardAccessoryPasswordFillingFeature,
     &kIPHKeyboardAccessoryPaymentFillingFeature,
     &kIPHKeyboardAccessoryPaymentOfferFeature,
+    &kIPHKeyboardAccessoryPaymentVirtualCardFeature,
     &kIPHMicToolbarFeature,
     &kIPHNewTabPageHomeButtonFeature,
     &kIPHPageInfoFeature,
@@ -75,6 +76,7 @@ const base::Feature* const kAllFeatures[] = {
     &kIPHShareScreenshotFeature,
     &kIPHWebFeedFollowFeature,
     &kIPHWebFeedPostFollowDialogFeature,
+    &kIPHSharedHighlightingBuilder,
 #endif  // defined(OS_ANDROID)
 #if defined(OS_IOS)
     &kIPHBottomToolbarTipFeature,

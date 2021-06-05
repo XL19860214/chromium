@@ -29,6 +29,7 @@
 #include "chrome/browser/ui/startup/startup_browser_creator.h"
 #include "chrome/browser/ui/tabs/tab_group.h"
 #include "chrome/browser/ui/tabs/tab_group_model.h"
+#include "chrome/browser/ui/web_applications/app_browser_controller.h"
 #include "chrome/browser/web_applications/components/web_app_helpers.h"
 #include "components/sessions/content/content_serialized_navigation_builder.h"
 #include "components/sessions/content/session_tab_helper.h"
@@ -143,7 +144,6 @@ SessionServiceBase::SessionServiceBase(Profile* profile,
 
   command_storage_manager_ = std::make_unique<sessions::CommandStorageManager>(
       backend_type, profile->GetPath(), this,
-      /* use_marker */ true,
       /* enable_crypto */ false, std::vector<uint8_t>(),
       TaskRunnerData::GetBackendTaskRunnerForProfile(profile, type));
 

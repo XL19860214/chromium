@@ -8,9 +8,8 @@
 
 Es posible que algunas funciones no estén disponibles y que no se guarden los cambios que hagas en las preferencias.</translation>
 <translation id="1088300314857992706"><ph name="USER_EMAIL_ADDRESS" /> usaba Chrome anteriormente</translation>
-<translation id="1097330777386562916">Borrar las cookies y los datos de sitios al salir de Chrome</translation>
 <translation id="110877069173485804">Este es tu navegador Chrome</translation>
-<translation id="1125124144982679672">¿Quién usa Chrome?</translation>
+<translation id="1125124144982679672">¿Quién está usando Chrome?</translation>
 <translation id="1142745911746664600">No se puede actualizar Chrome</translation>
 <translation id="1154147086299354128">&amp;Abrir en Chrome</translation>
 <translation id="1278833599417554002">Reiniciar para actualizar &amp;Chrome</translation>
@@ -176,6 +175,7 @@ Puede que algunas funciones no estén disponibles. Especifica otro directorio de
 
 Google Chrome no puede recuperar tu configuración.</translation>
 <translation id="5434383153637353914">Esta página te permite gestionar las cuentas de Google en las que hayas iniciado sesión. Estas cuentas estarán disponibles en el navegador Chrome y en las aplicaciones de Play Store, así como en otros servicios (por ejemplo, Gmail, Drive o YouTube). <ph name="LINK_BEGIN" />Más información<ph name="LINK_END" /></translation>
+<translation id="5486618155264784386">Instalar Chrome OS</translation>
 <translation id="556024056938947818">Google Chrome está intentando mostrar contraseñas.</translation>
 <translation id="5566025111015594046">Google Chrome (tráfico mDNS entrante)</translation>
 <translation id="5657226924540934362">Si no se muestra algún ajuste en esta página, consulta la <ph name="LINK_BEGIN" />
@@ -257,8 +257,8 @@ Google Chrome no puede recuperar tu configuración.</translation>
 <translation id="7855730255114109580">Google Chrome está actualizado</translation>
 <translation id="7890208801193284374">Si compartes un ordenador, tus amigos y familiares pueden navegar de forma independiente y configurar Chrome a su gusto.</translation>
 <translation id="7896673875602241923">Otro usuario ha iniciado sesión anteriormente en Chrome con la cuenta <ph name="ACCOUNT_EMAIL_LAST" /> a través de este ordenador. Debes crear un usuario de Chrome para proteger tu información.</translation>
-<translation id="7905891027772979035">Chrome no puede comprobar tus extensiones. Vuelve a intentarlo más tarde.</translation>
 <translation id="7930071585467473040">Google Chrome está intentando copiar contraseñas.</translation>
+<translation id="7951988079884443914">Chrome te recomienda que no descargues ni abras este archivo.</translation>
 <translation id="7962410387636238736">Este ordenador dejará de recibir actualizaciones de Google Chrome porque ya no es compatible con Windows XP ni Windows Vista.</translation>
 <translation id="79947657522496226">Chrome OS se ha creado gracias a <ph name="BEGIN_LINK_CROS_OSS" />software libre<ph name="END_LINK_CROS_OSS" /> adicional, como el <ph name="BEGIN_LINK_LINUX_OSS" />entorno de desarrollo de Linux<ph name="END_LINK_LINUX_OSS" />.</translation>
 <translation id="8008534537613507642">Reinstalar Chrome</translation>

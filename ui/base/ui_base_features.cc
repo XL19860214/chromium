@@ -32,11 +32,6 @@ const base::Feature kScreenPowerListenerForNativeWinOcclusion{
     base::FEATURE_ENABLED_BY_DEFAULT};
 #endif  // OW_WIN
 
-// Whether or not filenames are supported on the clipboard.
-// https://crbug.com/1175483
-const base::Feature kClipboardFilenames{"ClipboardFilenames",
-                                        base::FEATURE_ENABLED_BY_DEFAULT};
-
 // Whether or not to delegate color queries to the color provider.
 const base::Feature kColorProviderRedirection = {
     "ColorProviderRedirection", base::FEATURE_DISABLED_BY_DEFAULT};
@@ -147,10 +142,16 @@ const base::Feature kExperimentalFlingAnimation {
 #endif
 };
 
-#if defined(OS_WIN)
-const base::Feature kElasticOverscrollWin = {"ElasticOverscrollWin",
-                                             base::FEATURE_DISABLED_BY_DEFAULT};
+#if defined(OS_WIN) || defined(OS_ANDROID)
+const base::Feature kElasticOverscroll = {"ElasticOverscroll",
+                                          base::FEATURE_DISABLED_BY_DEFAULT};
+#endif  // defined(OS_WIN) || defined(OS_ANDROID)
 
+// Enables focus follow follow cursor (sloppyfocus).
+const base::Feature kFocusFollowsCursor = {"FocusFollowsCursor",
+                                           base::FEATURE_DISABLED_BY_DEFAULT};
+
+#if defined(OS_WIN)
 // Enables InputPane API for controlling on screen keyboard.
 const base::Feature kInputPaneOnScreenKeyboard = {
     "InputPaneOnScreenKeyboard", base::FEATURE_ENABLED_BY_DEFAULT};
@@ -175,26 +176,12 @@ const base::Feature kPrecisionTouchpadLogging{
 #if defined(OS_CHROMEOS)
 // This feature supercedes kNewShortcutMapping.
 const base::Feature kImprovedKeyboardShortcuts = {
-    "ImprovedKeyboardShortcuts", base::FEATURE_DISABLED_BY_DEFAULT};
+    "ImprovedKeyboardShortcuts", base::FEATURE_ENABLED_BY_DEFAULT};
 
 bool IsImprovedKeyboardShortcutsEnabled() {
   return base::FeatureList::IsEnabled(kImprovedKeyboardShortcuts);
 }
 #endif  // defined(OS_CHROMEOS)
-
-#if defined(OS_WIN) || defined(OS_APPLE) || defined(OS_LINUX) || \
-    defined(OS_CHROMEOS)
-// Enables stylus appearing as touch when in contact with digitizer.
-const base::Feature kDirectManipulationStylus = {
-    "DirectManipulationStylus",
-#if defined(OS_WIN)
-    base::FEATURE_ENABLED_BY_DEFAULT
-#else
-    base::FEATURE_DISABLED_BY_DEFAULT
-#endif
-};
-#endif  // defined(OS_WIN) || defined(OS_APPLE) || defined(OS_LINUX) ||
-        // defined(OS_CHROMEOS)
 
 // Enables forced colors mode for web content.
 const base::Feature kForcedColors{"ForcedColors",
@@ -219,26 +206,7 @@ const base::Feature kEyeDropper {
 };
 
 bool IsEyeDropperEnabled() {
-  return IsFormControlsRefreshEnabled() &&
-         base::FeatureList::IsEnabled(features::kEyeDropper);
-}
-
-const base::Feature kCSSColorSchemeUARendering = {
-    "CSSColorSchemeUARendering", base::FEATURE_ENABLED_BY_DEFAULT};
-
-bool IsCSSColorSchemeUARenderingEnabled() {
-  static const bool css_color_scheme_ua_rendering_enabled =
-      base::FeatureList::IsEnabled(features::kCSSColorSchemeUARendering);
-  return css_color_scheme_ua_rendering_enabled;
-}
-
-const base::Feature kFormControlsRefresh = {"FormControlsRefresh",
-                                            base::FEATURE_ENABLED_BY_DEFAULT};
-
-bool IsFormControlsRefreshEnabled() {
-  static const bool form_controls_refresh_enabled =
-      base::FeatureList::IsEnabled(features::kFormControlsRefresh);
-  return form_controls_refresh_enabled;
+  return base::FeatureList::IsEnabled(features::kEyeDropper);
 }
 
 // Enable the common select popup.

@@ -42,6 +42,7 @@ class WebFrame;
 class WebLocalFrame;
 class WebPlugin;
 struct WebPluginParams;
+class WebView;
 }  // namespace blink
 
 namespace gfx {
@@ -72,8 +73,6 @@ class AXTreeSnapshotter {
   // Return in |accessibility_tree| a snapshot of the accessibility tree
   // for the frame with the given accessibility mode.
   //
-  // - |ax_mode| is the accessibility mode to use, which determines which
-  //   fields of AXNodeData are populated.
   // - |exclude_offscreen| excludes a subtree if a node is entirely offscreen,
   //   but note that this heuristic is imperfect, and an aboslute-positioned
   //   node that's visible, but whose ancestors are entirely offscreen, may
@@ -86,8 +85,7 @@ class AXTreeSnapshotter {
   //   (per frame), specified in milliseconds. Like max_node_count, this is not
   //   a hard limit, and once this/ limit is reached a few more nodes may
   //   be added in order to ensure a well-formed tree. Use 0 for no timeout.
-  virtual void Snapshot(ui::AXMode ax_mode,
-                        bool exclude_offscreen,
+  virtual void Snapshot(bool exclude_offscreen,
                         size_t max_node_count,
                         base::TimeDelta timeout,
                         ui::AXTreeUpdate* accessibility_tree) = 0;
@@ -146,13 +144,21 @@ class CONTENT_EXPORT RenderFrame : public IPC::Listener,
   virtual RenderAccessibility* GetRenderAccessibility() = 0;
 
   // Return an object that can take a snapshot of the accessibility tree.
-  virtual std::unique_ptr<AXTreeSnapshotter> CreateAXTreeSnapshotter() = 0;
+  // |ax_mode| is the accessibility mode to use, which determines which
+  // fields of AXNodeData are populated when you make a snapshot.
+  virtual std::unique_ptr<AXTreeSnapshotter> CreateAXTreeSnapshotter(
+      ui::AXMode ax_mode) = 0;
 
   // Get the routing ID of the frame.
   virtual int GetRoutingID() = 0;
 
+  // Returns the associated WebView.
+  virtual blink::WebView* GetWebView() = 0;
+  virtual const blink::WebView* GetWebView() const = 0;
+
   // Returns the associated WebFrame.
   virtual blink::WebLocalFrame* GetWebFrame() = 0;
+  virtual const blink::WebLocalFrame* GetWebFrame() const = 0;
 
   // Gets WebKit related preferences associated with this frame.
   virtual const blink::web_pref::WebPreferences& GetBlinkPreferences() = 0;

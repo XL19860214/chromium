@@ -40,6 +40,7 @@
 #include "third_party/blink/public/common/loader/loading_behavior_flag.h"
 #include "third_party/blink/public/common/permissions_policy/document_policy.h"
 #include "third_party/blink/public/mojom/frame/frame.mojom-blink.h"
+#include "third_party/blink/public/mojom/loader/code_cache.mojom.h"
 #include "third_party/blink/public/mojom/loader/content_security_notifier.mojom-blink.h"
 #include "third_party/blink/public/mojom/loader/mhtml_load_result.mojom-blink-forward.h"
 #include "third_party/blink/public/mojom/page_state/page_state.mojom-blink.h"
@@ -68,6 +69,7 @@
 #include "third_party/blink/renderer/core/permissions_policy/policy_helper.h"
 #include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
 #include "third_party/blink/renderer/platform/loader/fetch/client_hints_preferences.h"
+#include "third_party/blink/renderer/platform/loader/fetch/loader_freeze_mode.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_error.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_request.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_response.h"
@@ -231,7 +233,7 @@ class CORE_EXPORT DocumentLoader : public GarbageCollected<DocumentLoader>,
       mojom::blink::TriggeringEventInfo,
       std::unique_ptr<WebDocumentLoader::ExtraData>);
 
-  void SetDefersLoading(WebURLLoader::DeferType defers);
+  void SetDefersLoading(LoaderFreezeMode);
 
   DocumentLoadTiming& GetTiming() { return document_load_timing_; }
 
@@ -319,7 +321,8 @@ class CORE_EXPORT DocumentLoader : public GarbageCollected<DocumentLoader>,
     return last_navigation_had_trusted_initiator_;
   }
 
-  void UpdateUrlForDocumentOpen(const KURL& url) { url_ = url; }
+  // Called when the URL needs to be updated due to a document.open() call.
+  void DidOpenDocumentInputStream(const KURL& url);
 
   enum class HistoryNavigationType {
     kDifferentDocument,
@@ -352,7 +355,11 @@ class CORE_EXPORT DocumentLoader : public GarbageCollected<DocumentLoader>,
 
   // Notifies that the prerendering document this loader is working for is
   // activated.
-  void NotifyPrerenderingDocumentActivated();
+  void NotifyPrerenderingDocumentActivated(base::TimeTicks activation_start);
+
+  blink::mojom::CodeCacheHost* GetCodeCacheHost();
+  void OnCodeCacheHostClosed();
+  static void DisableCodeCacheForTesting();
 
  protected:
   Vector<KURL> redirect_chain_;
@@ -556,8 +563,7 @@ class CORE_EXPORT DocumentLoader : public GarbageCollected<DocumentLoader>,
   scoped_refptr<SharedBuffer> data_buffer_;
   const base::UnguessableToken devtools_navigation_token_;
 
-  WebURLLoader::DeferType defers_loading_ =
-      WebURLLoader::DeferType::kNotDeferred;
+  LoaderFreezeMode freeze_mode_ = LoaderFreezeMode::kNone;
 
   // Whether the last navigation (cross-document or same-document) that
   // committed in this DocumentLoader had transient activation.
@@ -630,6 +636,10 @@ class CORE_EXPORT DocumentLoader : public GarbageCollected<DocumentLoader>,
 
   WebVector<WebHistoryItem> app_history_back_entries_;
   WebVector<WebHistoryItem> app_history_forward_entries_;
+
+  // This is the interface that handles generated code cache
+  // requests to fetch code cache when loading resources.
+  mojo::Remote<blink::mojom::CodeCacheHost> code_cache_host_;
 };
 
 DECLARE_WEAK_IDENTIFIER_MAP(DocumentLoader);

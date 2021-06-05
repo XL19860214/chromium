@@ -25,6 +25,7 @@
 #include "content/public/browser/audio_service.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/test/browser_test.h"
+#include "media/audio/audio_device_description.h"
 #include "media/audio/wav_audio_handler.h"
 #include "media/base/media_switches.h"
 #include "media/mojo/mojom/audio_input_stream.mojom.h"
@@ -229,7 +230,8 @@ void SpeechRecognitionServiceTest::LaunchService() {
       std::move(pending_recognizer_receiver),
       speech_recognition_client_receiver_.BindNewPipeAndPassRemote(),
       media::mojom::SpeechRecognitionOptions::New(
-          media::mojom::SpeechRecognitionMode::kCaption),
+          media::mojom::SpeechRecognitionMode::kCaption,
+          /*enable_formatting=*/true),
       base::BindOnce(
           [](bool* p_is_multichannel_supported, base::RunLoop* run_loop,
              bool is_multichannel_supported) {
@@ -260,7 +262,8 @@ void SpeechRecognitionServiceTest::LaunchServiceWithAudioSourceFetcher() {
       audio_source_fetcher_.BindNewPipeAndPassReceiver(),
       speech_recognition_client_receiver_.BindNewPipeAndPassRemote(),
       media::mojom::SpeechRecognitionOptions::New(
-          media::mojom::SpeechRecognitionMode::kIme),
+          media::mojom::SpeechRecognitionMode::kIme,
+          /*enable_formatting=*/false),
       base::BindOnce(
           [](bool* p_is_multichannel_supported, base::RunLoop* run_loop,
              bool is_multichannel_supported) {

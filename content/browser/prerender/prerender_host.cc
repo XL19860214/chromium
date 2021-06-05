@@ -16,6 +16,7 @@
 #include "content/browser/renderer_host/render_frame_host_impl.h"
 #include "content/browser/renderer_host/render_frame_proxy_host.h"
 #include "content/browser/renderer_host/render_view_host_impl.h"
+#include "content/browser/site_instance_impl.h"
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/public/browser/back_forward_cache.h"
 #include "content/public/browser/navigation_controller.h"
@@ -77,10 +78,20 @@ class PrerenderHost::PageHolder : public FrameTree::Delegate,
                                         &web_contents,
                                         &web_contents,
                                         FrameTree::Type::kPrerender)) {
-    frame_tree_->Init(
-        SiteInstance::Create(web_contents.GetBrowserContext()).get(),
-        /*renderer_initiated_creation=*/false,
-        /*main_frame_name=*/"");
+    scoped_refptr<SiteInstance> site_instance =
+        SiteInstance::Create(web_contents.GetBrowserContext());
+    frame_tree_->Init(site_instance.get(),
+                      /*renderer_initiated_creation=*/false,
+                      /*main_frame_name=*/"");
+
+    const auto& site_info =
+        static_cast<SiteInstanceImpl*>(site_instance.get())->GetSiteInfo();
+    // Use the same SessionStorageNamespace as the primary page for the
+    // prerendering page.
+    frame_tree_->controller().SetSessionStorageNamespace(
+        site_info.GetStoragePartitionId(site_instance->GetBrowserContext()),
+        web_contents_.GetFrameTree()->controller().GetSessionStorageNamespace(
+            site_info));
 
     // TODO(https://crbug.com/1199679): This should be moved to FrameTree::Init
     web_contents_.NotifySwappedFromRenderManager(
@@ -133,23 +144,11 @@ class PrerenderHost::PageHolder : public FrameTree::Delegate,
     return frame_tree_->controller();
   }
 
-  RenderFrameHostImpl* GetMainFrame() {
-    return frame_tree_->root()->current_frame_host();
-  }
-
   ActivateResult Activate(NavigationRequest& navigation_request) {
-    if (frame_tree_->root()->HasNavigation()) {
-      // We do not yet support activation if there is an ongoing navigation in
-      // the main frame as the code assumes that NavigationRequest is associated
-      // with the fixed frame tree node. Ongoing navigations in frames are
-      // supported experimentally and require more investigation to ensure that
-      // these NavigationRequests can be transferred to a new
-      // NavigationController and that new NavigationEntries will be correctly
-      // created for them.
-      // TODO(https://crbug.com/1190644): Make sure sub-frame navigations are
-      // fine.
-      return ActivateResult(FinalStatus::kInProgressNavigation, nullptr);
-    }
+    // There should be no ongoing main-frame navigation during activation.
+    // TODO(https://crbug.com/1190644): Make sure sub-frame navigations are
+    // fine.
+    DCHECK(!frame_tree_->root()->HasNavigation());
 
     // NOTE: TakePrerenderedPage() clears the current_frame_host value of
     // frame_tree_->root(). Do not add any code between here and
@@ -219,15 +218,21 @@ class PrerenderHost::PageHolder : public FrameTree::Delegate,
     loop.Run();
   }
 
+  FrameTree* frame_tree() { return frame_tree_.get(); }
+
  private:
   // WebContents where this prerenderer is embedded.
   WebContentsImpl& web_contents_;
+
+  // This can be called when |frame_tree_| is destroyed so it must be
+  // destructed after |frame_tree_|.
+  base::OnceClosure on_stopped_loading_for_tests_;
+
   // Frame tree created for the prerenderer to load the page and prepare it for
   // a future activation. During activation, the prerendered page will be taken
   // out from |frame_tree_| and moved over to |web_contents_|'s primary frame
   // tree, while |frame_tree_| will be deleted.
   std::unique_ptr<FrameTree> frame_tree_;
-  base::OnceClosure on_stopped_loading_for_tests_;
 };
 
 PrerenderHost::PrerenderHost(blink::mojom::PrerenderAttributesPtr attributes,
@@ -256,7 +261,7 @@ PrerenderHost::~PrerenderHost() {
 // TODO(https://crbug.com/1132746): Inspect diffs from the current
 // no-state-prefetch implementation. See PrerenderContents::StartPrerendering()
 // for example.
-void PrerenderHost::StartPrerendering() {
+bool PrerenderHost::StartPrerendering() {
   TRACE_EVENT0("navigation", "PrerenderHost::StartPrerendering");
 
   // Observe events about the prerendering contents.
@@ -276,7 +281,23 @@ void PrerenderHost::StartPrerendering() {
 
   // TODO(https://crbug.com/1132746): Set up other fields of `load_url_params`
   // as well, and add tests for them.
-  page_holder_->GetNavigationController().LoadURLWithParams(load_url_params);
+  base::WeakPtr<NavigationHandle> created_navigation_handle =
+      page_holder_->GetNavigationController().LoadURLWithParams(
+          load_url_params);
+
+  if (!created_navigation_handle)
+    return false;
+
+  NavigationRequest* navigation_request =
+      NavigationRequest::From(created_navigation_handle.get());
+  // The initial navigation in the prerender frame tree should not wait for
+  // `beforeunload` in the old page, so BeginNavigation stage should be reached
+  // synchronously.
+  DCHECK_GE(navigation_request->state(),
+            NavigationRequest::WAITING_FOR_RENDERER_RESPONSE);
+  begin_params_ = navigation_request->begin_params().Clone();
+  common_params_ = navigation_request->common_params().Clone();
+  return true;
 }
 
 void PrerenderHost::DidFinishNavigation(NavigationHandle* navigation_handle) {
@@ -313,8 +334,22 @@ std::unique_ptr<BackForwardCacheImpl::Entry> PrerenderHost::Activate(
   return std::move(result.entry);
 }
 
+bool PrerenderHost::AreInitialPrerenderNavigationParamsCompatibleWithNavigation(
+    NavigationRequest& navigation_request) {
+  // TODO(crbug.com/1181763): compare the rest of the navigation parameters. We
+  // should introduce compile-time parameter checks as well, to ensure how new
+  // fields should be compared for compatibility.
+  if (navigation_request.begin_params().skip_service_worker !=
+      begin_params_->skip_service_worker)
+    return false;
+
+  return true;
+}
+
 RenderFrameHostImpl* PrerenderHost::GetPrerenderedMainFrameHost() {
-  return page_holder_->GetMainFrame();
+  DCHECK(page_holder_->frame_tree());
+  DCHECK(page_holder_->frame_tree()->root()->current_frame_host());
+  return page_holder_->frame_tree()->root()->current_frame_host();
 }
 
 void PrerenderHost::RecordFinalStatus(base::PassKey<PrerenderHostRegistry>,
@@ -324,16 +359,12 @@ void PrerenderHost::RecordFinalStatus(base::PassKey<PrerenderHostRegistry>,
 
 void PrerenderHost::CreatePageHolder(WebContentsImpl& web_contents) {
   page_holder_ = std::make_unique<PageHolder>(web_contents);
-  frame_tree_node_id_ = page_holder_->GetMainFrame()->GetFrameTreeNodeId();
+  frame_tree_node_id_ =
+      page_holder_->frame_tree()->root()->frame_tree_node_id();
 }
 
 void PrerenderHost::WaitForLoadStopForTesting() {
   page_holder_->WaitForLoadCompletionForTesting();  // IN-TEST
-}
-
-FrameTree* PrerenderHost::GetPrerenderedFrameTree() {
-  DCHECK(page_holder_);
-  return page_holder_->GetMainFrame()->frame_tree();
 }
 
 void PrerenderHost::RecordFinalStatus(FinalStatus status) {

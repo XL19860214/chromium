@@ -40,6 +40,7 @@
 #include "third_party/blink/public/platform/web_back_forward_cache_loader_helper.h"
 #include "third_party/blink/public/platform/web_blob_info.h"
 #include "third_party/blink/public/platform/web_data.h"
+#include "third_party/blink/public/platform/web_loader_freeze_mode.h"
 #include "third_party/blink/public/platform/web_request_peer.h"
 #include "third_party/blink/public/platform/web_resource_request_sender.h"
 #include "third_party/blink/public/platform/web_string.h"
@@ -120,10 +121,8 @@ class MockResourceRequestSender : public WebResourceRequestSender {
 
   bool canceled() { return canceled_; }
 
-  void SetDefersLoading(WebURLLoader::DeferType value) override {
-    defers_loading_ = (value != WebURLLoader::DeferType::kNotDeferred);
-  }
-  bool defers_loading() const { return defers_loading_; }
+  void Freeze(WebLoaderFreezeMode mode) override { freeze_mode_ = mode; }
+  WebLoaderFreezeMode freeze_mode() const { return freeze_mode_; }
 
   void set_sync_load_response(SyncLoadResponse&& sync_load_response) {
     sync_load_response_ = std::move(sync_load_response);
@@ -132,7 +131,7 @@ class MockResourceRequestSender : public WebResourceRequestSender {
  private:
   scoped_refptr<WebRequestPeer> peer_;
   bool canceled_ = false;
-  bool defers_loading_ = false;
+  WebLoaderFreezeMode freeze_mode_ = WebLoaderFreezeMode::kNone;
   SyncLoadResponse sync_load_response_;
 
   DISALLOW_COPY_AND_ASSIGN(MockResourceRequestSender);
@@ -323,7 +322,6 @@ class WebURLLoaderTest : public testing::Test {
     request->priority = net::IDLE;
     client()->loader()->LoadAsynchronously(
         std::move(request), /*url_request_extra_data=*/nullptr,
-        /*requestor_id=*/0,
         /*no_mime_sniffing=*/false,
         std::make_unique<ResourceLoadInfoNotifierWrapper>(
             /*resource_load_info_notifier=*/nullptr),
@@ -471,10 +469,10 @@ TEST_F(WebURLLoaderTest, DeleteOnFail) {
 }
 
 TEST_F(WebURLLoaderTest, DefersLoadingBeforeStart) {
-  client()->loader()->SetDefersLoading(WebURLLoader::DeferType::kDeferred);
-  EXPECT_FALSE(sender()->defers_loading());
+  client()->loader()->Freeze(WebLoaderFreezeMode::kStrict);
+  EXPECT_EQ(sender()->freeze_mode(), WebLoaderFreezeMode::kNone);
   DoStartAsyncRequest();
-  EXPECT_TRUE(sender()->defers_loading());
+  EXPECT_EQ(sender()->freeze_mode(), WebLoaderFreezeMode::kStrict);
 }
 
 TEST_F(WebURLLoaderTest, ResponseIPEndpoint) {
@@ -682,7 +680,6 @@ TEST_F(WebURLLoaderTest, SyncLengths) {
 
   client()->loader()->LoadSynchronously(
       std::move(request), /*url_request_extra_data=*/nullptr,
-      /*requestor_id=*/0,
       /*pass_response_pipe_to_client=*/false, /*no_mime_sniffing=*/false,
       base::TimeDelta(), nullptr, response, error, data, encoded_data_length,
       encoded_body_length, downloaded_blob,

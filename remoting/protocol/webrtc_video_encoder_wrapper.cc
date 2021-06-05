@@ -6,6 +6,7 @@
 
 #include <stdint.h>
 
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -141,6 +142,15 @@ int32_t WebrtcVideoEncoderWrapper::Encode(
     const std::vector<webrtc::VideoFrameType>* frame_types) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
+  if (encode_pending_) {
+    LOG(WARNING) << "Encoder busy, dropping frame.";
+    base::SequencedTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE,
+        base::BindOnce(&WebrtcVideoEncoderWrapper::NotifyFrameDropped,
+                       weak_factory_.GetWeakPtr()));
+    return WEBRTC_VIDEO_CODEC_OK;
+  }
+
   // Frames of type kNative are expected to have the adapter that was used to
   // wrap the DesktopFrame, so the downcast should be safe.
   if (frame.video_frame_buffer()->type() !=
@@ -151,9 +161,19 @@ int32_t WebrtcVideoEncoderWrapper::Encode(
   auto* video_frame_adapter =
       static_cast<WebrtcVideoFrameAdapter*>(frame.video_frame_buffer().get());
 
-  // Store timestamp so it can be added to the EncodedImage when encoding is
-  // complete.
+  // Store RTP timestamp and FrameStats so they can be added to the
+  // EncodedImage and EncodedFrame when encoding is complete.
   rtp_timestamp_ = frame.timestamp();
+  frame_stats_ = video_frame_adapter->TakeFrameStats();
+  if (!frame_stats_) {
+    // This could happen if WebRTC tried to encode the same frame twice.
+    // Taking the frame-stats twice from the same frame-adapter would return
+    // nullptr the second time.
+    LOG(ERROR) << "Frame provided with missing frame-stats.";
+    return WEBRTC_VIDEO_CODEC_ERROR;
+  }
+
+  frame_stats_->encode_started_time = base::TimeTicks::Now();
 
   // TODO(crbug.com/1192865): Implement large-frame detection for VP8, and
   // ensure VP9 is configured to do this automatically. If the frame has a
@@ -178,6 +198,8 @@ int32_t WebrtcVideoEncoderWrapper::Encode(
   frame_params.key_frame =
       (frame_types && !frame_types->empty() &&
        ((*frame_types)[0] == webrtc::VideoFrameType::kVideoFrameKey));
+
+  encode_pending_ = true;
 
   // Just in case the encoder runs the callback on an arbitrary thread,
   // BindPostTask() is used here to trampoline onto the correct thread.
@@ -299,6 +321,19 @@ void WebrtcVideoEncoderWrapper::OnFrameEncoded(
       frame(encoded_frame.release(),
             base::OnTaskRunnerDeleter(main_task_runner_));
 
+  DCHECK(encode_pending_);
+  encode_pending_ = false;
+
+  if (frame) {
+    // This is non-null because the |encode_pending_| flag ensures that
+    // frame-encodings are serialized. So there cannot be 2 consecutive calls to
+    // this method without an intervening call to Encode() which sets
+    // |frame_stats_| to non-null.
+    DCHECK(frame_stats_);
+    frame_stats_->encode_ended_time = base::TimeTicks::Now();
+    frame->stats = std::move(frame_stats_);
+  }
+
   main_task_runner_->PostTask(
       FROM_HERE, base::BindOnce(&VideoChannelStateObserver::OnFrameEncoded,
                                 video_channel_state_observer_, encode_result,
@@ -310,11 +345,13 @@ void WebrtcVideoEncoderWrapper::OnFrameEncoded(
     // return any error, but hardware-decoders such as H264 may fail.
     LOG(ERROR) << "Video encoder returned error "
                << EncodeResultToString(encode_result);
+    NotifyFrameDropped();
     return;
   }
 
   if (!frame || frame->data.empty()) {
     SetTopOffActive(false);
+    NotifyFrameDropped();
     return;
   }
 
@@ -325,10 +362,22 @@ void WebrtcVideoEncoderWrapper::OnFrameEncoded(
   DCHECK(encoded_callback_);
 
   webrtc::EncodedImageCallback::Result send_result = ReturnEncodedFrame(*frame);
+
+  // std::ref() is used here because base::BindOnce() would otherwise try to
+  // copy the referenced frame object, which is move-only. This is safe because
+  // base::OnTaskRunnerDeleter posts the frame-deleter task to run after this
+  // task has executed.
   main_task_runner_->PostTask(
-      FROM_HERE,
-      base::BindOnce(&VideoChannelStateObserver::OnEncodedFrameSent,
-                     video_channel_state_observer_, send_result, *frame));
+      FROM_HERE, base::BindOnce(&VideoChannelStateObserver::OnEncodedFrameSent,
+                                video_channel_state_observer_, send_result,
+                                std::ref(*frame)));
+}
+
+void WebrtcVideoEncoderWrapper::NotifyFrameDropped() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  DCHECK(encoded_callback_);
+  encoded_callback_->OnDroppedFrame(
+      webrtc::EncodedImageCallback::DropReason::kDroppedByEncoder);
 }
 
 void WebrtcVideoEncoderWrapper::SetTopOffActive(bool active) {

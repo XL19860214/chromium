@@ -182,6 +182,15 @@
       "use_rbe": true
     }
   },
+  "Linux Builder (j-500) (n2) (reclient)": {
+    "gn_args": {
+      "ffmpeg_branding": "Chrome",
+      "is_component_build": false,
+      "is_debug": false,
+      "proprietary_codecs": true,
+      "use_rbe": true
+    }
+  },
   "Linux Builder (j-500) (reclient)": {
     "gn_args": {
       "ffmpeg_branding": "Chrome",
@@ -233,7 +242,6 @@
       "enable_stripping": true,
       "is_component_build": false,
       "is_debug": false,
-      "mac_deterministic_build": true,
       "symbol_level": 1,
       "use_goma": true
     }
@@ -242,7 +250,6 @@
     "gn_args": {
       "is_component_build": true,
       "is_debug": true,
-      "mac_deterministic_build": true,
       "symbol_level": 1,
       "use_goma": true
     }
@@ -378,6 +385,17 @@
       "use_rbe": true
     }
   },
+  "Win x64 Builder (reclient)(cross)": {
+    "gn_args": {
+      "ffmpeg_branding": "Chrome",
+      "is_component_build": false,
+      "is_debug": false,
+      "proprietary_codecs": true,
+      "rbe_cfg_dir": "../../buildtools/reclient_cfgs/win-cross-experiments",
+      "symbol_level": 1,
+      "use_rbe": true
+    }
+  },
   "android-backuprefptr-arm-fyi-rel": {
     "gn_args": {
       "dcheck_always_on": true,
@@ -463,6 +481,7 @@
   },
   "fuchsia-code-coverage": {
     "gn_args": {
+      "fuchsia_code_coverage": true,
       "is_clang": true,
       "is_component_build": false,
       "is_debug": false,
@@ -477,6 +496,15 @@
       "is_component_build": true,
       "is_debug": true,
       "symbol_level": 1,
+      "target_cpu": "arm64",
+      "target_os": "fuchsia",
+      "use_goma": true
+    }
+  },
+  "fuchsia-fyi-arm64-femu": {
+    "gn_args": {
+      "is_component_build": false,
+      "is_debug": false,
       "target_cpu": "arm64",
       "target_os": "fuchsia",
       "use_goma": true
@@ -760,6 +788,8 @@
   },
   "linux-blink-v8-oilpan": {
     "gn_args": {
+      "cppgc_enable_check_assignments_in_prefinalizers": true,
+      "cppgc_enable_verify_live_bytes": true,
       "dcheck_always_on": true,
       "enable_blink_heap_use_v8_oilpan": true,
       "ffmpeg_branding": "Chrome",

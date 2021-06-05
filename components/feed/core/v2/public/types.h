@@ -119,8 +119,8 @@ class WebFeedPageInformation {
  private:
   GURL url_;
   std::vector<GURL> rss_urls_;
-  // TODO(crbug/1152592): There will be additional optional information.
 };
+std::ostream& operator<<(std::ostream& os, const WebFeedPageInformation& value);
 
 // GENERATED_JAVA_ENUM_PACKAGE: org.chromium.chrome.browser.feed.webfeed
 enum class WebFeedSubscriptionStatus {

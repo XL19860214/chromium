@@ -52,6 +52,7 @@
 #include "ash/wm/window_state.h"
 #include "ash/wm/window_util.h"
 #include "ash/wm/wm_event.h"
+#include "base/bind.h"
 #include "base/command_line.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
@@ -79,6 +80,8 @@
 #include "ui/base/ime/chromeos/fake_ime_keyboard.h"
 #include "ui/base/ime/chromeos/ime_keyboard.h"
 #include "ui/base/ime/chromeos/mock_input_method_manager.h"
+#include "ui/base/ime/init/input_method_factory.h"
+#include "ui/base/ime/mock_input_method.h"
 #include "ui/base/ui_base_features.h"
 #include "ui/display/manager/display_manager.h"
 #include "ui/display/screen.h"
@@ -226,10 +229,17 @@ class MockNewWindowDelegate : public testing::NiceMock<TestNewWindowDelegate> {
  public:
   // TestNewWindowDelegate:
   MOCK_METHOD(void, OpenCalculator, (), (override));
+  MOCK_METHOD(void, ShowKeyboardShortcutViewer, (), (override));
+  MOCK_METHOD(void,
+              NewTabWithUrl,
+              (const GURL& url, bool from_user_interaction),
+              (override));
 };
 
 }  // namespace
 
+// Note AcceleratorControllerTest can't be in the anonymous namespace because
+// it is referenced as a friend by exit_warning_handler.h
 class AcceleratorControllerTest : public AshTestBase {
  public:
   AcceleratorControllerTest() {
@@ -257,10 +267,10 @@ class AcceleratorControllerTest : public AshTestBase {
       // simulate what happens in reality.
       ui::Accelerator pressed_accelerator = accelerator;
       pressed_accelerator.set_key_state(ui::Accelerator::KeyState::PRESSED);
-      controller->accelerator_history()->StoreCurrentAccelerator(
+      controller->GetAcceleratorHistory()->StoreCurrentAccelerator(
           pressed_accelerator);
     }
-    controller->accelerator_history()->StoreCurrentAccelerator(accelerator);
+    controller->GetAcceleratorHistory()->StoreCurrentAccelerator(accelerator);
     return controller->Process(accelerator);
   }
 
@@ -313,14 +323,14 @@ class AcceleratorControllerTest : public AshTestBase {
   static const ui::Accelerator& GetPreviousAccelerator() {
     return Shell::Get()
         ->accelerator_controller()
-        ->accelerator_history()
+        ->GetAcceleratorHistory()
         ->previous_accelerator();
   }
 
   static const ui::Accelerator& GetCurrentAccelerator() {
     return Shell::Get()
         ->accelerator_controller()
-        ->accelerator_history()
+        ->GetAcceleratorHistory()
         ->current_accelerator();
   }
 
@@ -380,6 +390,8 @@ class AcceleratorControllerTest : public AshTestBase {
  private:
   DISALLOW_COPY_AND_ASSIGN(AcceleratorControllerTest);
 };
+
+namespace {
 
 // Double press of exit shortcut => exiting
 TEST_F(AcceleratorControllerTest, ExitWarningHandlerTestDoublePress) {
@@ -620,8 +632,6 @@ TEST_F(AcceleratorControllerTest, TestRepeatedSnap) {
   EXPECT_EQ(normal_bounds.ToString(), window->bounds().ToString());
 }
 
-namespace {
-
 class AcceleratorControllerTestWithClamshellSplitView
     : public AcceleratorControllerTest {
  public:
@@ -711,7 +721,7 @@ TEST_F(AcceleratorControllerTestWithClamshellSplitView, WindowSnapUma) {
   wm::ActivateWindow(window1.get());
   left_clamshell_no_overview = 1;
   test("Snap left, clamshell, no overview", WINDOW_CYCLE_SNAP_LEFT,
-       WindowStateType::kLeftSnapped);
+       WindowStateType::kPrimarySnapped);
   left_clamshell_no_overview = 2;
   test("Unsnap left, clamshell, no overview", WINDOW_CYCLE_SNAP_LEFT,
        WindowStateType::kNormal);
@@ -719,14 +729,14 @@ TEST_F(AcceleratorControllerTestWithClamshellSplitView, WindowSnapUma) {
   EnterOverviewAndDragToSnapRight(window1.get());
   left_clamshell_overview = 1;
   test("Snap left, clamshell, overview", WINDOW_CYCLE_SNAP_LEFT,
-       WindowStateType::kLeftSnapped);
+       WindowStateType::kPrimarySnapped);
   left_clamshell_overview = 2;
   test("Unsnap left, clamshell, overview", WINDOW_CYCLE_SNAP_LEFT,
        WindowStateType::kNormal);
   // Alt+], clamshell, no overview
   right_clamshell_no_overview = 1;
   test("Snap right, clamshell, no overview", WINDOW_CYCLE_SNAP_RIGHT,
-       WindowStateType::kRightSnapped);
+       WindowStateType::kSecondarySnapped);
   right_clamshell_no_overview = 2;
   test("Unsnap right, clamshell, no overview", WINDOW_CYCLE_SNAP_RIGHT,
        WindowStateType::kNormal);
@@ -734,7 +744,7 @@ TEST_F(AcceleratorControllerTestWithClamshellSplitView, WindowSnapUma) {
   EnterOverviewAndDragToSnapLeft(window1.get());
   right_clamshell_overview = 1;
   test("Snap right, clamshell, overview", WINDOW_CYCLE_SNAP_RIGHT,
-       WindowStateType::kRightSnapped);
+       WindowStateType::kSecondarySnapped);
   right_clamshell_overview = 2;
   test("Unsnap right, clamshell, overview", WINDOW_CYCLE_SNAP_RIGHT,
        WindowStateType::kNormal);
@@ -742,7 +752,7 @@ TEST_F(AcceleratorControllerTestWithClamshellSplitView, WindowSnapUma) {
   ShellTestApi().SetTabletModeEnabledForTest(true);
   left_tablet = 1;
   test("Snap left, tablet, no overview", WINDOW_CYCLE_SNAP_LEFT,
-       WindowStateType::kLeftSnapped);
+       WindowStateType::kPrimarySnapped);
   ToggleOverview();
   left_tablet = 2;
   test("Unsnap left, tablet, no overview", WINDOW_CYCLE_SNAP_LEFT,
@@ -751,14 +761,14 @@ TEST_F(AcceleratorControllerTestWithClamshellSplitView, WindowSnapUma) {
   EnterOverviewAndDragToSnapRight(window1.get());
   left_tablet = 3;
   test("Snap left, tablet, overview", WINDOW_CYCLE_SNAP_LEFT,
-       WindowStateType::kLeftSnapped);
+       WindowStateType::kPrimarySnapped);
   left_tablet = 4;
   test("Unsnap left, tablet, overview", WINDOW_CYCLE_SNAP_LEFT,
        WindowStateType::kMaximized);
   // Alt+], tablet, no overview
   right_tablet = 1;
   test("Snap right, tablet, no overview", WINDOW_CYCLE_SNAP_RIGHT,
-       WindowStateType::kRightSnapped);
+       WindowStateType::kSecondarySnapped);
   ToggleOverview();
   right_tablet = 2;
   test("Unsnap right, tablet, no overview", WINDOW_CYCLE_SNAP_RIGHT,
@@ -767,13 +777,11 @@ TEST_F(AcceleratorControllerTestWithClamshellSplitView, WindowSnapUma) {
   EnterOverviewAndDragToSnapLeft(window1.get());
   right_tablet = 3;
   test("Snap right, tablet, overview", WINDOW_CYCLE_SNAP_RIGHT,
-       WindowStateType::kRightSnapped);
+       WindowStateType::kSecondarySnapped);
   right_tablet = 4;
   test("Unsnap right, tablet, overview", WINDOW_CYCLE_SNAP_RIGHT,
        WindowStateType::kMaximized);
 }
-
-}  // namespace
 
 TEST_F(AcceleratorControllerTest, RotateScreen) {
   display::Display display = display::Screen::GetScreen()->GetPrimaryDisplay();
@@ -1143,7 +1151,7 @@ TEST_F(AcceleratorControllerTest, GlobalAccelerators) {
   const ui::Accelerator volume_up(ui::VKEY_VOLUME_UP, ui::EF_NONE);
   {
     base::UserActionTester user_action_tester;
-    auto* history = controller_->accelerator_history();
+    auto* history = controller_->GetAcceleratorHistory();
 
     EXPECT_EQ(0, user_action_tester.GetActionCount("Accel_VolumeMute_F8"));
     EXPECT_TRUE(ProcessInController(volume_mute));
@@ -1303,7 +1311,7 @@ TEST_F(AcceleratorControllerTest, GlobalAcceleratorsToggleAppList) {
   // When pressed key is interrupted by mouse, the AppList should not toggle.
   EXPECT_FALSE(
       ProcessInController(ui::Accelerator(ui::VKEY_LWIN, ui::EF_NONE)));
-  controller_->accelerator_history()->InterruptCurrentAccelerator();
+  controller_->GetAcceleratorHistory()->InterruptCurrentAccelerator();
   EXPECT_FALSE(ProcessInController(
       CreateReleaseAccelerator(ui::VKEY_LWIN, ui::EF_NONE)));
   base::RunLoop().RunUntilIdle();
@@ -1483,7 +1491,6 @@ TEST_F(AcceleratorControllerTest, SideVolumeButtonLocation) {
   ASSERT_TRUE(WriteJsonFile(file_path, json_location));
   EXPECT_TRUE(base::PathExists(file_path));
   test_api_->SetSideVolumeButtonFilePath(file_path);
-  controller_->ParseSideVolumeButtonLocationInfo();
   EXPECT_EQ(AcceleratorControllerImpl::kVolumeButtonRegionScreen,
             test_api_->side_volume_button_location().region);
   EXPECT_EQ(AcceleratorControllerImpl::kVolumeButtonSideLeft,
@@ -1659,8 +1666,6 @@ INSTANTIATE_TEST_SUITE_P(
              AcceleratorControllerImpl::kVolumeButtonRegionScreen,
              AcceleratorControllerImpl::kVolumeButtonSideBottom)}));
 
-namespace {
-
 // Tests the TOGGLE_CAPS_LOCK accelerator.
 TEST_F(AcceleratorControllerTest, ToggleCapsLockAccelerators) {
   ImeControllerImpl* controller = Shell::Get()->ime_controller();
@@ -1793,8 +1798,6 @@ class PreferredReservedAcceleratorsTest : public AshTestBase {
  private:
   DISALLOW_COPY_AND_ASSIGN(PreferredReservedAcceleratorsTest);
 };
-
-}  // namespace
 
 TEST_F(PreferredReservedAcceleratorsTest, AcceleratorsWithFullscreen) {
   aura::Window* w1 = CreateTestWindowInShellWithId(0);
@@ -1994,7 +1997,7 @@ TEST_F(AcceleratorControllerTest, DisallowedAtModalWindow) {
   const ui::Accelerator volume_up(ui::VKEY_VOLUME_UP, ui::EF_NONE);
   {
     base::UserActionTester user_action_tester;
-    auto* history = controller_->accelerator_history();
+    auto* history = controller_->GetAcceleratorHistory();
 
     EXPECT_EQ(0, user_action_tester.GetActionCount("Accel_VolumeMute_F8"));
     EXPECT_TRUE(ProcessInController(volume_mute));
@@ -2114,10 +2117,108 @@ TEST_F(AcceleratorControllerTest, TestToggleHighContrast) {
   RemoveAllNotifications();
 }
 
-// TODO(crbug.com/1179893): Replace with the implementation below in
-// AcceleratorControllerImprovedTest::DeskShortcuts_New once the feature is
-// enabled permantently.
-TEST_F(AcceleratorControllerTest, DeskShortcuts_Old) {
+TEST_F(AcceleratorControllerTest, CalculatorKey) {
+  // Verify that the launch calculator key (VKEY_MEDIA_LAUNCH_APP2) is
+  // registered.
+  ui::Accelerator accelerator(ui::VKEY_MEDIA_LAUNCH_APP2, ui::EF_NONE);
+  EXPECT_TRUE(controller_->IsRegistered(accelerator));
+
+  // Verify that the delegate to open the app is called.
+  EXPECT_CALL(*new_window_delegate_, OpenCalculator)
+      .WillOnce(testing::Return());
+  EXPECT_TRUE(ProcessInController(accelerator));
+}
+
+// Tests the IME mode change key.
+TEST_F(AcceleratorControllerTest, ChangeIMEMode_SwitchesInputMethod) {
+  AddTestImes();
+
+  ImeController* controller = Shell::Get()->ime_controller();
+
+  TestImeControllerClient client;
+  controller->SetClient(&client);
+
+  EXPECT_EQ(0, client.next_ime_count_);
+
+  ProcessInController(ui::Accelerator(ui::VKEY_MODECHANGE, ui::EF_NONE));
+
+  EXPECT_EQ(1, client.next_ime_count_);
+}
+
+class AcceleratorControllerInputMethodTest : public AcceleratorControllerTest {
+ public:
+  AcceleratorControllerInputMethodTest() = default;
+  ~AcceleratorControllerInputMethodTest() override = default;
+
+  class AcceleratorMockInputMethod : public ui::MockInputMethod {
+   public:
+    AcceleratorMockInputMethod() : ui::MockInputMethod(nullptr) {}
+    void CancelComposition(const ui::TextInputClient* client) override {
+      cancel_composition_call_count++;
+    }
+
+    uint32_t cancel_composition_call_count = 0;
+  };
+
+  void SetUp() override {
+    scoped_feature_list_.InitAndEnableFeature(
+        ::features::kImprovedKeyboardShortcuts);
+
+    // Setup the mock input method to capture the calls to
+    // |CancelCompositionAfterAccelerator|. Ownersship is passed to
+    // ui::SetUpInputMethodForTesting().
+    mock_input_ = new AcceleratorMockInputMethod();
+    ui::SetUpInputMethodForTesting(mock_input_);
+    AcceleratorControllerTest::SetUp();
+  }
+
+ protected:
+  AcceleratorMockInputMethod* mock_input_ = nullptr;  // Not owned.
+
+ private:
+  base::test::ScopedFeatureList scoped_feature_list_;
+};
+
+// In some layouts positional accelerators can be on dead/compose keys. To
+// ensure that the input method is not left in a partially composed state
+// the composition state is reset when an accelerator is matched.
+TEST_F(AcceleratorControllerInputMethodTest, AcceleratorClearsComposition) {
+  EXPECT_EQ(0u, mock_input_->cancel_composition_call_count);
+
+  // An acclerator that isn't recognized will not cause composition to be
+  // cancelled.
+  ui::Accelerator unknown_accelerator(ui::VKEY_OEM_MINUS, ui::EF_NONE);
+  EXPECT_FALSE(controller_->IsRegistered(unknown_accelerator));
+  EXPECT_FALSE(ProcessInController(unknown_accelerator));
+  EXPECT_EQ(0u, mock_input_->cancel_composition_call_count);
+
+  // A matching accelerator should cause CancelCompositionAfterAccelerator() to
+  // be called.
+  ui::Accelerator accelerator(ui::VKEY_OEM_MINUS,
+                              ui::EF_CONTROL_DOWN | ui::EF_SHIFT_DOWN);
+  EXPECT_TRUE(controller_->IsRegistered(accelerator));
+  EXPECT_TRUE(ProcessInController(accelerator));
+  EXPECT_EQ(1u, mock_input_->cancel_composition_call_count);
+}
+
+// TODO(crbug.com/1179893): Remove once the feature is enabled permanently.
+class AcceleratorControllerDeprecatedTest : public AcceleratorControllerTest {
+ public:
+  AcceleratorControllerDeprecatedTest() = default;
+  ~AcceleratorControllerDeprecatedTest() override = default;
+
+  void SetUp() override {
+    scoped_feature_list_.InitAndDisableFeature(
+        ::features::kImprovedKeyboardShortcuts);
+    AcceleratorControllerTest::SetUp();
+  }
+
+ private:
+  base::test::ScopedFeatureList scoped_feature_list_;
+};
+
+// TODO(crbug.com/1179893): Remove once the feature is enabled permanently.
+TEST_F(AcceleratorControllerDeprecatedTest, DeskShortcuts_Old) {
   // The shortcuts are Search+Shift+[MINUS|PLUS], but due to event
   // rewriting they became Shift+[F11|F12]. So only the rewritten shortcut
   // works but the "real" shortcut doesn't.
@@ -2131,72 +2232,209 @@ TEST_F(AcceleratorControllerTest, DeskShortcuts_Old) {
       ui::VKEY_OEM_MINUS, ui::EF_COMMAND_DOWN | ui::EF_SHIFT_DOWN)));
 }
 
-TEST_F(AcceleratorControllerTest, CalculatorKey) {
-  // Verify that the launch calculator key (VKEY_MEDIA_LAUNCH_APP2) is
-  // registered.
-  ui::Accelerator accelerator(ui::VKEY_MEDIA_LAUNCH_APP2, ui::EF_NONE);
-  EXPECT_TRUE(controller_->IsRegistered(accelerator));
-
-  // Verify that the delegate to open the app is called.
-  EXPECT_CALL(*new_window_delegate_, OpenCalculator)
-      .WillOnce(testing::Return());
-  EXPECT_TRUE(ProcessInController(accelerator));
-}
-
-namespace {
-
-// TODO(crbug.com/1179893): Remove once the feature is enabled permantently.
-class AcceleratorControllerImprovedTest : public AcceleratorControllerTest {
+// Overrides SetUp() to do nothing so that the flag can be tested in both
+// directions during setup.
+// TODO(crbug.com/1179893): Remove suite once the feature is enabled by
+// default.
+class AcceleratorControllerStartupNotificationTest
+    : public NoSessionAshTestBase {
  public:
-  AcceleratorControllerImprovedTest() = default;
-  ~AcceleratorControllerImprovedTest() override = default;
-
-  void SetUp() override {
-    scoped_feature_list_.InitAndEnableFeature(
-        ::features::kImprovedKeyboardShortcuts);
-
-    // Pass ownership of InputMethodManager to Initialize where it is stored
-    // in a global. During TearDown() it needs to be cleaned up by calling
-    // InputMethodManager::Shutdown().
-    input_method_manager_ = new MockInputMethodManager();
-    InputMethodManager::Initialize(input_method_manager_);
-    AcceleratorControllerTest::SetUp();
+  AcceleratorControllerStartupNotificationTest() {
+    auto delegate = std::make_unique<MockNewWindowDelegate>();
+    new_window_delegate_ = delegate.get();
+    delegate_provider_ =
+        std::make_unique<TestNewWindowDelegateProvider>(std::move(delegate));
   }
 
-  void TearDown() override {
-    // The base TearDown() has to run before calling
-    // InputMethodManager::Shutdown()
-    AcceleratorControllerTest::TearDown();
-
-    // Shutdown deletes the global pointer to InputMethodManager.
-    InputMethodManager::Shutdown();
-    input_method_manager_ = nullptr;
+  ~AcceleratorControllerStartupNotificationTest() override {
+    // Set back to false to avoid any future test having the wrong value.
+    AcceleratorControllerImpl::SetShouldShowShortcutNotificationForTest(false);
   }
+
+  // Setup is a no-op to allow changing features/flags before SetUp(). Tests
+  // need to call SetupLater() manually.
+  void SetUp() override {}
 
  protected:
-  MockInputMethodManager* input_method_manager_ = nullptr;
+  // Perform the setup, but defer it to be called manually by the test.
+  void SetUpLater(bool improved_shortcuts_enabled) {
+    if (improved_shortcuts_enabled) {
+      scoped_feature_list_.InitAndEnableFeature(
+          ::features::kImprovedKeyboardShortcuts);
+    } else {
+      scoped_feature_list_.InitAndDisableFeature(
+          ::features::kImprovedKeyboardShortcuts);
+    }
 
- private:
+    NoSessionAshTestBase::SetUp();
+    AcceleratorControllerImpl::SetShouldShowShortcutNotificationForTest(true);
+  }
+
+  message_center::MessageCenter* message_center() const {
+    return message_center::MessageCenter::Get();
+  }
+
+  MockNewWindowDelegate* new_window_delegate_ = nullptr;  // Not owned.
+  std::unique_ptr<TestNewWindowDelegateProvider> delegate_provider_;
   base::test::ScopedFeatureList scoped_feature_list_;
 };
 
-}  // namespace
+TEST_F(AcceleratorControllerStartupNotificationTest,
+       StartupNotificationShownWhenEnabled) {
+  // Set up the shell and controller.
+  SetUpLater(/*improved_shortcuts_enabled=*/true);
 
-TEST_F(AcceleratorControllerImprovedTest, DeskShortcuts_New) {
-  // The shortcuts are Search+Shift+[MINUS|PLUS]. The old shortcuts that were
-  // rewritten to F11/F12 should not longer have any effect and the "real"
-  // shortcut should now work.
-  EXPECT_FALSE(controller_->IsRegistered(
-      ui::Accelerator(ui::VKEY_F12, ui::EF_SHIFT_DOWN)));
-  EXPECT_FALSE(controller_->IsRegistered(
-      ui::Accelerator(ui::VKEY_F11, ui::EF_SHIFT_DOWN)));
-  EXPECT_TRUE(controller_->IsRegistered(ui::Accelerator(
-      ui::VKEY_OEM_PLUS, ui::EF_COMMAND_DOWN | ui::EF_SHIFT_DOWN)));
-  EXPECT_TRUE(controller_->IsRegistered(ui::Accelerator(
-      ui::VKEY_OEM_MINUS, ui::EF_COMMAND_DOWN | ui::EF_SHIFT_DOWN)));
+  // Notification should be shown at login.
+  SimulateUserLogin("user1@email.com");
+  auto* notification = message_center()->FindVisibleNotificationById(
+      kStartupNewShortcutNotificationId);
+  EXPECT_TRUE(notification);
 }
 
-namespace {
+TEST_F(AcceleratorControllerStartupNotificationTest,
+       StartupNotificationNotShownWhenDisabled) {
+  // Set up the shell and controller.
+  SetUpLater(/*improved_shortcuts_enabled=*/false);
+
+  // Notification should not be shown at login.
+  SimulateUserLogin("user1@email.com");
+  auto* notification = message_center()->FindVisibleNotificationById(
+      kStartupNewShortcutNotificationId);
+  EXPECT_FALSE(notification);
+}
+
+TEST_F(AcceleratorControllerStartupNotificationTest,
+       StartupNotificationNotShownWhenInGuestMode) {
+  // Set up the shell and controller.
+  SetUpLater(/*improved_shortcuts_enabled=*/true);
+
+  // Notification should not be shown at login.
+  SimulateUserLogin("user1@email.com", user_manager::USER_TYPE_GUEST);
+  auto* notification = message_center()->FindVisibleNotificationById(
+      kStartupNewShortcutNotificationId);
+  EXPECT_FALSE(notification);
+}
+
+TEST_F(AcceleratorControllerStartupNotificationTest,
+       StartupNotificationNotShownWhenInFirstLogin) {
+  // Set up the shell and controller.
+  SetUpLater(/*improved_shortcuts_enabled=*/true);
+
+  SimulateNewUserFirstLogin("user1@email.com");
+
+  // Notification should not be shown at a new user's first login.
+  auto* notification = message_center()->FindVisibleNotificationById(
+      kStartupNewShortcutNotificationId);
+  EXPECT_FALSE(notification);
+}
+
+TEST_F(AcceleratorControllerStartupNotificationTest,
+       StartupNotificationShownOnlyOnce) {
+  // Set up the shell and controller.
+  SetUpLater(/*improved_shortcuts_enabled=*/true);
+
+  // Notification should be shown at login.
+  SimulateUserLogin("user1@email.com");
+  auto* notification = message_center()->FindVisibleNotificationById(
+      kStartupNewShortcutNotificationId);
+  EXPECT_TRUE(notification);
+
+  // Reset the notifications.
+  message_center()->RemoveAllNotifications(
+      /*by_user=*/false, message_center::MessageCenter::RemoveType::ALL);
+
+  // Login again and there should not be another notification.
+  SimulateUserLogin("user1@email.com");
+  notification = message_center()->FindVisibleNotificationById(
+      kStartupNewShortcutNotificationId);
+  EXPECT_FALSE(notification);
+}
+
+TEST_F(AcceleratorControllerStartupNotificationTest,
+       StartupNotificationShownToEachUser) {
+  // Set up the shell and controller.
+  SetUpLater(/*improved_shortcuts_enabled=*/true);
+
+  // Notification should be shown at first login.
+  SimulateUserLogin("user1@email.com");
+  auto* notification = message_center()->FindVisibleNotificationById(
+      kStartupNewShortcutNotificationId);
+  EXPECT_TRUE(notification);
+
+  // Reset the notifications.
+  message_center()->RemoveAllNotifications(
+      /*by_user=*/false, message_center::MessageCenter::RemoveType::ALL);
+
+  // Switch to user 2, and also should be shown at first login.
+  SimulateUserLogin("user2@email.com");
+  notification = message_center()->FindVisibleNotificationById(
+      kStartupNewShortcutNotificationId);
+  EXPECT_TRUE(notification);
+
+  // Reset the notifications.
+  message_center()->RemoveAllNotifications(
+      /*by_user=*/false, message_center::MessageCenter::RemoveType::ALL);
+
+  // Switch back to to user 1, and it should not be shown.
+  auto* session = GetSessionControllerClient();
+  session->SwitchActiveUser(AccountId::FromUserEmail("user1@email.com"));
+  notification = message_center()->FindVisibleNotificationById(
+      kStartupNewShortcutNotificationId);
+  EXPECT_FALSE(notification);
+
+  // Switch again to user 2, and it should not be shown.
+  session->SwitchActiveUser(AccountId::FromUserEmail("user2@email.com"));
+  notification = message_center()->FindVisibleNotificationById(
+      kStartupNewShortcutNotificationId);
+  EXPECT_FALSE(notification);
+}
+
+TEST_F(AcceleratorControllerStartupNotificationTest,
+       StartupNotificationLearnMoreLink) {
+  // Set up the shell and controller.
+  SetUpLater(/*improved_shortcuts_enabled=*/true);
+
+  // Notification should be shown at login.
+  SimulateUserLogin("user1@email.com");
+  auto* notification = message_center()->FindVisibleNotificationById(
+      kStartupNewShortcutNotificationId);
+  EXPECT_TRUE(notification);
+
+  // Setup the expectation that the learn more button opens this shortcut
+  // help link.
+  EXPECT_CALL(*new_window_delegate_, NewTabWithUrl)
+      .WillOnce([](const GURL& url, bool from_user_interaction) {
+        EXPECT_EQ(GURL(kKeyboardShortcutHelpPageUrl), url);
+        EXPECT_TRUE(from_user_interaction);
+      });
+
+  // Clicking the learn more button should trigger the NewWindowDelegate and
+  // complete the expectation above.
+  notification->delegate()->Click(/*button_index=*/0,
+                                  /*reply=*/absl::nullopt);
+}
+
+TEST_F(AcceleratorControllerStartupNotificationTest,
+       StartupNotificationOpenShortcutViewer) {
+  // Set up the shell and controller.
+  SetUpLater(/*improved_shortcuts_enabled=*/true);
+
+  // Notification should be shown at login.
+  SimulateUserLogin("user1@email.com");
+  auto* notification = message_center()->FindVisibleNotificationById(
+      kStartupNewShortcutNotificationId);
+  EXPECT_TRUE(notification);
+
+  // Setup the expectation that clicking the message body will show the
+  // shortcut viewer.
+  EXPECT_CALL(*new_window_delegate_, ShowKeyboardShortcutViewer)
+      .WillOnce(testing::Return());
+
+  // Clicking the message body should trigger the NewWindowDelegate and
+  // complete the expectation above.
+  notification->delegate()->Click(/*button_index=*/absl::nullopt,
+                                  /*reply=*/absl::nullopt);
+}
 
 // defines a class to test the behavior of deprecated accelerators.
 class DeprecatedAcceleratorTester : public AcceleratorControllerTest {
@@ -2230,8 +2468,6 @@ class DeprecatedAcceleratorTester : public AcceleratorControllerTest {
  private:
   DISALLOW_COPY_AND_ASSIGN(DeprecatedAcceleratorTester);
 };
-
-}  // namespace
 
 TEST_F(DeprecatedAcceleratorTester, TestDeprecatedAcceleratorsBehavior) {
   for (size_t i = 0; i < kDeprecatedAcceleratorsLength; ++i) {
@@ -2305,8 +2541,6 @@ TEST_F(AcceleratorControllerGuestModeTest, IncognitoWindowDisabled) {
       NEW_INCOGNITO_WINDOW, {}));
 }
 
-namespace {
-
 constexpr char kUserEmail[] = "user@magnifier";
 
 class MagnifiersAcceleratorsTester : public AcceleratorControllerTest {
@@ -2337,8 +2571,6 @@ class MagnifiersAcceleratorsTester : public AcceleratorControllerTest {
  private:
   DISALLOW_COPY_AND_ASSIGN(MagnifiersAcceleratorsTester);
 };
-
-}  // namespace
 
 // TODO (afakhry): Remove this class after refactoring MagnificationManager.
 // Mocked chrome/browser/ash/accessibility/magnification_manager.cc
@@ -2544,8 +2776,6 @@ TEST_F(AccessibilityAcceleratorTester, DisableAccessibilityAccelerators) {
   }
 }
 
-namespace {
-
 struct MediaSessionAcceleratorTestConfig {
   // Runs the test with the media session service enabled.
   bool service_enabled;
@@ -2566,6 +2796,8 @@ struct MediaSessionAcceleratorTestConfig {
 // MediaSessionAcceleratorTest tests media key handling with media session
 // service integration. The parameter is a struct that configures different
 // settings to run the test under.
+// Note this class can't be in the anonymous namespace because it is referenced
+// as a friend by ash/media/media_controller_impl.h.
 class MediaSessionAcceleratorTest
     : public AcceleratorControllerTest,
       public testing::WithParamInterface<MediaSessionAcceleratorTestConfig> {
@@ -2919,22 +3151,6 @@ TEST_P(MediaSessionAcceleratorTest,
     EXPECT_EQ(2, client()->handle_media_next_track_count());
     EXPECT_EQ(0, controller()->next_track_count());
   }
-}
-
-// Tests the IME mode change key.
-TEST_F(AcceleratorControllerTest, ChangeIMEMode_SwitchesInputMethod) {
-  AddTestImes();
-
-  ImeController* controller = Shell::Get()->ime_controller();
-
-  TestImeControllerClient client;
-  controller->SetClient(&client);
-
-  EXPECT_EQ(0, client.next_ime_count_);
-
-  ProcessInController(ui::Accelerator(ui::VKEY_MODECHANGE, ui::EF_NONE));
-
-  EXPECT_EQ(1, client.next_ime_count_);
 }
 
 }  // namespace ash

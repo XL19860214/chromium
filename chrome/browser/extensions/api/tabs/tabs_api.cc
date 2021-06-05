@@ -21,7 +21,6 @@
 #include "base/metrics/histogram_macros.h"
 #include "base/notreached.h"
 #include "base/single_thread_task_runner.h"
-#include "base/stl_util.h"
 #include "base/strings/pattern.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
@@ -336,8 +335,7 @@ int MoveTabToWindow(ExtensionFunction* function,
 
   TabStripModel* target_tab_strip =
       ExtensionTabUtil::GetEditableTabStripModel(target_browser);
-  if (!target_tab_strip)
-    return -1;
+  DCHECK(target_tab_strip);
 
   // Clamp move location to the last position.
   // This is ">" because it can append to a new index position.
@@ -1058,12 +1056,8 @@ ExtensionFunction::ResponseAction TabsQueryFunction::Run() {
       continue;
     }
 
-    // Bug fix for crbug.com/1197888. Disable query during any tab drag to
-    // ensure that the result matches the eventual state of the tab strip.
-    TabStripModel* tab_strip =
-        ExtensionTabUtil::GetEditableTabStripModel(browser);
-    if (!tab_strip)
-      return RespondNow(Error(tabs_constants::kTabStripNotEditableQueryError));
+    TabStripModel* tab_strip = browser->tab_strip_model();
+    DCHECK(tab_strip);
     for (int i = 0; i < tab_strip->count(); ++i) {
       WebContents* web_contents = tab_strip->GetWebContentsAt(i);
 
@@ -1249,9 +1243,6 @@ ExtensionFunction::ResponseAction TabsGetFunction::Run() {
                   NULL, &tab_strip, &contents, &tab_index, &error)) {
     return RespondNow(Error(std::move(error)));
   }
-
-  if (!ExtensionTabUtil::IsTabStripEditable())
-    return RespondNow(Error(tabs_constants::kTabStripNotEditableError));
 
   return RespondNow(ArgumentList(tabs::Get::Results::Create(
       *CreateTabObjectHelper(contents, extension(), source_context_type(),
@@ -1646,8 +1637,7 @@ bool TabsMoveFunction::MoveTab(int tab_id,
     if (has_callback()) {
       TabStripModel* tab_strip_model =
           ExtensionTabUtil::GetEditableTabStripModel(target_browser);
-      if (!tab_strip_model)
-        return false;
+      DCHECK(tab_strip_model);
       content::WebContents* web_contents =
           tab_strip_model->GetWebContentsAt(inserted_index);
 
@@ -2010,8 +2000,10 @@ WebContents* TabsCaptureVisibleTabFunction::GetWebContentsForID(
 
   TabStripModel* tab_strip_model =
       ExtensionTabUtil::GetEditableTabStripModel(browser);
-  if (!tab_strip_model)
+  if (!tab_strip_model) {
+    *error = tabs_constants::kTabStripNotEditableError;
     return nullptr;
+  }
   WebContents* contents = tab_strip_model->GetActiveWebContents();
   if (!contents) {
     *error = "No active web contents to capture";

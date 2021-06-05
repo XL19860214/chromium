@@ -21,6 +21,7 @@
 #include "base/observer_list.h"
 #include "base/run_loop.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/test/bind.h"
 #include "base/test/scoped_command_line.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/values.h"
@@ -1351,11 +1352,10 @@ class ArcSessionManagerPolicyTest
 
  private:
   void CreateLoginDisplayHost() {
-    fake_login_display_host_ =
-        std::make_unique<chromeos::FakeLoginDisplayHost>();
+    fake_login_display_host_ = std::make_unique<ash::FakeLoginDisplayHost>();
   }
 
-  std::unique_ptr<chromeos::FakeLoginDisplayHost> fake_login_display_host_;
+  std::unique_ptr<ash::FakeLoginDisplayHost> fake_login_display_host_;
 };
 
 TEST_P(ArcSessionManagerPolicyTest, SkippingTerms) {
@@ -1610,11 +1610,10 @@ class ArcSessionOobeOptInNegotiatorTest
   }
 
   void CreateLoginDisplayHost() {
-    fake_login_display_host_ =
-        std::make_unique<chromeos::FakeLoginDisplayHost>();
+    fake_login_display_host_ = std::make_unique<ash::FakeLoginDisplayHost>();
   }
 
-  chromeos::FakeLoginDisplayHost* login_display_host() {
+  ash::FakeLoginDisplayHost* login_display_host() {
     return fake_login_display_host_.get();
   }
 
@@ -1647,7 +1646,7 @@ class ArcSessionOobeOptInNegotiatorTest
 
   base::ObserverList<chromeos::ArcTermsOfServiceScreenViewObserver>::Unchecked
       observer_list_;
-  std::unique_ptr<chromeos::FakeLoginDisplayHost> fake_login_display_host_;
+  std::unique_ptr<ash::FakeLoginDisplayHost> fake_login_display_host_;
 
   DISALLOW_COPY_AND_ASSIGN(ArcSessionOobeOptInNegotiatorTest);
 };
@@ -2141,6 +2140,17 @@ TEST_F(ArcSessionManagerTest, ReadSaltOnDisk) {
   EXPECT_TRUE(salt.empty());
 }
 
+// Tests that TrimVmMemory doesn't crash.
+TEST_F(ArcSessionManagerTest, TrimVmMemory) {
+  bool callback_called = false;
+  arc_session_manager()->TrimVmMemory(
+      base::BindLambdaForTesting([&callback_called](bool, const std::string&) {
+        callback_called = true;
+      }));
+  base::RunLoop().RunUntilIdle();
+  EXPECT_TRUE(callback_called);
+}
+
 class ArcSessionManagerPowerwashTest : public ArcSessionManagerTestBase {
  public:
   ArcSessionManagerPowerwashTest() = default;
@@ -2199,6 +2209,70 @@ TEST_F(ArcSessionManagerPowerwashTest, PowerwashRequestBlocksArcStart) {
 
   arc_session_manager()->Shutdown();
 }
+
+class ArcTransitionToManagedTest
+    : public ArcSessionManagerTest,
+      public testing::WithParamInterface<std::tuple<bool, bool>> {
+ public:
+  ArcTransitionToManagedTest() = default;
+  ~ArcTransitionToManagedTest() override = default;
+  ArcTransitionToManagedTest(const ArcTransitionToManagedTest&) = delete;
+  ArcTransitionToManagedTest& operator=(const ArcTransitionToManagedTest&) =
+      delete;
+
+  bool transition_feature_enabled() const { return std::get<0>(GetParam()); }
+
+  bool user_become_managed() const { return std::get<1>(GetParam()); }
+
+  bool ShouldArcTransitionToManaged() const {
+    return transition_feature_enabled() && user_become_managed();
+  }
+};
+
+TEST_P(ArcTransitionToManagedTest, TransitionFlow) {
+  // Here we only test OnBackgroundAndroidManagementChecked impl, not the actual
+  // Android management check.
+  ArcSessionManager::EnableCheckAndroidManagementForTesting(false);
+
+  // Initialize feature state.
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitWithFeatureState(kEnableUnmanagedToManagedTransitionFeature,
+                                    transition_feature_enabled());
+  profile()->GetPrefs()->SetBoolean(prefs::kArcEnabled, true);
+
+  // Initialize ARC.
+  arc_session_manager()->SetProfile(profile());
+  arc_session_manager()->Initialize();
+  arc_session_manager()->RequestEnable();
+  base::RunLoop().RunUntilIdle();
+  ASSERT_EQ(ArcSessionManager::State::NEGOTIATING_TERMS_OF_SERVICE,
+            arc_session_manager()->state());
+  arc_session_manager()->OnTermsOfServiceNegotiatedForTesting(true);
+  arc_session_manager()->StartArcForTesting();
+
+  // Emulate user management state change.
+  profile()->GetProfilePolicyConnector()->OverrideIsManagedForTesting(
+      user_become_managed());
+
+  // Android management check response.
+  arc_session_manager()->OnBackgroundAndroidManagementCheckedForTesting(
+      policy::AndroidManagementClient::Result::MANAGED);
+  base::RunLoop().RunUntilIdle();
+
+  // Verify ARC state and ARC transition value.
+  EXPECT_EQ(profile()->GetPrefs()->GetBoolean(prefs::kArcEnabled),
+            ShouldArcTransitionToManaged());
+  EXPECT_EQ(arc::GetSupervisionTransition(profile()),
+            ShouldArcTransitionToManaged()
+                ? arc::ArcSupervisionTransition::UNMANAGED_TO_MANAGED
+                : arc::ArcSupervisionTransition::NO_TRANSITION);
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    All,
+    ArcTransitionToManagedTest,
+    testing::Combine(testing::Bool() /* transition_feature_enabled */,
+                     testing::Bool() /* user_become_managed */));
 
 }  // namespace
 }  // namespace arc

@@ -81,8 +81,13 @@ preprocess_if_expr("preprocess_static") {
 
   in_files = [
     # Audio Player:
-    "audio_player/js/main.m.js",
-    "audio_player/js/main_background.m.js",
+    "audio_player/js/audio_player.js",
+    "audio_player/js/background.js",
+    "audio_player/js/error_util.js",
+    "audio_player/js/main.js",
+    "audio_player/js/main_background.js",
+    "audio_player/js/metadata_worker.js",
+    "audio_player/js/test_util.js",
 
     # Files app:
     "file_manager/background/js/main_background.m.js",
@@ -94,17 +99,23 @@ preprocess_if_expr("preprocess_static") {
     "image_loader/background.m.js",
 
     # Video Player:
+    "video_player/js/background.js",
+    "video_player/js/error_util.js",
     "video_player/js/main.m.js",
     "video_player/js/main_background.m.js",
+    "video_player/js/test_util.js",
+    "video_player/js/video_player.js",
+    "video_player/js/video_player_metrics.js",
+    "video_player/js/video_player_native_controls.js",
   ]
 
   deps = [
-    "//ui/file_manager/audio_player/js:main.m",
-    "//ui/file_manager/audio_player/js:main_background.m",
+    "//ui/file_manager/audio_player/js:js_modules",
     "//ui/file_manager/file_manager/background/js:main_background.m",
     "//ui/file_manager/file_manager/foreground/js:deferred_elements.m",
     "//ui/file_manager/file_manager/foreground/js:main.m",
     "//ui/file_manager/image_loader:background.m",
+    "//ui/file_manager/video_player/js:js_modules",
     "//ui/file_manager/video_player/js:main.m",
     "//ui/file_manager/video_player/js:main_background.m",
   ]
@@ -118,11 +129,6 @@ preprocess_if_expr("preprocess_generated") {
 
   in_files = [
     # Audio Player:
-    "audio_player/js/error_util.m.js",
-    "audio_player/js/test_util.m.js",
-    "audio_player/js/background.m.js",
-    "audio_player/js/audio_player.m.js",
-    "audio_player/js/metadata_worker.m.js",
     "audio_player/elements/audio_player.js",
     "audio_player/elements/track_info_panel.js",
     "audio_player/elements/track_list.js",
@@ -193,7 +199,6 @@ preprocess_if_expr("preprocess_generated") {
     "file_manager/background/js/file_operation_util.m.js",
     "file_manager/background/js/import_history.m.js",
     "file_manager/background/js/launcher.m.js",
-    "file_manager/background/js/launcher_search.m.js",
     "file_manager/background/js/media_import_handler.m.js",
     "file_manager/background/js/media_scanner.m.js",
     "file_manager/background/js/metadata_proxy.m.js",
@@ -267,19 +272,19 @@ preprocess_if_expr("preprocess_generated") {
 
     # Files app Elements:
     "file_manager/foreground/elements/icons.m.js",
-    "file_manager/foreground/elements/files_format_dialog.m.js",
-    "file_manager/foreground/elements/files_icon_button.m.js",
+    "file_manager/foreground/elements/files_format_dialog.js",
+    "file_manager/foreground/elements/files_icon_button.js",
     "file_manager/foreground/elements/files_message.m.js",
-    "file_manager/foreground/elements/files_metadata_box.m.js",
-    "file_manager/foreground/elements/files_metadata_entry.m.js",
+    "file_manager/foreground/elements/files_metadata_box.js",
+    "file_manager/foreground/elements/files_metadata_entry.js",
     "file_manager/foreground/elements/files_password_dialog.m.js",
-    "file_manager/foreground/elements/files_quick_view.m.js",
-    "file_manager/foreground/elements/files_ripple.m.js",
-    "file_manager/foreground/elements/files_safe_media.m.js",
+    "file_manager/foreground/elements/files_quick_view.js",
+    "file_manager/foreground/elements/files_ripple.js",
+    "file_manager/foreground/elements/files_safe_media.js",
     "file_manager/foreground/elements/files_spinner.m.js",
-    "file_manager/foreground/elements/files_toast.m.js",
-    "file_manager/foreground/elements/files_toggle_ripple.m.js",
-    "file_manager/foreground/elements/files_tooltip.m.js",
+    "file_manager/foreground/elements/files_toast.js",
+    "file_manager/foreground/elements/files_toggle_ripple.js",
+    "file_manager/foreground/elements/files_tooltip.js",
     "file_manager/foreground/elements/xf_button.m.js",
     "file_manager/foreground/elements/xf_circular_progress.m.js",
     "file_manager/foreground/elements/xf_display_panel.m.js",
@@ -360,32 +365,22 @@ preprocess_if_expr("preprocess_generated") {
     "file_manager/foreground/js/metadata/mpeg_parser.m.js",
     "file_manager/foreground/js/metadata/multi_metadata_provider.m.js",
     "file_manager/foreground/js/metadata/thumbnail_model.m.js",
-
-    # Video Player:
-    "video_player/js/error_util.m.js",
-    "video_player/js/test_util.m.js",
-    "video_player/js/background.m.js",
-    "video_player/js/video_player.m.js",
-    "video_player/js/video_player_native_controls.m.js",
-    "video_player/js/video_player_metrics.m.js",
   ]
 
   deps = [
     "//ui/file_manager/audio_player/elements:web_components",
-    "//ui/file_manager/audio_player/js:modulize",
-    "//ui/file_manager/file_manager:gen_main_html",
     "//ui/file_manager/file_manager/background/js:modulize",
     "//ui/file_manager/file_manager/common/js:modulize",
     "//ui/file_manager/file_manager/externs:modulize",
     "//ui/file_manager/file_manager/externs/background:modulize",
     "//ui/file_manager/file_manager/foreground/elements:elements",
     "//ui/file_manager/file_manager/foreground/elements:modulize",
+    "//ui/file_manager/file_manager/foreground/elements:web_components",
     "//ui/file_manager/file_manager/foreground/js:modulize",
     "//ui/file_manager/file_manager/foreground/js/metadata:modulize",
     "//ui/file_manager/file_manager/foreground/js/ui:modulize",
     "//ui/file_manager/file_manager/foreground/js/ui/table:modulize",
     "//ui/file_manager/image_loader:modulize",
-    "//ui/file_manager/video_player/js:modulize",
   ]
 }
 
@@ -412,21 +407,19 @@ generate_grd("build_grd") {
 
   input_files_base_dir = rebase_path(target_gen_dir, root_build_dir)
   input_files = [
-    "audio_player/js/main.m.rollup.js",
-    "audio_player/js/main_background.m.rollup.js",
-    "audio_player/js/metadata_worker.m.rollup.js",
+    "audio_player/js/main.rollup.js",
+    "audio_player/js/main_background.rollup.js",
+    "audio_player/js/metadata_worker.rollup.js",
 
     # Fix broken images:
     "file_manager/images/files/ui/arrow_right.svg",
     "file_manager/images/files/ui/menu_ng.svg",
-
-    "file_manager/main_modules.html",
   ]
 
   resource_path_rewrites = [
-    "audio_player/js/main.m.rollup.js|audio_player/js/main.m.js",
-    "audio_player/js/main_background.m.rollup.js|audio_player/js/main_background.m.js",
-    "audio_player/js/metadata_worker.m.rollup.js|audio_player/js/metadata_worker.m.js",
+    "audio_player/js/main.rollup.js|audio_player/js/main.js",
+    "audio_player/js/main_background.rollup.js|audio_player/js/main_background.js",
+    "audio_player/js/metadata_worker.rollup.js|audio_player/js/metadata_worker.js",
   ]
 
   if (optimize_webui) {

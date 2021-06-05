@@ -19,6 +19,7 @@ compile_js_files = [
   "focus_ring.js",
   "gallerybutton.js",
   "h264.js",
+  "i18n_string.js",
   "init.js",
   "intent.js",
   "lib/comlink.js",
@@ -86,10 +87,7 @@ compile_js_files = [
   "window_controller.js",
 ]
 
-no_compile_js_files = [
-  "lib/analytics.js",
-  "dynamic_import.js",
-]
+no_compile_js_files = [ "lib/analytics.js" ]
 
 wasm_files = [ "lib/ffmpeg.wasm" ]
 

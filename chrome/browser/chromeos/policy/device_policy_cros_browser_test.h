@@ -13,6 +13,7 @@
 #include "chrome/browser/chromeos/policy/device_policy_builder.h"
 #include "chrome/test/base/mixin_based_in_process_browser_test.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
+#include "components/policy/core/common/cloud/test/policy_builder.h"
 #include "components/prefs/pref_change_registrar.h"
 
 namespace chromeos {
@@ -116,9 +117,6 @@ class DevicePolicyCrosBrowserTest : public MixinBasedInProcessBrowserTest {
   ~DevicePolicyCrosBrowserTest() override;
 
   void RefreshDevicePolicy() { policy_helper()->RefreshDevicePolicy(); }
-  chromeos::DBusThreadManagerSetter* dbus_setter() {
-    return dbus_setter_.get();
-  }
 
   DevicePolicyBuilder* device_policy() {
     return policy_helper()->device_policy();
@@ -134,9 +132,6 @@ class DevicePolicyCrosBrowserTest : public MixinBasedInProcessBrowserTest {
 
  private:
   DevicePolicyCrosTestHelper policy_helper_;
-
-  // FakeDBusThreadManager uses FakeSessionManagerClient.
-  std::unique_ptr<chromeos::DBusThreadManagerSetter> dbus_setter_;
 };
 
 }  // namespace policy

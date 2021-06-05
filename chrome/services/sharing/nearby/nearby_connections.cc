@@ -13,6 +13,8 @@
 #include "chrome/services/sharing/nearby/nearby_connections_conversions.h"
 #include "chrome/services/sharing/nearby/platform/input_file.h"
 #include "chromeos/services/nearby/public/mojom/nearby_connections_types.mojom.h"
+#include "chromeos/services/nearby/public/mojom/webrtc.mojom.h"
+#include "services/network/public/mojom/p2p.mojom.h"
 #include "third_party/nearby/src/cpp/core/core.h"
 #include "third_party/nearby/src/cpp/core/internal/offline_service_controller.h"
 
@@ -333,7 +335,8 @@ void NearbyConnections::OnDisconnect(MojoDependencyName dependency_name) {
     return;
   }
 
-  LOG(WARNING) << "Nearby dependency mojo disconnected: ["
+  LOG(WARNING) << "The utility process has detected that the browser process "
+                  "has disconnected from a mojo pipe: ["
                << GetMojoDependencyName(dependency_name) << "]";
   base::UmaHistogramEnumeration(
       "Nearby.Connections.UtilityProcessShutdownReason."

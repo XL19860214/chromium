@@ -33,9 +33,12 @@ constexpr int kHoldingSpaceTrayIconSize = 20;
 
 // Context menu commands.
 enum class HoldingSpaceCommandId {
+  kCancelItem,
   kCopyImageToClipboard,
   kHidePreviews,
   kRemoveItem,
+  kResumeItem,
+  kPauseItem,
   kPinItem,
   kShowInFolder,
   kShowPreviews,

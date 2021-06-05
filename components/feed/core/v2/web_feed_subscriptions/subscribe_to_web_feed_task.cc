@@ -7,7 +7,6 @@
 #include <algorithm>
 
 #include "base/bind.h"
-#include "base/stl_util.h"
 #include "components/feed/core/v2/feed_stream.h"
 #include "components/feed/core/v2/web_feed_subscription_coordinator.h"
 #include "components/feed/core/v2/web_feed_subscriptions/wire_to_store.h"
@@ -64,6 +63,9 @@ void SubscribeToWebFeedTask::Run() {
     }
     feedwire::webfeed::FollowWebFeedRequest request;
     request.set_web_page_uri(request_.page_info.url().spec());
+    for (const GURL& rss_url : request_.page_info.GetRssUrls()) {
+      request.add_page_rss_uris(rss_url.spec());
+    }
     stream_->GetNetwork()->SendApiRequest<FollowWebFeedDiscoverApi>(
         request, stream_->GetSyncSignedInGaia(),
         base::BindOnce(&SubscribeToWebFeedTask::RequestComplete,

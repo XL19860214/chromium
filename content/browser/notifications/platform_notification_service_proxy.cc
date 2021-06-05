@@ -16,6 +16,7 @@
 #include "content/public/browser/notification_database_data.h"
 #include "content/public/browser/platform_notification_service.h"
 #include "content/public/common/content_client.h"
+#include "third_party/blink/public/common/storage_key/storage_key.h"
 
 namespace content {
 
@@ -101,7 +102,7 @@ void PlatformNotificationServiceProxy::DisplayNotification(
       base::BindOnce(
           &ServiceWorkerContextWrapper::FindReadyRegistrationForId,
           service_worker_context_, data.service_worker_registration_id,
-          url::Origin::Create(data.origin),
+          blink::StorageKey(url::Origin::Create(data.origin)),
           base::BindOnce(
               &PlatformNotificationServiceProxy::VerifyServiceWorkerScope,
               weak_ptr_factory_io_.GetWeakPtr(), data, std::move(callback))));

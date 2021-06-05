@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <memory>
 #include <utility>
+#include <vector>
 
 #include "base/bits.h"
 #include "base/compiler_specific.h"
@@ -31,6 +32,7 @@
 
 #if !defined(OS_ANDROID)
 #include "cc/paint/skottie_transfer_cache_entry.h"
+#include "cc/paint/skottie_wrapper.h"
 #endif
 
 namespace cc {
@@ -103,7 +105,7 @@ void PaintOpReader::ReadSimple(T* val) {
 
   // Align everything to 4 bytes, as the writer does.
   static constexpr size_t kAlign = 4;
-  size_t size = base::bits::Align(sizeof(T), kAlign);
+  size_t size = base::bits::AlignUp(sizeof(T), kAlign);
 
   if (remaining_bytes_ < size)
     SetInvalid();
@@ -723,7 +725,7 @@ void PaintOpReader::Read(scoped_refptr<SkottieWrapper>* skottie) {
 #endif  // !defined(OS_ANDROID)
 
 void PaintOpReader::AlignMemory(size_t alignment) {
-  size_t padding = base::bits::Align(memory_, alignment) - memory_;
+  size_t padding = base::bits::AlignUp(memory_, alignment) - memory_;
   if (padding > remaining_bytes_)
     SetInvalid();
 
@@ -1084,13 +1086,29 @@ void PaintOpReader::ReadImagePaintFilter(
 void PaintOpReader::ReadRecordPaintFilter(
     sk_sp<PaintFilter>* filter,
     const absl::optional<PaintFilter::CropRect>& crop_rect) {
-  SkRect record_bounds;
+  SkRect record_bounds = SkRect::MakeEmpty();
+  gfx::SizeF raster_scale = {0.f, 0.f};
+  PaintShader::ScalingBehavior scaling_behavior =
+      PaintShader::ScalingBehavior::kRasterAtScale;
   sk_sp<PaintRecord> record;
-  Read(&record_bounds);
+  ReadSimple(&record_bounds);
+  ReadSimple(&raster_scale);
+  if (raster_scale.width() <= 0.f || raster_scale.height() <= 0.f) {
+    SetInvalid();
+    return;
+  }
+
+  ReadSimple(&scaling_behavior);
+  if (!IsValidPaintShaderScalingBehavior(scaling_behavior)) {
+    SetInvalid();
+    return;
+  }
+
   Read(&record);
   if (!valid_)
     return;
-  filter->reset(new RecordPaintFilter(std::move(record), record_bounds));
+  filter->reset(new RecordPaintFilter(std::move(record), record_bounds,
+                                      raster_scale, scaling_behavior));
 }
 
 void PaintOpReader::ReadMergePaintFilter(

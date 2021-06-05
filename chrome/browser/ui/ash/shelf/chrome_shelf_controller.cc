@@ -9,8 +9,8 @@
 #include <set>
 #include <utility>
 
+#include "ash/constants/app_types.h"
 #include "ash/constants/ash_features.h"
-#include "ash/public/cpp/app_types.h"
 #include "ash/public/cpp/ash_pref_names.h"
 #include "ash/public/cpp/multi_user_window_manager.h"
 #include "ash/public/cpp/shelf_item.h"
@@ -31,6 +31,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
+#include "base/task_runner_util.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "chrome/browser/apps/app_service/app_service_proxy.h"
 #include "chrome/browser/apps/app_service/app_service_proxy_factory.h"
@@ -63,7 +64,6 @@
 #include "chrome/browser/ui/ash/shelf/browser_shortcut_shelf_item_controller.h"
 #include "chrome/browser/ui/ash/shelf/browser_status_monitor.h"
 #include "chrome/browser/ui/ash/shelf/chrome_shelf_controller_util.h"
-#include "chrome/browser/ui/ash/shelf/multi_profile_browser_status_monitor.h"
 #include "chrome/browser/ui/ash/shelf/shelf_controller_helper.h"
 #include "chrome/browser/ui/ash/shelf/shelf_extension_app_updater.h"
 #include "chrome/browser/ui/ash/shelf/shelf_spinner_controller.h"
@@ -75,9 +75,7 @@
 #include "chrome/browser/ui/settings_window_manager_chromeos.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/webui/settings/chromeos/app_management/app_management_uma.h"
-#include "chrome/browser/web_applications/components/app_registrar.h"
 #include "chrome/browser/web_applications/components/web_app_helpers.h"
-#include "chrome/browser/web_applications/web_app_provider.h"
 #include "chrome/common/chrome_features.h"
 #include "chrome/common/extensions/manifest_handlers/app_launch_info.h"
 #include "chrome/common/pref_names.h"
@@ -253,16 +251,8 @@ ChromeShelfController::ChromeShelfController(Profile* profile,
       std::make_unique<AppServiceAppWindowShelfController>(this);
   app_service_app_window_controller_ = app_service_controller.get();
   app_window_controllers_.emplace_back(std::move(app_service_controller));
-  if (SessionControllerClientImpl::IsMultiProfileAvailable()) {
-    // If running in separated desktop mode, we create the multi profile
-    // version of status monitor.
-    browser_status_monitor_ =
-        std::make_unique<MultiProfileBrowserStatusMonitor>(this);
-  } else {
-    // Create our v1/v2 application / browser monitors which will inform the
-    // shelf of status changes.
-    browser_status_monitor_ = std::make_unique<BrowserStatusMonitor>(this);
-  }
+  // Create the browser monitor which will inform the shelf of status changes.
+  browser_status_monitor_ = std::make_unique<BrowserStatusMonitor>(this);
 }
 
 ChromeShelfController::~ChromeShelfController() {
@@ -387,8 +377,8 @@ bool ChromeShelfController::IsPinned(const ash::ShelfID& id) {
   return item && ItemTypeIsPinned(*item);
 }
 
-void ChromeShelfController::SetV1AppStatus(const std::string& app_id,
-                                           ash::ShelfItemStatus status) {
+void ChromeShelfController::SetAppStatus(const std::string& app_id,
+                                         ash::ShelfItemStatus status) {
   ash::ShelfID id(app_id);
   const ash::ShelfItem* item = GetItem(id);
   if (item) {
@@ -853,16 +843,16 @@ void ChromeShelfController::DoShowAppInfoFlow(Profile* profile,
   apps::AppServiceProxyChromeOs* proxy =
       apps::AppServiceProxyFactory::GetForProfile(profile);
 
+  auto app_type = proxy->AppRegistryCache().GetAppType(app_id);
+
   // Apps that are not in the App Service may call this function.
   // E.g. extensions, apps that are using their platform specific IDs.
-  if (proxy->AppRegistryCache().GetAppType(app_id) ==
-      apps::mojom::AppType::kUnknown) {
+  if (app_type == apps::mojom::AppType::kUnknown) {
     return;
   }
 
-  web_app::WebAppProvider* web_app_provider =
-      web_app::WebAppProvider::Get(profile);
-  if (web_app_provider && web_app_provider->registrar().IsInstalled(app_id)) {
+  if (app_type == apps::mojom::AppType::kWeb ||
+      app_type == apps::mojom::AppType::kSystemWeb) {
     chrome::ShowAppManagementPage(
         profile, app_id,
         AppManagementEntryPoint::kShelfContextMenuAppInfoWebApp);
@@ -955,7 +945,8 @@ void ChromeShelfController::OnAppUpdated(
 
 void ChromeShelfController::OnAppUninstalledPrepared(
     content::BrowserContext* browser_context,
-    const std::string& app_id) {
+    const std::string& app_id,
+    bool by_migration) {
   // Since we might have windowed apps of this type which might have
   // outstanding locks which needs to be removed.
   const Profile* profile = Profile::FromBrowserContext(browser_context);
@@ -982,7 +973,7 @@ void ChromeShelfController::OnAppUninstalledPrepared(
     // We don't remove the pin position from the preferences, in case we want to
     // restore the app pinned state when the app state has changed to blocked or
     // enabled.
-    if (show_in_shelf_changed && is_app_disabled) {
+    if (by_migration || (show_in_shelf_changed && is_app_disabled)) {
       ScopedPinSyncDisabler scoped_pin_sync_disabler =
           GetScopedPinSyncDisabler();
       UnpinShelfItemInternal(shelf_id);

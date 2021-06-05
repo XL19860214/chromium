@@ -24,7 +24,6 @@
 <translation id="1148499908455722006"><ph name="USER_NAME" /> கணக்கிற்கான தகவலைக் காட்டும் உரையாடலைத் திறக்கும்</translation>
 <translation id="1153356358378277386">இணைத்த சாதனங்கள்</translation>
 <translation id="1165712434476988950">புதுப்பிப்பை நிறுவ சாதனத்தை மீண்டும் தொடங்க வேண்டும்.</translation>
-<translation id="1170240434488307589">சாதனத்தின் மைக்ரோஃபோன் பட்டன் முடக்கப்பட்டுள்ளது.</translation>
 <translation id="1175572348579024023">நகர்த்து</translation>
 <translation id="1178581264944972037">இடைநிறுத்து</translation>
 <translation id="1181037720776840403">அகற்று</translation>
@@ -41,6 +40,7 @@
 <translation id="1247372569136754018">மைக்ரோஃபோன் (அகம்)</translation>
 <translation id="1252999807265626933"><ph name="POWER_SOURCE" /> இலிருந்து சார்ஜ் செய்யப்படுகிறது</translation>
 <translation id="1255033239764210633">வானிலை எப்படி இருக்கிறது?</translation>
+<translation id="1266097335951928626">செல்ஃபி கேமராவைத் திற</translation>
 <translation id="1267032506238418139">ஷார்ட்கட் மாற்றம்</translation>
 <translation id="1269405891096105529">கெஸ்ட் பயன்முறையில் சாதனம் செயல்படாது</translation>
 <translation id="1270290102613614947">ஆன்ஸ்க்ரீன் கீபோர்டு முடக்கப்பட்டது</translation>
@@ -82,8 +82,10 @@
 <translation id="15373452373711364">பெரிய மவுஸ் இடஞ்சுட்டி</translation>
 <translation id="1546492247443594934">மேசை 2</translation>
 <translation id="1550523713251050646">மேலும் விருப்பங்களுக்குக் கிளிக் செய்யவும்</translation>
+<translation id="1555130319947370107">நீலம்</translation>
 <translation id="1570871743947603115">புளூடூத்தை நிலைமாற்றும். <ph name="STATE_TEXT" /></translation>
 <translation id="1589090746204042747">இந்த அமர்விலுள்ள உங்கள் அனைத்துச் செயல்பாடுகளையும் அணுகுதல்</translation>
+<translation id="159255010947577753">மார்க்கர்</translation>
 <translation id="1611993646327628135">இயக்கு</translation>
 <translation id="1615402009686901181">ரகசியமான உள்ளடக்கம் காட்டப்படுவதால் திரையைப் படமெடுப்பதை நிர்வாகக் கொள்கை முடக்கிவிட்டது</translation>
 <translation id="1632985212731562677">அமைப்புகள் &gt; அணுகலம்சங்கள் என்பதற்குச் சென்று சுவிட்ச் அணுகலை முடக்கலாம்.</translation>
@@ -135,18 +137,23 @@
 <translation id="2016340657076538683">செய்தியை உள்ளிடவும்</translation>
 <translation id="2018630726571919839">ஒரு ஜோக் சொல்லு</translation>
 <translation id="2021864487439853900">அன்லாக் செய்யக் கிளிக் செய்க</translation>
+<translation id="2047639699071423250">முக்கியமான வீடியோ பகுதிகளைச் சேர்</translation>
 <translation id="2049240716062114887">டெஸ்க் பெயர் <ph name="DESK_NAME" /> என மாற்றப்பட்டது</translation>
 <translation id="2050339315714019657">செங்குத்து நிலை</translation>
+<translation id="2066708475850724665">பெரிதாக்கியை முடக்கு</translation>
 <translation id="2067602449040652523">கீபோர்டு ஒளிர்வு</translation>
 <translation id="2078034614700056995">அடுத்த டெஸ்க்கிற்கு மாற நான்கு விரல்களால் வலதுபுறமாக ஸ்வைப் செய்யவும்</translation>
 <translation id="2079504693865562705">ஆப்ஸை ஷெல்ஃபில் மறைக்கும்</translation>
+<translation id="2079545284768500474">செயல்தவிர்</translation>
 <translation id="2083190527011054446">இரவு வணக்கம் <ph name="GIVEN_NAME" />,</translation>
 <translation id="209965399369889474">நெட்வொர்க்குடன் இணைக்கப்படவில்லை</translation>
 <translation id="2108303511227308752">இந்தக் கீபோர்டு ஷார்ட்கட் மாற்றப்பட்டுள்ளது: Alt + Backspace. Delete பட்டனைப் பயன்படுத்த, <ph name="LAUNCHER_KEY_NAME" /> பட்டன் + backspace பட்டனை அழுத்தவும்.</translation>
+<translation id="211328683600082144">மைக்ரோஃபோனை இயக்கு</translation>
 <translation id="2126242104232412123">புதிய டெஸ்க்</translation>
 <translation id="2127372758936585790">குறைந்த சக்திகொண்ட சார்ஜர்</translation>
 <translation id="2132302418721800944">முழுத்திரையையும் ரெக்கார்டு செய்யும்</translation>
 <translation id="2135456203358955318">டாக் செய்யப்பட்ட பெரிதாக்கி</translation>
+<translation id="2146800439053023141">பட்டியின் இடத்தைக் காட்டு/மறை</translation>
 <translation id="2158971754079422508"><ph name="DESC_TEXT" />: மீண்டும் முயலுங்கள்</translation>
 <translation id="2167870087604746126">+ V</translation>
 <translation id="2170530631236737939">மேலோட்டப் பயன்முறையில் இருந்து வெளியேற, கீழ்நோக்கி மூன்று விரல்களால் ஸ்வைப் செய்யவும்</translation>
@@ -210,6 +217,7 @@
 <translation id="2704781753052663061">பிற வைஃபை நெட்வொர்க்குகளில் இணையுங்கள்</translation>
 <translation id="2705001408393684014">மைக்கை நிலைமாற்றும். <ph name="STATE_TEXT" /></translation>
 <translation id="2706462751667573066">Up</translation>
+<translation id="2713444072780614174">வெள்ளை</translation>
 <translation id="2718395828230677721">நைட் லைட்</translation>
 <translation id="2726420622004325180">ஹாட்ஸ்பாட் இணைப்பை வழங்க உங்கள் ஃபோனில் மொபைல் டேட்டா இருக்க வேண்டும்</translation>
 <translation id="2727175239389218057">பதிலளி</translation>
@@ -237,6 +245,7 @@
 <translation id="2963773877003373896">mod3</translation>
 <translation id="2970920913501714344">ஆப்ஸ், நீட்டிப்புகள் மற்றும் தீம்களை நிறுவுதல்</translation>
 <translation id="2977598380246111477">அடுத்த எண்</translation>
+<translation id="2992327365391326550">சாதனத்தின் மைக்ரோஃபோன் பட்டன் முடக்கப்பட்டுள்ளது.</translation>
 <translation id="2995447421581609334">அனுப்பும் சாதனங்களைக் காண்பிக்கும்.</translation>
 <translation id="2996462380875591307">டாக் செய்யப்பட்ட பெரிதாக்கி இயக்கப்பட்டது. அதை முடக்க, Ctrl+Search+Dயை மீண்டும் அழுத்தவும்.</translation>
 <translation id="3000461861112256445">மோனோ ஆடியோ</translation>
@@ -247,6 +256,7 @@
 <translation id="3038571455154067151">உள்நுழைய உங்கள் Family Link பெற்றோர் அணுகல் குறியீட்டை உள்ளிடவும்</translation>
 <translation id="3039939407102840004">ஸ்டைலஸ் பேட்டரி: <ph name="PERCENTAGE" /> சதவீதம்.</translation>
 <translation id="3045488863354895414">மதிய வணக்கம்,</translation>
+<translation id="3051189971848907985">நெட்வொர்க் சுயவிவரத்தின் பெயரை மாற்றுகிறது. சில நிமிடங்கள் காத்திருக்கவும்.</translation>
 <translation id="3055162170959710888">இந்தச் சாதனத்தை இன்று <ph name="USED_TIME" /> பயன்படுத்தியுள்ளீர்கள்</translation>
 <translation id="3077734595579995578">shift</translation>
 <translation id="3081696990447829002">மெனுவை விரி</translation>
@@ -270,6 +280,7 @@
 <translation id="3207953481422525583">பயனர் அமைப்புகள்</translation>
 <translation id="3217205077783620295">ஒலியளவு இயக்கத்தில் உள்ளது. நிலைமாற்றினால் அது முடக்கப்படும்.</translation>
 <translation id="3226991577105957773">+மேலும் <ph name="COUNT" /></translation>
+<translation id="324366796737464147">இரைச்சலை நீக்குதல்</translation>
 <translation id="3249513730522716925"><ph name="WINDOW_TITLE" /> என்ற சாளரமானது டெஸ்க்<ph name="ACTIVE_DESK" />ல் இருந்து டெஸ்க் <ph name="TARGET_DESK" />க்கு நகர்த்தப்பட்டது</translation>
 <translation id="3255483164551725916">உன்னால் என்னவெல்லாம் செய்ய முடியும்?</translation>
 <translation id="3269597722229482060">வலது கிளிக்</translation>
@@ -280,7 +291,6 @@
 <translation id="3308453408813785101">அப்போதும் <ph name="USER_EMAIL_ADDRESS" /> பின்னர் உள்நுழையலாம்.</translation>
 <translation id="3321628682574733415">தவறான பெற்றோர் அணுகல் குறியீடு</translation>
 <translation id="332587331255250389">பேட்டரியை மாற்றவும்</translation>
-<translation id="3333741161915951567">மோடம் மறுபடி தொடங்குகிறது. மீண்டும் முயல்வதற்கு முன் 30 வினாடிகள் காத்திருக்கவும்.</translation>
 <translation id="3341303451326249809">ஸ்கிரீன்ஷாட் எடுக்கப்பட்டது</translation>
 <translation id="334252345105450327">ஸ்கிரீன்ஷாட் எடுங்கள்</translation>
 <translation id="3351879221545518001">தற்போது திரையை அலைபரப்புகிறீர்கள்.</translation>
@@ -288,6 +298,7 @@
 <translation id="3368922792935385530">இணைக்கப்பட்டது</translation>
 <translation id="3371140690572404006">USB-C சாதனம் (வலது பக்கம் முன்னே இருக்கும் போர்ட்)</translation>
 <translation id="3375634426936648815">இணைக்கப்பட்டுள்ளது</translation>
+<translation id="3378442621503952303">நெட்வொர்க் சுயவிவரத்துடன் இணைக்கிறது. சில நிமிடங்கள் காத்திருக்கவும்.</translation>
 <translation id="3386978599540877378">முழுத்திரை பெரிதாக்கி</translation>
 <translation id="3400357268283240774">கூடுதல் அமைப்புகள்</translation>
 <translation id="3410336247007142655">டார்க் தீம் அமைப்புகளைக் காட்டும்</translation>
@@ -325,6 +336,7 @@
 <translation id="3638400994746983214">தனிப்பட்ட திரையை நிலைமாற்றும். <ph name="STATE_TEXT" />.</translation>
 <translation id="366222428570480733"><ph name="USER_EMAIL_ADDRESS" /> நிர்வகிக்கப்பட்ட பயனர்</translation>
 <translation id="3665889125180354336">மைக்ரோஃபோன் மூலம் ரெக்கார்டு செய்தல்</translation>
+<translation id="3680908746918359504">மார்க்கர்கள் அனைத்தையும் அழி</translation>
 <translation id="36813544980941320">உங்கள் மொபைல், <ph name="DEVICE_NAME" /> சாதனம் ஆகியவற்றுக்கு இடையே வைஃபை நெட்வொர்க்குகள் பகிரப்படும்</translation>
 <translation id="3702809606464356667">தற்போதைய டெஸ்க்கில் உள்ள சாளரங்களைக் காட்டுகிறது, அனைத்து டெஸ்க்குகளிலும் உள்ள சாளரங்களைக் காட்ட, மேல்நோக்கிய அம்புக்குறி விசையை அழுத்தவும்</translation>
 <translation id="3702846122927433391">நைஜீரியாவின் மக்கள் தொகை</translation>
@@ -343,6 +355,7 @@
 <translation id="380165613292957338">வணக்கம், நான் எவ்வாறு உதவலாம்?</translation>
 <translation id="3826099427150913765">கடவுச்சொல்லிற்கு மாற்று</translation>
 <translation id="383058930331066723">பேட்டரி சேமிப்பான் பயன்முறை இயக்கத்தில் உள்ளது</translation>
+<translation id="3835880383832568924">மாற்றங்களைப் பார்க்க Shortcuts ஆப்ஸைத் திறக்கவும்</translation>
 <translation id="383629559565718788">கீபோர்டு அமைப்புகளைக் காண்பிக்கும்</translation>
 <translation id="3846214748874656680">முழுத்திரை வேண்டாம்</translation>
 <translation id="3846575436967432996">நெட்வொர்க் தகவல் எதுவும் இல்லை</translation>
@@ -370,12 +383,12 @@
 <translation id="4021716437419160885">கீழே நகர்த்து</translation>
 <translation id="4028481283645788203">மேலும் பாதுகாப்பிற்குக் கடவுச்சொல் அவசியம்</translation>
 <translation id="4032485810211612751"><ph name="HOURS" />:<ph name="MINUTES" />:<ph name="SECONDS" /></translation>
-<translation id="403337028234783023">இந்தக் கீபோர்டு ஷார்ட்கட் மாற்றப்பட்டுள்ளது: <ph name="LAUNCHER_KEY_NAME" /> + எண். F பட்டன்களைப் பயன்படுத்த, <ph name="LAUNCHER_KEY_NAME" /> பட்டன் + மேல் வரிசையில் உள்ள ஒரு பட்டனை அழுத்தவும்.</translation>
 <translation id="4042660782729322247">திரையைப் பகிர்ந்துள்ளீர்கள்</translation>
 <translation id="4057003836560082631">உலாவி தாவல் <ph name="INDEX" />/<ph name="TOTAL_COUNT" />. <ph name="SITE_TITLE" />, <ph name="SITE_URL" /></translation>
 <translation id="4065525899979931964">{NUM_APPS,plural, =1{ஒரு ஆப்ஸுக்கு ஆஃப்}other{# ஆப்ஸுக்கு ஆஃப்}}</translation>
 <translation id="4066027111132117168">இயக்கத்தில் உள்ளது, <ph name="REMAINING_TIME" /></translation>
 <translation id="4072264167173457037">நடுத்தரமான சிக்னல்</translation>
+<translation id="4095366824370681039">இங்க் பேனா</translation>
 <translation id="4112140312785995938">பின்செல்</translation>
 <translation id="4114315158543974537">Phone Hubபை இயக்குதல்</translation>
 <translation id="412298498316631026">சாளரம்</translation>
@@ -444,12 +457,15 @@
 <translation id="4570957409596482333">பேசும் திரை பொத்தான்</translation>
 <translation id="4577274620589681794">நேரம் முடிந்தது · <ph name="LABEL" /></translation>
 <translation id="4577990005084629481">மாதிரிக்காட்சிகளைக் காட்டு</translation>
+<translation id="4578196883126898996">மைக்ரோஃபோன் முடக்கப்பட்டுள்ளது. சாதனத்தின் மைக்ரோஃபோனை இயக்கவும்.</translation>
 <translation id="4578906031062871102">அமைப்புகள் மெனு திறக்கப்பட்டுள்ளது</translation>
 <translation id="4581047786858252841">மைக்ரோஃபோன் இயக்கப்பட்டது</translation>
 <translation id="4585337515783392668">தெரியாத ரிசீவருக்கு அனுப்புவதை நிறுத்து</translation>
+<translation id="4586483766170476230">செல்ஃபி கேமராவை மூடுக</translation>
 <translation id="4587299710837179226">மைக்ரோஃபோன் முடக்கப்பட்டது</translation>
 <translation id="4596144739579517758">டார்க் தீம் முடக்கப்பட்டுள்ளது</translation>
 <translation id="4611292653554630842">உள்நுழைக</translation>
+<translation id="4614295562446151104">மார்க்கர் கருவிகளைக் காட்டு</translation>
 <translation id="4623167406982293031">கணக்கைச் சரிபார்க்கவும்</translation>
 <translation id="4628757576491864469">சாதனங்கள்</translation>
 <translation id="4642092649622328492">பகுதியளவு ஸ்கிரீன்ஷாட்டை எடுக்கும்</translation>
@@ -460,6 +476,7 @@
 <translation id="4705716602320768426">கருத்தைப் பதிவுசெய்க</translation>
 <translation id="4731797938093519117">பெற்றோர் அணுகல்</translation>
 <translation id="4734965478015604180">கிடைமட்டம்</translation>
+<translation id="4735498845456076464">இந்தக் கீபோர்டு ஷார்ட்கட் மாற்றப்பட்டுள்ளது: <ph name="LAUNCHER_KEY_NAME" /> + எண். செயல்பாட்டு பட்டன்களைப் பயன்படுத்த, <ph name="LAUNCHER_KEY_NAME" /> பட்டன் + மேல் வரிசையில் உள்ள ஒரு பட்டனை அழுத்தவும்.</translation>
 <translation id="4744944742468440486">உங்கள் தேர்வுடன் தொடர்புடைய தகவல்கள்</translation>
 <translation id="4759238208242260848">பதிவிறக்கங்கள்</translation>
 <translation id="4774338217796918551">நாளை <ph name="COME_BACK_TIME" />க்கு சாதனத்தை மீண்டும் பயன்படுத்தலாம்.</translation>
@@ -506,6 +523,8 @@
 <translation id="5035236842988137213"><ph name="DEVICE_NAME" /> ஒரு புதிய ஃபோனுடன் இணைக்கப்பட்டுள்ளது</translation>
 <translation id="5035389544768382859">திரை உள்ளமைவை உறுதிசெய்யுங்கள்</translation>
 <translation id="504465286040788597">முந்தைய பத்தி</translation>
+<translation id="5071064518267176975">மைக்ரோஃபோனை ஓர் ஆப்ஸ் பயன்படுத்த விரும்புகிறது</translation>
+<translation id="5075554201838155866">வசனங்களைக் காட்டு</translation>
 <translation id="5078796286268621944">தவறான PIN</translation>
 <translation id="5083553833479578423">மேலும் பல அசிஸ்டண்ட் அம்சங்களைப் பெறுக.</translation>
 <translation id="5136175204352732067">வேறொரு கீபோர்டு இணைக்கப்பட்டது</translation>
@@ -582,6 +601,7 @@
 <translation id="5805809050170488595"><ph name="NETWORK_NAME" /> நெட்வொர்க்கை இயக்க, கிளிக் செய்யவும்</translation>
 <translation id="5820394555380036790">Chromium OS</translation>
 <translation id="5825969630400862129">இணைக்கப்பட்ட சாதனங்களின் அமைப்புகள்</translation>
+<translation id="583281660410589416">தெரியாதது</translation>
 <translation id="5837036133683224804"><ph name="RECEIVER_NAME" />க்கு <ph name="ROUTE_TITLE" />ஐ அனுப்புவதை நிறுத்து</translation>
 <translation id="5860033963881614850">ஆஃப்</translation>
 <translation id="5860491529813859533">இயக்கு</translation>
@@ -675,6 +695,7 @@
 <translation id="6612802754306526077">ஸ்கிரீன் ரெக்கார்டிங் பயன்முறை தேர்ந்தெடுக்கப்பட்டது</translation>
 <translation id="6614169507485700968">தனிப்பட்ட திரை இயக்கப்பட்டுள்ளது</translation>
 <translation id="6627638273713273709">தேடல்+Shift+K</translation>
+<translation id="6629480180092995136">உங்கள் மைக்ரோஃபோனை <ph name="APP_NAME" /> பயன்படுத்த விரும்புகிறது</translation>
 <translation id="6637729079642709226">நேரத்தை மாற்றுக</translation>
 <translation id="6641720045729354415">'உடனடி வசனத்தை' நிலைமாற்றும். <ph name="STATE_TEXT" /></translation>
 <translation id="6650072551060208490">இது நீங்கள்தான் என்பதை <ph name="ORIGIN_NAME" /> உறுதிப்படுத்த விரும்புகிறது</translation>
@@ -713,6 +734,7 @@
 <translation id="6896758677409633944">நகலெடு</translation>
 <translation id="6910714959251846841">இந்தப் புதுப்பிப்பைப் பெற, உங்கள் சாதனத்தைப் பவர்வாஷ் செய்ய வேண்டும். சமீபத்திய <ph name="SYSTEM_APP_NAME" /> புதுப்பிப்பைப் பற்றி மேலும் அறிக.</translation>
 <translation id="6919251195245069855">உங்கள் ஸ்மார்ட் கார்டை அடையாளம் காண முடியவில்லை. மீண்டும் முயலவும்.</translation>
+<translation id="6921188888306725546">கீபோர்டு ஷார்ட்கட்கள் மேம்படுத்தப்பட்டுள்ளன</translation>
 <translation id="6945221475159498467">தேர்ந்தெடு</translation>
 <translation id="6961121602502368900">பணிக் கணக்கின் மூலம், மொபைலை நிசப்தமாக்குதல் அம்சத்தைப் பயன்படுத்த முடியாது</translation>
 <translation id="6961840794482373852">இந்தக் கீபோர்டு ஷார்ட்கட் மாற்றப்பட்டுள்ளது: Alt + மேல்நோக்கிய அம்புக்குறி. Page Up பட்டனைப் பயன்படுத்த, <ph name="LAUNCHER_KEY_NAME" /> பட்டன் + மேல்நோக்கிய அம்புக்குறி பட்டனை அழுத்தவும்.</translation>
@@ -728,6 +750,7 @@
 <translation id="7029814467594812963">அமர்விலிருந்து வெளியேறவும்</translation>
 <translation id="703425375924687388"><ph name="QUERY_NAME" />, Google அசிஸ்டண்ட்</translation>
 <translation id="7042322267639375032">நிலைப் பகுதியை சுருக்கும்</translation>
+<translation id="7045595904618419789">பெரிதாக்கியை இயக்கு</translation>
 <translation id="7055910611768509537">ஒரு வாரத்திற்கும் மேலாக ஸ்டைலஸ் பயன்படுத்தப்படவில்லை</translation>
 <translation id="7066646422045619941">இந்த நெட்வொர்க் உங்கள் நிர்வாகியால் முடக்கப்பட்டுள்ளது.</translation>
 <translation id="7067196344162293536">தானியங்கு சுழற்றல்</translation>
@@ -748,6 +771,7 @@
 <translation id="7256634071279256947">பின்பக்க மைக்ரோஃபோன்</translation>
 <translation id="726276584504105859">திரைப் பிரிப்பைப் பயன்படுத்த, இங்கே இழுக்கவும்</translation>
 <translation id="7262906531272962081">நினைவூட்டலை உருவாக்கு</translation>
+<translation id="7279434993080105272"><ph name="COLOR_PARAMETER" /> வண்ண மார்க்கர்</translation>
 <translation id="7302889331339392448">'உடனடி வசனம்' முடக்கப்பட்டது.</translation>
 <translation id="7303365578352795231">மற்றொரு சாதனத்தில் பதிலளிக்கப்படுகிறது.</translation>
 <translation id="7305884605064981971">EDGE</translation>
@@ -777,6 +801,7 @@
 <translation id="7466449121337984263">சென்சாரைத் தொடவும்</translation>
 <translation id="7477793887173910789">உங்கள் இசை, வீடியோக்கள் மற்றும் பலவற்றைக் கட்டுப்படுத்தலாம்</translation>
 <translation id="7483025031359818980">தேர்ந்தெடுக்கப்பட்ட பகுதியாக முழுத்திரை அமைக்கப்பட்டது</translation>
+<translation id="7486227320194954040">மார்க்கர் கருவிகளைச் சுருக்கு</translation>
 <translation id="7497767806359279797">மொழியையும் கீபோர்ட்டையும் தேர்வுசெய்யவும்</translation>
 <translation id="7509246181739783082">உங்கள் அடையாளத்தைச் சரிபார்த்தல்</translation>
 <translation id="7513622367902644023">ஸ்கிரீன்ஷாட் பயன்முறை தேர்ந்தெடுக்கப்பட்டது</translation>
@@ -787,6 +812,7 @@
 <translation id="7561982940498449837">மெனுவை மூடு</translation>
 <translation id="7564874036684306347">சாளரத்தை வேறு டெஸ்க்டாப்க்கு மாற்றினால், அது எதிர்பாராதவிதமாகச் செயல்படக் கூடும். அடுத்தடுத்து வரும் அறிவிப்புகளும் சாளரங்களும் உரையாடல்களும் டெஸ்க்டாப்களுக்கு இடையே பிரிக்கப்படலாம்.</translation>
 <translation id="7569509451529460200">பிரெய்லி மற்றும் ChromeVox இயக்கப்பட்டன</translation>
+<translation id="7569983096843329377">கருப்பு</translation>
 <translation id="7579778809502851308">திரையைப் படமெடு</translation>
 <translation id="7590883480672980941">உள்ளீட்டு அமைப்புகள்</translation>
 <translation id="7593891976182323525">தேடல் அல்லது Shift</translation>
@@ -794,6 +820,7 @@
 <translation id="7607002721634913082">இடைநிறுத்தப்பட்டது</translation>
 <translation id="7618774594543487847">நியூட்ரல்</translation>
 <translation id="7624117708979618027"><ph name="TEMPERATURE_F" />° F</translation>
+<translation id="7631906263969450674">மார்க்கர் பேனா</translation>
 <translation id="7633755430369750696">அருகிலுள்ளவற்றுடன் பகிர்தல் அமைப்புகளைக் காட்டும்.</translation>
 <translation id="7641938616688887143">ரெக்கார்டு செய்</translation>
 <translation id="7642647758716480637"><ph name="NETWORK_NAME" />க்கான அமைப்புகளைத் திறக்கும், <ph name="CONNECTION_STATUS" /></translation>
@@ -809,6 +836,7 @@
 <translation id="7724603315864178912">வெட்டு</translation>
 <translation id="7745560842763881396">ஆப்ஸை ஷெல்ஃபில் காட்டும்</translation>
 <translation id="7749443890790263709">டெஸ்க்குகளின் எண்ணிக்கை அதிகபட்ச வரம்பை எட்டிவிட்டது.</translation>
+<translation id="7749640678855296659">உங்கள் மைக்ரோஃபோன் தற்போது முடக்கப்பட்டுள்ளது</translation>
 <translation id="776344839111254542">புதுப்பிப்பு விவரங்களைப் பார்க்க, கிளிக் செய்யவும்</translation>
 <translation id="7780159184141939021">திரைச் சுழற்சி</translation>
 <translation id="7796353162336583443">குறிப்பெடுக்க, ஸ்கிரீன்ஷாட்டை எடுக்க, Google அசிஸ்டண்ட், லேசர் பாயிண்டர் அல்லது உருப்பெருக்கியைப் பயன்படுத்த, ஷெல்ஃபில் உள்ள ஸ்டைலஸ் பொத்தானைத் தட்டவும்.</translation>
@@ -856,6 +884,7 @@
 <translation id="8113423164597455979">எல்லா ஆப்ஸுக்கும் இயக்கு</translation>
 <translation id="8129620843620772246"><ph name="TEMPERATURE_C" />° C</translation>
 <translation id="8131740175452115882">உறுதிப்படுத்து</translation>
+<translation id="8132487352815776550">வசனங்களைக் காட்டாதே</translation>
 <translation id="8132793192354020517"><ph name="NAME" /> உடன் இணைக்கப்பட்டது</translation>
 <translation id="813913629614996137">துவக்குகிறது...</translation>
 <translation id="8142441511840089262">இரு கிளிக்</translation>
@@ -912,6 +941,7 @@
 <translation id="8631727435199967028">அணுகல்தன்மை அமைப்புகள்</translation>
 <translation id="8637598503828012618"><ph name="CONNECTION_STATUS" />, சிக்னல் வலிமை: <ph name="SIGNAL_STRENGTH" />, உங்கள் நிர்வாகி நிர்வகிக்கிறார்</translation>
 <translation id="8639760480004882931"><ph name="PERCENTAGE" /> மீதமுள்ளது</translation>
+<translation id="8641805545866562088">நெட்வொர்க் சுயவிவரப் பட்டியலை ரெஃப்ரெஷ் செய்கிறது. சில நிமிடங்கள் காத்திருக்கவும்.</translation>
 <translation id="8646417893960517480"><ph name="TOTAL_TIME" /> டைமர்</translation>
 <translation id="8647931990447795414">ஒரு நபரைச் சேர்க்க, Family Link பெற்றோர் அணுகல் குறியீட்டை உள்ளிடவும்</translation>
 <translation id="8649101189709089199">பேசும் திரை</translation>
@@ -939,6 +969,7 @@
 <translation id="8788027118671217603"><ph name="STATE_TEXT" />. <ph name="ENTERPRISE_TEXT" /></translation>
 <translation id="8814190375133053267">வைஃபை</translation>
 <translation id="881757059229893486">உள்ளீட்டு முறைகளுக்கான அமைப்புகள்</translation>
+<translation id="8818320199597151042">நெட்வொர்க் சுயவிவரத்தை அகற்றுகிறது. சில நிமிடங்கள் காத்திருக்கவும்.</translation>
 <translation id="8825863694328519386">முந்தையதற்குச் செல்ல இடது பக்கத்திலிருந்து ஸ்வைப் செய்யவும்</translation>
 <translation id="8828714802988429505">90°</translation>
 <translation id="8841375032071747811">முந்தையது பொத்தான்</translation>
@@ -984,6 +1015,7 @@
 <translation id="9091626656156419976"><ph name="DISPLAY_NAME" /> டிஸ்ப்ளே அகற்றப்பட்டது</translation>
 <translation id="9098969848082897657">மொபைலை நிசப்தமாக்குதல்</translation>
 <translation id="9099154003160514616">Lacros புதுப்பிப்பு உள்ளது</translation>
+<translation id="9100887602489003640">நெட்வொர்க் சுயவிவரத்தைச் சேர்க்கிறது. சில நிமிடங்கள் காத்திருக்கவும்.</translation>
 <translation id="9105450214093926548">Lacros உலாவியைப் பயன்படுத்திக் கொண்டிருக்கும்போது இரண்டாவது பயனராக உள்நுழைய முடியாது. இதற்குப் பதிலாக Lacros உலாவியில் இரண்டாவது உலாவி சுயவிவரத்தைப் பயன்படுத்தவும் அல்லது Lacros உலாவியை மூடிவிட்டு மீண்டும் முயலவும்.</translation>
 <translation id="9133335900048457298">பாதுகாக்கப்பட்ட உள்ளடக்கம் இருப்பதால் ரெக்கார்டு செய்ய முடியாது</translation>
 <translation id="9151726767154816831">புதுப்பிக்க, மறுதுவக்கம் செய்து பவர்வாஷ் செய்யவும்</translation>

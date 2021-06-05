@@ -46,7 +46,6 @@
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/public/platform/task_type.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_union_htmlcanvaselement_offscreencanvas.h"
-#include "third_party/blink/renderer/bindings/modules/v8/html_canvas_element_or_offscreen_canvas.h"
 #include "third_party/blink/renderer/bindings/modules/v8/webgl_any.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/frame/dactyloscoper.h"
@@ -623,6 +622,7 @@ scoped_refptr<StaticBitmapImage> WebGLRenderingContextBase::GetImage() {
   // graphics switching. Guard against this.
   if (!GetDrawingBuffer()->ResolveAndBindForReadAndDraw())
     return nullptr;
+
   // Use the drawing buffer size here instead of the canvas size to ensure that
   // sizing is consistent. The forced downsizing logic in Reshape() can lead to
   // the drawing buffer being smaller than the canvas size.
@@ -1659,6 +1659,7 @@ bool WebGLRenderingContextBase::PaintRenderingResultsToCanvas(
     return true;
   }
 
+  // TODO(sunnyps): Why is a texture restorer needed? See if it can be removed.
   ScopedTexture2DRestorer restorer(this);
   ScopedFramebufferRestorer fbo_restorer(this);
 
@@ -1687,6 +1688,14 @@ bool WebGLRenderingContextBase::CopyRenderingResultsFromDrawingBuffer(
 
   // Early-out if the context has been lost.
   if (!GetDrawingBuffer())
+    return false;
+
+  ScopedFramebufferRestorer fbo_restorer(this);
+  // In rare situations on macOS the drawing buffer can be destroyed
+  // during the resolve process, specifically during automatic
+  // graphics switching. Guard against this.
+  // This is a no-op if already called higher up the stack from here.
+  if (!GetDrawingBuffer()->ResolveAndBindForReadAndDraw())
     return false;
 
   const bool flip_y = IsOriginTopLeft() != resource_provider->IsOriginTopLeft();
@@ -5296,11 +5305,7 @@ void WebGLRenderingContextBase::TexImageHelperImageData(
   if (isContextLost())
     return;
   DCHECK(pixels);
-#if defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
   DCHECK(pixels->data());
-#else   // defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
-  DCHECK(!pixels->data().IsNull());
-#endif  // defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
   if (pixels->IsBufferBaseDetached()) {
     SynthesizeGLError(GL_INVALID_VALUE, func_name,
                       "The source data has been detached.");
@@ -5432,6 +5437,9 @@ void WebGLRenderingContextBase::TexImageHelperHTMLImageElement(
   const char* func_name = GetTexImageFunctionName(function_id);
   if (isContextLost())
     return;
+
+  // TODO(crbug.com/1210718): It may be possible to simplify this code
+  // by consolidating on CanvasImageSource::GetSourceImageForCanvas().
 
   if (!ValidateHTMLImageElement(security_origin, func_name, image,
                                 exception_state))
@@ -5638,6 +5646,9 @@ void WebGLRenderingContextBase::TexImageHelperCanvasRenderingContextHost(
   if (isContextLost())
     return;
 
+  // TODO(crbug.com/1210718): It may be possible to simplify this code
+  // by consolidating on CanvasImageSource::GetSourceImageForCanvas().
+
   if (!ValidateCanvasRenderingContextHost(security_origin, func_name,
                                           context_host, exception_state))
     return;
@@ -5786,6 +5797,9 @@ void WebGLRenderingContextBase::TexImageHelperHTMLVideoElement(
   if (isContextLost())
     return;
 
+  // TODO(crbug.com/1210718): It may be possible to simplify this code
+  // by consolidating on CanvasImageSource::GetSourceImageForCanvas().
+
   if (!ValidateHTMLVideoElement(security_origin, func_name, video,
                                 exception_state)) {
     return;
@@ -5845,6 +5859,9 @@ void WebGLRenderingContextBase::TexImageHelperVideoFrame(
   const char* func_name = GetTexImageFunctionName(function_id);
   if (isContextLost())
     return;
+
+  // TODO(crbug.com/1210718): It may be possible to simplify this code
+  // by consolidating on CanvasImageSource::GetSourceImageForCanvas().
 
   WebGLTexture* texture =
       ValidateTexImageBinding(func_name, function_id, target);
@@ -6179,6 +6196,10 @@ void WebGLRenderingContextBase::TexImageHelperImageBitmap(
   const char* func_name = GetTexImageFunctionName(function_id);
   if (isContextLost())
     return;
+
+  // TODO(crbug.com/1210718): It may be possible to simplify this code
+  // by consolidating on CanvasImageSource::GetSourceImageForCanvas().
+
   if (!ValidateImageBitmap(func_name, bitmap, exception_state))
     return;
   WebGLTexture* texture =
@@ -8908,7 +8929,6 @@ void WebGLRenderingContextBase::RestoreUnpackParameters() {
     ContextGL()->PixelStorei(GL_UNPACK_ALIGNMENT, unpack_alignment_);
 }
 
-#if defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
 V8UnionHTMLCanvasElementOrOffscreenCanvas*
 WebGLRenderingContextBase::getHTMLOrOffscreenCanvas() const {
   if (canvas()) {
@@ -8918,16 +8938,6 @@ WebGLRenderingContextBase::getHTMLOrOffscreenCanvas() const {
   return MakeGarbageCollected<V8UnionHTMLCanvasElementOrOffscreenCanvas>(
       static_cast<OffscreenCanvas*>(Host()));
 }
-#else   // defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
-void WebGLRenderingContextBase::getHTMLOrOffscreenCanvas(
-    HTMLCanvasElementOrOffscreenCanvas& result) const {
-  if (canvas()) {
-    result.SetHTMLCanvasElement(static_cast<HTMLCanvasElement*>(Host()));
-  } else {
-    result.SetOffscreenCanvas(static_cast<OffscreenCanvas*>(Host()));
-  }
-}
-#endif  // defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
 
 void WebGLRenderingContextBase::addProgramCompletionQuery(WebGLProgram* program,
                                                           GLuint query) {

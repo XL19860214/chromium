@@ -169,16 +169,12 @@ class CORE_EXPORT NGInlineItem {
     // Use the |ComputedStyle| in |LayoutObject|, because not all style changes
     // re-run |CollectInlines()|.
     DCHECK(layout_object_);
-    NGStyleVariant variant = StyleVariant();
-    if (variant == NGStyleVariant::kStandard)
-      return layout_object_->Style();
-    DCHECK_EQ(variant, NGStyleVariant::kFirstLine);
-    return layout_object_->FirstLineStyle();
+    return &layout_object_->EffectiveStyle(StyleVariant());
   }
 
   // Returns a screen-size font for SVG text.
   // Returns Style()->GetFont() otherwise.
-  const Font& FontWithSVGScaling() const;
+  const Font& FontWithSvgScaling() const;
 
   // Get or set the whitespace collapse type at the end of this item.
   NGCollapseType EndCollapseType() const {

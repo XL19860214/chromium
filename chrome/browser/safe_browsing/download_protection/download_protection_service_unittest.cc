@@ -59,7 +59,7 @@
 #include "chrome/browser/safe_browsing/test_extension_event_observer.h"
 #include "chrome/browser/safe_browsing/test_safe_browsing_service.h"
 #include "chrome/browser/signin/identity_test_environment_profile_adaptor.h"
-#include "chrome/browser/sync/profile_sync_service_factory.h"
+#include "chrome/browser/sync/sync_service_factory.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/extensions/api/safe_browsing_private.h"
 #include "chrome/common/safe_browsing/binary_feature_extractor.h"
@@ -375,7 +375,7 @@ class DownloadProtectionServiceTestBase
     identity_test_env_adaptor_ =
         std::make_unique<IdentityTestEnvironmentProfileAdaptor>(profile());
 
-    ProfileSyncServiceFactory::GetInstance()->SetTestingFactory(
+    SyncServiceFactory::GetInstance()->SetTestingFactory(
         profile(), BrowserContextKeyedServiceFactory::TestingFactory());
   }
 
@@ -1256,11 +1256,11 @@ TEST_F(DownloadProtectionServiceTest, CheckClientDownloadSuccess) {
               MatchDownloadAllowlistUrl(_))
       .WillRepeatedly(Return(false));
   EXPECT_CALL(*binary_feature_extractor_.get(), CheckSignature(tmp_path_, _))
-      .Times(8);
+      .Times(9);
   EXPECT_CALL(*binary_feature_extractor_.get(),
               ExtractImageFeatures(
                   tmp_path_, BinaryFeatureExtractor::kDefaultOptions, _, _))
-      .Times(8);
+      .Times(9);
   std::string feedback_ping;
   std::string feedback_response;
   ClientDownloadResponse expected_response;
@@ -1371,6 +1371,30 @@ TEST_F(DownloadProtectionServiceTest, CheckClientDownloadSuccess) {
     EXPECT_TRUE(HasClientDownloadRequest());
     ClearClientDownloadRequest();
   }
+
+  {
+    // If the response is dangerous_account_compromise the result should
+    // also be marked as dangerous_account_compromise.
+
+    PrepareResponse(ClientDownloadResponse::DANGEROUS_ACCOUNT_COMPROMISE,
+                    net::HTTP_OK, net::OK, true /* upload_requested */);
+    RunLoop run_loop;
+    download_service_->CheckClientDownload(
+        &item,
+        base::BindRepeating(&DownloadProtectionServiceTest::CheckDoneCallback,
+                            base::Unretained(this), run_loop.QuitClosure()));
+    run_loop.Run();
+    EXPECT_TRUE(IsResult(DownloadCheckResult::DANGEROUS_ACCOUNT_COMPROMISE));
+    EXPECT_TRUE(DownloadFeedbackService::GetPingsForDownloadForTesting(
+        item, &feedback_ping, &feedback_response));
+    expected_response.set_verdict(
+        ClientDownloadResponse::DANGEROUS_ACCOUNT_COMPROMISE);
+    expected_response.set_upload(true);
+    EXPECT_EQ(expected_response.SerializeAsString(), feedback_response);
+    EXPECT_TRUE(HasClientDownloadRequest());
+    ClearClientDownloadRequest();
+  }
+
   {
     // If the response is POTENTIALLY_UNWANTED the result should also be marked
     // as POTENTIALLY_UNWANTED.
@@ -2549,7 +2573,8 @@ TEST_F(DownloadProtectionServiceTest, PPAPIDownloadRequest_SupportedDefault) {
       {ClientDownloadResponse::POTENTIALLY_UNWANTED,
        DownloadCheckResult::POTENTIALLY_UNWANTED},
       {ClientDownloadResponse::UNKNOWN, DownloadCheckResult::UNKNOWN},
-  };
+      {ClientDownloadResponse::DANGEROUS_ACCOUNT_COMPROMISE,
+       DownloadCheckResult::DANGEROUS_ACCOUNT_COMPROMISE}};
 
   for (const auto& test_case : kExpectedResults) {
     sb_service_->test_url_loader_factory()->ClearResponses();
@@ -3454,11 +3479,11 @@ TEST_F(DownloadProtectionServiceTest, FileSystemAccessWriteRequest_Success) {
               MatchDownloadAllowlistUrl(_))
       .WillRepeatedly(Return(false));
   EXPECT_CALL(*binary_feature_extractor_.get(), CheckSignature(tmp_path_, _))
-      .Times(8);
+      .Times(9);
   EXPECT_CALL(*binary_feature_extractor_.get(),
               ExtractImageFeatures(
                   tmp_path_, BinaryFeatureExtractor::kDefaultOptions, _, _))
-      .Times(8);
+      .Times(9);
   ClientDownloadResponse expected_response;
 
   {
@@ -3501,6 +3526,8 @@ TEST_F(DownloadProtectionServiceTest, FileSystemAccessWriteRequest_Success) {
       {ClientDownloadResponse::POTENTIALLY_UNWANTED,
        DownloadCheckResult::POTENTIALLY_UNWANTED},
       {ClientDownloadResponse::UNKNOWN, DownloadCheckResult::UNKNOWN},
+      {ClientDownloadResponse::DANGEROUS_ACCOUNT_COMPROMISE,
+       DownloadCheckResult::DANGEROUS_ACCOUNT_COMPROMISE},
   };
   for (const auto& test_case : kExpectedResults) {
     PrepareResponse(test_case.verdict, net::HTTP_OK, net::OK);
@@ -3690,7 +3717,7 @@ TEST_F(EnhancedProtectionDownloadTest, AccessTokenForEnhancedProtectionUsers) {
   PrepareResponse(ClientDownloadResponse::SAFE, net::HTTP_OK, net::OK);
 
   identity_test_env_adaptor_->identity_test_env()->MakePrimaryAccountAvailable(
-      "test@example.com");
+      "test@example.com", signin::ConsentLevel::kSync);
   identity_test_env_adaptor_->identity_test_env()
       ->SetAutomaticIssueOfAccessTokens(/*grant=*/true);
 
@@ -3807,7 +3834,7 @@ TEST_F(EnhancedProtectionDownloadTest, AccessTokenOnlyWhenSignedIn) {
   }
 
   identity_test_env_adaptor_->identity_test_env()->MakePrimaryAccountAvailable(
-      "test@example.com");
+      "test@example.com", signin::ConsentLevel::kSync);
 
   {
     NiceMockDownloadItem item;
@@ -4080,6 +4107,8 @@ TEST_P(DeepScanningDownloadTest, SafeVerdictPrecedence) {
           {ClientDownloadResponse::POTENTIALLY_UNWANTED,
            DownloadCheckResult::POTENTIALLY_UNWANTED},
           {ClientDownloadResponse::UNCOMMON, DownloadCheckResult::UNCOMMON},
+          {ClientDownloadResponse::DANGEROUS_ACCOUNT_COMPROMISE,
+           DownloadCheckResult::DANGEROUS_ACCOUNT_COMPROMISE},
       };
   for (const auto& response : responses) {
     NiceMockDownloadItem item;

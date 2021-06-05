@@ -35,11 +35,11 @@
 
 namespace base {
 
-namespace {
-
 #if BUILDFLAG(USE_PARTITION_ALLOC_AS_MALLOC)
 
-#if defined(OS_LINUX)
+namespace {
+
+#if defined(OS_APPLE) || defined(OS_LINUX)
 
 // NO_THREAD_SAFETY_ANALYSIS: acquires the lock and doesn't release it, by
 // design.
@@ -92,7 +92,7 @@ void AfterForkInChild() {
   internal::ThreadCacheRegistry::Instance()
       .ForcePurgeAllThreadAfterForkUnsafe();
 }
-#endif  // defined(OS_LINUX)
+#endif  // defined(OS_APPLE) || defined(OS_LINUX)
 
 std::atomic<bool> g_global_init_called;
 void PartitionAllocMallocInitOnce() {
@@ -129,9 +129,24 @@ void PartitionAllocMallocInitOnce() {
   PA_CHECK(err == 0);
 #endif  // defined(OS_LINUX)
 }
-#endif  // BUILDFLAG(USE_PARTITION_ALLOC_AS_MALLOC)
 
 }  // namespace
+
+#if defined(OS_APPLE)
+void PartitionAllocMallocHookOnBeforeForkInParent() {
+  BeforeForkInParent();
+}
+
+void PartitionAllocMallocHookOnAfterForkInParent() {
+  AfterForkInParent();
+}
+
+void PartitionAllocMallocHookOnAfterForkInChild() {
+  AfterForkInChild();
+}
+#endif  // defined(OS_APPLE)
+
+#endif  // BUILDFLAG(USE_PARTITION_ALLOC_AS_MALLOC)
 
 namespace internal {
 
@@ -494,7 +509,7 @@ void PartitionRoot<thread_safe>::Init(PartitionOptions opts) {
     PA_DCHECK(!allow_aligned_alloc || !allow_ref_count);
 #endif
 
-#if PA_EXTRAS_REQUIRED
+#if defined(PA_EXTRAS_REQUIRED)
     extras_size = 0;
     extras_offset = 0;
 
@@ -510,7 +525,7 @@ void PartitionRoot<thread_safe>::Init(PartitionOptions opts) {
       extras_size += internal::kPartitionRefCountSizeAdjustment;
       extras_offset += internal::kPartitionRefCountOffsetAdjustment;
     }
-#endif
+#endif  //  defined(PA_EXTRAS_REQUIRED)
 
     // Re-confirm the above PA_CHECKs, by making sure there are no
     // pre-allocation extras when AlignedAlloc is allowed. Post-allocation
@@ -518,13 +533,13 @@ void PartitionRoot<thread_safe>::Init(PartitionOptions opts) {
     PA_CHECK(!allow_aligned_alloc || !extras_offset);
 
     quarantine_mode =
-#if PA_ALLOW_PCSCAN
+#if defined(PA_ALLOW_PCSCAN)
         (opts.quarantine == PartitionOptions::Quarantine::kDisallowed
              ? QuarantineMode::kAlwaysDisabled
              : QuarantineMode::kDisabledByDefault);
 #else
         QuarantineMode::kAlwaysDisabled;
-#endif
+#endif  // defined(PA_ALLOW_PCSCAN)
 
     // We mark the sentinel slot span as free to make sure it is skipped by our
     // logic to find a new active slot span.
@@ -641,10 +656,11 @@ void PartitionRoot<thread_safe>::ConfigureLazyCommit() {
 }
 
 template <bool thread_safe>
-bool PartitionRoot<thread_safe>::ReallocDirectMappedInPlace(
+bool PartitionRoot<thread_safe>::TryReallocInPlaceForDirectMap(
     internal::SlotSpanMetadata<thread_safe>* slot_span,
     size_t requested_size) {
   PA_DCHECK(slot_span->bucket->is_direct_mapped());
+  PA_DCHECK(internal::IsManagedByDirectMap(slot_span));
 
   size_t raw_size = AdjustSizeForExtrasAdd(requested_size);
   // Note that the new size isn't a bucketed size; this function is called
@@ -676,6 +692,8 @@ bool PartitionRoot<thread_safe>::ReallocDirectMappedInPlace(
     size_t decommit_size = current_slot_size - new_slot_size;
     DecommitSystemPagesForData(slot_start + new_slot_size, decommit_size,
                                PageUpdatePermissions);
+    // Since the decommited system pages are still reserved, we don't need to
+    // change the entries for decommitted pages of the reservation offset table.
   } else if (new_slot_size <=
              DirectMapExtent::FromSlotSpan(slot_span)->map_size) {
     // Grow within the actually allocated memory. Just need to make the
@@ -684,6 +702,10 @@ bool PartitionRoot<thread_safe>::ReallocDirectMappedInPlace(
     RecommitSystemPagesForData(slot_start + current_slot_size,
                                recommit_slot_size_growth,
                                PageUpdatePermissions);
+    // The recommited system pages have been already reserved and all the
+    // entries (for map_size) have been already initialized when reserving the
+    // pages. So we don't need to change the entries of the reservation offset
+    // table.
 
 #if DCHECK_IS_ON()
     memset(slot_start + current_slot_size, kUninitializedByte,
@@ -712,9 +734,12 @@ bool PartitionRoot<thread_safe>::ReallocDirectMappedInPlace(
 }
 
 template <bool thread_safe>
-bool PartitionRoot<thread_safe>::TryReallocInPlace(void* ptr,
-                                                   SlotSpan* slot_span,
-                                                   size_t new_size) {
+bool PartitionRoot<thread_safe>::TryReallocInPlaceForNormalBuckets(
+    void* ptr,
+    SlotSpan* slot_span,
+    size_t new_size) {
+  PA_DCHECK(internal::IsManagedByNormalBuckets(ptr));
+
   // TODO: note that tcmalloc will "ignore" a downsizing realloc() unless the
   // new size is a significant percentage smaller. We could do the same if we
   // determine it is a win.
@@ -796,6 +821,7 @@ void* PartitionRoot<thread_safe>::ReallocFlags(int flags,
     SlotSpan* slot_span = SlotSpan::FromSlotInnerPtr(ptr);
     auto* old_root = PartitionRoot::FromSlotSpan(slot_span);
     bool success = false;
+    bool tried_in_place_for_direct_map = false;
     {
       internal::ScopedGuard<thread_safe> guard{old_root->lock_};
       // TODO(palmer): See if we can afford to make this a CHECK.
@@ -803,10 +829,11 @@ void* PartitionRoot<thread_safe>::ReallocFlags(int flags,
       old_usable_size = slot_span->GetUsableSize(old_root);
 
       if (UNLIKELY(slot_span->bucket->is_direct_mapped())) {
+        tried_in_place_for_direct_map = true;
         // We may be able to perform the realloc in place by changing the
         // accessibility of memory pages and, if reducing the size, decommitting
         // them.
-        success = old_root->ReallocDirectMappedInPlace(slot_span, new_size);
+        success = old_root->TryReallocInPlaceForDirectMap(slot_span, new_size);
       }
     }
     if (success) {
@@ -817,8 +844,10 @@ void* PartitionRoot<thread_safe>::ReallocFlags(int flags,
       return ptr;
     }
 
-    if (old_root->TryReallocInPlace(ptr, slot_span, new_size))
-      return ptr;
+    if (LIKELY(!tried_in_place_for_direct_map)) {
+      if (old_root->TryReallocInPlaceForNormalBuckets(ptr, slot_span, new_size))
+        return ptr;
+    }
   }
 
   // This realloc cannot be resized in-place. Sadness.

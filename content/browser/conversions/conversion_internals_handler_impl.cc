@@ -10,10 +10,11 @@
 #include "base/callback.h"
 #include "base/callback_helpers.h"
 #include "base/command_line.h"
-#include "base/strings/string_number_conversions.h"
+#include "base/containers/circular_deque.h"
 #include "base/time/time.h"
 #include "content/browser/conversions/conversion_manager_impl.h"
 #include "content/browser/conversions/conversion_report.h"
+#include "content/browser/conversions/sent_report_info.h"
 #include "content/browser/conversions/storable_impression.h"
 #include "content/browser/storage_partition_impl.h"
 #include "content/public/browser/browser_context.h"
@@ -49,10 +50,7 @@ void ForwardImpressionsToWebUI(
         impression.conversion_origin(), impression.reporting_origin(),
         impression.impression_time().ToJsTime(),
         impression.expiry_time().ToJsTime(),
-        SourceTypeToMojoType(impression.source_type()),
-        // Convert priority to a string, an int64_t would potentially run into
-        // Number.MAX_SAFE_INTEGER if sent as a numeric type.
-        base::NumberToString(impression.priority())));
+        SourceTypeToMojoType(impression.source_type()), impression.priority()));
   }
 
   std::move(web_ui_callback).Run(std::move(web_ui_impressions));
@@ -115,9 +113,28 @@ void ConversionInternalsHandlerImpl::GetPendingReports(
     ::mojom::ConversionInternalsHandler::GetPendingReportsCallback callback) {
   if (ConversionManager* manager =
           manager_provider_->GetManager(web_ui_->GetWebContents())) {
-    manager->GetReportsForWebUI(
+    manager->GetPendingReportsForWebUI(
         base::BindOnce(&ForwardReportsToWebUI, std::move(callback)),
         base::Time::Max());
+  } else {
+    std::move(callback).Run({});
+  }
+}
+
+void ConversionInternalsHandlerImpl::GetSentReports(
+    ::mojom::ConversionInternalsHandler::GetSentReportsCallback callback) {
+  if (ConversionManager* manager =
+          manager_provider_->GetManager(web_ui_->GetWebContents())) {
+    const base::circular_deque<SentReportInfo>& sent_reports =
+        manager->GetSentReportsForWebUI();
+    std::vector<::mojom::SentReportInfoPtr> web_ui_reports;
+    web_ui_reports.reserve(sent_reports.size());
+
+    for (const SentReportInfo& info : sent_reports) {
+      web_ui_reports.push_back(::mojom::SentReportInfo::New(
+          info.report_url, info.report_body, info.http_response_code));
+    }
+    std::move(callback).Run(std::move(web_ui_reports));
   } else {
     std::move(callback).Run({});
   }

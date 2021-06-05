@@ -26,6 +26,7 @@ class ClipboardHistoryAsh;
 class ContentProtectionAsh;
 class DeviceAttributesAsh;
 class DownloadControllerAsh;
+class DriveIntegrationServiceAsh;
 class FeedbackAsh;
 class FileManagerAsh;
 class IdleServiceAsh;
@@ -34,6 +35,7 @@ class LocalPrinterAsh;
 class MessageCenterAsh;
 class MetricsReportingAsh;
 class PrefsAsh;
+class RemotingAsh;
 class ScreenManagerAsh;
 class SelectFileAsh;
 class SystemDisplayAsh;
@@ -77,6 +79,8 @@ class CrosapiAsh : public mojom::Crosapi {
       mojo::PendingReceiver<mojom::HoldingSpaceService> receiver) override;
   void BindDownloadController(
       mojo::PendingReceiver<mojom::DownloadController> receiver) override;
+  void BindDriveIntegrationService(
+      mojo::PendingReceiver<mojom::DriveIntegrationService> receiver) override;
   void BindFileManager(
       mojo::PendingReceiver<mojom::FileManager> receiver) override;
   void BindIdleService(
@@ -90,6 +94,7 @@ class CrosapiAsh : public mojom::Crosapi {
   void BindMetricsReporting(
       mojo::PendingReceiver<mojom::MetricsReporting> receiver) override;
   void BindPrefs(mojo::PendingReceiver<mojom::Prefs> receiver) override;
+  void BindRemoting(mojo::PendingReceiver<mojom::Remoting> receiver) override;
   void BindScreenManager(
       mojo::PendingReceiver<mojom::ScreenManager> receiver) override;
   void BindSelectFile(
@@ -140,6 +145,10 @@ class CrosapiAsh : public mojom::Crosapi {
 
   TaskManagerAsh* task_manager_ash() { return task_manager_ash_.get(); }
 
+  KeystoreServiceAsh* keystore_service_ash() {
+    return keystore_service_ash_.get();
+  }
+
  private:
   // Called when a connection is lost.
   void OnDisconnected();
@@ -152,6 +161,7 @@ class CrosapiAsh : public mojom::Crosapi {
   std::unique_ptr<ContentProtectionAsh> content_protection_ash_;
   std::unique_ptr<DeviceAttributesAsh> device_attributes_ash_;
   std::unique_ptr<DownloadControllerAsh> download_controller_ash_;
+  std::unique_ptr<DriveIntegrationServiceAsh> drive_integration_service_ash_;
   std::unique_ptr<FeedbackAsh> feedback_ash_;
   std::unique_ptr<FileManagerAsh> file_manager_ash_;
   std::unique_ptr<IdleServiceAsh> idle_service_ash_;
@@ -160,6 +170,7 @@ class CrosapiAsh : public mojom::Crosapi {
   std::unique_ptr<MessageCenterAsh> message_center_ash_;
   std::unique_ptr<MetricsReportingAsh> metrics_reporting_ash_;
   std::unique_ptr<PrefsAsh> prefs_ash_;
+  std::unique_ptr<RemotingAsh> remoting_ash_;
   std::unique_ptr<ScreenManagerAsh> screen_manager_ash_;
   std::unique_ptr<SelectFileAsh> select_file_ash_;
   std::unique_ptr<SystemDisplayAsh> system_display_ash_;

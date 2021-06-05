@@ -31,7 +31,6 @@ import org.chromium.chrome.browser.sync.settings.SyncSettingsUtils;
 import org.chromium.chrome.test.ChromeJUnit4RunnerDelegate;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
 import org.chromium.chrome.test.util.ChromeRenderTestRule;
-import org.chromium.chrome.test.util.browser.Features;
 import org.chromium.chrome.test.util.browser.Features.DisableFeatures;
 import org.chromium.chrome.test.util.browser.signin.AccountManagerTestRule;
 import org.chromium.components.signin.base.GoogleServiceAuthError;
@@ -45,7 +44,6 @@ import org.chromium.ui.test.util.NightModeTestUtils;
 @RunWith(ParameterizedRunner.class)
 @ParameterAnnotations.UseRunnerDelegate(ChromeJUnit4RunnerDelegate.class)
 @CommandLineFlags.Add({ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE})
-@Features.EnableFeatures(ChromeFeatureList.MOBILE_IDENTITY_CONSISTENCY)
 @DisableFeatures({ChromeFeatureList.DEPRECATE_MENAGERIE_API})
 public class SyncErrorCardPreferenceTest {
     // FakeProfileDataSource is required to create the ProfileDataCache entry with sync_error badge
@@ -212,6 +210,52 @@ public class SyncErrorCardPreferenceTest {
         mSettingsActivityTestRule.startSettingsActivity();
         mRenderTestRule.render(
                 getPersonalizedSyncPromoView(), "sync_error_card_trusted_vault_key_required");
+    }
+
+    @Test
+    @LargeTest
+    @Feature("RenderTest")
+    @ParameterAnnotations.UseMethodParameter(NightModeTestUtils.NightModeParams.class)
+    public void testSyncErrorCardForTrustedVaultRecoverabilityDegradedForEverything(
+            boolean nightModeEnabled) throws Exception {
+        mFakeProfileSyncService.setEngineInitialized(true);
+        mFakeProfileSyncService.setTrustedVaultRecoverabilityDegraded(true);
+        mFakeProfileSyncService.setEncryptEverythingEnabled(true);
+        mAccountManagerTestRule.addTestAccountThenSigninAndEnableSync(mFakeProfileSyncService);
+        TestThreadUtils.runOnUiThreadBlocking(
+                ()
+                        -> Assert.assertEquals(
+                                "TRUSTED_VAULT_RECOVERABILITY_DEGRADED SyncError should be set",
+                                SyncSettingsUtils.SyncError
+                                        .TRUSTED_VAULT_RECOVERABILITY_DEGRADED_FOR_EVERYTHING,
+                                SyncSettingsUtils.getSyncError()));
+
+        mSettingsActivityTestRule.startSettingsActivity();
+        mRenderTestRule.render(getPersonalizedSyncPromoView(),
+                "sync_error_card_trusted_vault_recoverability_degraded_for_everything");
+    }
+
+    @Test
+    @LargeTest
+    @Feature("RenderTest")
+    @ParameterAnnotations.UseMethodParameter(NightModeTestUtils.NightModeParams.class)
+    public void testSyncErrorCardForTrustedVaultRecoverabilityDegradedForPasswords(
+            boolean nightModeEnabled) throws Exception {
+        mFakeProfileSyncService.setEngineInitialized(true);
+        mFakeProfileSyncService.setTrustedVaultRecoverabilityDegraded(true);
+        mFakeProfileSyncService.setEncryptEverythingEnabled(false);
+        mAccountManagerTestRule.addTestAccountThenSigninAndEnableSync(mFakeProfileSyncService);
+        TestThreadUtils.runOnUiThreadBlocking(
+                ()
+                        -> Assert.assertEquals(
+                                "TRUSTED_VAULT_RECOVERABILITY_DEGRADED SyncError should be set",
+                                SyncSettingsUtils.SyncError
+                                        .TRUSTED_VAULT_RECOVERABILITY_DEGRADED_FOR_PASSWORDS,
+                                SyncSettingsUtils.getSyncError()));
+
+        mSettingsActivityTestRule.startSettingsActivity();
+        mRenderTestRule.render(getPersonalizedSyncPromoView(),
+                "sync_error_card_trusted_vault_recoverability_degraded_for_passwords");
     }
 
     @Test

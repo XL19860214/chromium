@@ -16,6 +16,7 @@
 #include "cc/layers/recording_source.h"
 #include "cc/paint/display_item_list.h"
 #include "cc/paint/paint_filter.h"
+#include "cc/paint/paint_flags.h"
 #include "cc/paint/paint_image_builder.h"
 #include "cc/raster/playback_image_provider.h"
 #include "cc/raster/raster_source.h"
@@ -543,7 +544,9 @@ TEST_P(OopImagePixelTest, DrawImage) {
 
   auto display_item_list = base::MakeRefCounted<DisplayItemList>();
   display_item_list->StartPaint();
-  SkSamplingOptions sampling(FilterQuality());
+  SkSamplingOptions sampling(
+      PaintFlags::FilterQualityToSkSamplingOptions(FilterQuality()));
+
   display_item_list->push<DrawImageOp>(paint_image, 0.f, 0.f, sampling,
                                        nullptr);
   display_item_list->EndPaintOfUnpaired(rect);
@@ -582,7 +585,8 @@ TEST_P(OopImagePixelTest, DrawImageScaled) {
   auto display_item_list = base::MakeRefCounted<DisplayItemList>();
   display_item_list->StartPaint();
   display_item_list->push<ScaleOp>(0.5f, 0.5f);
-  SkSamplingOptions sampling(FilterQuality());
+  SkSamplingOptions sampling(
+      PaintFlags::FilterQualityToSkSamplingOptions(FilterQuality()));
   display_item_list->push<DrawImageOp>(paint_image, 0.f, 0.f, sampling,
                                        nullptr);
   display_item_list->EndPaintOfUnpaired(rect);
@@ -656,7 +660,8 @@ TEST_P(OopImagePixelTest, DrawRecordShaderWithImageScaled) {
       PaintImage::GetNextId());
   auto paint_image = builder.TakePaintImage();
   auto paint_record = sk_make_sp<PaintOpBuffer>();
-  SkSamplingOptions sampling(FilterQuality());
+  SkSamplingOptions sampling(
+      PaintFlags::FilterQualityToSkSamplingOptions(FilterQuality()));
   paint_record->push<DrawImageOp>(paint_image, 0.f, 0.f, sampling, nullptr);
   auto paint_record_shader = PaintShader::MakePaintRecord(
       paint_record, gfx::RectToSkRect(rect), SkTileMode::kRepeat,
@@ -754,7 +759,8 @@ TEST_P(OopImagePixelTest, DrawImageWithTargetColorSpace) {
 
   auto display_item_list = base::MakeRefCounted<DisplayItemList>();
   display_item_list->StartPaint();
-  SkSamplingOptions sampling(FilterQuality());
+  SkSamplingOptions sampling(
+      PaintFlags::FilterQualityToSkSamplingOptions(FilterQuality()));
   display_item_list->push<DrawImageOp>(paint_image, 0.f, 0.f, sampling,
                                        nullptr);
   display_item_list->EndPaintOfUnpaired(rect);
@@ -800,7 +806,8 @@ TEST_P(OopImagePixelTest, DrawImageWithSourceColorSpace) {
 
   auto display_item_list = base::MakeRefCounted<DisplayItemList>();
   display_item_list->StartPaint();
-  SkSamplingOptions sampling(FilterQuality());
+  SkSamplingOptions sampling(
+      PaintFlags::FilterQualityToSkSamplingOptions(FilterQuality()));
   display_item_list->push<DrawImageOp>(paint_image, 0.f, 0.f, sampling,
                                        nullptr);
   display_item_list->EndPaintOfUnpaired(rect);
@@ -845,7 +852,8 @@ TEST_P(OopImagePixelTest, DrawImageWithSourceAndTargetColorSpace) {
 
   auto display_item_list = base::MakeRefCounted<DisplayItemList>();
   display_item_list->StartPaint();
-  SkSamplingOptions sampling(FilterQuality());
+  SkSamplingOptions sampling(
+      PaintFlags::FilterQualityToSkSamplingOptions(FilterQuality()));
   display_item_list->push<DrawImageOp>(paint_image, 0.f, 0.f, sampling,
                                        nullptr);
   display_item_list->EndPaintOfUnpaired(rect);
@@ -885,7 +893,8 @@ TEST_P(OopImagePixelTest, DrawImageWithSetMatrix) {
 
   auto display_item_list = base::MakeRefCounted<DisplayItemList>();
   display_item_list->StartPaint();
-  SkSamplingOptions sampling(FilterQuality());
+  SkSamplingOptions sampling(
+      PaintFlags::FilterQualityToSkSamplingOptions(FilterQuality()));
   display_item_list->push<SetMatrixOp>(SkM44::Scale(0.5f, 0.5f));
   display_item_list->push<DrawImageOp>(paint_image, 0.f, 0.f, sampling,
                                        nullptr);
@@ -1768,31 +1777,37 @@ class OopTextBlobPixelTest
     const int sdk = base::android::BuildInfo::GetInstance()->sdk_int();
     if (sdk <= base::android::SDK_VERSION_MARSHMALLOW) {
       error_pixels_percentage = 10.f;
-      max_abs_error = 16;
+      max_abs_error = 20;
     } else {
       // Newer OSes occasionally have smaller flakes when using the real GPU
       error_pixels_percentage = 1.5f;
       max_abs_error = 2;
     }
-#elif defined(OS_MAC) || defined(OS_WIN)
-    // Mac and Windows need very small tolerances only under complex transforms
-    if (GetMatrixStrategy(GetParam()) == MatrixStrategy::kComplex) {
-      error_pixels_percentage = 0.2f;
-      max_abs_error = 2;
-    }
 #endif
-    // Regardless of OS, perspective triggers path rendering for each glyph,
-    // which produces its own set of pixel differences.
-    if (GetMatrixStrategy(GetParam()) == MatrixStrategy::kPerspective) {
-      error_pixels_percentage = 4.f;
-      max_abs_error = 36;
+    // Many platforms need very small tolerances under complex transforms,
+    // and higher tolerances for perspective, since it triggers path rendering
+    // for each glyph. Additionally, record filters require higher tolerance
+    // because oop-r converts raster-at-scale to fixed-scale.
+    float avg_error = max_abs_error;
+    const bool is_record_filter =
+        GetTextBlobStrategy(GetParam()) == TextBlobStrategy::kRecordFilter;
+    if (GetMatrixStrategy(GetParam()) == MatrixStrategy::kComplex) {
+      error_pixels_percentage =
+          std::max(is_record_filter ? 12.f : 0.2f, error_pixels_percentage);
+      max_abs_error = std::max(is_record_filter ? 220 : 2, max_abs_error);
+      avg_error = std::max(is_record_filter ? 50.f : 2.f, avg_error);
+    } else if (GetMatrixStrategy(GetParam()) == MatrixStrategy::kPerspective) {
+      error_pixels_percentage =
+          std::max(is_record_filter ? 13.f : 4.f, error_pixels_percentage);
+      max_abs_error = std::max(is_record_filter ? 255 : 36, max_abs_error);
+      avg_error = std::max(is_record_filter ? 60.f : 36.f, avg_error);
     }
 
     FuzzyPixelComparator comparator(
         /*discard_alpha=*/false,
         /*error_pixels_percentage_limit=*/error_pixels_percentage,
         /*small_error_pixels_percentage_limit=*/0.0f,
-        /*avg_abs_error_limit=*/max_abs_error,
+        /*avg_abs_error_limit=*/avg_error,
         /*max_abs_error_limit=*/max_abs_error,
         /*small_error_threshold=*/0);
     ExpectEquals(actual, expected, comparator);

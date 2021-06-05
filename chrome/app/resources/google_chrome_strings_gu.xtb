@@ -8,7 +8,6 @@
 
 કેટલીક સુવિધાઓ ઉપલબ્ધ હોઈ શકે છે અને પસંદગીઓ પરના ફેરફારોને સાચવવામાં આવશે નહીં.</translation>
 <translation id="1088300314857992706"><ph name="USER_EMAIL_ADDRESS" />, પહેલાં Chrome નો ઉપયોગ કરી રહ્યાં હતાં</translation>
-<translation id="1097330777386562916">જ્યારે તમે Chromeમાંથી બહાર નીકળો ત્યારે કુકી અને સાઇટનો ડેટા સાફ કરો</translation>
 <translation id="110877069173485804">આ તમારું Chrome છે</translation>
 <translation id="1125124144982679672">કોણ Chromeનો ઉપયોગ કરે છે?</translation>
 <translation id="1142745911746664600">Chrome અપડેટ કરી શકતાં નથી</translation>
@@ -176,6 +175,7 @@
 
 Google Chrome તમારી સેટિંગ્સને પુનઃપ્રાપ્ત કરવામાં અક્ષમ છે.</translation>
 <translation id="5434383153637353914">આ પેજ તમને તમારા સાઇન ઇન કરેલા હોય એવા Google એકાઉન્ટ મેનેજ કરવાની મંજૂરી આપે છે. આ એકાઉન્ટ Chrome બ્રાઉઝર અને Play સ્ટોર ઍપમાં તેમજ Gmail, Drive અને YouTube જેવી સેવાઓમાં ઉપલબ્ધ રહેશે. <ph name="LINK_BEGIN" />વધુ જાણો<ph name="LINK_END" /></translation>
+<translation id="5486618155264784386">Chrome OS ઇન્સ્ટૉલ કરો</translation>
 <translation id="556024056938947818">Google Chrome પાસવર્ડ્સ બતાવવાનો પ્રયાસ કરી રહ્યું છે.</translation>
 <translation id="5566025111015594046">Google Chrome (mDNS-In)</translation>
 <translation id="5657226924540934362">જો આ પેજ પર સેટિંગ બતાવેલું ન હોય, તો તમારા <ph name="LINK_BEGIN" />
@@ -257,8 +257,8 @@ Google Chrome તમારી સેટિંગ્સને પુનઃપ્�
 <translation id="7855730255114109580">Google Chrome અપ ટૂ ડેટ છે</translation>
 <translation id="7890208801193284374">જો તમે કમ્પ્યુટરને શેર કરો છો, તો મિત્રો અને કુટુંબીજનો અલગ-અલગ બ્રાઉઝ કરી શકે છે અને તેમને જોઈએ તેમ Chrome ને સેટ કરી શકે છે.</translation>
 <translation id="7896673875602241923">કોઈએ આ કમ્પ્યુટર પર પહેલા <ph name="ACCOUNT_EMAIL_LAST" /> તરીકે Chromeમાં સાઇન ઇન કર્યું છે. તમારી માહિતી અલગ રાખવા માટે કૃપા કરીને નવો Chrome વપરાશકર્તા બનાવો.</translation>
-<translation id="7905891027772979035">Chrome તમારા એક્સ્ટેંશન ચેક કરી શકતું નથી. થોડા સમય પછી ફરી પ્રયાસ કરો.</translation>
 <translation id="7930071585467473040">Google Chrome પાસવર્ડની કૉપિ કરવાનો પ્રયાસ કરી રહ્યું છે.</translation>
+<translation id="7951988079884443914">Chrome ભલામણ કરે છે કે તમે આ ફાઇલને ડાઉનલોડ ન કરો કે ન ખોલો.</translation>
 <translation id="7962410387636238736">આ કમ્પ્યુટર હવેથી Google Chrome અપડેટ મેળવી શકશે નહીં કારણકે Windows XP અને Windows Vista હવે સમર્થિત રહ્યાં નથી</translation>
 <translation id="79947657522496226"><ph name="BEGIN_LINK_LINUX_OSS" />Linux ડેવલપમેન્ટ વાતાવરણ<ph name="END_LINK_LINUX_OSS" />ની જેમ, Chrome OS વધારાના <ph name="BEGIN_LINK_CROS_OSS" />ઓપન સૉર્સ સૉફ્ટવેર<ph name="END_LINK_CROS_OSS" /> દ્વારા તૈયાર કરવામાં આવ્યું છે.</translation>
 <translation id="8008534537613507642">Chrome ફરીથી ઇન્સ્ટોલ કરો</translation>

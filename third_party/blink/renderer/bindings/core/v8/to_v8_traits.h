@@ -5,6 +5,7 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_BINDINGS_CORE_V8_TO_V8_TRAITS_H_
 #define THIRD_PARTY_BLINK_RENDERER_BINDINGS_CORE_V8_TO_V8_TRAITS_H_
 
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/renderer/bindings/core/v8/idl_types.h"
 #include "third_party/blink/renderer/bindings/core/v8/native_value_traits_impl.h"
 #include "third_party/blink/renderer/platform/bindings/dom_data_store.h"
@@ -266,10 +267,7 @@ struct ToV8Traits<
   static v8::MaybeLocal<v8::Value> WARN_UNUSED_RESULT
   ToV8(ScriptState* script_state, const T* dictionary) {
     DCHECK(dictionary);
-    v8::Local<v8::Value> v8_value = dictionary->CreateV8Object(
-        script_state->GetIsolate(), script_state->GetContext()->Global());
-    DCHECK(!v8_value.IsEmpty());
-    return v8_value;
+    return dictionary->ToV8Value(script_state);
   }
 };
 

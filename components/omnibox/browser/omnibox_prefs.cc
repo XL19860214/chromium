@@ -6,9 +6,9 @@
 
 #include "base/check.h"
 #include "base/metrics/sparse_histogram.h"
-#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/values.h"
+#include "components/pref_registry/pref_registry_syncable.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
 #include "components/prefs/scoped_user_pref_update.h"
@@ -34,6 +34,11 @@ const char kIntranetRedirectBehavior[] = "browser.intranet_redirect_behavior";
 const char kKeywordSpaceTriggeringEnabled[] =
     "omnibox.keyword_space_triggering_enabled";
 
+// Boolean that specifies whether the omnibox should display a lock icon for
+// secure connections.
+const char kLockIconInAddressBarEnabled[] =
+    "omnibox.lock_icon_in_address_bar_enabled";
+
 // A dictionary of visibility preferences for suggestion groups. The key is the
 // suggestion group ID serialized as a string, and the value is
 // SuggestionGroupVisibility serialized as an integer.
@@ -47,7 +52,9 @@ const char kZeroSuggestCachedResults[] = "zerosuggest.cachedresults";
 
 void RegisterProfilePrefs(PrefRegistrySimple* registry) {
   registry->RegisterDictionaryPref(kSuggestionGroupVisibility);
-  registry->RegisterBooleanPref(kKeywordSpaceTriggeringEnabled, true);
+  registry->RegisterBooleanPref(
+      kKeywordSpaceTriggeringEnabled, true,
+      user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);
 }
 
 SuggestionGroupVisibility GetUserPreferenceForSuggestionGroupVisibility(

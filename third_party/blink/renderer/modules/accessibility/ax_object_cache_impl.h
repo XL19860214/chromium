@@ -213,14 +213,15 @@ class MODULES_EXPORT AXObjectCacheImpl
 
   // Get an AXObject* backed by the passed-in DOM node or the node's layout
   // object, whichever is available.
+  // If it no longer the correct type of AXObject (AXNodeObject/AXLayoutObject),
+  // will Invalidate() the AXObject so that it is refreshed with a new object
+  // when safe to do so.
   AXObject* Get(const Node*);
   AXObject* Get(const LayoutObject*);
 
   // Return true if the object is still part of the tree, meaning that ancestors
   // exist or can be repaired all the way to the root.
   bool IsStillInTree(AXObject*);
-
-  AXObject* FirstAccessibleObjectFromNode(const Node*);
 
   void ChildrenChangedWithCleanLayout(Node* optional_node_for_relation_update,
                                       AXObject*);
@@ -285,6 +286,9 @@ class MODULES_EXPORT AXObjectCacheImpl
   // set of aria-owned children.
   void GetAriaOwnedChildren(const AXObject* owner,
                             HeapVector<Member<AXObject>>& owned_children);
+
+  // Given a <map> element, get the image currently associated with it, if any.
+  AXObject* GetAXImageForMap(HTMLMapElement& map);
 
   // Adds |object| to |fixed_or_sticky_node_ids_| if it has a fixed or sticky
   // position.
@@ -372,9 +376,6 @@ class MODULES_EXPORT AXObjectCacheImpl
   AXObject* CreateFromNode(Node*);
   AXObject* CreateFromInlineTextBox(AbstractInlineTextBox*);
   void Remove(AXID);
-
-  // Given a <map> element, get the image currently associated with it, if any.
-  AXObject* GetAXImageForMap(HTMLMapElement& map);
 
  private:
   struct AXEventParams final : public GarbageCollected<AXEventParams> {

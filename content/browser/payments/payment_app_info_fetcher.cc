@@ -20,6 +20,7 @@
 #include "content/public/browser/manifest_icon_downloader.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/common/manifest/manifest_icon_selector.h"
+#include "third_party/blink/public/common/storage_key/storage_key.h"
 #include "third_party/blink/public/mojom/devtools/console_message.mojom.h"
 #include "ui/gfx/codec/png_codec.h"
 #include "url/origin.h"
@@ -38,7 +39,7 @@ void PaymentAppInfoFetcher::Start(
 
   std::unique_ptr<std::vector<GlobalFrameRoutingId>> frame_routing_ids =
       service_worker_context->GetWindowClientFrameRoutingIds(
-          context_url.GetOrigin());
+          blink::StorageKey(url::Origin::Create(context_url)));
 
   RunOrPostTaskOnThread(
       FROM_HERE, BrowserThread::UI,

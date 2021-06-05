@@ -32,15 +32,14 @@ import java.util.List;
  * Mediator of the account picker bottom sheet in web sign-in flow.
  */
 class AccountPickerBottomSheetMediator implements AccountPickerCoordinator.Listener,
-                                                  AccountPickerBottomSheetView.BackPressListener {
+                                                  AccountPickerBottomSheetView.BackPressListener,
+                                                  AccountsChangeObserver,
+                                                  ProfileDataCache.Observer {
     private final AccountPickerDelegate mAccountPickerDelegate;
     private final ProfileDataCache mProfileDataCache;
     private final PropertyModel mModel;
-
-    private final ProfileDataCache.Observer mProfileDataSourceObserver =
-            this::updateSelectedAccountData;
     private final AccountManagerFacade mAccountManagerFacade;
-    private final AccountsChangeObserver mAccountsChangeObserver = this::onAccountListUpdated;
+
     private @Nullable String mSelectedAccountName;
     private @Nullable String mDefaultAccountName;
     private @Nullable String mAddedAccountName;
@@ -54,12 +53,12 @@ class AccountPickerBottomSheetMediator implements AccountPickerCoordinator.Liste
 
         mModel = AccountPickerBottomSheetProperties.createModel(
                 this::onSelectedAccountClicked, this::onContinueAsClicked, onDismissClicked);
-        mProfileDataCache.addObserver(mProfileDataSourceObserver);
+        mProfileDataCache.addObserver(this);
 
         mAccountManagerFacade = AccountManagerFacadeProvider.getInstance();
-        mAccountManagerFacade.addObserver(mAccountsChangeObserver);
+        mAccountManagerFacade.addObserver(this);
         mAddedAccountName = null;
-        onAccountListUpdated();
+        onAccountsChanged();
     }
 
     /**
@@ -95,14 +94,6 @@ class AccountPickerBottomSheetMediator implements AccountPickerCoordinator.Liste
     }
 
     /**
-     * Notifies when the user clicked the "Go Incognito mode" button.
-     */
-    @Override
-    public void goIncognitoMode() {
-        mModel.set(AccountPickerBottomSheetProperties.VIEW_STATE, ViewState.INCOGNITO_INTERSTITIAL);
-    }
-
-    /**
      * Notifies when user clicks the back-press button.
      *
      * @return true if the listener handles the back press, false if not.
@@ -115,14 +106,24 @@ class AccountPickerBottomSheetMediator implements AccountPickerCoordinator.Liste
             mModel.set(AccountPickerBottomSheetProperties.VIEW_STATE,
                     ViewState.COLLAPSED_ACCOUNT_LIST);
             return true;
-        } else if (viewState == ViewState.INCOGNITO_INTERSTITIAL) {
-            mModel.set(
-                    AccountPickerBottomSheetProperties.VIEW_STATE, ViewState.EXPANDED_ACCOUNT_LIST);
-            return true;
-        } else {
-            // The bottom sheet will be dismissed for all other view states
-            return false;
         }
+        return false;
+    }
+
+    /**
+     * Implements {@link AccountsChangeObserver}.
+     */
+    @Override
+    public void onAccountsChanged() {
+        mAccountManagerFacade.tryGetGoogleAccounts(this::updateAccounts);
+    }
+
+    /**
+     * Implements {@link ProfileDataCache.Observer}.
+     */
+    @Override
+    public void onProfileDataUpdated(String accountEmail) {
+        updateSelectedAccountData(accountEmail);
     }
 
     PropertyModel getModel() {
@@ -131,17 +132,11 @@ class AccountPickerBottomSheetMediator implements AccountPickerCoordinator.Liste
 
     void destroy() {
         mAccountPickerDelegate.onDismiss();
-        mProfileDataCache.removeObserver(mProfileDataSourceObserver);
-        mAccountManagerFacade.removeObserver(mAccountsChangeObserver);
+        mProfileDataCache.removeObserver(this);
+        mAccountManagerFacade.removeObserver(this);
     }
 
-    /**
-     * Updates the collapsed account list when account list changes.
-     *
-     * Implements {@link AccountsChangeObserver}.
-     */
-    private void onAccountListUpdated() {
-        List<Account> accounts = mAccountManagerFacade.tryGetGoogleAccounts();
+    private void updateAccounts(List<Account> accounts) {
         if (accounts.isEmpty()) {
             // If all accounts disappeared, no matter if the account list is collapsed or expanded,
             // we will go to the zero account screen.
@@ -175,13 +170,10 @@ class AccountPickerBottomSheetMediator implements AccountPickerCoordinator.Liste
         updateSelectedAccountData(mSelectedAccountName);
     }
 
-    /**
-     * Implements {@link ProfileDataCache.Observer}.
-     */
-    private void updateSelectedAccountData(String accountName) {
-        if (TextUtils.equals(mSelectedAccountName, accountName)) {
+    private void updateSelectedAccountData(String accountEmail) {
+        if (TextUtils.equals(mSelectedAccountName, accountEmail)) {
             mModel.set(AccountPickerBottomSheetProperties.SELECTED_ACCOUNT_DATA,
-                    mProfileDataCache.getProfileDataOrDefault(accountName));
+                    mProfileDataCache.getProfileDataOrDefault(accountEmail));
         }
     }
 

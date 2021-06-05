@@ -6,6 +6,7 @@
 
 #include "ash/components/audio/sounds.h"
 #include "base/metrics/histogram_functions.h"
+#include "base/metrics/metrics_hashes.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/timer/timer.h"
 #include "chrome/browser/ash/accessibility/accessibility_manager.h"
@@ -15,6 +16,8 @@
 #include "chrome/common/pref_names.h"
 #include "components/language/core/browser/pref_names.h"
 #include "components/prefs/pref_service.h"
+#include "content/public/browser/browser_task_traits.h"
+#include "content/public/browser/browser_thread.h"
 #include "content/public/browser/storage_partition.h"
 #include "services/audio/public/cpp/sounds/sounds_manager.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
@@ -96,13 +99,17 @@ bool Dictation::OnToggleDictation() {
   }
   has_committed_text_ = false;
   std::string language = GetUserLanguage(profile_);
+  // Log the language used with CLD3LanguageCode.
+  base::UmaHistogramSparse("Accessibility.CrosDictation.Language",
+                           base::HashMetricName(language));
+
   if (switches::IsExperimentalAccessibilityDictationOfflineEnabled() &&
       OnDeviceSpeechRecognizer::IsOnDeviceSpeechRecognizerAvailable(language)) {
     // On-device recognition is behind a flag and then only available if
     // SODA is installed on-device.
     speech_recognizer_ = std::make_unique<OnDeviceSpeechRecognizer>(
         weak_ptr_factory_.GetWeakPtr(), profile_, language,
-        /*recognition_mode_ime=*/true);
+        /*recognition_mode_ime=*/true, /*enable_formatting=*/false);
     base::UmaHistogramBoolean("Accessibility.CrosDictation.UsedOnDeviceSpeech",
                               true);
     no_speech_timeout_ = kDeviceNoSpeechTimeout;
@@ -128,8 +135,7 @@ bool Dictation::OnToggleDictation() {
 void Dictation::OnSpeechResult(
     const std::u16string& transcription,
     bool is_final,
-    const absl::optional<SpeechRecognizerDelegate::TranscriptTiming>&
-        word_offsets) {
+    const absl::optional<media::SpeechRecognitionResult>& word_offsets) {
   // If the first character of text isn't a space, add a space before it.
   // NetworkSpeechRecognizer adds the preceding space but
   // OnDeviceSpeechRecognizer does not. This is also done in
@@ -216,7 +222,10 @@ void Dictation::DictationOff() {
   if (!speech_recognizer_)
     return;
 
-  CommitCurrentText();
+  // Post commit text delayed to avoid a dcheck.
+  content::GetUIThreadTaskRunner({})->PostTask(
+      FROM_HERE, base::BindOnce(&Dictation::CommitCurrentText,
+                                weak_ptr_factory_.GetWeakPtr()));
   if (!composition_->text.empty()) {
     audio::SoundsManager::Get()->Play(static_cast<int>(Sound::kDictationEnd));
   } else {

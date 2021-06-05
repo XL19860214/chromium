@@ -11,6 +11,7 @@
 #include "base/test/scoped_feature_list.h"
 #include "base/time/time.h"
 #include "base/util/values/values_util.h"
+#include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/feature_engagement/tracker_factory.h"
 #include "chrome/browser/policy/cloud/user_policy_signin_service.h"
@@ -20,7 +21,7 @@
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/signin/dice_tab_helper.h"
 #include "chrome/browser/signin/identity_manager_factory.h"
-#include "chrome/browser/sync/profile_sync_service_factory.h"
+#include "chrome/browser/sync/sync_service_factory.h"
 #include "chrome/browser/themes/theme_service.h"
 #include "chrome/browser/themes/theme_service_factory.h"
 #include "chrome/browser/ui/browser.h"
@@ -356,6 +357,9 @@ class ProfilePickerCreationFlowBrowserTest : public ProfilePickerTestBase {
         path, base::BindLambdaForTesting(
                   [&run_loop](Profile* profile, Profile::CreateStatus status) {
                     if (status == Profile::CREATE_STATUS_INITIALIZED) {
+                      // Avoid showing the welcome page.
+                      profile->GetPrefs()->SetBoolean(
+                          prefs::kHasSeenWelcomePage, true);
                       run_loop.Quit();
                     }
                   }));
@@ -859,19 +863,7 @@ IN_PROC_BROWSER_TEST_F(ProfilePickerCreationFlowBrowserTest,
       base::TimeDelta::FromSeconds(0));
   ASSERT_EQ(1u, BrowserList::GetInstance()->size());
   // Create a second profile.
-  ProfileManager* profile_manager = g_browser_process->profile_manager();
-  base::FilePath other_path =
-      profile_manager->GenerateNextProfileDirectoryPath();
-  base::RunLoop run_loop;
-  profile_manager->CreateProfileAsync(
-      other_path,
-      base::BindLambdaForTesting(
-          [&run_loop](Profile* profile, Profile::CreateStatus status) {
-            if (status == Profile::CREATE_STATUS_INITIALIZED) {
-              run_loop.Quit();
-            }
-          }));
-  run_loop.Run();
+  base::FilePath other_path = CreateNewProfileWithoutBrowser();
   // Open the picker.
   ProfilePicker::Show(ProfilePicker::EntryPoint::kProfileMenuManageProfiles);
   WaitForLayoutWithoutToolbar();
@@ -948,8 +940,14 @@ class ProfilePickerSeparateEnterpriseCreationFlowBrowserTest
             /*enable_feature=*/false) {}
 };
 
+// Flaky on Win: https://crbug.com/1215038
+#if defined(OS_WIN)
+#define MAYBE_CreateSignedInProfile DISABLED_CreateSignedInProfile
+#else
+#define MAYBE_CreateSignedInProfile CreateSignedInProfile
+#endif
 IN_PROC_BROWSER_TEST_F(ProfilePickerSeparateEnterpriseCreationFlowBrowserTest,
-                       CreateSignedInProfile) {
+                       MAYBE_CreateSignedInProfile) {
   ASSERT_EQ(1u, BrowserList::GetInstance()->size());
   Profile* profile_being_created = StartSigninFlow();
 
@@ -1005,7 +1003,7 @@ IN_PROC_BROWSER_TEST_F(ProfilePickerSeparateEnterpriseCreationFlowBrowserTest,
   syncer::SyncPrefs prefs(profile_being_created->GetPrefs());
   prefs.SetManagedForTest(true);
   syncer::SyncService* sync_service =
-      ProfileSyncServiceFactory::GetForProfile(profile_being_created);
+      SyncServiceFactory::GetForProfile(profile_being_created);
 
   // Consumer-looking gmail address avoids code that forces the sync service to
   // actually start which would add overhead in mocking further stuff.
@@ -1064,7 +1062,7 @@ IN_PROC_BROWSER_TEST_F(ProfilePickerSeparateEnterpriseCreationFlowBrowserTest,
   syncer::SyncPrefs prefs(profile_being_created->GetPrefs());
   prefs.SetManagedForTest(true);
   syncer::SyncService* sync_service =
-      ProfileSyncServiceFactory::GetForProfile(profile_being_created);
+      SyncServiceFactory::GetForProfile(profile_being_created);
 
   // Inject a fake tab helper that confirms the enterprise dialog right away.
   base::RunLoop loop_until_enterprise_confirmed;
@@ -1225,7 +1223,7 @@ IN_PROC_BROWSER_TEST_F(ProfilePickerIntegratedEnterpriseCreationFlowBrowserTest,
   syncer::SyncPrefs prefs(profile_being_created->GetPrefs());
   prefs.SetManagedForTest(true);
   syncer::SyncService* sync_service =
-      ProfileSyncServiceFactory::GetForProfile(profile_being_created);
+      SyncServiceFactory::GetForProfile(profile_being_created);
 
   // Consumer-looking gmail address avoids code that forces the sync service to
   // actually start which would add overhead in mocking further stuff.
@@ -1360,21 +1358,9 @@ IN_PROC_BROWSER_TEST_F(ProfilePickerIntegratedEnterpriseCreationFlowBrowserTest,
 
   // Create a pre-existing profile syncing with the same account as the profile
   // being created.
-  ProfileManager* profile_manager = g_browser_process->profile_manager();
-  base::FilePath other_path =
-      profile_manager->GenerateNextProfileDirectoryPath();
-  base::RunLoop run_loop;
-  profile_manager->CreateProfileAsync(
-      other_path,
-      base::BindLambdaForTesting(
-          [&run_loop](Profile* profile, Profile::CreateStatus status) {
-            if (status == Profile::CREATE_STATUS_INITIALIZED) {
-              run_loop.Quit();
-            }
-          }));
-  run_loop.Run();
+  base::FilePath other_path = CreateNewProfileWithoutBrowser();
   ProfileAttributesStorage& storage =
-      profile_manager->GetProfileAttributesStorage();
+      g_browser_process->profile_manager()->GetProfileAttributesStorage();
   ProfileAttributesEntry* other_entry =
       storage.GetProfileAttributesWithPath(other_path);
   ASSERT_NE(other_entry, nullptr);
@@ -1426,21 +1412,9 @@ IN_PROC_BROWSER_TEST_F(ProfilePickerIntegratedEnterpriseCreationFlowBrowserTest,
 
   // Create a pre-existing profile syncing with the same account as the profile
   // being created.
-  ProfileManager* profile_manager = g_browser_process->profile_manager();
-  base::FilePath other_path =
-      profile_manager->GenerateNextProfileDirectoryPath();
-  base::RunLoop run_loop;
-  profile_manager->CreateProfileAsync(
-      other_path,
-      base::BindLambdaForTesting(
-          [&run_loop](Profile* profile, Profile::CreateStatus status) {
-            if (status == Profile::CREATE_STATUS_INITIALIZED) {
-              run_loop.Quit();
-            }
-          }));
-  run_loop.Run();
+  base::FilePath other_path = CreateNewProfileWithoutBrowser();
   ProfileAttributesStorage& storage =
-      profile_manager->GetProfileAttributesStorage();
+      g_browser_process->profile_manager()->GetProfileAttributesStorage();
   ProfileAttributesEntry* other_entry =
       storage.GetProfileAttributesWithPath(other_path);
   ASSERT_NE(other_entry, nullptr);

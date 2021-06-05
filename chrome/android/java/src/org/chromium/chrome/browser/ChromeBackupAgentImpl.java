@@ -43,6 +43,7 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -148,13 +149,6 @@ public class ChromeBackupAgentImpl extends ChromeBackupAgent.Impl {
             out.writeObject(mNames);
             out.writeObject(mValues);
         }
-    }
-
-    @VisibleForTesting
-    protected boolean accountExistsOnDevice(String userName) {
-        return AccountUtils.findAccountByName(
-                       AccountManagerFacadeProvider.getInstance().tryGetGoogleAccounts(), userName)
-                != null;
     }
 
     // TODO (aberent) Refactor the tests to use a mocked ChromeBrowserInitializer, and make this
@@ -353,7 +347,13 @@ public class ChromeBackupAgentImpl extends ChromeBackupAgent.Impl {
         }
 
         // If the user hasn't signed in, or can't sign in, then don't restore anything.
-        if (restoredUserName == null || !accountExistsOnDevice(restoredUserName)) {
+        boolean accountExistsOnDevice = restoredUserName != null
+                && AccountUtils.findAccountByName(
+                           AccountManagerFacadeProvider.getInstance().getGoogleAccounts().or(
+                                   Collections.emptyList()),
+                           restoredUserName)
+                        != null;
+        if (!accountExistsOnDevice) {
             setRestoreStatus(RestoreStatus.NOT_SIGNED_IN);
             Log.i(TAG, "Chrome was not signed in with a known account name, not restoring");
             return;

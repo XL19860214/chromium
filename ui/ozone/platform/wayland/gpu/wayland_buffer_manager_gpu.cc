@@ -63,7 +63,8 @@ void WaylandBufferManagerGpu::Initialize(
 
 void WaylandBufferManagerGpu::OnSubmission(gfx::AcceleratedWidget widget,
                                            uint32_t buffer_id,
-                                           gfx::SwapResult swap_result) {
+                                           gfx::SwapResult swap_result,
+                                           gfx::GpuFenceHandle release_fence) {
   base::AutoLock scoped_lock(lock_);
   DCHECK(io_thread_runner_->BelongsToCurrentThread());
   DCHECK_LE(commit_thread_runners_.count(widget), 1u);
@@ -74,7 +75,8 @@ void WaylandBufferManagerGpu::OnSubmission(gfx::AcceleratedWidget widget,
   it->second->PostTask(
       FROM_HERE,
       base::BindOnce(&WaylandBufferManagerGpu::SubmitSwapResultOnOriginThread,
-                     base::Unretained(this), widget, buffer_id, swap_result));
+                     base::Unretained(this), widget, buffer_id, swap_result,
+                     std::move(release_fence)));
 }
 
 void WaylandBufferManagerGpu::OnPresentation(
@@ -164,11 +166,10 @@ void WaylandBufferManagerGpu::CreateDmabufBasedBuffer(
                      buffer_id));
 }
 
-void WaylandBufferManagerGpu::CreateShmBasedBuffer(
-    base::ScopedFD shm_fd,
-    size_t length,
-    gfx::Size size,
-    uint32_t buffer_id) {
+void WaylandBufferManagerGpu::CreateShmBasedBuffer(base::ScopedFD shm_fd,
+                                                   size_t length,
+                                                   gfx::Size size,
+                                                   uint32_t buffer_id) {
   if (!remote_host_) {
     LOG(ERROR) << "Interface is not bound. Can't request "
                   "WaylandBufferManagerHost to create/commit/destroy buffers.";
@@ -186,13 +187,15 @@ void WaylandBufferManagerGpu::CreateShmBasedBuffer(
 void WaylandBufferManagerGpu::CommitBuffer(gfx::AcceleratedWidget widget,
                                            uint32_t buffer_id,
                                            const gfx::Rect& bounds_rect,
+                                           int32_t surface_scale_factor,
                                            const gfx::Rect& damage_region) {
   std::vector<ui::ozone::mojom::WaylandOverlayConfigPtr> overlay_configs;
   // This surface only commits one buffer per frame, use INT32_MIN to attach
   // the buffer to root_surface of wayland window.
   overlay_configs.push_back(ui::ozone::mojom::WaylandOverlayConfig::New(
       INT32_MIN, gfx::OverlayTransform::OVERLAY_TRANSFORM_NONE, buffer_id,
-      bounds_rect, gfx::RectF(), damage_region, false, gfx::GpuFenceHandle()));
+      surface_scale_factor, bounds_rect, gfx::RectF(), damage_region, false,
+      gfx::GpuFenceHandle()));
 
   CommitOverlays(widget, std::move(overlay_configs));
 }
@@ -322,12 +325,13 @@ void WaylandBufferManagerGpu::ForgetTaskRunnerForWidgetOnIOThread(
 void WaylandBufferManagerGpu::SubmitSwapResultOnOriginThread(
     gfx::AcceleratedWidget widget,
     uint32_t buffer_id,
-    gfx::SwapResult swap_result) {
+    gfx::SwapResult swap_result,
+    gfx::GpuFenceHandle release_fence) {
   DCHECK_NE(widget, gfx::kNullAcceleratedWidget);
   auto* surface = GetSurface(widget);
   // The surface might be destroyed by the time the swap result is provided.
   if (surface)
-    surface->OnSubmission(buffer_id, swap_result);
+    surface->OnSubmission(buffer_id, swap_result, std::move(release_fence));
 }
 
 void WaylandBufferManagerGpu::SubmitPresentationOnOriginThread(

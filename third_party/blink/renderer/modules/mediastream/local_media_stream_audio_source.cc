@@ -119,9 +119,14 @@ void LocalMediaStreamAudioSource::Capture(const media::AudioBus* audio_bus,
   DeliverDataToTracks(*audio_bus, audio_capture_time);
 }
 
-void LocalMediaStreamAudioSource::OnCaptureError(const std::string& why) {
-  WebRtcLogMessage("LocalMediaStreamAudioSource::OnCaptureError: " + why);
-  StopSourceOnError(why);
+void LocalMediaStreamAudioSource::OnCaptureError(
+    media::AudioCapturerSource::ErrorCode code,
+    const std::string& why) {
+  WebRtcLogMessage(
+      base::StringPrintf("LocalMediaStreamAudioSource::OnCaptureError: %d, %s",
+                         code, why.c_str()));
+
+  StopSourceOnError(code, why);
 }
 
 void LocalMediaStreamAudioSource::OnCaptureMuted(bool is_muted) {

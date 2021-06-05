@@ -12,7 +12,7 @@
 
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
-#include "components/safe_browsing/content/base_ui_manager.h"
+#include "components/safe_browsing/content/browser/base_ui_manager.h"
 #include "components/safe_browsing/content/browser/client_side_model_loader.h"
 #include "components/safe_browsing/content/common/safe_browsing.mojom-shared.h"
 #include "components/safe_browsing/content/common/safe_browsing.mojom.h"
@@ -159,6 +159,9 @@ class ClientSideDetectionHost : public content::WebContentsObserver {
   // Check if CSD can get an access Token. Should be enabled only for ESB users,
   // who are signed in and not in incognito mode.
   bool CanGetAccessToken();
+
+  // Set phishing model in PhishingDetector in renderers.
+  void SetPhishingModel();
 
   // Send the client report to CSD server.
   void SendRequest(std::unique_ptr<ClientPhishingRequest> verdict,

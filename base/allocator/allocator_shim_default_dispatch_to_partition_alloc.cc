@@ -21,7 +21,6 @@
 #include "base/memory/nonscannable_memory.h"
 #include "base/no_destructor.h"
 #include "base/numerics/checked_math.h"
-#include "base/partition_alloc_buildflags.h"
 #include "build/build_config.h"
 
 #if defined(OS_LINUX) || defined(OS_CHROMEOS)
@@ -483,15 +482,17 @@ void ConfigurePartitionRefCountSupport(bool enable_ref_count) {
 }
 #endif  // BUILDFLAG(ENABLE_RUNTIME_BACKUP_REF_PTR_CONTROL)
 
-#if PA_ALLOW_PCSCAN
-void EnablePCScan() {
-  internal::PCScan::Initialize();
+#if defined(PA_ALLOW_PCSCAN)
+void EnablePCScan(bool dcscan) {
+  internal::PCScan::Initialize(
+      dcscan ? internal::PCScan::WantedWriteProtectionMode::kEnabled
+             : internal::PCScan::WantedWriteProtectionMode::kDisabled);
   internal::PCScan::RegisterScannableRoot(Allocator());
   if (Allocator() != AlignedAllocator())
     internal::PCScan::RegisterScannableRoot(AlignedAllocator());
   internal::NonScannableAllocator::Instance().EnablePCScan();
 }
-#endif
+#endif  // defined(PA_ALLOW_PCSCAN)
 
 #if defined(OS_WIN)
 // Call this as soon as possible during startup.
@@ -581,8 +582,6 @@ SHIM_ALWAYS_EXPORT struct mallinfo mallinfo(void) __THROW {
 
 }  // extern "C"
 
-#endif  // BUILDFLAG(USE_PARTITION_ALLOC_AS_MALLOC)
-
 #if defined(OS_APPLE)
 
 namespace base {
@@ -600,3 +599,5 @@ void InitializeDefaultAllocatorPartitionRoot() {
 }  // namespace base
 
 #endif  // defined(OS_APPLE)
+
+#endif  // BUILDFLAG(USE_PARTITION_ALLOC_AS_MALLOC)

@@ -347,10 +347,6 @@ void HTMLVideoElement::OnPlay() {
     return;
   }
 
-  // TODO(mustaq): This is problematic, see https://crbug.com/1082258.
-  LocalFrame::NotifyUserActivation(
-      GetDocument().GetFrame(),
-      mojom::blink::UserActivationNotificationType::kMedia);
   webkitEnterFullscreen();
 }
 
@@ -560,7 +556,11 @@ scoped_refptr<StaticBitmapImage> HTMLVideoElement::CreateStaticBitmapImage(
 
 scoped_refptr<Image> HTMLVideoElement::GetSourceImageForCanvas(
     SourceImageStatus* status,
-    const FloatSize&) {
+    const FloatSize&,
+    const AlphaDisposition alpha_disposition) {
+  // UnpremultiplyAlpha is not implemented yet.
+  DCHECK_EQ(alpha_disposition, kPremultiplyAlpha);
+
   scoped_refptr<Image> snapshot = CreateStaticBitmapImage();
   if (!snapshot) {
     *status = kInvalidSourceImageStatus;

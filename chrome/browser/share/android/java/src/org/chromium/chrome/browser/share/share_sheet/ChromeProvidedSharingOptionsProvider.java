@@ -410,7 +410,8 @@ class ChromeProvidedSharingOptionsProvider {
                 .setIcon(R.drawable.qr_code, R.string.qr_code_share_icon_label)
                 .setFeatureNameForMetrics("SharingHubAndroid.QRCodeSelected")
                 .setOnClickCallback((view) -> {
-                    QrCodeCoordinator qrCodeCoordinator = new QrCodeCoordinator(mActivity, mUrl);
+                    QrCodeCoordinator qrCodeCoordinator = new QrCodeCoordinator(
+                            mActivity, mUrl, mTabProvider.get().getWindowAndroid());
                     qrCodeCoordinator.show();
                 })
                 .build();
@@ -441,8 +442,8 @@ class ChromeProvidedSharingOptionsProvider {
                 .setIcon(R.drawable.webnote, R.string.sharing_webnotes_stylized)
                 .setFeatureNameForMetrics("SharingHubAndroid.WebnotesStylize")
                 .setOnClickCallback((view) -> {
-                    NoteCreationCoordinator coordinator =
-                            NoteCreationCoordinatorFactory.create(mActivity);
+                    NoteCreationCoordinator coordinator = NoteCreationCoordinatorFactory.create(
+                            mActivity, mShareParams.getText());
                     coordinator.showDialog();
                 })
                 .build();

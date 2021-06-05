@@ -1711,26 +1711,18 @@ bool PaintLayer::HasOverflowControls() const {
                               GetLayoutObject().StyleRef().HasResize());
 }
 
-void PaintLayer::AppendSingleFragmentIgnoringPagination(
+void PaintLayer::AppendSingleFragmentIgnoringPaginationForHitTesting(
     PaintLayerFragments& fragments,
-    const PaintLayer* root_layer,
-    const CullRect* cull_rect,
-    OverlayScrollbarClipBehavior overlay_scrollbar_clip_behavior,
-    ShouldRespectOverflowClipType respect_overflow_clip,
-    const PhysicalOffset* offset_from_root,
-    const PhysicalOffset& sub_pixel_accumulation) const {
+    ShouldRespectOverflowClipType respect_overflow_clip) const {
   PaintLayerFragment fragment;
-  ClipRectsContext clip_rects_context(
-      root_layer, &root_layer->GetLayoutObject().FirstFragment(),
-      overlay_scrollbar_clip_behavior, respect_overflow_clip,
-      sub_pixel_accumulation);
-  Clipper(GeometryMapperOption::kUseGeometryMapper)
-      .CalculateRects(clip_rects_context, &GetLayoutObject().FirstFragment(),
-                      cull_rect, fragment.layer_bounds,
-                      fragment.background_rect, fragment.foreground_rect,
-                      offset_from_root);
-  fragment.root_fragment_data = &root_layer->GetLayoutObject().FirstFragment();
   fragment.fragment_data = &GetLayoutObject().FirstFragment();
+  ClipRectsContext clip_rects_context(this, fragment.fragment_data,
+                                      kExcludeOverlayScrollbarSizeForHitTesting,
+                                      respect_overflow_clip);
+  Clipper(GeometryMapperOption::kUseGeometryMapper)
+      .CalculateRects(clip_rects_context, fragment.fragment_data, nullptr,
+                      fragment.layer_bounds, fragment.background_rect,
+                      fragment.foreground_rect);
   if (GetLayoutObject().CanTraversePhysicalFragments()) {
     // Make sure that we actually traverse the fragment tree, by providing a
     // physical fragment. Otherwise we'd fall back to LayoutObject traversal.
@@ -1763,7 +1755,7 @@ bool PaintLayer::ShouldFragmentCompositedBounds(
 void PaintLayer::CollectFragments(
     PaintLayerFragments& fragments,
     const PaintLayer* root_layer,
-    const CullRect* cull_rect,
+    const CullRect* painting_cull_rect,
     OverlayScrollbarClipBehavior overlay_scrollbar_clip_behavior,
     ShouldRespectOverflowClipType respect_overflow_clip,
     const PhysicalOffset* offset_from_root,
@@ -1794,58 +1786,64 @@ void PaintLayer::CollectFragments(
   wtf_size_t physical_fragment_idx = 0u;
   for (auto* fragment_data = &first_fragment_data; fragment_data;
        fragment_data = fragment_data->NextFragment(), physical_fragment_idx++) {
-    const FragmentData* root_fragment_data;
-    if (root_layer == this) {
-      root_fragment_data = fragment_data;
-    } else if (should_match_fragments) {
-      for (root_fragment_data = &first_root_fragment_data; root_fragment_data;
-           root_fragment_data = root_fragment_data->NextFragment()) {
-        if (root_fragment_data->LogicalTopInFlowThread() ==
-            fragment_data->LogicalTopInFlowThread())
-          break;
+    // If CullRectUpdateEnabled, skip fragment geometry logic if we are
+    // collecting fragments for painting.
+    if (!RuntimeEnabledFeatures::CullRectUpdateEnabled() ||
+        !painting_cull_rect) {
+      const FragmentData* root_fragment_data;
+      if (root_layer == this) {
+        root_fragment_data = fragment_data;
+      } else if (should_match_fragments) {
+        for (root_fragment_data = &first_root_fragment_data; root_fragment_data;
+             root_fragment_data = root_fragment_data->NextFragment()) {
+          if (root_fragment_data->LogicalTopInFlowThread() ==
+              fragment_data->LogicalTopInFlowThread())
+            break;
+        }
+      } else {
+        root_fragment_data = &first_root_fragment_data;
       }
-    } else {
-      root_fragment_data = &first_root_fragment_data;
+
+      bool cant_find_fragment = !root_fragment_data;
+      if (cant_find_fragment) {
+        DCHECK(should_match_fragments);
+        // Fall back to the first fragment, in order to have
+        // PaintLayerClipper at least compute |fragment.layer_bounds|.
+        root_fragment_data = &first_root_fragment_data;
+      }
+
+      ClipRectsContext clip_rects_context(
+          root_layer, root_fragment_data, overlay_scrollbar_clip_behavior,
+          respect_overflow_clip, sub_pixel_accumulation);
+
+      absl::optional<CullRect> fragment_cull_rect;
+      if (painting_cull_rect) {
+        // |cull_rect| is in the coordinate space of |root_layer| (i.e. the
+        // space of |root_layer|'s first fragment). Map the rect to the space of
+        // the current root fragment.
+        auto rect = painting_cull_rect->Rect();
+        first_root_fragment_data.MapRectToFragment(*root_fragment_data, rect);
+        fragment_cull_rect.emplace(rect);
+      }
+
+      Clipper(GeometryMapperOption::kUseGeometryMapper)
+          .CalculateRects(
+              clip_rects_context, fragment_data,
+              fragment_cull_rect ? &*fragment_cull_rect : nullptr,
+              fragment.layer_bounds, fragment.background_rect,
+              fragment.foreground_rect,
+              offset_from_root_can_be_used ? offset_from_root : nullptr);
+
+      if (cant_find_fragment) {
+        // If we couldn't find a matching fragment when |should_match_fragments|
+        // was true, then fall back to no clip.
+        fragment.background_rect.Reset();
+        fragment.foreground_rect.Reset();
+      }
+
+      fragment.root_fragment_data = root_fragment_data;
     }
 
-    bool cant_find_fragment = !root_fragment_data;
-    if (cant_find_fragment) {
-      DCHECK(should_match_fragments);
-      // Fall back to the first fragment, in order to have
-      // PaintLayerClipper at least compute |fragment.layer_bounds|.
-      root_fragment_data = &first_root_fragment_data;
-    }
-
-    ClipRectsContext clip_rects_context(
-        root_layer, root_fragment_data, overlay_scrollbar_clip_behavior,
-        respect_overflow_clip, sub_pixel_accumulation);
-
-    absl::optional<CullRect> fragment_cull_rect;
-    if (cull_rect) {
-      // |cull_rect| is in the coordinate space of |root_layer| (i.e. the
-      // space of |root_layer|'s first fragment). Map the rect to the space of
-      // the current root fragment.
-      auto rect = cull_rect->Rect();
-      first_root_fragment_data.MapRectToFragment(*root_fragment_data, rect);
-      fragment_cull_rect.emplace(rect);
-    }
-
-    Clipper(GeometryMapperOption::kUseGeometryMapper)
-        .CalculateRects(
-            clip_rects_context, fragment_data,
-            fragment_cull_rect ? &*fragment_cull_rect : nullptr,
-            fragment.layer_bounds, fragment.background_rect,
-            fragment.foreground_rect,
-            offset_from_root_can_be_used ? offset_from_root : nullptr);
-
-    if (cant_find_fragment) {
-      // If we couldn't find a matching fragment when |should_match_fragments|
-      // was true, then fall back to no clip.
-      fragment.background_rect.Reset();
-      fragment.foreground_rect.Reset();
-    }
-
-    fragment.root_fragment_data = root_fragment_data;
     fragment.fragment_data = fragment_data;
 
     if (GetLayoutObject().CanTraversePhysicalFragments()) {
@@ -2203,11 +2201,9 @@ PaintLayer* PaintLayer::HitTestLayer(PaintLayer* root_layer,
   if (recursion_data.intersects_location) {
     layer_fragments.emplace();
     if (applied_transform) {
-      DCHECK(root_layer == this);
-      PhysicalOffset ignored;
-      AppendSingleFragmentIgnoringPagination(
-          *layer_fragments, root_layer, nullptr,
-          kExcludeOverlayScrollbarSizeForHitTesting, clip_behavior, &ignored);
+      DCHECK_EQ(root_layer, this);
+      AppendSingleFragmentIgnoringPaginationForHitTesting(*layer_fragments,
+                                                          clip_behavior);
     } else {
       CollectFragments(*layer_fragments, root_layer, nullptr,
                        kExcludeOverlayScrollbarSizeForHitTesting,
@@ -3483,40 +3479,41 @@ void PaintLayer::StyleDidChange(StyleDifference diff,
   UpdateBackdropFilters(old_style, new_style);
   UpdateClipPath(old_style, new_style);
 
-  if (!SelfNeedsRepaint()) {
-    if (diff.ZIndexChanged()) {
-      // We don't need to invalidate paint of objects when paint order
-      // changes. However, we do need to repaint the containing stacking
-      // context, in order to generate new paint chunks in the correct order.
-      // Raster invalidation will be issued if needed during paint.
-      SetNeedsRepaint();
-    } else if (old_style) {
-      bool new_painted_output_invisible =
-          PaintLayerPainter::PaintedOutputInvisible(new_style);
-      if (PaintLayerPainter::PaintedOutputInvisible(*old_style) !=
-          new_painted_output_invisible) {
-        if (RuntimeEnabledFeatures::CompositeAfterPaintEnabled()) {
-          // Though CompositeAfterPaint ignores PaintedOutputInvisible during
-          // paint, we still force repaint to ensure FCP/LCP will be reported.
-          // See crbug.com/1184903. Only SetNeedsRepaint() won't work because
-          // we won't repaint the display items which are already in the old
-          // painted result. TODO(crbug.com/1104218): Optimize this.
-          if (!new_painted_output_invisible)
-            GetLayoutObject().SetSubtreeShouldDoFullPaintInvalidation();
-        } else {
-          // Change of PaintedOutputInvisible() will affect existence of paint
-          // chunks, so needs repaint.
-          SetNeedsRepaint();
-        }
+  if (diff.ZIndexChanged()) {
+    // We don't need to invalidate paint of objects when paint order
+    // changes. However, we do need to repaint the containing stacking
+    // context, in order to generate new paint chunks in the correct order.
+    // Raster invalidation will be issued if needed during paint.
+    if (auto* stacking_context = AncestorStackingContext())
+      stacking_context->SetNeedsRepaint();
+  }
+
+  if (old_style) {
+    bool new_painted_output_invisible =
+        PaintLayerPainter::PaintedOutputInvisible(new_style);
+    if (PaintLayerPainter::PaintedOutputInvisible(*old_style) !=
+        new_painted_output_invisible) {
+      if (RuntimeEnabledFeatures::CompositeAfterPaintEnabled()) {
+        // Though CompositeAfterPaint ignores PaintedOutputInvisible during
+        // paint, we still force repaint to ensure FCP/LCP will be reported.
+        // See crbug.com/1184903. Only SetNeedsRepaint() won't work because
+        // we won't repaint the display items which are already in the old
+        // painted result. TODO(crbug.com/1104218): Optimize this.
+        if (!new_painted_output_invisible)
+          GetLayoutObject().SetSubtreeShouldDoFullPaintInvalidation();
+      } else {
+        // Change of PaintedOutputInvisible() will affect existence of paint
+        // chunks, so needs repaint.
+        SetNeedsRepaint();
       }
     }
   }
 }
 
-LayoutSize PaintLayer::PixelSnappedScrolledContentOffset() const {
+IntPoint PaintLayer::PixelSnappedScrolledContentOffset() const {
   if (GetLayoutObject().IsScrollContainer())
     return GetLayoutBox()->PixelSnappedScrolledContentOffset();
-  return LayoutSize();
+  return IntPoint();
 }
 
 PaintLayerClipper PaintLayer::Clipper(

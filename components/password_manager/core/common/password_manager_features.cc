@@ -34,7 +34,7 @@ const base::Feature kDetectFormSubmissionOnFormClear = {
 
 // Enables the editing of passwords in Chrome settings.
 const base::Feature kEditPasswordsInSettings = {
-#if defined(OS_ANDROID) || defined(OS_IOS)
+#if defined(OS_ANDROID)
     "EditPasswordsInSettings", base::FEATURE_DISABLED_BY_DEFAULT};
 #else
     "EditPasswordsInSettings", base::FEATURE_ENABLED_BY_DEFAULT};
@@ -141,12 +141,24 @@ const base::Feature kSecondaryServerFieldPredictions = {
 
 // Enables syncing of compromised credentials.
 const base::Feature kSyncingCompromisedCredentials = {
-    "SyncingCompromisedCredentials", base::FEATURE_DISABLED_BY_DEFAULT};
+    "SyncingCompromisedCredentials", base::FEATURE_ENABLED_BY_DEFAULT};
 
 // Treat heuritistics to find new password fields as reliable. This enables
 // password generation on more forms, but could lead to false positives.
 const base::Feature kTreatNewPasswordHeuristicsAsReliable = {
     "TreatNewPasswordHeuristicsAsReliable", base::FEATURE_DISABLED_BY_DEFAULT};
+
+// Controls whether we should use the new header images for the legacy save
+// password bubble.
+const base::Feature kUseNewHeaderForLegacySavePasswordBubble{
+    "UseNewHeaderForLegacySavePasswordBubble",
+    base::FEATURE_ENABLED_BY_DEFAULT};
+
+// Controls whether we should use the new header images for the save
+// password bubble with account store.
+const base::Feature kUseNewHeaderForSavePasswordWithAccountStoreBubble{
+    "UseNewHeaderForSavePasswordWithAccountStoreBubble",
+    base::FEATURE_ENABLED_BY_DEFAULT};
 
 // Enables use of Hash Affiliation fetcher for all requests.
 const base::Feature kUseOfHashAffiliationFetcher = {

@@ -4,6 +4,7 @@
 
 #include "ash/system/unified/unified_slider_bubble_controller.h"
 
+#include "ash/constants/ash_features.h"
 #include "ash/root_window_controller.h"
 #include "ash/session/session_controller_impl.h"
 #include "ash/shelf/shelf.h"
@@ -99,6 +100,9 @@ void UnifiedSliderBubbleController::OnOutputMuteChanged(bool mute_on) {
 }
 
 void UnifiedSliderBubbleController::OnInputMuteChanged(bool mute_on) {
+  if (!features::IsMicMuteNotificationsEnabled())
+    return;
+
   ShowBubble(SLIDER_TYPE_MIC);
 }
 
@@ -126,13 +130,21 @@ void UnifiedSliderBubbleController::ShowBubble(SliderType slider_type) {
   if (Shell::Get()->session_controller()->IsRunningInAppMode())
     return;
 
+  // When tray bubble is already shown, the microphone slider will get shown in
+  // audio detailed view. Bail out if the audio details are already showing to
+  // avoid resetting the bubble state.
+  if (slider_type == SLIDER_TYPE_MIC && tray_->bubble() &&
+      tray_->bubble()->ShowingAudioDetailedView()) {
+    return;
+  }
+
   if (IsAnyMainBubbleShown()) {
+    tray_->EnsureBubbleExpanded();
+
     // Unlike VOLUME and BRIGHTNESS, which are shown in the main bubble view,
     // MIC slider is shown in the audio details view.
     if (slider_type == SLIDER_TYPE_MIC)
       tray_->ShowAudioDetailedViewBubble();
-    else
-      tray_->EnsureBubbleExpanded();
     return;
   }
 

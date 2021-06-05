@@ -9,12 +9,14 @@ import {PageHandlerFactory, PageHandlerRemote} from './emoji_picker.mojom-webui.
 /** @interface */
 export class EmojiPickerApiProxy {
   showUI() {}
+  closeUI() {}
   /**
    *
    * @param {string} emoji
    * @param {boolean} isVariant
+   * @param {number} searchLength
    */
-  insertEmoji(emoji, isVariant) {}
+  insertEmoji(emoji, isVariant, searchLength) {}
 
   /**
    * @returns {Promise<{incognito:boolean}>}
@@ -35,9 +37,14 @@ export class EmojiPickerApiProxyImpl {
   showUI() {
     this.handler.showUI();
   }
+
   /** @override */
-  insertEmoji(emoji, isVariant) {
-    this.handler.insertEmoji(emoji, isVariant);
+  closeUI() {
+    this.handler.closeUI();
+  }
+  /** @override */
+  insertEmoji(emoji, isVariant, searchLength) {
+    this.handler.insertEmoji(emoji, isVariant, searchLength);
   }
 
   /** @override */

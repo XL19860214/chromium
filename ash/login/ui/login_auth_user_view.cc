@@ -13,6 +13,7 @@
 #include "ash/login/ui/arrow_button_view.h"
 #include "ash/login/ui/horizontal_image_sequence_animation_decoder.h"
 #include "ash/login/ui/lock_screen.h"
+#include "ash/login/ui/login_constants.h"
 #include "ash/login/ui/login_display_style.h"
 #include "ash/login/ui/login_password_view.h"
 #include "ash/login/ui/login_pin_input_view.h"
@@ -23,7 +24,6 @@
 #include "ash/login/ui/pin_request_view.h"
 #include "ash/login/ui/system_label_button.h"
 #include "ash/login/ui/views_utils.h"
-#include "ash/public/cpp/login_constants.h"
 #include "ash/resources/vector_icons/vector_icons.h"
 #include "ash/session/session_controller_impl.h"
 #include "ash/shell.h"
@@ -260,14 +260,15 @@ class FingerprintLabel : public views::Label {
     SetAccessibleName(l10n_util::GetStringUTF16(get_accessible_id()));
   }
 
-  // views::View:
+  // views::Label:
   void GetAccessibleNodeData(ui::AXNodeData* node_data) override {
     node_data->role = ax::mojom::Role::kStaticText;
     node_data->SetName(accessible_name_);
   }
 
+  // views::Label:
   void OnThemeChanged() override {
-    views::View::OnThemeChanged();
+    views::Label::OnThemeChanged();
     SetEnabledColor(AshColorProvider::Get()->GetContentLayerColor(
         AshColorProvider::ContentLayerType::kTextColorSecondary));
   }
@@ -1307,13 +1308,13 @@ void LoginAuthUserView::SetAuthMethods(
 }
 
 void LoginAuthUserView::SetEasyUnlockIcon(
-    EasyUnlockIconId id,
+    EasyUnlockIconState icon_state,
     const std::u16string& accessibility_label) {
-  password_view_->SetEasyUnlockIcon(id, accessibility_label);
+  password_view_->SetEasyUnlockIcon(icon_state, accessibility_label);
 
   const std::string& user_display_email =
       current_user().basic_user_info.display_email;
-  if (id == EasyUnlockIconId::UNLOCKED) {
+  if (icon_state == EasyUnlockIconState::UNLOCKED) {
     password_view_->SetAccessibleName(l10n_util::GetStringFUTF16(
         IDS_ASH_LOGIN_POD_AUTH_TAP_PASSWORD_FIELD_ACCESSIBLE_NAME,
         base::UTF8ToUTF16(user_display_email)));
@@ -1370,7 +1371,7 @@ void LoginAuthUserView::ApplyAnimationPostLayout(bool animate) {
         ui::LayerAnimationElement::CreateInterpolatedTransformElement(
             std::move(move_to_center),
             base::TimeDelta::FromMilliseconds(
-                login_constants::kChangeUserAnimationDurationMs));
+                login::kChangeUserAnimationDurationMs));
     transition->set_tween_type(gfx::Tween::Type::FAST_OUT_SLOW_IN);
     auto* sequence = new ui::LayerAnimationSequence(std::move(transition));
     auto* observer = BuildObserverToNotifyA11yLocationChanged(this);
@@ -1393,7 +1394,7 @@ void LoginAuthUserView::ApplyAnimationPostLayout(bool animate) {
       ui::ScopedLayerAnimationSettings settings(
           password_view_->layer()->GetAnimator());
       settings.SetTransitionDuration(base::TimeDelta::FromMilliseconds(
-          login_constants::kChangeUserAnimationDurationMs));
+          login::kChangeUserAnimationDurationMs));
       settings.SetTweenType(gfx::Tween::Type::FAST_OUT_SLOW_IN);
       if (previous_state_->has_password && !current_state.has_password) {
         settings.AddObserver(
@@ -1417,7 +1418,7 @@ void LoginAuthUserView::ApplyAnimationPostLayout(bool animate) {
       ui::ScopedLayerAnimationSettings settings(
           pin_password_toggle_->layer()->GetAnimator());
       settings.SetTransitionDuration(base::TimeDelta::FromMilliseconds(
-          login_constants::kChangeUserAnimationDurationMs));
+          login::kChangeUserAnimationDurationMs));
       settings.SetTweenType(gfx::Tween::Type::FAST_OUT_SLOW_IN);
       pin_password_toggle_->layer()->SetOpacity(opacity_end);
     }
@@ -1445,7 +1446,7 @@ void LoginAuthUserView::ApplyAnimationPostLayout(bool animate) {
         current_state.has_pinpad /*grow*/, pin_view_->height(),
         // TODO(https://crbug.com/955119): Implement proper animation.
         base::TimeDelta::FromMilliseconds(
-            login_constants::kChangeUserAnimationDurationMs / 2.0f),
+            login::kChangeUserAnimationDurationMs / 2.0f),
         gfx::Tween::FAST_OUT_SLOW_IN);
     auto* sequence = new ui::LayerAnimationSequence(std::move(transition));
 
@@ -1475,7 +1476,7 @@ void LoginAuthUserView::ApplyAnimationPostLayout(bool animate) {
       ui::ScopedLayerAnimationSettings settings(
           fingerprint_view_->layer()->GetAnimator());
       settings.SetTransitionDuration(base::TimeDelta::FromMilliseconds(
-          login_constants::kChangeUserAnimationDurationMs));
+          login::kChangeUserAnimationDurationMs));
       settings.SetTweenType(gfx::Tween::Type::FAST_OUT_SLOW_IN);
       fingerprint_view_->layer()->SetOpacity(opacity_end);
     }
@@ -1495,7 +1496,7 @@ void LoginAuthUserView::ApplyAnimationPostLayout(bool animate) {
       ui::ScopedLayerAnimationSettings settings(
           challenge_response_view_->layer()->GetAnimator());
       settings.SetTransitionDuration(base::TimeDelta::FromMilliseconds(
-          login_constants::kChangeUserAnimationDurationMs));
+          login::kChangeUserAnimationDurationMs));
       settings.SetTweenType(gfx::Tween::Type::FAST_OUT_SLOW_IN);
       challenge_response_view_->layer()->SetOpacity(opacity_end);
     }
@@ -1559,7 +1560,7 @@ void LoginAuthUserView::RequestFocus() {
 }
 
 void LoginAuthUserView::OnThemeChanged() {
-  views::View::OnThemeChanged();
+  NonAccessibleView::OnThemeChanged();
   const LoginPalette palette = CreateDefaultLoginPalette();
   password_view_->UpdatePalette(palette);
   pin_input_view_->UpdatePalette(palette);

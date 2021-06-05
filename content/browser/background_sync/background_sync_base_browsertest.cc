@@ -19,6 +19,7 @@
 #include "content/public/test/content_browser_test_utils.h"
 #include "content/shell/browser/shell.h"
 #include "content/test/mock_background_sync_controller.h"
+#include "third_party/blink/public/common/storage_key/storage_key.h"
 
 namespace content {
 
@@ -121,10 +122,11 @@ void BackgroundSyncBaseBrowserTest::RegistrationPendingOnCoreThread(
     const GURL& url,
     base::OnceCallback<void(bool)> callback) {
   sw_context->FindReadyRegistrationForClientUrl(
-      url, base::BindOnce(&BackgroundSyncBaseBrowserTest::
-                              RegistrationPendingDidGetSWRegistration,
-                          base::Unretained(this), sync_context, tag,
-                          std::move(callback)));
+      url, blink::StorageKey(url::Origin::Create(url)),
+      base::BindOnce(&BackgroundSyncBaseBrowserTest::
+                         RegistrationPendingDidGetSWRegistration,
+                     base::Unretained(this), sync_context, tag,
+                     std::move(callback)));
 }
 
 void BackgroundSyncBaseBrowserTest::SetUp() {

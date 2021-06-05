@@ -25,7 +25,6 @@
 #include "testing/gtest/include/gtest/gtest.h"
 
 using testing::_;
-using testing::ElementsAre;
 using testing::Eq;
 using testing::IsNull;
 using testing::Ne;
@@ -60,7 +59,8 @@ enum class ExpectedRemoteBookmarkUpdateError {
   kUnexpectedGuid = 9,
   kParentNotFolder = 10,
   kUnsupportedPermanentFolder = 13,
-  kMaxValue = kUnsupportedPermanentFolder,
+  kDescendantOfRootNodeWithoutPermanentFolder = 14,
+  kMaxValue = kDescendantOfRootNodeWithoutPermanentFolder,
 };
 
 // |*arg| must be of type std::vector<std::unique_ptr<bookmarks::BookmarkNode>>.
@@ -344,6 +344,8 @@ TEST(BookmarkModelMergerTest, ShouldMergeLocalAndRemoteModels) {
   //    |- url3(http://www.url3.com)
   //    |- url4(http://www.url4.com)
 
+  base::HistogramTester histogram_tester;
+
   std::unique_ptr<SyncedBookmarkTracker> tracker =
       Merge(std::move(updates), bookmark_model.get());
   ASSERT_THAT(bookmark_bar_node->children().size(), Eq(3u));
@@ -395,6 +397,10 @@ TEST(BookmarkModelMergerTest, ShouldMergeLocalAndRemoteModels) {
               Eq(base::ASCIIToUTF16(kUrl4Title)));
   EXPECT_THAT(bookmark_bar_node->children()[2]->children()[1]->url(),
               Eq(GURL(kUrl4)));
+
+  EXPECT_THAT(histogram_tester.GetTotalSum(
+                  "Sync.BookmarkModelMerger.UnsyncedEntitiesUponCompletion"),
+              Eq(4));
 
   // Verify the tracker contents.
   EXPECT_THAT(tracker->TrackedEntitiesCountForTest(), Eq(11U));
@@ -1763,16 +1769,16 @@ TEST(BookmarkModelMergerTest, ShouldLogMetricsForChildrenOfOrphanUpdates) {
 
   base::HistogramTester histogram_tester;
   Merge(std::move(updates), bookmark_model.get());
-  EXPECT_THAT(histogram_tester.GetAllSamples(
+  EXPECT_THAT(histogram_tester.GetTotalSum(
                   "Sync.BookmarkModelMerger.ValidInputUpdates"),
-              ElementsAre(base::Bucket(/*min=*/2, /*count=*/1)));
+              Eq(2));
   histogram_tester.ExpectUniqueSample(
       "Sync.ProblematicServerSideBookmarksDuringMerge",
       /*sample=*/ExpectedRemoteBookmarkUpdateError::kMissingParentEntity,
       /*count=*/1);
-  EXPECT_THAT(histogram_tester.GetAllSamples(
+  EXPECT_THAT(histogram_tester.GetTotalSum(
                   "Sync.BookmarkModelMerger.ReachableInputUpdates"),
-              ElementsAre(base::Bucket(/*min=*/1, /*count=*/1)));
+              Eq(1));
 }
 
 TEST(BookmarkModelMergerTest, ShouldLogMetricsForUnsupportedServerTag) {
@@ -1789,6 +1795,44 @@ TEST(BookmarkModelMergerTest, ShouldLogMetricsForUnsupportedServerTag) {
       "Sync.ProblematicServerSideBookmarksDuringMerge",
       /*sample=*/ExpectedRemoteBookmarkUpdateError::kUnsupportedPermanentFolder,
       /*count=*/1);
+}
+
+TEST(BookmarkModelMergerTest, ShouldLogMetricsForkDescendantOfRootNode) {
+  const std::string kRootNodeId = "test_root_node_id";
+  std::unique_ptr<bookmarks::BookmarkModel> bookmark_model =
+      bookmarks::TestBookmarkClient::CreateModel();
+
+  // -------- The remote model --------
+  // root node
+  //  | - bookmark (url1/Title1)
+  //  | - bookmark (url2/Title2)
+  syncer::UpdateResponseDataList updates;
+  updates.push_back(CreateBookmarkBarNodeUpdateData());
+  updates.back().entity.id = kRootNodeId;
+  updates.back().entity.server_defined_unique_tag =
+      syncer::ModelTypeToRootTag(syncer::BOOKMARKS);
+
+  updates.push_back(CreateUpdateResponseData(
+      /*server_id=*/"Id1", /*parent_id=*/kRootNodeId, "Title1",
+      /*url=*/"http://url1",
+      /*is_folder=*/false,
+      /*unique_position=*/MakeRandomPosition(),
+      /*guid=*/base::GUID::GenerateRandomV4()));
+  updates.push_back(CreateUpdateResponseData(
+      /*server_id=*/"Id2", /*parent_id=*/kRootNodeId, "Title2",
+      /*url=*/"http://url2",
+      /*is_folder=*/false,
+      /*unique_position=*/MakeRandomPosition(),
+      /*guid=*/base::GUID::GenerateRandomV4()));
+
+  base::HistogramTester histogram_tester;
+  Merge(std::move(updates), bookmark_model.get());
+  histogram_tester.ExpectUniqueSample(
+      "Sync.ProblematicServerSideBookmarksDuringMerge",
+      /*sample=*/
+      ExpectedRemoteBookmarkUpdateError::
+          kDescendantOfRootNodeWithoutPermanentFolder,
+      /*count=*/2);
 }
 
 TEST(BookmarkModelMergerTest, ShouldRemoveMatchingDuplicatesByGUID) {
@@ -1840,15 +1884,15 @@ TEST(BookmarkModelMergerTest, ShouldRemoveMatchingDuplicatesByGUID) {
               UnorderedElementsAre(HasTitle(base::UTF8ToUTF16(kTitle2)),
                                    HasTitle(base::UTF8ToUTF16(kTitle3))));
 
-  EXPECT_THAT(histogram_tester.GetAllSamples(
+  EXPECT_THAT(histogram_tester.GetTotalSum(
                   "Sync.BookmarkModelMerger.ValidInputUpdates"),
-              ElementsAre(base::Bucket(/*min=*/4, /*count=*/1)));
+              Eq(4));
   histogram_tester.ExpectBucketCount(
       "Sync.BookmarksGUIDDuplicates",
       /*sample=*/ExpectedBookmarksGUIDDuplicates::kMatchingUrls, /*count=*/1);
-  EXPECT_THAT(histogram_tester.GetAllSamples(
+  EXPECT_THAT(histogram_tester.GetTotalSum(
                   "Sync.BookmarkModelMerger.ReachableInputUpdates"),
-              ElementsAre(base::Bucket(/*min=*/3, /*count=*/1)));
+              Eq(3));
 }
 
 TEST(BookmarkModelMergerTest, ShouldRemoveDifferentDuplicatesByGUID) {
@@ -1890,7 +1934,7 @@ TEST(BookmarkModelMergerTest, ShouldRemoveDifferentDuplicatesByGUID) {
   const bookmarks::BookmarkNode* bookmark_bar_node =
       bookmark_model->bookmark_bar_node();
   EXPECT_THAT(bookmark_bar_node->children(),
-              ElementsAre(HasTitle(base::UTF8ToUTF16(kTitle1))));
+              UnorderedElementsAre(HasTitle(base::UTF8ToUTF16(kTitle1))));
   histogram_tester.ExpectBucketCount(
       "Sync.BookmarksGUIDDuplicates",
       /*sample=*/ExpectedBookmarksGUIDDuplicates::kDifferentUrls, /*count=*/1);
@@ -2088,6 +2132,7 @@ TEST(BookmarkModelMergerTest, ShouldReuploadBookmarkOnEmptyGuid) {
       /*is_folder=*/true, /*unique_position=*/posFolder2,
       base::GUID::GenerateRandomV4()));
 
+  base::HistogramTester histogram_tester;
   std::unique_ptr<SyncedBookmarkTracker> tracker =
       Merge(std::move(updates), bookmark_model.get());
 
@@ -2096,6 +2141,10 @@ TEST(BookmarkModelMergerTest, ShouldReuploadBookmarkOnEmptyGuid) {
 
   EXPECT_TRUE(tracker->GetEntityForSyncId(kFolder1Id)->IsUnsynced());
   EXPECT_FALSE(tracker->GetEntityForSyncId(kFolder2Id)->IsUnsynced());
+
+  EXPECT_THAT(histogram_tester.GetTotalSum(
+                  "Sync.BookmarkModelMerger.UnsyncedEntitiesUponCompletion"),
+              Eq(1));
 }
 
 TEST(BookmarkModelMergerTest, ShouldRemoveDifferentTypeDuplicatesByGUID) {

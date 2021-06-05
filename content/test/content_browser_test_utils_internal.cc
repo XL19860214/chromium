@@ -17,7 +17,6 @@
 #include "base/callback_helpers.h"
 #include "base/containers/stack.h"
 #include "base/json/json_reader.h"
-#include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/task/thread_pool.h"
 #include "base/test/bind.h"
@@ -172,6 +171,23 @@ CollectAllRenderFrameHostsIncludingSpeculative(
     RenderFrameHostImpl* starting_rfh) {
   std::vector<RenderFrameHostImpl*> visited_frames;
   starting_rfh->ForEachRenderFrameHostIncludingSpeculative(
+      base::BindLambdaForTesting(
+          [&](RenderFrameHostImpl* rfh) { visited_frames.push_back(rfh); }));
+  return visited_frames;
+}
+
+std::vector<RenderFrameHostImpl*> CollectAllRenderFrameHosts(
+    WebContentsImpl* web_contents) {
+  std::vector<RenderFrameHostImpl*> visited_frames;
+  web_contents->ForEachRenderFrameHost(base::BindLambdaForTesting(
+      [&](RenderFrameHostImpl* rfh) { visited_frames.push_back(rfh); }));
+  return visited_frames;
+}
+
+std::vector<RenderFrameHostImpl*>
+CollectAllRenderFrameHostsIncludingSpeculative(WebContentsImpl* web_contents) {
+  std::vector<RenderFrameHostImpl*> visited_frames;
+  web_contents->ForEachRenderFrameHostIncludingSpeculative(
       base::BindLambdaForTesting(
           [&](RenderFrameHostImpl* rfh) { visited_frames.push_back(rfh); }));
   return visited_frames;
@@ -827,6 +843,23 @@ void UserAgentInjector::DidStartNavigation(
     NavigationHandle* navigation_handle) {
   web_contents()->SetUserAgentOverride(user_agent_override_, false);
   navigation_handle->SetIsOverridingUserAgent(is_overriding_user_agent_);
+}
+
+RenderFrameHostImplHolder::RenderFrameHostImplHolder(RenderFrameHost* rfh)
+    : RenderFrameHostWrapper(rfh) {}
+
+RenderFrameHostImpl* RenderFrameHostImplHolder::get() const {
+  return static_cast<RenderFrameHostImpl*>(RenderFrameHostWrapper::get());
+}
+
+RenderFrameHostImpl& RenderFrameHostImplHolder::operator*() const {
+  DCHECK(get());
+  return *get();
+}
+
+RenderFrameHostImpl* RenderFrameHostImplHolder::operator->() const {
+  DCHECK(get());
+  return get();
 }
 
 }  // namespace content

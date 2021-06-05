@@ -12,7 +12,6 @@
 #include "base/callback.h"
 #include "base/json/json_reader.h"
 #include "base/logging.h"
-#include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/syslog_logging.h"
@@ -812,6 +811,11 @@ void DecodeReportingPolicies(const em::ChromeDeviceSettingsProto& policy,
       policies->Set(key::kReportDevicePrintJobs, POLICY_LEVEL_MANDATORY,
                     POLICY_SCOPE_MACHINE, POLICY_SOURCE_CLOUD,
                     base::Value(container.report_print_jobs()), nullptr);
+    }
+    if (container.has_report_login_logout()) {
+      policies->Set(key::kReportDeviceLoginLogout, POLICY_LEVEL_MANDATORY,
+                    POLICY_SCOPE_MACHINE, POLICY_SOURCE_CLOUD,
+                    base::Value(container.report_login_logout()), nullptr);
     }
   }
 
@@ -1951,6 +1955,16 @@ void DecodeGenericPolicies(const em::ChromeDeviceSettingsProto& policy,
     policies->Set(key::kDeviceAllowedBluetoothServices, POLICY_LEVEL_MANDATORY,
                   POLICY_SCOPE_MACHINE, POLICY_SOURCE_CLOUD,
                   std::move(allowlist), nullptr);
+  }
+
+  if (policy.has_device_scheduled_reboot()) {
+    const em::DeviceScheduledRebootProto& container(
+        policy.device_scheduled_reboot());
+    if (container.has_device_scheduled_reboot_settings()) {
+      SetJsonDevicePolicy(key::kDeviceScheduledReboot,
+                          container.device_scheduled_reboot_settings(),
+                          policies);
+    }
   }
 }
 

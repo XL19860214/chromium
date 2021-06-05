@@ -10,6 +10,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/task_environment.h"
+#include "base/time/time.h"
 #include "chromeos/components/feature_usage/feature_usage_metrics.h"
 #include "chromeos/login/login_state/login_state.h"
 #include "chromeos/network/cellular_esim_profile.h"
@@ -18,7 +19,6 @@
 #include "chromeos/network/network_state_handler.h"
 #include "chromeos/network/network_state_test_helper.h"
 #include "chromeos/network/test_cellular_esim_profile_handler.h"
-#include "components/prefs/testing_pref_service.h"
 #include "dbus/object_path.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/cros_system_api/dbus/service_constants.h"
@@ -75,7 +75,6 @@ class CellularMetricsLoggerTest : public testing::Test {
   void SetUp() override {
     ResetHistogramTester();
     LoginState::Initialize();
-    CellularMetricsLogger::RegisterLocalStatePrefs(prefs_.registry());
 
     cellular_inhibitor_ = std::make_unique<CellularInhibitor>();
     cellular_esim_profile_handler_ =
@@ -91,14 +90,16 @@ class CellularMetricsLoggerTest : public testing::Test {
   }
 
   void SetUpMetricsLogger() {
-    cellular_metrics_logger_ = std::make_unique<CellularMetricsLogger>();
+    cellular_metrics_logger_.reset(
+        new CellularMetricsLogger(task_environment_.GetMockTickClock()));
     cellular_metrics_logger_->Init(
         network_state_test_helper_.network_state_handler(),
         /* network_connection_handler */ nullptr,
         cellular_esim_profile_handler_.get());
 
     histogram_tester_->ExpectTotalCount(kESimFeatureUsageMetric, 0);
-    cellular_metrics_logger_->SetDevicePrefs(&prefs_);
+    task_environment_.FastForwardBy(
+        feature_usage::FeatureUsageMetrics::kInitialInterval);
     histogram_tester_->ExpectBucketCount(
         kESimFeatureUsageMetric,
         static_cast<int>(feature_usage::FeatureUsageMetrics::Event::kEligible),
@@ -202,7 +203,6 @@ class CellularMetricsLoggerTest : public testing::Test {
 
   base::test::TaskEnvironment task_environment_;
   std::unique_ptr<base::HistogramTester> histogram_tester_;
-  TestingPrefServiceSimple prefs_;
   NetworkStateTestHelper network_state_test_helper_{
       false /* use_default_devices_and_services */};
   std::unique_ptr<CellularInhibitor> cellular_inhibitor_;
@@ -211,37 +211,6 @@ class CellularMetricsLoggerTest : public testing::Test {
   std::unique_ptr<CellularMetricsLogger> cellular_metrics_logger_;
   DISALLOW_COPY_AND_ASSIGN(CellularMetricsLoggerTest);
 };
-
-TEST_F(CellularMetricsLoggerTest, DuplicateCellularServiceGuids) {
-  InitCellular("guid", "guid");
-
-  SetUpMetricsLogger();
-  const base::Value kFailure(shill::kStateFailure);
-  const base::Value kAssocStateValue(shill::kStateAssociation);
-
-  // Set cellular networks to connecting state.
-  service_client_test()->SetServiceProperty(
-      kTestPSimCellularServicePath, shill::kStateProperty, kAssocStateValue);
-  service_client_test()->SetServiceProperty(
-      kTestESimCellularServicePath, shill::kStateProperty, kAssocStateValue);
-  base::RunLoop().RunUntilIdle();
-
-  // Set cellular networks to connected state.
-  service_client_test()->SetServiceProperty(kTestPSimCellularServicePath,
-                                            shill::kStateProperty,
-                                            base::Value(shill::kStateOnline));
-  service_client_test()->SetServiceProperty(kTestESimCellularServicePath,
-                                            shill::kStateProperty,
-                                            base::Value(shill::kStateOnline));
-  base::RunLoop().RunUntilIdle();
-
-  // Only the PSim histogram is logged to because it was the first to be
-  // connected to.
-  histogram_tester_->ExpectTotalCount(
-      CellularMetricsLogger::kPSimAllConnectionResultHistogram, 1);
-  histogram_tester_->ExpectTotalCount(
-      CellularMetricsLogger::kESimAllConnectionResultHistogram, 0);
-}
 
 TEST_F(CellularMetricsLoggerTest, ActiveProfileExists) {
   AddESimProfile(hermes::profile::State::kActive, kTestESimCellularServicePath);
@@ -296,6 +265,8 @@ TEST_F(CellularMetricsLoggerTest, CellularUsageCountTest) {
   static const base::Value kTestOnlineStateValue(shill::kStateOnline);
   static const base::Value kTestIdleStateValue(shill::kStateIdle);
 
+  AddESimProfile(hermes::profile::State::kActive, kTestESimCellularServicePath);
+
   // Should not log state until after timeout.
   service_client_test()->SetServiceProperty(
       kTestEthServicePath, shill::kStateProperty, kTestOnlineStateValue);
@@ -323,6 +294,12 @@ TEST_F(CellularMetricsLoggerTest, CellularUsageCountTest) {
       kESimUsageCountHistogram,
       CellularMetricsLogger::CellularUsage::kConnectedWithOtherNetwork, 0);
 
+  histogram_tester_->ExpectBucketCount(
+      kESimFeatureUsageMetric,
+      static_cast<int>(
+          feature_usage::FeatureUsageMetrics::Event::kUsedWithSuccess),
+      0);
+
   // PSim Cellular connected as only network.
   service_client_test()->SetServiceProperty(
       kTestEthServicePath, shill::kStateProperty, kTestIdleStateValue);
@@ -333,6 +310,12 @@ TEST_F(CellularMetricsLoggerTest, CellularUsageCountTest) {
   histogram_tester_->ExpectBucketCount(
       kESimUsageCountHistogram,
       CellularMetricsLogger::CellularUsage::kConnectedAndOnlyNetwork, 0);
+
+  histogram_tester_->ExpectBucketCount(
+      kESimFeatureUsageMetric,
+      static_cast<int>(
+          feature_usage::FeatureUsageMetrics::Event::kUsedWithSuccess),
+      0);
 
   // After |kTimeSpentOnlinePSim|, PSim Cellular becomes not connected.
   const base::TimeDelta kTimeSpentOnlinePSim =
@@ -560,6 +543,8 @@ TEST_F(CellularMetricsLoggerTest, CellularConnectResult) {
   const base::Value kAssocStateValue(shill::kStateAssociation);
   ResetHistogramTester();
 
+  AddESimProfile(hermes::profile::State::kActive, kTestESimCellularServicePath);
+
   // Set cellular networks to connecting state.
   service_client_test()->SetServiceProperty(
       kTestPSimCellularServicePath, shill::kStateProperty, kAssocStateValue);
@@ -682,6 +667,8 @@ TEST_F(CellularMetricsLoggerTest, CancellationDuringConnecting) {
   ResetHistogramTester();
   base::RunLoop().RunUntilIdle();
 
+  AddESimProfile(hermes::profile::State::kActive, kTestESimCellularServicePath);
+
   // Set cellular networks to connecting state.
   service_client_test()->SetServiceProperty(
       kTestPSimCellularServicePath, shill::kStateProperty,
@@ -782,6 +769,8 @@ TEST_F(CellularMetricsLoggerTest, CellularTimeToConnectedTest) {
   const base::Value kOnlineStateValue(shill::kStateOnline);
   const base::Value kAssocStateValue(shill::kStateAssociation);
 
+  AddESimProfile(hermes::profile::State::kActive, kTestESimCellularServicePath);
+
   // Should not log connection time when not activated.
   service_client_test()->SetServiceProperty(
       kTestPSimCellularServicePath, shill::kStateProperty, kAssocStateValue);
@@ -828,6 +817,8 @@ TEST_F(CellularMetricsLoggerTest, CellularDisconnectionsTest) {
   InitCellular();
   base::Value kOnlineStateValue(shill::kStateOnline);
   base::Value kIdleStateValue(shill::kStateIdle);
+
+  AddESimProfile(hermes::profile::State::kActive, kTestESimCellularServicePath);
 
   // Should log connected state.
   service_client_test()->SetServiceProperty(

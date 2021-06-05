@@ -38,6 +38,7 @@
 <translation id="3227137524299004712">Mikrofon</translation>
 <translation id="3240426699337459095">Linket er kopieret</translation>
 <translation id="3259149966178251584">Kameraets opløsning</translation>
+<translation id="3448774564454087943">Videoen blev ikke gemt, fordi den er for kort</translation>
 <translation id="3517926952904427380">Det var ikke muligt at tage et billede i stående format</translation>
 <translation id="3569311554794739032">Er du sikker på, at du vil fjerne <ph name="FILE" />?</translation>
 <translation id="3733597664308256288">Yderligere styringselementer til kameraet er tilgængelige. Tryk på søgetasten+højrepil for at få adgang til dem.</translation>
@@ -77,6 +78,7 @@ Hvis din feedback omhandler billed- eller videokvalitet, bedes du vedhæfte et b
 <translation id="6420689864531458495">(<ph name="ASPECT_RATIO_WIDTH" />:<ph name="ASPECT_RATIO_HEIGHT" /> – <ph name="WIDTH" />x<ph name="HEIGHT" />) <ph name="MEGAPIXEL" /> megapixels</translation>
 <translation id="6681668084120808868">Tag billede</translation>
 <translation id="6778482348691154169">Der kan ikke tages et billede</translation>
+<translation id="695140971690006676">Nulstil alle</translation>
 <translation id="6965382102122355670">OK</translation>
 <translation id="698156982839284926">3 sekunder</translation>
 <translation id="712848772518857951">Er du sikker på, at du vil fjerne <ph name="COUNT" /> elementer?</translation>

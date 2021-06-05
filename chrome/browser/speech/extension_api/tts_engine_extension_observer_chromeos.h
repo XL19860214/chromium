@@ -33,8 +33,12 @@ class TtsEngineExtensionObserverChromeOS
 
   Profile* profile() { return profile_; }
 
-  void BindTtsStreamFactory(
-      mojo::PendingReceiver<chromeos::tts::mojom::TtsStreamFactory> receiver);
+  void BindGoogleTtsStream(
+      mojo::PendingReceiver<chromeos::tts::mojom::GoogleTtsStream> receiver);
+  void BindPlaybackTtsStream(
+      mojo::PendingReceiver<chromeos::tts::mojom::PlaybackTtsStream> receiver,
+      chromeos::tts::mojom::AudioParametersPtr audio_parameters,
+      chromeos::tts::mojom::TtsService::BindPlaybackTtsStreamCallback callback);
 
   // Implementation of KeyedService.
   void Shutdown() override;
@@ -61,6 +65,8 @@ class TtsEngineExtensionObserverChromeOS
 
   void OnAccessibilityStatusChanged(
       const ash::AccessibilityStatusEventDetails& details);
+
+  void CreateTtsServiceIfNeeded();
 
   base::ScopedObservation<extensions::ExtensionRegistry,
                           extensions::ExtensionRegistryObserver>

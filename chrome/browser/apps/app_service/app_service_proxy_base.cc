@@ -23,6 +23,7 @@
 #include "components/services/app_service/app_service_impl.h"
 #include "components/services/app_service/public/cpp/intent_filter_util.h"
 #include "components/services/app_service/public/cpp/intent_util.h"
+#include "components/services/app_service/public/cpp/types_util.h"
 #include "components/services/app_service/public/mojom/types.mojom.h"
 #include "content/public/browser/url_data_source.h"
 #include "ui/display/types/display_constants.h"
@@ -216,11 +217,14 @@ void AppServiceProxyBase::LaunchAppWithFiles(
 
           RecordAppPlatformMetrics(profile_, update, launch_source, container);
 
-          // TODO(crbug/1117655): Presently, app launch metrics are recorded in
-          // the caller. We should record them here, with the same SWA logic as
-          // AppServiceProxy::Launch. There is an if statement to detect
-          // launches from the file manager in LaunchSystemWebApp that should be
-          // removed at the same time.
+          // TODO(crbug/1117655): File manager records metrics for apps it
+          // launched. So we only record launches from other places. We should
+          // eventually move those metrics here, after AppService supports all
+          // app types launched by file manager.
+          if (launch_source != apps::mojom::LaunchSource::kFromFileManager) {
+            RecordAppLaunch(update.AppId(), launch_source);
+          }
+
           app_service_->LaunchAppWithFiles(
               update.AppType(), update.AppId(), container, event_flags,
               launch_source, std::move(file_paths));
@@ -375,7 +379,8 @@ std::vector<IntentLaunchInfo> AppServiceProxyBase::GetAppsForIntent(
     app_registry_cache_.ForEachApp([&intent_launch_info, &intent,
                                     &exclude_browsers](
                                        const apps::AppUpdate& update) {
-      if (update.Readiness() == apps::mojom::Readiness::kUninstalledByUser) {
+      if (!apps_util::IsInstalled(update.Readiness()) ||
+          update.ShowInLauncher() != apps::mojom::OptionalBool::kTrue) {
         return;
       }
       std::set<std::string> existing_activities;
@@ -441,6 +446,14 @@ void AppServiceProxyBase::AddPreferredApp(
   }
 }
 
+void AppServiceProxyBase::SetWindowMode(const std::string& app_id,
+                                        apps::mojom::WindowMode window_mode) {
+  if (app_service_.is_connected()) {
+    app_service_->SetWindowMode(app_registry_cache_.GetAppType(app_id), app_id,
+                                window_mode);
+  }
+}
+
 void AppServiceProxyBase::AddAppIconSource(Profile* profile) {
   // Make the chrome://app-icon/ resource available.
   content::URLDataSource::Add(profile,
@@ -452,7 +465,7 @@ void AppServiceProxyBase::OnApps(std::vector<apps::mojom::AppPtr> deltas,
                                  bool should_notify_initialized) {
   if (app_service_.is_connected()) {
     for (const auto& delta : deltas) {
-      if (delta->readiness == apps::mojom::Readiness::kUninstalledByUser) {
+      if (!apps_util::IsInstalled(delta->readiness)) {
         app_service_->RemovePreferredApp(delta->app_type, delta->app_id);
       }
     }
@@ -491,7 +504,7 @@ void AppServiceProxyBase::InitializePreferredApps(
 
 void AppServiceProxyBase::OnAppUpdate(const apps::AppUpdate& update) {
   if (!update.ReadinessChanged() ||
-      update.Readiness() != apps::mojom::Readiness::kUninstalledByUser) {
+      !apps_util::IsInstalled(update.Readiness())) {
     return;
   }
   preferred_apps_.DeleteAppId(update.AppId());

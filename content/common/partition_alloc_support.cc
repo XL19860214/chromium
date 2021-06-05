@@ -18,7 +18,6 @@
 #include "base/callback.h"
 #include "base/feature_list.h"
 #include "base/no_destructor.h"
-#include "base/partition_alloc_buildflags.h"
 #include "build/build_config.h"
 #include "content/public/common/content_switches.h"
 
@@ -52,25 +51,31 @@ void SetProcessNameForPCScan(const std::string& process_type) {
 }
 
 bool EnablePCScanForMallocPartitionsIfNeeded() {
-#if BUILDFLAG(USE_PARTITION_ALLOC_AS_MALLOC) && PA_ALLOW_PCSCAN
+#if BUILDFLAG(USE_PARTITION_ALLOC_AS_MALLOC) && defined(PA_ALLOW_PCSCAN)
   DCHECK(base::FeatureList::GetInstance());
   if (base::FeatureList::IsEnabled(base::features::kPartitionAllocPCScan)) {
-    base::allocator::EnablePCScan();
+    base::allocator::EnablePCScan(/*dcscan*/ false);
     return true;
   }
-#endif
+#endif  // BUILDFLAG(USE_PARTITION_ALLOC_AS_MALLOC) && defined(PA_ALLOW_PCSCAN)
   return false;
 }
 
 bool EnablePCScanForMallocPartitionsInBrowserProcessIfNeeded() {
-#if BUILDFLAG(USE_PARTITION_ALLOC_AS_MALLOC) && PA_ALLOW_PCSCAN
+#if BUILDFLAG(USE_PARTITION_ALLOC_AS_MALLOC) && defined(PA_ALLOW_PCSCAN)
   DCHECK(base::FeatureList::GetInstance());
   if (base::FeatureList::IsEnabled(
           base::features::kPartitionAllocPCScanBrowserOnly)) {
-    base::allocator::EnablePCScan();
+    const bool dcscan_wanted =
+        base::FeatureList::IsEnabled(base::features::kPartitionAllocDCScan);
+#if !defined(PA_STARSCAN_UFFD_WRITE_PROTECTOR_SUPPORTED)
+    CHECK(!dcscan_wanted)
+        << "DCScan is currently only supported on Linux based systems";
+#endif
+    base::allocator::EnablePCScan(dcscan_wanted);
     return true;
   }
-#endif
+#endif  // BUILDFLAG(USE_PARTITION_ALLOC_AS_MALLOC) && defined(PA_ALLOW_PCSCAN)
   return false;
 }
 

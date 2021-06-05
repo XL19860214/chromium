@@ -18,21 +18,23 @@ class EmojiPageHandler : public emoji_picker::mojom::PageHandler {
   EmojiPageHandler(
       mojo::PendingReceiver<emoji_picker::mojom::PageHandler> receiver,
       content::WebUI* web_ui,
-      EmojiUI* webui_controller,
-      bool incognito_mode);
+      EmojiUI* webui_controller);
   EmojiPageHandler(const EmojiPageHandler&) = delete;
   EmojiPageHandler& operator=(const EmojiPageHandler&) = delete;
   ~EmojiPageHandler() override;
 
   // emoji_picker::mojom::PageHandler:
   void ShowUI() override;
+  void CloseUI() override;
   void InsertEmoji(const std::string& emoji_to_insert,
-                   bool is_variant) override;
+                   bool is_variant,
+                   int16_t search_length) override;
   void IsIncognitoTextField(IsIncognitoTextFieldCallback callback) override;
 
  private:
   mojo::Receiver<emoji_picker::mojom::PageHandler> receiver_;
 
+  base::TimeTicks shown_time_;
   EmojiUI* const webui_controller_;
   bool incognito_mode_;
 };

@@ -9,7 +9,6 @@
 #include <string>
 
 #include "base/macros.h"
-#include "components/data_reduction_proxy/core/browser/data_reduction_proxy_data.h"
 #include "components/page_load_metrics/browser/page_load_metrics_event.h"
 #include "components/page_load_metrics/browser/page_load_metrics_observer_delegate.h"
 #include "components/page_load_metrics/common/page_load_timing.h"
@@ -144,20 +143,20 @@ struct NormalizedCLSData {
 
   // Maximum CLS of session windows. The gap between two consecutive shifts is
   // not bigger than 1000ms and the maximum window size is 5000ms.
-  double session_windows_gap1000ms_max5000ms_max_cls = 0.0;
+  float session_windows_gap1000ms_max5000ms_max_cls = 0.0;
 
   // Maximum CLS of session windows. The gap between two consecutive shifts is
   // not bigger than 1000ms.
-  double session_windows_gap1000ms_maxMax_max_cls = 0.0;
+  float session_windows_gap1000ms_maxMax_max_cls = 0.0;
 
   // The average CLS of session windows. The gap between two consecutive shifts
   // is not bigger than 5000ms.
-  double session_windows_gap5000ms_maxMax_average_cls = 0.0;
+  float session_windows_gap5000ms_maxMax_average_cls = 0.0;
 
   // Maximum CLS of session windows. The gap between two consecutive shifts is
   // not bigger than 1000ms or segmented by a user input. The maximum window
   // size is 5000ms.
-  double session_windows_by_inputs_gap1000ms_max5000ms_max_cls = 0.0;
+  float session_windows_by_inputs_gap1000ms_max5000ms_max_cls = 0.0;
 
   // If true, will not report the data in UKM.
   bool data_tainted = false;
@@ -173,8 +172,6 @@ struct ExtraRequestCompleteInfo {
       bool was_cached,
       int64_t raw_body_bytes,
       int64_t original_network_content_length,
-      std::unique_ptr<data_reduction_proxy::DataReductionProxyData>
-          data_reduction_proxy_data,
       network::mojom::RequestDestination request_destination,
       int net_error,
       std::unique_ptr<net::LoadTimingInfo> load_timing_info);
@@ -204,10 +201,6 @@ struct ExtraRequestCompleteInfo {
   // The number of body (not header) bytes that the data reduction proxy saw
   // before it compressed the requests.
   const int64_t original_network_content_length;
-
-  // Data related to data saver.
-  const std::unique_ptr<data_reduction_proxy::DataReductionProxyData>
-      data_reduction_proxy_data;
 
   // The type of the request as gleaned from the mime type.  This may
   // be more accurate than the type in the ExtraRequestStartInfo since we can

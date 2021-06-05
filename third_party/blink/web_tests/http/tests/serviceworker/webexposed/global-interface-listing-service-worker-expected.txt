@@ -1305,7 +1305,7 @@ interface ReadableStreamDefaultReader
     method constructor
     method read
     method releaseLock
-interface ReceiveStream
+interface ReceiveStream : ReadableStream
     attribute @@toStringTag
     getter readable
     getter readingAborted
@@ -1377,7 +1377,7 @@ interface SecurityPolicyViolationEvent : Event
     getter statusCode
     getter violatedDirective
     method constructor
-interface SendStream
+interface SendStream : WritableStream
     attribute @@toStringTag
     getter writable
     getter writingAborted

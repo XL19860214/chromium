@@ -5,37 +5,118 @@
 package org.chromium.chrome.browser.content_creation.notes;
 
 import android.app.Dialog;
+import android.graphics.Typeface;
 import android.os.Bundle;
 import android.view.View;
+import android.view.ViewGroup;
+import android.widget.TextView;
 
 import androidx.appcompat.app.AlertDialog;
 import androidx.fragment.app.DialogFragment;
+import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
+import androidx.recyclerview.widget.RecyclerView.OnScrollListener;
 
 import org.chromium.chrome.browser.content_creation.internal.R;
+import org.chromium.components.content_creation.notes.models.NoteTemplate;
+import org.chromium.ui.modelutil.LayoutViewBuilder;
+import org.chromium.ui.modelutil.MVCListAdapter.ModelList;
+import org.chromium.ui.modelutil.PropertyKey;
+import org.chromium.ui.modelutil.PropertyModel;
+import org.chromium.ui.modelutil.SimpleRecyclerViewAdapter;
 
 /**
  * Dialog for the note creation.
  */
 public class NoteCreationDialog extends DialogFragment {
+    private static final float FIRST_NOTE_PADDING_RATIO = 0.5f;
+    private static final float NOTE_PADDING_RATIO = 0.25f;
+
+    private View mContentView;
+    private String mSelectedText;
+
     interface NoteDialogObserver {
         void onViewCreated(View view);
     }
     private NoteDialogObserver mNoteDialogObserver;
 
-    public void initDialog(NoteDialogObserver noteDialogObserver) {
+    public void initDialog(NoteDialogObserver noteDialogObserver, String selectedText) {
         mNoteDialogObserver = noteDialogObserver;
+        mSelectedText = selectedText;
     }
 
     @Override
     public Dialog onCreateDialog(Bundle savedInstanceState) {
         AlertDialog.Builder builder =
                 new AlertDialog.Builder(getActivity(), R.style.Theme_Chromium_Fullscreen);
-        View contentView =
-                getActivity().getLayoutInflater().inflate(R.layout.creation_dialog, null);
-        builder.setView(contentView);
+        mContentView = getActivity().getLayoutInflater().inflate(R.layout.creation_dialog, null);
+        builder.setView(mContentView);
 
-        if (mNoteDialogObserver != null) mNoteDialogObserver.onViewCreated(contentView);
+        if (mNoteDialogObserver != null) mNoteDialogObserver.onViewCreated(mContentView);
 
         return builder.create();
+    }
+
+    /*
+     * Creates a note carousel for the provided PropertyModels.
+     *
+     * @param activity The activity the share sheet belongs to.
+     * @param carouselItems The PropertyModels used to build the top row.
+     */
+    public void createRecyclerViews(ModelList carouselItems) {
+        RecyclerView noteCarousel = mContentView.findViewById(R.id.note_carousel);
+
+        SimpleRecyclerViewAdapter adapter = new SimpleRecyclerViewAdapter(carouselItems);
+        adapter.registerType(NoteProperties.NOTE_VIEW_TYPE,
+                new LayoutViewBuilder(R.layout.carousel_item), this::bindCarouselItem);
+        noteCarousel.setAdapter(adapter);
+        LinearLayoutManager layoutManager =
+                new LinearLayoutManager(getActivity(), LinearLayoutManager.HORIZONTAL, false);
+        noteCarousel.setLayoutManager(layoutManager);
+
+        noteCarousel.addOnScrollListener(new OnScrollListener() {
+            @Override
+            public void onScrolled(RecyclerView recyclerView, int dx, int dy) {
+                LinearLayoutManager layoutManager =
+                        (LinearLayoutManager) recyclerView.getLayoutManager();
+                if (layoutManager.findFirstCompletelyVisibleItemPosition() < 0) return;
+                int selectedItem = layoutManager.findFirstCompletelyVisibleItemPosition();
+                ((TextView) mContentView.findViewById(R.id.title))
+                        .setText(carouselItems.get(selectedItem)
+                                         .model.get(NoteProperties.TEMPLATE)
+                                         .localizedName);
+            }
+        });
+    }
+
+    private void bindCarouselItem(PropertyModel model, ViewGroup parent, PropertyKey propertyKey) {
+        NoteTemplate template = model.get(NoteProperties.TEMPLATE);
+
+        View background = parent.findViewById(R.id.background);
+        template.mainBackground.apply(background);
+        background.setClipToOutline(true);
+        ((TextView) parent.findViewById(R.id.title)).setText(template.localizedName);
+
+        Typeface typeface = model.get(NoteProperties.TYPEFACE);
+        TextView noteText = (TextView) parent.findViewById(R.id.text);
+        noteText.setTypeface(typeface);
+
+        template.textStyle.apply(noteText, mSelectedText);
+
+        setLeftPadding(model.get(NoteProperties.IS_FIRST), parent.findViewById(R.id.item));
+    }
+
+    // Adjust the left padding for carousel items, so that the first item is centered and the
+    // following item is slightlight peaking from the right. For that, set left padding exactly
+    // what is needed to push the first item to the center, but set a smaller padding for the
+    // following items.
+    private void setLeftPadding(boolean isFirst, View itemView) {
+        int dialogWidth = mContentView.getWidth();
+        int templateWidth = getActivity().getResources().getDimensionPixelSize(R.dimen.note_width);
+        int paddingLeft = (int) ((dialogWidth - templateWidth)
+                        * (isFirst ? FIRST_NOTE_PADDING_RATIO : NOTE_PADDING_RATIO)
+                + 0.5f);
+        itemView.setPadding(paddingLeft, itemView.getPaddingTop(), itemView.getPaddingRight(),
+                itemView.getPaddingBottom());
     }
 }

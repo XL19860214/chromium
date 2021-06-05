@@ -80,7 +80,7 @@ bool ShouldPresentUserSigninUpgrade(ChromeBrowserState* browser_state,
   if (net::NetworkChangeNotifier::IsOffline())
     return false;
 
-  // Sign-in can be disabled by policy.
+  // Sign-in can be disabled by policy or through user Settings.
   if (!signin::IsSigninAllowed(browser_state->GetPrefs()))
     return false;
 
@@ -90,6 +90,7 @@ bool ShouldPresentUserSigninUpgrade(ChromeBrowserState* browser_state,
   if (auth_service->IsAuthenticated())
     return false;
 
+  // Used for testing purposes only.
   if (signin::ForceStartupSigninPromo())
     return true;
 
@@ -106,12 +107,20 @@ bool ShouldPresentUserSigninUpgrade(ChromeBrowserState* browser_state,
     }
   }
 
+  ios::ChromeIdentityService* identity_service =
+      ios::GetChromeBrowserProvider()->GetChromeIdentityService();
+
   // Don't show the promo if there are no identities.
-  NSArray* identities =
-      ios::GetChromeBrowserProvider()
-          ->GetChromeIdentityService()
-          ->GetAllIdentitiesSortedForDisplay(browser_state->GetPrefs());
+  NSArray* identities = identity_service->GetAllIdentitiesSortedForDisplay(
+      browser_state->GetPrefs());
   if (identities.count == 0)
+    return false;
+
+  // Don't show the SSO promo if the default primary account is cannot display
+  // extended sync promos.
+  absl::optional<bool> canOfferExtendedSyncPromos =
+      identity_service->CanOfferExtendedSyncPromos(identities[0]);
+  if (!canOfferExtendedSyncPromos.value_or(true))
     return false;
 
   // The sign-in promo should be shown twice, even if no account has been added.
@@ -148,22 +157,12 @@ void RecordVersionSeen(PrefService* pref_service,
 }
 
 bool IsSigninAllowed(const PrefService* prefs) {
-  return prefs->GetBoolean(prefs::kSigninAllowed);
+  return prefs->GetBoolean(prefs::kSigninAllowed) &&
+         prefs->GetBoolean(prefs::kSigninAllowedByPolicy);
 }
 
-bool IsSigninAllowedByPolicy() {
-  NSDictionary* configuration = [[NSUserDefaults standardUserDefaults]
-      dictionaryForKey:kPolicyLoaderIOSConfigurationKey];
-
-  NSValue* value = [configuration
-      valueForKey:base::SysUTF8ToNSString(policy::key::kBrowserSignin)];
-  if (!value) {
-    return true;
-  }
-
-  BrowserSigninMode signin_mode;
-  [value getValue:&signin_mode];
-  return signin_mode == BrowserSigninMode::kEnabled;
+bool IsSigninAllowedByPolicy(const PrefService* prefs) {
+  return prefs->GetBoolean(prefs::kSigninAllowedByPolicy);
 }
 
 }  // namespace signin

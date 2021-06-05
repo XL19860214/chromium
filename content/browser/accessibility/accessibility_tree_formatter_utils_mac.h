@@ -85,8 +85,9 @@ class CONTENT_EXPORT AttributeInvoker final {
                 const OptionalNSObject& value) const;
 
  private:
-  // Returns an accessible object of the given property node or default one.
-  id TargetOf(const ui::AXPropertyNode& property_node) const;
+  // Invokes a property node for a given target.
+  OptionalNSObject InvokeFor(const id target,
+                             const ui::AXPropertyNode& property_node) const;
 
   // Returns a parameterized attribute parameter by a property node.
   OptionalNSObject ParamByPropertyNode(const ui::AXPropertyNode&) const;

@@ -1,6 +1,7 @@
 <?xml version="1.0" ?>
 <!DOCTYPE translationbundle>
 <translationbundle lang="de">
+<translation id="1096883626080133124">Jetzt mit dem neuen ultraschnellen Google Chrome ganz einfach und sicherer noch mehr erledigen</translation>
 <translation id="1282031177488366470">Helfen, die Funktionen und die Leistung von Chrome zu verbessern</translation>
 <translation id="1314663809820920746">Sie sehen weiterhin Ihre Lesezeichen, Ihren Verlauf, Ihre Passwörter und andere Einstellungen auf diesem Gerät. Änderungen werden aber nicht mehr mit Ihrem Google-Konto synchronisiert.</translation>
 <translation id="1479202195792305274">Chrome kann Ihre Passwörter prüfen, wenn Sie sich mit Ihrem Google-Konto anmelden.</translation>
@@ -8,6 +9,7 @@
 <translation id="1504372625950710826">Chrome konnte nicht nach Updates suchen. Prüfen Sie Ihre Internetverbindung.</translation>
 <translation id="1682483655351012182">Chrome-Daten synchronisieren</translation>
 <translation id="1759842336958782510">Chrome</translation>
+<translation id="1812249337131447686">Nutzungsstatistiken und Absturzberichte zur Verbesserung von Chrome an Google senden</translation>
 <translation id="1917964099031477364">Dieses Konto und alle nicht gespeicherten Daten werden aus Chrome und anderen Google Apps auf diesem Gerät entfernt.</translation>
 <translation id="2009224836393115614">Chrome konnte Ihre Passwörter nicht prüfen. Prüfen Sie Ihre Internetverbindung.</translation>
 <translation id="2147651015520127414">Chrome hat verifiziert, dass <ph name="ISSUER" /> das Zertifikat dieser Website ausgestellt hat.</translation>
@@ -22,12 +24,12 @@
 <translation id="2695886661449553974">Chrome konnte nicht nach Updates suchen. Versuchen Sie es später noch einmal.</translation>
 <translation id="2732745070297234559">Chrome konnte nicht alle Passwörter prüfen. Versuchen Sie es morgen noch einmal.</translation>
 <translation id="2740105938841089077">Chrome zum Öffnen von Links verwenden</translation>
+<translation id="2869959624320573933">In Chrome anmelden</translation>
 <translation id="2919738076569633423">Wenn Sie Chrome nutzen, stimmen Sie damit den <ph name="BEGIN_LINK_TOS" />Nutzungsbedingungen<ph name="END_LINK_TOS" /> zu.</translation>
 <translation id="3030414234702425231">Sie melden sich von einem Konto ab, das von <ph name="SIGNOUT_MANAGED_DOMAIN" /> verwaltet wird. Dadurch werden Ihre Chrome-Daten von diesem Gerät gelöscht. Sie bleiben jedoch in Ihrem Google-Konto erhalten.</translation>
 <translation id="3167189358072330585">Dieses Konto funktioniert in Google Chrome nicht. Wenden Sie sich an Ihren Domainadministrator oder melden Sie sich mit einem Google-Standardkonto an.</translation>
 <translation id="3173834708294760622">Google Chrome-Seite</translation>
 <translation id="3196546062792660320">Mit Chrome sparen Sie Zeit, da Sie Ihre Konten im Web verwenden können. In den Einstellungen haben Sie die Möglichkeit, Konten hinzuzufügen oder zu entfernen.</translation>
-<translation id="3223655207402797071">Melden Sie sich bei dieser Website, Ihrem Google-Konto und Chrome an. Sie können die Synchronisierung dann später aktivieren.</translation>
 <translation id="3282568296779691940">In Chrome anmelden</translation>
 <translation id="3345341804167540816">Chrome überall nutzen</translation>
 <translation id="3455456143708465450">Wenn Sie Chrome optimal nutzen möchten, melden Sie sich mit Ihrem Google-Konto an</translation>
@@ -62,7 +64,6 @@
 <translation id="6063091872902370735">Anmeldung in Chrome zulassen</translation>
 <translation id="6181930887571472871">Zu Chrome wechseln</translation>
 <translation id="6238746320622508509">Erlauben Sie Chrome, Ihre Inkognitotabs zu sperren.</translation>
-<translation id="6573431926118603307">Hier werden Tabs angezeigt, die Sie auf Ihren anderen Geräten in Chrome geöffnet haben.</translation>
 <translation id="6600954340915313787">In Chrome kopiert</translation>
 <translation id="6634107063912726160">Wenn Sie sich abmelden, synchronisiert Chrome keine neuen Daten mehr mit Ihrem Google-Konto. Daten, die bereits synchronisiert wurden, bleiben im Konto gespeichert.</translation>
 <translation id="6648150602980899529">Sie melden sich mit einem von <ph name="DOMAIN" /> verwalteten Konto an und geben dem Administrator der Domain Kontrolle über Ihre Chrome-Daten. Die Daten werden diesem Konto dauerhaft zugeordnet. Wenn Sie sich von Chrome abmelden, werden Ihre Daten auf dem Gerät gelöscht, bleiben jedoch in Ihrem Google-Konto erhalten.</translation>
@@ -76,7 +77,6 @@
 <translation id="7172660552945675509">Tipp: <ph name="BEGIN_LINK" />Ziehen Sie Chrome in Ihr Dock<ph name="END_LINK" /></translation>
 <translation id="7173660919484573146">Chrome verwendet Face ID, um den autorisierten Zugriff auf Ihre Passwörter zu gewährleisten.</translation>
 <translation id="7261678641327190792">Chrome kann Ihre Passwörter nicht prüfen</translation>
-<translation id="7265369419224458312">Greifen Sie hier auf die Tabs zu, die Sie auf Ihrem Computer geöffnet haben. Öffnen Sie dazu Chrome auf Ihrem Computer und wählen Sie im Menü "In Chrome anmelden…" aus.</translation>
 <translation id="7272930098487145294">Um Bilder zu speichern, geben Sie Chrome unter "Einstellungen" die Berechtigung zum Hinzufügen von Fotos</translation>
 <translation id="7275945473750112644">Ihr Konto wird von <ph name="HOSTED_DOMAIN" /> verwaltet, Ihre Chrome-Daten werden von diesem Gerät gelöscht</translation>
 <translation id="7400722733683201933">Über Google Chrome</translation>
@@ -89,6 +89,7 @@
 <translation id="7855730255114109580">Google Chrome ist auf dem neuesten Stand.</translation>
 <translation id="8022947259858476807">Chrome standardmäßig verwenden, um Links zu öffnen, über Widgets zu suchen und Passwörter in anderen Apps automatisch auszufüllen</translation>
 <translation id="8160472928944011082">Update nicht möglich</translation>
+<translation id="8263079278049777200">Melden Sie sich bei dieser Website, in Ihrem Google-Konto und in Chrome an. Sie können die Synchronisierung später aktivieren.</translation>
 <translation id="8357607116237445042">Möchten Sie Ihre Chrome-Daten von diesem Gerät löschen oder sie behalten?</translation>
 <translation id="8370517070665726704">Copyright <ph name="YEAR" /> Google LLC. Alle Rechte vorbehalten.</translation>
 <translation id="840168496893712993">Einige Add-ons führen zum Ausfall von Chrome. Bitte deinstallieren Sie diese Add-ons.</translation>

@@ -351,11 +351,6 @@ public class VoiceRecognitionHandlerTest {
         }
 
         @Override
-        public Profile getProfile() {
-            return null;
-        }
-
-        @Override
         public UrlBarData getUrlBarData() {
             return UrlBarData.EMPTY;
         }
@@ -413,9 +408,11 @@ public class VoiceRecognitionHandlerTest {
         public TestAutocompleteCoordinator(ViewGroup parent, AutocompleteDelegate delegate,
                 OmniboxSuggestionsDropdownEmbedder dropdownEmbedder,
                 UrlBarEditingTextStateProvider urlBarEditingTextProvider) {
+            // clang-format off
             super(parent, delegate, dropdownEmbedder, urlBarEditingTextProvider,
                     mLifecycleDispatcher, () -> mModalDialogManager, null, null, mDataProvider,
-                    (profile) -> {}, (tab) -> {}, null, (url) -> false);
+                    mProfileSupplier, (tab) -> {}, null, (url) -> false);
+            // clang-format on
         }
 
         @Override
@@ -482,7 +479,7 @@ public class VoiceRecognitionHandlerTest {
         private IntentCallback mCallback;
 
         public TestWindowAndroid(Context context) {
-            super(context);
+            super(context, /* listenToActivityState= */ true);
         }
 
         public void setCancelableIntentSuccess(boolean success) {

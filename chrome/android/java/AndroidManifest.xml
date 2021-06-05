@@ -36,8 +36,26 @@ by a child template that "extends" this file.
     {% if channel in ['default'] %}
         <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
     {% endif %}
+
+    <!--
+      TODO(b/183501112): Remove this condition when always building against the S SDK.
+    -->
+    {% if target_sdk_version == 'S' or target_sdk_version|int >= 31 %}
+    <uses-permission-sdk-23 android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30"/>
+    <uses-permission-sdk-23 android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30"/>
+    <uses-permission-sdk-23 android:name="android.permission.BLUETOOTH_CONNECT"/>
+    <!--
+      Bluetooth scanning is used to implement the Web Bluetooth API, which is
+      not intended to allow sites to derive location and so can accept a
+      filtered view of devices.
+    -->
+    <uses-permission-sdk-23 android:name="android.permission.BLUETOOTH_SCAN"
+                            android:usesPermissionFlags="neverForLocation"/>
+    {% else %}
     <uses-permission-sdk-23 android:name="android.permission.BLUETOOTH"/>
     <uses-permission-sdk-23 android:name="android.permission.BLUETOOTH_ADMIN"/>
+    {% endif %}
+
     <uses-permission-sdk-23 android:name="android.permission.READ_CONTACTS"/>
     <uses-permission-sdk-23 android:name="android.permission.REORDER_TASKS"/>
     <uses-permission-sdk-23 android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
@@ -411,7 +429,7 @@ by a child template that "extends" this file.
 
         <!-- Locale related -->
         <receiver android:name="org.chromium.chrome.browser.notifications.channels.LocaleChangedBroadcastReceiver"
-            android:exported="false">
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.LOCALE_CHANGED" />
             </intent-filter>
@@ -517,7 +535,7 @@ by a child template that "extends" this file.
             @android:style/Theme.NoDisplay can't be used here.
         -->
         <activity android:name="org.chromium.chrome.browser.sync.ui.TrustedVaultKeyRetrievalProxyActivity"
-            android:theme="@style/Theme.AppCompat"
+            android:theme="@style/Theme.MaterialComponents"
             android:excludeFromRecents="true"
             android:exported="false">
         </activity>
@@ -1147,7 +1165,7 @@ by a child template that "extends" this file.
             android:excludeFromRecents="true"
             android:exported="true"
             android:noHistory="true"
-            android:theme="@style/Theme.AppCompat"
+            android:theme="@style/Theme.MaterialComponents"
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|mcc|mnc|screenLayout|smallestScreenSize" >
         </activity>
         {% endif %}
@@ -1270,6 +1288,14 @@ by a child template that "extends" this file.
           android:exported="true">
           <path-permission android:path="/bookmarks/search_suggest_query"
                   android:readPermission="android.permission.GLOBAL_SEARCH" />
+      </provider>
+
+      <!-- Provider for App to Web impression attribution.
+           TODO(https://crbug.com/1210171): Gate this provider behind a custom permission? -->
+      <provider android:name="org.chromium.chrome.browser.attribution_reporting.AttributionReportingProvider"
+          android:authorities="{{ manifest_package }}.AttributionReporting"
+          android:exported="true"
+          tools:ignore="ExportedContentProvider">
       </provider>
 
       {% block base_application_definitions %}

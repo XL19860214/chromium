@@ -9,22 +9,23 @@
 #include <string>
 #include <vector>
 
+#include "chromeos/components/diagnostics_ui/mojom/network_health_provider.mojom.h"
 #include "chromeos/services/network_config/public/mojom/cros_network_config.mojom.h"
+#include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/bindings/receiver.h"
 #include "mojo/public/cpp/bindings/remote.h"
+#include "mojo/public/cpp/bindings/remote_set.h"
 
 namespace chromeos {
 namespace diagnostics {
 // Stores network state, managed properties, and an observer for a network.
-// TODO(michaelcheco): Use NetworkProperties to construct a mojo::Network
-// struct and send it to its corresponding observer.
 struct NetworkProperties {
   explicit NetworkProperties(
       chromeos::network_config::mojom::NetworkStatePropertiesPtr network_state);
   ~NetworkProperties();
   chromeos::network_config::mojom::NetworkStatePropertiesPtr network_state;
   chromeos::network_config::mojom::ManagedPropertiesPtr managed_properties;
-  // TODO(michaelcheco): Add NetworkStateObserver as a member of this struct.
+  mojo::Remote<mojom::NetworkStateObserver> observer;
 };
 
 using NetworkPropertiesMap = std::map<std::string, NetworkProperties>;
@@ -33,7 +34,8 @@ using DeviceMap = std::map<network_config::mojom::NetworkType,
                            network_config::mojom::DeviceStatePropertiesPtr>;
 
 class NetworkHealthProvider
-    : public network_config::mojom::CrosNetworkConfigObserver {
+    : public network_config::mojom::CrosNetworkConfigObserver,
+      public mojom::NetworkHealthProvider {
  public:
   NetworkHealthProvider();
 
@@ -41,6 +43,16 @@ class NetworkHealthProvider
   NetworkHealthProvider& operator=(const NetworkHealthProvider&) = delete;
 
   ~NetworkHealthProvider() override;
+
+  // mojom::NetworkHealthProvider
+  void ObserveNetworkList(
+      mojo::PendingRemote<mojom::NetworkListObserver> observer) override;
+
+  void ObserveNetwork(mojo::PendingRemote<mojom::NetworkStateObserver> observer,
+                      const std::string& guid) override;
+
+  void BindInterface(
+      mojo::PendingReceiver<mojom::NetworkHealthProvider> pending_receiver);
 
   // CrosNetworkConfigObserver
   void OnNetworkStateListChanged() override;
@@ -53,7 +65,7 @@ class NetworkHealthProvider
   void OnVpnProvidersChanged() override;
   void OnNetworkCertificatesChanged() override;
 
-  std::vector<std::string> GetNetworkGuidListForTesting();
+  std::vector<std::string> GetNetworkGuidList();
 
   const DeviceMap& GetDeviceTypeMapForTesting();
 
@@ -76,6 +88,27 @@ class NetworkHealthProvider
   // Gets ManagedProperties for a network |guid| from CrosNetworkConfig.
   void GetManagedPropertiesForNetwork(const std::string& guid);
 
+  // Gets a list of network guids as well as the guid of the currently active
+  // network (if one exists) and uses |network_list_observer_| to send the
+  // result to each observer.
+  void NotifyNetworkListObservers();
+
+  // Creates a mojom::Network struct and sends it to the corresponding
+  // network state observer.
+  void NotifyNetworkStateObserver(const NetworkProperties& network_props);
+
+  // Gets network state from CrosNetworkConfig.
+  void GetNetworkState();
+
+  // Gets device state from CrosNetworkConfig.
+  void GetDeviceState();
+
+  NetworkProperties& GetNetworkProperties(const std::string& guid);
+
+  // Finds a matching device for a given network type.
+  network_config::mojom::DeviceStateProperties* GetMatchingDevice(
+      network_config::mojom::NetworkType type);
+
   // Map of networks that are active and of a supported
   // type (Ethernet, WiFi, Cellular).
   NetworkPropertiesMap network_properties_map_;
@@ -84,6 +117,9 @@ class NetworkHealthProvider
   // for a network.
   DeviceMap device_type_map_;
 
+  // Guid for the currently active network (if one exists).
+  std::string active_guid_;
+
   // Remote for sending requests to the CrosNetworkConfig service.
   mojo::Remote<network_config::mojom::CrosNetworkConfig>
       remote_cros_network_config_;
@@ -91,6 +127,12 @@ class NetworkHealthProvider
   // Receiver for the CrosNetworkConfigObserver events.
   mojo::Receiver<network_config::mojom::CrosNetworkConfigObserver>
       cros_network_config_observer_receiver_{this};
+
+  // Remotes for tracking observers that will be notified of changes to the
+  // list of active networks.
+  mojo::RemoteSet<mojom::NetworkListObserver> network_list_observers_;
+
+  mojo::Receiver<mojom::NetworkHealthProvider> receiver_{this};
 };
 
 }  // namespace diagnostics

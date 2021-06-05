@@ -35,6 +35,7 @@
 #include "base/allocator/buildflags.h"
 #include "base/allocator/partition_allocator/page_allocator.h"
 #include "base/allocator/partition_allocator/page_allocator_constants.h"
+#include "base/allocator/partition_allocator/partition_address_space.h"
 #include "base/allocator/partition_allocator/partition_alloc-inl.h"
 #include "base/allocator/partition_allocator/partition_alloc_check.h"
 #include "base/allocator/partition_allocator/partition_alloc_config.h"
@@ -51,7 +52,6 @@
 #include "base/allocator/partition_allocator/thread_cache.h"
 #include "base/bits.h"
 #include "base/compiler_specific.h"
-#include "base/partition_alloc_buildflags.h"
 #include "build/build_config.h"
 
 // We use this to make MEMORY_TOOL_REPLACES_ALLOCATOR behave the same for max
@@ -192,14 +192,14 @@ struct BASE_EXPORT PartitionRoot {
   static constexpr bool never_used_lazy_commit = true;
 #endif
 
-#if !PA_EXTRAS_REQUIRED
+#if !defined(PA_EXTRAS_REQUIRED)
   // Teach the compiler that code can be optimized in builds that use no extras.
   static constexpr uint32_t extras_size = 0;
   static constexpr uint32_t extras_offset = 0;
 #else
   uint32_t extras_size;
   uint32_t extras_offset;
-#endif
+#endif  // !defined(PA_EXTRAS_REQUIRED)
 
   // Not used on the fastest path (thread cache allocations), but on the fast
   // path of the central allocator.
@@ -400,7 +400,16 @@ struct BASE_EXPORT PartitionRoot {
     // - The first few system pages are the partition page in which the super
     // page metadata is stored.
     // - We add a trailing guard page (one system page will suffice).
+#if !defined(PA_HAS_64_BITS_POINTERS) && BUILDFLAG(ENABLE_BRP_DIRECTMAP_SUPPORT)
+    // On 32-bit systems, we need PartitionPageSize() guard pages at both the
+    // beginning and the end of each direct-map allocated memory. This is needed
+    // for the BRP pool bitmap which excludes guard pages and operates at
+    // PartitionPageSize() granularity. This is to match the behavior of normal
+    // buckets allocations.
+    return PartitionPageSize() + PartitionPageSize();
+#else
     return PartitionPageSize() + SystemPageSize();
+#endif
   }
 
   static PAGE_ALLOCATOR_CONSTANTS_DECLARE_CONSTEXPR ALWAYS_INLINE size_t
@@ -417,14 +426,8 @@ struct BASE_EXPORT PartitionRoot {
     // limit before calling. This also guards against integer overflow in the
     // calculation here.
     PA_DCHECK(raw_size <= MaxDirectMapped());
-    // Align to allocation granularity. However, in 64-bit mode, the granularity
-    // is super page size.
-    size_t alignment = PageAllocationGranularity();
-#if defined(PA_HAS_64_BITS_POINTERS)
-    alignment = kSuperPageSize;
-#endif
     return bits::AlignUp(raw_size + GetDirectMapMetadataAndGuardPagesSize(),
-                         alignment);
+                         DirectMapAllocationGranularity());
   }
 
 // PartitionRefCount contains a cookie if slow checks are enabled or
@@ -585,8 +588,10 @@ struct BASE_EXPORT PartitionRoot {
                                       bool* is_already_zeroed)
       EXCLUSIVE_LOCKS_REQUIRED(lock_);
 
-  bool TryReallocInPlace(void* ptr, SlotSpan* slot_span, size_t new_size);
-  bool ReallocDirectMappedInPlace(
+  bool TryReallocInPlaceForNormalBuckets(void* ptr,
+                                         SlotSpan* slot_span,
+                                         size_t new_size);
+  bool TryReallocInPlaceForDirectMap(
       internal::SlotSpanMetadata<thread_safe>* slot_span,
       size_t requested_size) EXCLUSIVE_LOCKS_REQUIRED(lock_);
   void DecommitEmptySlotSpans() EXCLUSIVE_LOCKS_REQUIRED(lock_);
@@ -771,13 +776,11 @@ ALWAYS_INLINE constexpr size_t BucketIndexLookup::GetIndex(size_t size) {
 // Gets the SlotSpanMetadata object of the slot span that contains |ptr|. It's
 // used with intention to do obtain the slot size.
 //
-// CAUTION! Use only for normal buckets. Using on direct-mapped allocations may
-// lead to undefined behavior.
+// CAUTION! For direct-mapped allocation, |ptr| has to be within the first
+// partition page.
 template <bool thread_safe>
 ALWAYS_INLINE internal::SlotSpanMetadata<thread_safe>*
 PartitionAllocGetSlotSpanForSizeQuery(void* ptr) {
-  // TODO(bartekn): Add a "is in normal buckets" DCHECK.
-
   // No need to lock here. Only |ptr| being freed by another thread could
   // cause trouble, and the caller is responsible for that not happening.
   auto* slot_span =
@@ -785,6 +788,13 @@ PartitionAllocGetSlotSpanForSizeQuery(void* ptr) {
   // TODO(palmer): See if we can afford to make this a CHECK.
   PA_DCHECK(PartitionRoot<thread_safe>::IsValidSlotSpan(slot_span));
   return slot_span;
+}
+
+ALWAYS_INLINE void* PartitionAllocGetDirectMapSlotStart(void* ptr) {
+  uintptr_t reservation_start = GetDirectMapReservationStart(ptr);
+  if (!reservation_start)
+    return nullptr;
+  return reinterpret_cast<void*>(reservation_start + PartitionPageSize());
 }
 
 #if BUILDFLAG(USE_BACKUP_REF_PTR)
@@ -809,8 +819,16 @@ ALWAYS_INLINE void* PartitionAllocGetSlotStart(void* ptr) {
   // kPartitionPastAllocationAdjustment takes care of that detail.
   ptr = reinterpret_cast<char*>(ptr) - kPartitionPastAllocationAdjustment;
 
-  internal::DCheckIfManagedByPartitionAllocBRPPool(ptr);
+#if BUILDFLAG(ENABLE_BRP_DIRECTMAP_SUPPORT)
+  DCheckIfManagedByPartitionAllocBRPPool(ptr);
+#else
+  if (IsManagedByNormalBuckets(ptr))
+    DCheckIfManagedByPartitionAllocBRPPool(ptr);
+#endif
 
+  void* directmap_slot_start = PartitionAllocGetDirectMapSlotStart(ptr);
+  if (UNLIKELY(directmap_slot_start))
+    return directmap_slot_start;
   auto* slot_span =
       internal::PartitionAllocGetSlotSpanForSizeQuery<internal::ThreadSafe>(
           ptr);
@@ -847,6 +865,14 @@ ALWAYS_INLINE bool PartitionAllocIsValidPtrDelta(void* ptr, ptrdiff_t delta) {
       reinterpret_cast<char*>(ptr) - kPartitionPastAllocationAdjustment;
 
   internal::DCheckIfManagedByPartitionAllocBRPPool(adjusted_ptr);
+
+  void* directmap_old_slot_start =
+      PartitionAllocGetDirectMapSlotStart(adjusted_ptr);
+  if (UNLIKELY(directmap_old_slot_start)) {
+    void* new_slot_start = PartitionAllocGetDirectMapSlotStart(
+        reinterpret_cast<char*>(ptr) + delta);
+    return directmap_old_slot_start == new_slot_start;
+  }
   auto* slot_span =
       internal::PartitionAllocGetSlotSpanForSizeQuery<internal::ThreadSafe>(
           adjusted_ptr);
@@ -946,14 +972,12 @@ ALWAYS_INLINE void* PartitionRoot<thread_safe>::AllocFromBucket(
   } else {
     slot_start = bucket->SlowPathAlloc(this, flags, raw_size,
                                        slot_span_alignment, is_already_zeroed);
-    // TODO(palmer): See if we can afford to make this a CHECK.
-    PA_DCHECK(!slot_start ||
-              IsValidSlotSpan(SlotSpan::FromSlotStartPtr(slot_start)));
-
     if (UNLIKELY(!slot_start))
       return nullptr;
 
     slot_span = SlotSpan::FromSlotStartPtr(slot_start);
+    // TODO(palmer): See if we can afford to make this a CHECK.
+    PA_DCHECK(IsValidSlotSpan(slot_span));
     // For direct mapped allocations, |bucket| is the sentinel.
     PA_DCHECK((slot_span->bucket == bucket) ||
               (slot_span->bucket->is_direct_mapped() &&
@@ -1068,7 +1092,7 @@ ALWAYS_INLINE void PartitionRoot<thread_safe>::FreeNoHooksImmediate(
   // Note: ref-count and cookies can be 0-sized.
   //
   // For more context, see the other "Layout inside the slot" comment below.
-#if EXPENSIVE_DCHECKS_ARE_ON() || PA_ZERO_RANDOMLY_ON_FREE
+#if EXPENSIVE_DCHECKS_ARE_ON() || defined(PA_ZERO_RANDOMLY_ON_FREE)
   const size_t utilized_slot_size = slot_span->GetUtilizedSlotSize();
 #endif
 #if BUILDFLAG(USE_BACKUP_REF_PTR) || DCHECK_IS_ON()
@@ -1088,7 +1112,9 @@ ALWAYS_INLINE void PartitionRoot<thread_safe>::FreeNoHooksImmediate(
 
 #if BUILDFLAG(USE_BACKUP_REF_PTR)
   if (allow_ref_count) {
+#if !BUILDFLAG(ENABLE_BRP_DIRECTMAP_SUPPORT)
     if (LIKELY(!IsDirectMappedBucket(slot_span->bucket))) {
+#endif  // !BUILDFLAG(ENABLE_BRP_DIRECTMAP_SUPPORT)
       auto* ref_count = internal::PartitionRefCountPointer(slot_start);
       // If there are no more references to the allocation, it can be freed
       // immediately. Otherwise, defer the operation and zap the memory to turn
@@ -1098,7 +1124,9 @@ ALWAYS_INLINE void PartitionRoot<thread_safe>::FreeNoHooksImmediate(
 
       if (UNLIKELY(!(ref_count->ReleaseFromAllocator())))
         return;
+#if !BUILDFLAG(ENABLE_BRP_DIRECTMAP_SUPPORT)
     }
+#endif  // !BUILDFLAG(ENABLE_BRP_DIRECTMAP_SUPPORT)
   }
 #endif  // BUILDFLAG(USE_BACKUP_REF_PTR)
 
@@ -1110,7 +1138,7 @@ ALWAYS_INLINE void PartitionRoot<thread_safe>::FreeNoHooksImmediate(
              - sizeof(internal::PartitionRefCount)
 #endif
   );
-#elif PA_ZERO_RANDOMLY_ON_FREE
+#elif defined(PA_ZERO_RANDOMLY_ON_FREE)
   // `memset` only once in a while: we're trading off safety for time
   // efficiency.
   if (UNLIKELY(internal::RandomPeriod()) &&
@@ -1122,7 +1150,7 @@ ALWAYS_INLINE void PartitionRoot<thread_safe>::FreeNoHooksImmediate(
 #endif
     );
   }
-#endif
+#endif  // defined(PA_ZERO_RANDOMLY_ON_FREE)
 
   RawFreeWithThreadCache(slot_start, slot_span);
 }
@@ -1202,12 +1230,10 @@ PartitionRoot<thread_safe>::FromSuperPage(char* super_page) {
   return root;
 }
 
-// CAUTION! Use only for normal buckets. Using on direct-mapped allocations may
-// lead to undefined behavior.
 template <bool thread_safe>
 ALWAYS_INLINE PartitionRoot<thread_safe>*
 PartitionRoot<thread_safe>::FromPointerInNormalBuckets(char* ptr) {
-  // TODO(bartekn): Add a "is in normal buckets" DCHECK.
+  PA_DCHECK(internal::IsManagedByNormalBuckets(ptr));
   char* super_page = reinterpret_cast<char*>(reinterpret_cast<uintptr_t>(ptr) &
                                              kSuperPageBaseMask);
   return FromSuperPage(super_page);
@@ -1273,6 +1299,7 @@ ALWAYS_INLINE size_t PartitionRoot<thread_safe>::GetUsableSize(void* ptr) {
 // doesn't mean this capacity is readily available. It merely means that if
 // a new allocation (or realloc) happened with that returned value, it'd use
 // the same amount of underlying memory.
+//
 // CAUTION! For direct-mapped allocation, |ptr| has to be within the first
 // partition page.
 template <bool thread_safe>
@@ -1511,9 +1538,13 @@ ALWAYS_INLINE void* PartitionRoot<thread_safe>::AllocFlagsNoHooks(
   }
 
 #if BUILDFLAG(USE_BACKUP_REF_PTR)
-  bool is_direct_mapped = raw_size > kMaxBucketed;
+  bool should_init_ref_count = allow_ref_count
+#if !BUILDFLAG(ENABLE_BRP_DIRECTMAP_SUPPORT)
+                               && !(raw_size > kMaxBucketed)
+#endif
+      ;
   // LIKELY: Direct mapped allocations are large and rare.
-  if (allow_ref_count && LIKELY(!is_direct_mapped)) {
+  if (LIKELY(should_init_ref_count)) {
     new (internal::PartitionRefCountPointer(slot_start))
         internal::PartitionRefCount();
   }

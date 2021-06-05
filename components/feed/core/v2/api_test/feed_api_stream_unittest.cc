@@ -10,6 +10,7 @@
 #include "base/test/metrics/user_action_tester.h"
 #include "base/test/scoped_feature_list.h"
 #include "components/feed/core/common/pref_names.h"
+#include "components/feed/core/shared_prefs/pref_names.h"
 #include "components/feed/core/v2/api_test/feed_api_test.h"
 #include "components/feed/core/v2/config.h"
 #include "components/feed/core/v2/feed_network.h"
@@ -352,19 +353,27 @@ TEST_F(FeedApiTest, BackgroundRefreshDiscoFeedEnabled) {
 }
 
 TEST_F(FeedApiTest, ForceRefreshForDebugging) {
-  // First do a normal load via network that will fail.
-  is_offline_ = true;
-  TestForYouSurface surface(stream_.get());
-  WaitForIdleTaskQueue();
+  // Enable WebFeed and subscribe to a page, so that we can check if the WebFeed
+  // is refreshed by ForceRefreshForDebugging.
+  base::test::ScopedFeatureList features;
+  features.InitAndEnableFeature(kWebFeed);
+  // WebFeed stream is only fetched when there's a subscription.
+  FollowWebFeed(MakeWebFeedPageInformation("https://cats.com"));
 
-  // Next, force a refresh that results in a successful load.
-  is_offline_ = false;
+  // Force a refresh that results in a successful load of both feed types.
+  response_translator_.InjectResponse(MakeTypicalInitialModelState());
   response_translator_.InjectResponse(MakeTypicalInitialModelState());
   stream_->ForceRefreshForDebugging();
 
   WaitForIdleTaskQueue();
-  EXPECT_EQ("loading -> cant-refresh -> loading -> 2 slices",
-            surface.DescribeUpdates());
+
+  is_offline_ = true;
+
+  TestForYouSurface surface(stream_.get());
+  TestWebFeedSurface web_feed_surface(stream_.get());
+  WaitForIdleTaskQueue();
+  EXPECT_EQ("2 slices", surface.DescribeState());
+  EXPECT_EQ("2 slices", web_feed_surface.DescribeState());
 }
 
 TEST_F(FeedApiTest, RefreshScheduleFlow) {
@@ -2162,11 +2171,11 @@ TEST_F(FeedApiTest, HasUnreadContentIsFalseAfterSliceView) {
 
 TEST_F(FeedApiTest,
        LoadingForYouStreamTriggersWebFeedRefreshIfNoUnreadContent) {
-  Config config = GetFeedConfig();
-  config.refresh_web_feed_after_for_you_feed_loads = true;
-  SetFeedConfigForTesting(config);
   base::test::ScopedFeatureList features;
   features.InitAndEnableFeature(kWebFeed);
+
+  // WebFeed stream is only fetched when there's a subscription.
+  FollowWebFeed(MakeWebFeedPageInformation("https://cats.com"));
 
   // Both streams should be fetched.
   response_translator_.InjectResponse(MakeTypicalInitialModelState());
@@ -2187,14 +2196,29 @@ TEST_F(FeedApiTest,
             metrics_reporter_->load_stream_status);
 }
 
+TEST_F(FeedApiTest,
+       LoadingForYouStreamDoesNotTriggerWebFeedRefreshIfNoSubscriptions) {
+  base::test::ScopedFeatureList features;
+  features.InitAndEnableFeature(kWebFeed);
+
+  // Only for-you feed is fetched on load.
+  response_translator_.InjectResponse(MakeTypicalInitialModelState());
+  TestForYouSurface surface(stream_.get());
+  WaitForIdleTaskQueue();
+  ASSERT_EQ(1, network_.send_query_call_count);
+  EXPECT_EQ("loading -> 2 slices", surface.DescribeUpdates());
+  EXPECT_EQ(LoadStreamStatus::kLoadedFromNetwork,
+            metrics_reporter_->load_stream_status);
+}
+
 TEST_F(
     FeedApiTest,
     LoadForYouStreamDoesNotTriggerWebFeedRefreshContentIfIsAlreadyAvailable) {
-  Config config = GetFeedConfig();
-  config.refresh_web_feed_after_for_you_feed_loads = true;
-  SetFeedConfigForTesting(config);
   base::test::ScopedFeatureList features;
   features.InitAndEnableFeature(kWebFeed);
+
+  // WebFeed stream is only fetched when there's a subscription.
+  FollowWebFeed(MakeWebFeedPageInformation("https://cats.com"));
 
   // Both streams should be fetched because there is no unread web-feed content.
   response_translator_.InjectResponse(MakeTypicalInitialModelState());
@@ -2239,6 +2263,26 @@ TEST_F(FeedApiTest, WasUrlRecentlyNavigatedFromFeedMaxHistory) {
   for (size_t i = 1; i < urls.size(); ++i) {
     EXPECT_TRUE(stream_->WasUrlRecentlyNavigatedFromFeed(urls[i]));
   }
+}
+
+TEST_F(FeedApiTest, ClearAllOnStartupIfFeedIsDisabled) {
+  CallbackReceiver<> on_clear_all;
+  on_clear_all_ = on_clear_all.BindRepeating();
+
+  // Fetch a feed, so that there's stored data.
+  response_translator_.InjectResponse(MakeTypicalInitialModelState());
+  TestForYouSurface surface(stream_.get());
+  WaitForIdleTaskQueue();
+
+  // Turn off the feed, and re-create FeedStream. It should perform a ClearAll.
+  profile_prefs_.SetBoolean(feed::prefs::kEnableSnippets, false);
+  CreateStream();
+  EXPECT_TRUE(on_clear_all.called());
+
+  // Re-create the feed, and verify ClearAll isn't called again.
+  on_clear_all.Clear();
+  CreateStream();
+  EXPECT_FALSE(on_clear_all.called());
 }
 
 // Keep instantiations at the bottom.

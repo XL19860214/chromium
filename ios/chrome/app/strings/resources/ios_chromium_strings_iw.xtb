@@ -17,7 +17,6 @@
 <ph name="BEGIN_LINK" />למידע נוסף<ph name="END_LINK" /></translation>
 <translation id="2006345422933397527">‏Chromium לא הצליח לחפש עדכונים. יש לבדוק את החיבור לאינטרנט.</translation>
 <translation id="2054703085270098503">‏פשוט לשמור על הבטיחות בעזרת Chromium</translation>
-<translation id="2075400798887076382">‏מכאן ניתן לגשת אל הכרטיסיות שפתחת במחשב. יש לפתוח את Chromium במחשב, לעבור אל התפריט ולבחור באפשרות 'כניסה אל Chromium…'</translation>
 <translation id="2168108852149185974">‏תוספים מסוימים גורמים ל-Chromium לקרוס. יש להסיר אותם:</translation>
 <translation id="2178608107313874732">‏Chromium לא יכול להשתמש עכשיו במצלמה</translation>
 <translation id="2195025571279539885">‏רוצה ש-Chromium יציע בפעם הבאה לתרגם דפים ב<ph name="LANGUAGE_NAME" /> מאתר זה?</translation>
@@ -42,18 +41,17 @@
 <translation id="4585809515399340748">‏אפשר עכשיו להשתמש ב-Chromium בכל פעם שמקישים על קישורים בהודעות, במסמכים ובאפליקציות אחרות.</translation>
 <translation id="4681781466797808448">‏הפעלת הסורק של Chromium</translation>
 <translation id="4736424910885271643">‏החשבון שלך מנוהל על ידי <ph name="HOSTED_DOMAIN" />, ולכן הנתונים שלך מ-Chromium יימחקו מהמכשיר הזה</translation>
-<translation id="4787850887676698916">‏כרטיסיות שפתחת ב-Chromium במכשירים האחרים שלך יופיעו כאן.</translation>
 <translation id="4806326830773390517">‏רוצה לעזור לנו לשפר את Chromium? צריך פשוט לשלוח אל Google סטטיסטיקות שימוש ודוחות קריסה</translation>
 <translation id="4828317641996116749">‏Chromium לא הצליח לבדוק את כל הסיסמאות. אפשר לנסות שוב מאוחר יותר.</translation>
 <translation id="4852878756222711218">‏כדי להפיק את המרב מ-Chromium, יש להיכנס לחשבון Google</translation>
 <translation id="4985291216379576555">‏אופליין, Chromium לא יכול לחפש עדכונים</translation>
 <translation id="4999538639245140991">‏יציאה מחשבון שמנוהל על ידי <ph name="SIGNOUT_MANAGED_DOMAIN" /> תגרום למחיקת נתוני Chromium שלך מהמכשיר הזה. הנתונים האלה יישארו בחשבון Google שלך.</translation>
+<translation id="5171868502429358653">‏כניסה אל Chromium</translation>
 <translation id="5224391634244552924">‏אין סיסמאות שמורות. Chromium יכול לבדוק את הסיסמאות שלך רק אם שמרת אותן.</translation>
 <translation id="5308226104666789935">‏Chromium לא יכול לחפש עדכונים</translation>
 <translation id="5396916991083608703">‏להגדיר את Chromium כדפדפן ברירת המחדל?</translation>
 <translation id="5521125884468363740">‏כדי לראות את הכרטיסיות שלך מכל מקום שבו פתחת את Chromium יש להיכנס לחשבון ולהפעיל את הסנכרון</translation>
 <translation id="5573014823074921752">‏טיפ למשתמשי Chromium: כדי לקבל אפשרויות נוספות של כרטיסיות, יש ללחוץ לחיצה ארוכה על הלחצן 'הצגת כרטיסיות' בסרגל הכלים, שנמצא בחלק התחתון או העליון של המסך.</translation>
-<translation id="5651741435382092412">‏יש להיכנס לאתר זה, לחשבון Google ול-Chromium. אפשר להפעיל את הסנכרון מאוחר יותר.</translation>
 <translation id="5700709190537129682">‏Chromium לא יכול לבדוק את הסיסמאות שלך</translation>
 <translation id="5742135483959137648">‏שימוש ב-Chromium לפתיחת קישורים</translation>
 <translation id="5777187867430702742">‏דף Chromium</translation>
@@ -64,6 +62,7 @@
 1. פותחים את ההגדרות
 2. מקישים על אפליקציית הדפדפן שמוגדרת כברירת מחדל
 3. בוחרים את Chromium.</translation>
+<translation id="6155422572367400359">‏יש לך אפשרות להיכנס לאתר הזה, לחשבון Google ול-Chromium. ניתן להפעיל את הסנכרון מאוחר יותר.</translation>
 <translation id="6268381023930128611">‏האם לצאת מ-Chromium?</translation>
 <translation id="632825460376924298">‏התרת כניסה אל Chromium</translation>
 <translation id="6337530241089703714">‏האם למחוק את נתוני Chromium ממכשיר זה או לשמור אותם?</translation>

@@ -8,7 +8,6 @@
 #include <memory>
 
 #include "base/cancelable_callback.h"
-#include "base/containers/flat_map.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/single_thread_task_runner.h"
@@ -50,6 +49,7 @@ class VIZ_SERVICE_EXPORT DisplayScheduler : public DisplaySchedulerBase {
   class BeginFrameObserver;
 
   bool OnBeginFrame(const BeginFrameArgs& args);
+  int MaxPendingSwaps() const;
 
   base::TimeTicks current_frame_display_time() const {
     return current_begin_frame_args_.frame_time +

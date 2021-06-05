@@ -11,6 +11,7 @@
 #include "base/android/jni_android.h"
 #include "base/android/jni_array.h"
 #include "base/android/jni_string.h"
+#include "base/containers/contains.h"
 #include "base/metrics/histogram_macros.h"
 #include "components/omnibox/browser/jni_headers/AutocompleteResult_jni.h"
 #include "components/omnibox/browser/search_suggestion_parser.h"
@@ -61,7 +62,7 @@ ScopedJavaLocalRef<jobject> AutocompleteResult::GetOrCreateJavaObject(
   ScopedJavaLocalRef<jobjectArray> j_group_names =
       ToJavaArrayOfStrings(env, group_names);
 
-  java_result_ = Java_AutocompleteResult_build(
+  java_result_ = Java_AutocompleteResult_fromNative(
       env, reinterpret_cast<intptr_t>(this), BuildJavaMatches(env), j_group_ids,
       j_group_names, j_group_collapsed_states);
 
@@ -73,7 +74,7 @@ void AutocompleteResult::DestroyJavaObject() const {
     return;
 
   JNIEnv* env = base::android::AttachCurrentThread();
-  Java_AutocompleteResult_destroy(env, java_result_);
+  Java_AutocompleteResult_notifyNativeDestroyed(env, java_result_);
   java_result_.Reset();
 }
 

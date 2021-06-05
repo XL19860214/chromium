@@ -71,10 +71,13 @@ bool HoldingSpaceItem::IsDownload(HoldingSpaceItem::Type type) {
   switch (type) {
     case Type::kArcDownload:
     case Type::kDownload:
+    case Type::kLacrosDownload:
       return true;
+    case Type::kDiagnosticsLog:
     case Type::kNearbyShare:
     case Type::kPinnedFile:
     case Type::kPrintedPdf:
+    case Type::kScan:
     case Type::kScreenRecording:
     case Type::kScreenshot:
       return false;
@@ -156,8 +159,8 @@ void HoldingSpaceItem::Initialize(const GURL& file_system_url) {
   file_system_url_ = file_system_url;
 }
 
-bool HoldingSpaceItem::UpdateBackingFile(const base::FilePath& file_path,
-                                         const GURL& file_system_url) {
+bool HoldingSpaceItem::SetBackingFile(const base::FilePath& file_path,
+                                      const GURL& file_system_url) {
   if (file_path_ == file_path && file_system_url_ == file_system_url)
     return false;
 
@@ -173,7 +176,7 @@ bool HoldingSpaceItem::IsInProgress() const {
   return progress_ != 1.f;
 }
 
-bool HoldingSpaceItem::UpdateProgress(const absl::optional<float>& progress) {
+bool HoldingSpaceItem::SetProgress(const absl::optional<float>& progress) {
   // NOTE: Progress can only be updated for in progress items.
   if (progress_ == progress || !IsInProgress())
     return false;
@@ -184,6 +187,10 @@ bool HoldingSpaceItem::UpdateProgress(const absl::optional<float>& progress) {
   }
 
   progress_ = progress;
+
+  if (progress_ == 1.f)
+    paused_ = false;
+
   return true;
 }
 
@@ -198,12 +205,27 @@ bool HoldingSpaceItem::IsScreenCapture() const {
     case Type::kScreenshot:
       return true;
     case Type::kArcDownload:
+    case Type::kDiagnosticsLog:
     case Type::kDownload:
+    case Type::kLacrosDownload:
     case Type::kNearbyShare:
     case Type::kPinnedFile:
     case Type::kPrintedPdf:
+    case Type::kScan:
       return false;
   }
+}
+
+bool HoldingSpaceItem::IsPaused() const {
+  return paused_;
+}
+
+bool HoldingSpaceItem::SetPaused(bool paused) {
+  if (!IsInProgress() || paused_ == paused)
+    return false;
+
+  paused_ = paused;
+  return true;
 }
 
 HoldingSpaceItem::HoldingSpaceItem(Type type,

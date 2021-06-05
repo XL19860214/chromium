@@ -121,6 +121,7 @@
 #include "third_party/blink/public/mojom/page/drag.mojom.h"
 #include "ui/base/clipboard/clipboard_constants.h"
 #include "ui/base/dragdrop/mojom/drag_drop_types.mojom.h"
+#include "ui/base/ui_base_features.h"
 #include "ui/base/ui_base_switches.h"
 #include "ui/display/display_switches.h"
 #include "ui/display/screen.h"
@@ -322,6 +323,37 @@ class UnboundWidgetInputHandler : public blink::mojom::WidgetInputHandler {
     NOTREACHED() << "Input request on unbound interface";
   }
 };
+
+std::u16string GetWrappedTooltipText(
+    const std::u16string& tooltip_text,
+    base::i18n::TextDirection text_direction_hint) {
+  // First, add directionality marks around tooltip text if necessary.
+  // A naive solution would be to simply always wrap the text. However, on
+  // windows, Unicode directional embedding characters can't be displayed on
+  // systems that lack RTL fonts and are instead displayed as empty squares.
+  //
+  // To get around this we only wrap the string when we deem it necessary i.e.
+  // when the locale direction is different than the tooltip direction hint.
+  //
+  // Currently, we use element's directionality as the tooltip direction hint.
+  // An alternate solution would be to set the overall directionality based on
+  // trying to detect the directionality from the tooltip text rather than the
+  // element direction.  One could argue that would be a preferable solution
+  // but we use the current approach to match Fx & IE's behavior.
+  std::u16string wrapped_tooltip_text = tooltip_text;
+  if (!tooltip_text.empty()) {
+    if (text_direction_hint == base::i18n::LEFT_TO_RIGHT) {
+      // Force the tooltip to have LTR directionality.
+      wrapped_tooltip_text =
+          base::i18n::GetDisplayStringInLTRDirectionality(wrapped_tooltip_text);
+    } else if (text_direction_hint == base::i18n::RIGHT_TO_LEFT &&
+               !base::i18n::IsRTL()) {
+      // Force the tooltip to have RTL directionality.
+      base::i18n::WrapStringWithRTLFormatting(&wrapped_tooltip_text);
+    }
+  }
+  return wrapped_tooltip_text;
+}
 
 base::LazyInstance<UnboundWidgetInputHandler>::Leaky g_unbound_input_handler =
     LAZY_INSTANCE_INITIALIZER;
@@ -2398,6 +2430,9 @@ void RenderWidgetHostImpl::Destroy(bool also_delete) {
 }
 
 void RenderWidgetHostImpl::OnInputEventAckTimeout() {
+  // Since input has timed out, let the BrowserUiThreadScheduler know we are
+  // done with input currently.
+  user_input_active_handle_.reset();
   RendererIsUnresponsive(base::BindRepeating(
       &RenderWidgetHostImpl::RestartInputEventAckTimeoutIfNecessary,
       weak_factory_.GetWeakPtr()));
@@ -2480,32 +2515,19 @@ void RenderWidgetHostImpl::UpdateTooltipUnderCursor(
   if (!GetView())
     return;
 
-  // First, add directionality marks around tooltip text if necessary.
-  // A naive solution would be to simply always wrap the text. However, on
-  // windows, Unicode directional embedding characters can't be displayed on
-  // systems that lack RTL fonts and are instead displayed as empty squares.
-  //
-  // To get around this we only wrap the string when we deem it necessary i.e.
-  // when the locale direction is different than the tooltip direction hint.
-  //
-  // Currently, we use element's directionality as the tooltip direction hint.
-  // An alternate solution would be to set the overall directionality based on
-  // trying to detect the directionality from the tooltip text rather than the
-  // element direction.  One could argue that would be a preferable solution
-  // but we use the current approach to match Fx & IE's behavior.
-  std::u16string wrapped_tooltip_text = tooltip_text;
-  if (!tooltip_text.empty()) {
-    if (text_direction_hint == base::i18n::LEFT_TO_RIGHT) {
-      // Force the tooltip to have LTR directionality.
-      wrapped_tooltip_text =
-          base::i18n::GetDisplayStringInLTRDirectionality(wrapped_tooltip_text);
-    } else if (text_direction_hint == base::i18n::RIGHT_TO_LEFT &&
-               !base::i18n::IsRTL()) {
-      // Force the tooltip to have RTL directionality.
-      base::i18n::WrapStringWithRTLFormatting(&wrapped_tooltip_text);
-    }
-  }
-  view_->UpdateTooltipUnderCursor(wrapped_tooltip_text);
+  view_->UpdateTooltipUnderCursor(
+      GetWrappedTooltipText(tooltip_text, text_direction_hint));
+}
+
+void RenderWidgetHostImpl::UpdateTooltipFromKeyboard(
+    const std::u16string& tooltip_text,
+    base::i18n::TextDirection text_direction_hint,
+    const gfx::Rect& bounds) {
+  if (!GetView())
+    return;
+
+  view_->UpdateTooltipFromKeyboard(
+      GetWrappedTooltipText(tooltip_text, text_direction_hint), bounds);
 }
 
 void RenderWidgetHostImpl::OnUpdateScreenRectsAck() {
@@ -2993,8 +3015,10 @@ blink::mojom::InputEventResultState RenderWidgetHostImpl::FilterInputEvent(
 
 void RenderWidgetHostImpl::IncrementInFlightEventCount() {
   ++in_flight_event_count_;
-  if (in_flight_event_count_ == 1)
+  if (in_flight_event_count_ == 1) {
     power_mode_input_voter_->VoteFor(power_scheduler::PowerMode::kResponse);
+    user_input_active_handle_ = BrowserTaskExecutor::OnUserInputStart();
+  }
   if (!is_hidden_)
     StartInputEventAckTimeout();
 }
@@ -3007,6 +3031,7 @@ void RenderWidgetHostImpl::DecrementInFlightEventCount(
     StopInputEventAckTimeout();
     power_mode_input_voter_->ResetVoteAfterTimeout(
         power_scheduler::PowerModeVoter::kResponseTimeout);
+    user_input_active_handle_.reset();
   } else {
     // Only restart the hang monitor timer if we got a response from the
     // main thread.
@@ -3465,6 +3490,9 @@ device::mojom::WakeLock* RenderWidgetHostImpl::GetWakeLock() {
 
 void RenderWidgetHostImpl::SetupInputRouter() {
   in_flight_event_count_ = 0;
+  // We are resetting in_flight_event_count_ so also inform the
+  // BrowserUIThreadScheduler that we are no longer processing input.
+  user_input_active_handle_.reset();
   suppress_events_until_keydown_ = false;
   monitoring_composition_info_ = false;
   StopInputEventAckTimeout();

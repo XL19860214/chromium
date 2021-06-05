@@ -20,14 +20,8 @@ namespace features {
 // If enabled device status collector will add the type of session (Affiliated
 // User, Kiosks, Managed Guest Sessions) to the device status report.
 const base::Feature kActivityReportingSessionType{
-    "ActivityReportingSessionType", base::FEATURE_DISABLED_BY_DEFAULT};
+    "ActivityReportingSessionType", base::FEATURE_ENABLED_BY_DEFAULT};
 #endif  // defined(IS_CHROMEOS_ASH)
-
-#if defined(OS_ANDROID)
-// Enables showing an adaptive action button in the top toolbar.
-const base::Feature kAdaptiveButtonInTopToolbar{
-    "AdaptiveButtonInTopToolbar", base::FEATURE_DISABLED_BY_DEFAULT};
-#endif  // defined(OS_ANDROID)
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 // Enables or disables logging for adaptive screen brightness on Chrome OS.
@@ -303,6 +297,11 @@ const base::Feature kDesktopPWAsRunOnOsLogin {
 const base::Feature kDesktopPWAsSharedStoreService{
     "DesktopPWAsSharedStoreService", base::FEATURE_ENABLED_BY_DEFAULT};
 
+// API that allows installed PWAs to add additional shortcuts by means of
+// installing sub app components.
+const base::Feature kDesktopPWAsSubApps{"DesktopPWAsSubApps",
+                                        base::FEATURE_DISABLED_BY_DEFAULT};
+
 // Adds a tab strip to PWA windows, used for UI experimentation.
 // TODO(crbug.com/897314): Enable this feature.
 const base::Feature kDesktopPWAsTabStrip{"DesktopPWAsTabStrip",
@@ -573,6 +572,12 @@ const base::Feature kIncognitoBrandConsistencyForAndroid{
 // on the Incognito UI.
 const base::Feature kIncognitoBrandConsistencyForDesktop{
     "IncognitoBrandConsistencyForDesktop", base::FEATURE_DISABLED_BY_DEFAULT};
+
+// When enabled, clear browsing data option would be enabled in Incognito which
+// upon clicking would show a dialog to close all Incognito windows.
+const base::Feature kIncognitoClearBrowsingDataDialogForDesktop{
+    "IncognitoClearBrowsingDataDialogForDesktop",
+    base::FEATURE_DISABLED_BY_DEFAULT};
 #endif
 
 // When enabled, removes any entry points to the history UI from Incognito mode.
@@ -744,6 +749,11 @@ const base::Feature kPermissionAuditing{"PermissionAuditing",
 const base::Feature kPermissionPredictions{"PermissionPredictions",
                                            base::FEATURE_DISABLED_BY_DEFAULT};
 
+const base::FeatureParam<double> kPermissionPredictionsHoldbackChance(
+    &kPermissionPredictions,
+    "holdback_chance",
+    0.0);
+
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 // Enable support for "Plugin VMs" on Chrome OS.
 const base::Feature kPluginVm{"PluginVm", base::FEATURE_DISABLED_BY_DEFAULT};
@@ -780,6 +790,9 @@ const base::FeatureParam<std::string> kPrivacySandboxSettingsURL{
 // Enables additional control set 2 on the privacy sandbox settings page.
 const base::Feature kPrivacySandboxSettings2{"PrivacySandboxSettings2",
                                              base::FEATURE_DISABLED_BY_DEFAULT};
+const base::FeatureParam<std::string> kPrivacySandboxSettings2FlocURL{
+    &kPrivacySandboxSettings2, "floc-website-url",
+    "https://privacysandbox.com/proposals/floc"};
 
 // Enables or disables push subscriptions keeping Chrome running in the
 // background when closed.
@@ -828,11 +841,11 @@ const base::Feature kRequestDesktopSiteForTablets{
 
 #if defined(OS_WIN)
 const base::Feature kSafetyCheckChromeCleanerChild{
-    "SafetyCheckChromeCleanerChild", base::FEATURE_DISABLED_BY_DEFAULT};
+    "SafetyCheckChromeCleanerChild", base::FEATURE_ENABLED_BY_DEFAULT};
 #endif
 
-const base::Feature kSafetyCheckWeakPasswords{
-    "SafetyCheckWeakPasswords", base::FEATURE_DISABLED_BY_DEFAULT};
+const base::Feature kSafetyCheckWeakPasswords{"SafetyCheckWeakPasswords",
+                                              base::FEATURE_ENABLED_BY_DEFAULT};
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 // Enable support for multiple scheduler configurations.
@@ -860,6 +873,11 @@ const base::Feature kSharesheetContentPreviews{
     "SharesheetContentPreviews", base::FEATURE_ENABLED_BY_DEFAULT};
 const base::Feature kChromeOSSharingHub{"ChromeOSSharingHub",
                                         base::FEATURE_DISABLED_BY_DEFAULT};
+#endif
+
+#if defined(OS_ANDROID)
+const base::Feature kShareUsageRanking{"ShareUsageRanking",
+                                       base::FEATURE_DISABLED_BY_DEFAULT};
 #endif
 
 #if defined(OS_MAC)
@@ -894,6 +912,11 @@ const base::Feature kSmartDim{"SmartDim", base::FEATURE_DISABLED_BY_DEFAULT};
 // website.
 const base::Feature kSoundContentSetting{"SoundContentSetting",
                                          base::FEATURE_ENABLED_BY_DEFAULT};
+
+// Enable 3DES ciphers in SSL/TLS. They are disabled by default as of M93. This
+// feature flag is available to restore the old behavior in an emergency.
+const base::Feature kSSLCipher3DES{"SSLCipher3DES",
+                                   base::FEATURE_DISABLED_BY_DEFAULT};
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 // Enables or disables chrome://sys-internals.

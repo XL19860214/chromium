@@ -10,10 +10,10 @@
 
 #include "ash/constants/ash_switches.h"
 #include "base/bind.h"
+#include "base/cxx17_backports.h"
 #include "base/files/file_path.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
-#include "base/stl_util.h"
 #include "base/task/post_task.h"
 #include "base/values.h"
 #include "chrome/browser/ash/login/test/device_state_mixin.h"
@@ -322,8 +322,8 @@ INSTANTIATE_TEST_SUITE_P(
 // chrome.enterprise.platformKeys namespace.
 IN_PROC_BROWSER_TEST_F(ExtensionApiTest,
                        EnterprisePlatformKeysIsRestrictedToPolicyExtension) {
-  ASSERT_TRUE(RunExtensionTest({.name = "enterprise_platform_keys",
-                                .page_url = "api_not_available.html"},
+  ASSERT_TRUE(RunExtensionTest("enterprise_platform_keys",
+                               {.page_url = "api_not_available.html"},
                                {.ignore_manifest_warnings = true}));
 
   base::FilePath extension_path =

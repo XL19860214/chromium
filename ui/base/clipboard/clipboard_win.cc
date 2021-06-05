@@ -13,13 +13,11 @@
 
 #include "base/bind.h"
 #include "base/check_op.h"
-#include "base/feature_list.h"
 #include "base/files/file_path.h"
 #include "base/lazy_instance.h"
 #include "base/macros.h"
 #include "base/notreached.h"
 #include "base/numerics/safe_conversions.h"
-#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
@@ -40,7 +38,6 @@
 #include "ui/base/clipboard/clipboard_util_win.h"
 #include "ui/base/clipboard/custom_data_helper.h"
 #include "ui/base/data_transfer_policy/data_transfer_endpoint.h"
-#include "ui/base/ui_base_features.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/codec/png_codec.h"
 #include "ui/gfx/geometry/size.h"
@@ -225,10 +222,6 @@ void TrimAfterNull(StringType* result) {
 }
 
 bool ReadFilenamesAvailable() {
-  // Only support filenames if chrome://flags#clipboard-filenames is enabled.
-  if (!base::FeatureList::IsEnabled(features::kClipboardFilenames))
-    return false;
-
   return ::IsClipboardFormatAvailable(
              ClipboardFormatType::GetCFHDropType().ToFormatEtc().cfFormat) ||
          ::IsClipboardFormatAvailable(
@@ -779,7 +772,7 @@ void ClipboardWin::WriteBitmap(const SkBitmap& bitmap) {
                                         &png_encoded_bitmap)) {
     HGLOBAL png_hglobal = skia::CreateHGlobalForByteArray(png_encoded_bitmap);
     if (png_hglobal)
-      WriteToClipboard(ClipboardFormatType::GetPNGType(), png_hglobal);
+      WriteToClipboard(ClipboardFormatType::GetPngType(), png_hglobal);
   }
   HGLOBAL dibv5_hglobal = skia::CreateDIBV5ImageDataFromN32SkBitmap(bitmap);
   if (dibv5_hglobal)

@@ -67,6 +67,11 @@ HoldingSpaceClientImpl::HoldingSpaceClientImpl(Profile* profile)
 
 HoldingSpaceClientImpl::~HoldingSpaceClientImpl() = default;
 
+void HoldingSpaceClientImpl::AddDiagnosticsLog(
+    const base::FilePath& file_path) {
+  GetHoldingSpaceKeyedService(profile_)->AddDiagnosticsLog(file_path);
+}
+
 void HoldingSpaceClientImpl::AddScreenshot(const base::FilePath& file_path) {
   GetHoldingSpaceKeyedService(profile_)->AddScreenshot(file_path);
 }
@@ -74,6 +79,13 @@ void HoldingSpaceClientImpl::AddScreenshot(const base::FilePath& file_path) {
 void HoldingSpaceClientImpl::AddScreenRecording(
     const base::FilePath& file_path) {
   GetHoldingSpaceKeyedService(profile_)->AddScreenRecording(file_path);
+}
+
+void HoldingSpaceClientImpl::CancelItems(
+    const std::vector<const HoldingSpaceItem*>& items) {
+  auto* const service = GetHoldingSpaceKeyedService(profile_);
+  for (const HoldingSpaceItem* item : items)
+    service->CancelItem(item);
 }
 
 void HoldingSpaceClientImpl::CopyImageToClipboard(const HoldingSpaceItem& item,
@@ -216,25 +228,11 @@ void HoldingSpaceClientImpl::OpenMyFiles(SuccessCallback callback) {
           std::move(callback)));
 }
 
-void HoldingSpaceClientImpl::ShowItemInFolder(const HoldingSpaceItem& item,
-                                              SuccessCallback callback) {
-  holding_space_metrics::RecordItemAction(
-      {&item}, holding_space_metrics::ItemAction::kShowInFolder);
-
-  if (item.file_path().empty()) {
-    std::move(callback).Run(/*success=*/false);
-    return;
-  }
-
-  file_manager::util::ShowItemInFolder(
-      profile_, item.file_path(),
-      base::BindOnce(
-          [](SuccessCallback callback,
-             platform_util::OpenOperationResult result) {
-            const bool success = result == platform_util::OPEN_SUCCEEDED;
-            std::move(callback).Run(success);
-          },
-          std::move(callback)));
+void HoldingSpaceClientImpl::PauseItems(
+    const std::vector<const HoldingSpaceItem*>& items) {
+  auto* const service = GetHoldingSpaceKeyedService(profile_);
+  for (const HoldingSpaceItem* item : items)
+    service->PauseItem(item);
 }
 
 void HoldingSpaceClientImpl::PinFiles(
@@ -269,6 +267,34 @@ void HoldingSpaceClientImpl::PinItems(
 
   if (!file_system_urls.empty())
     service->AddPinnedFiles(file_system_urls);
+}
+
+void HoldingSpaceClientImpl::ResumeItems(
+    const std::vector<const HoldingSpaceItem*>& items) {
+  auto* const service = GetHoldingSpaceKeyedService(profile_);
+  for (const HoldingSpaceItem* item : items)
+    service->ResumeItem(item);
+}
+
+void HoldingSpaceClientImpl::ShowItemInFolder(const HoldingSpaceItem& item,
+                                              SuccessCallback callback) {
+  holding_space_metrics::RecordItemAction(
+      {&item}, holding_space_metrics::ItemAction::kShowInFolder);
+
+  if (item.file_path().empty()) {
+    std::move(callback).Run(/*success=*/false);
+    return;
+  }
+
+  file_manager::util::ShowItemInFolder(
+      profile_, item.file_path(),
+      base::BindOnce(
+          [](SuccessCallback callback,
+             platform_util::OpenOperationResult result) {
+            const bool success = result == platform_util::OPEN_SUCCEEDED;
+            std::move(callback).Run(success);
+          },
+          std::move(callback)));
 }
 
 void HoldingSpaceClientImpl::UnpinItems(

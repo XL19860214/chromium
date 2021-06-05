@@ -116,7 +116,11 @@ public class LinkToTextCoordinator extends EmptyTabObserver {
                               .setText(String.format(SHARE_TEXT_TEMPLATE, mSelectedText))
                               .setLinkToTextSuccessful(true)
                               .build();
-
+            mShareTextParams =
+                    new ShareParams.Builder(mTab.getWindowAndroid(), /*title=*/"", /*url=*/"")
+                            .setText(mSelectedText)
+                            .setLinkToTextSuccessful(selector.isEmpty() ? false : true)
+                            .build();
             mChromeOptionShareCallback.showShareSheet(
                     getShareParams(
                             selector.isEmpty() ? LinkGeneration.FAILURE : LinkGeneration.LINK),
@@ -167,12 +171,21 @@ public class LinkToTextCoordinator extends EmptyTabObserver {
             onSelectorReady(INVALID_SELECTOR);
             return;
         }
+        if (ChromeFeatureList.isEnabled(ChromeFeatureList.PREEMPTIVE_LINK_TO_TEXT_GENERATION)) {
+            LinkToTextMetricsHelper.recordLinkToTextDiagnoseStatus(
+                    LinkToTextMetricsHelper.LinkToTextDiagnoseStatus.REQUEST_SELECTOR);
+        }
 
         mProducer = mTab.getWebContents().getMainFrame().getInterfaceToRendererFrame(
                 TextFragmentReceiver.MANAGER);
         mProducer.requestSelector(new TextFragmentReceiver.RequestSelectorResponse() {
             @Override
             public void call(String selector) {
+                if (ChromeFeatureList.isEnabled(
+                            ChromeFeatureList.PREEMPTIVE_LINK_TO_TEXT_GENERATION)) {
+                    LinkToTextMetricsHelper.recordLinkToTextDiagnoseStatus(
+                            LinkToTextMetricsHelper.LinkToTextDiagnoseStatus.SELECTOR_RECEIVED);
+                }
                 onSelectorReady(selector);
             }
         });
@@ -186,10 +199,6 @@ public class LinkToTextCoordinator extends EmptyTabObserver {
                     @Override
                     public void call(String[] matches) {
                         mSelectedText = String.join(",", matches);
-                        mShareTextParams =
-                                new ShareParams.Builder(mTab.getWindowAndroid(), /*title=*/"", "")
-                                        .setText(mSelectedText)
-                                        .build();
                         onSelectorReady(mVisibleUrl);
                     }
                 });

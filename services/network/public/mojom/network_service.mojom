@@ -38,6 +38,9 @@ import "url/mojom/url.mojom";
 [EnableIf=is_android]
 import "mojo/public/mojom/base/application_state.mojom";
 
+[EnableIf=is_ct_supported]
+import "services/network/public/mojom/ct_log_info.mojom";
+
 // Values for configuring HTTP authentication that can only be set once.
 struct HttpAuthStaticParams {
   // List of supported auth schemes. Unrecognized schemes are ignored.
@@ -98,6 +101,13 @@ struct CryptConfig {
 
   // The product name to use for permission prompts.
   string product_name;
+
+  // The application name to store the crypto key against. For Chromium/Chrome
+  // builds leave this unset and it will default correctly.  This config option
+  // is for embedders to provide their application name in place of "Chromium".
+  // Only used when the allow_runtime_configurable_key_storage feature is
+  // enabled
+  string application_name;
 
   // Controls whether preference on using or ignoring backends is used.
   bool should_use_preference;
@@ -330,6 +340,15 @@ interface NetworkService {
                        url.mojom.Url report_uri,
                        MutableNetworkTrafficAnnotationTag traffic_annotation,
                        pending_remote<network.mojom.URLLoaderFactory> factory);
+
+
+  // Updates the log list used for CT verification.
+  [EnableIf=is_ct_supported]
+  UpdateCtLogList(array<CTLogInfo> log_list);
+
+  // Disables or enables CT Enforcement.
+  [EnableIf=is_ct_supported]
+  SetCtEnforcementEnabled(bool enabled);
 
   // Calls base::debug::DumpWithoutCrashing for the network process.
   // TODO(http://crbug.com/934317): Remove this once done debugging renderer

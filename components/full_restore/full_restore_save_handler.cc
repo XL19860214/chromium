@@ -4,7 +4,7 @@
 
 #include "components/full_restore/full_restore_save_handler.h"
 
-#include "ash/public/cpp/app_types.h"
+#include "ash/constants/app_types.h"
 #include "base/bind.h"
 #include "base/files/file_path.h"
 #include "base/no_destructor.h"
@@ -255,6 +255,22 @@ void FullRestoreSaveHandler::AddAppLaunchInfo(
   MaybeStartSaveTimer();
 }
 
+void FullRestoreSaveHandler::ModifyWindowId(const base::FilePath& profile_path,
+                                            const std::string& app_id,
+                                            int32_t old_window_id,
+                                            int32_t new_window_id) {
+  auto it = profile_path_to_restore_data_.find(profile_path);
+  if (it == profile_path_to_restore_data_.end())
+    return;
+
+  profile_path_to_restore_data_[profile_path].ModifyWindowId(
+      app_id, old_window_id, new_window_id);
+
+  pending_save_profile_paths_.insert(profile_path);
+
+  MaybeStartSaveTimer();
+}
+
 void FullRestoreSaveHandler::ModifyWindowInfo(
     const base::FilePath& profile_path,
     const std::string& app_id,
@@ -337,6 +353,18 @@ int32_t FullRestoreSaveHandler::GetArcSessionId() {
   if (!arc_save_handler_)
     return -1;
   return arc_save_handler_->GetArcSessionId();
+}
+
+void FullRestoreSaveHandler::ClearForTesting() {
+  profile_path_to_file_handler_.clear();
+  profile_path_to_restore_data_.clear();
+  app_id_to_app_launch_infos_.clear();
+  active_profile_path_.clear();
+  primary_profile_path_.clear();
+  save_running_.clear();
+  pending_save_profile_paths_.clear();
+  window_id_to_app_restore_info_.clear();
+  app_id_to_app_launch_infos_.clear();
 }
 
 void FullRestoreSaveHandler::MaybeStartSaveTimer() {

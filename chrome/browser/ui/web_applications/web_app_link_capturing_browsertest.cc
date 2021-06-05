@@ -68,6 +68,8 @@ void AwaitTabCount(Browser* browser, int tab_count) {
 
 namespace web_app {
 
+// Tests that links are captured correctly into an installed WebApp using the
+// 'tabbed' display mode, which allows the webapp window to have multiple tabs.
 class WebAppLinkCapturingBrowserTest : public WebAppNavigationBrowserTest {
  public:
   WebAppLinkCapturingBrowserTest() {
@@ -206,6 +208,8 @@ class WebAppTabStripLinkCapturingBrowserTest
   base::test::ScopedFeatureList features_;
 };
 
+// First in scope navigation from about:blank gets captured and reparented into
+// the app window.
 IN_PROC_BROWSER_TEST_F(WebAppTabStripLinkCapturingBrowserTest,
                        InScopeNavigationsCaptured) {
   InstallTestApp();
@@ -468,15 +472,11 @@ IN_PROC_BROWSER_TEST_P(WebAppDeclarativeLinkCapturingBrowserTest,
   Navigate(browser(), in_scope_1_, LinkTarget::BLANK);
   // TODO(crbug.com/1209082): The app window should now be focused.
   // EXPECT_EQ(app_browser, BrowserList::GetInstance()->GetLastActive());
-  // TODO(crbug.com/1209096): With IntentPickerPWAPersistence we don't close the
-  // new about:blank tab after capturing.
-  if (!IsIntentPickerPersistenceEnabled()) {
-    // Clicking target=_blank will open a new tab that closes asynchronously,
-    // wait for that to finish before checking browser tab state.
-    AwaitTabCount(browser(), 1);
-    ExpectTabs(browser(), {out_of_scope_});
-    ExpectTabs(app_browser, {in_scope_1_});
-  }
+  // Clicking target=_blank will open a new tab that closes asynchronously,
+  // wait for that to finish before checking browser tab state.
+  AwaitTabCount(browser(), 1);
+  ExpectTabs(browser(), {out_of_scope_});
+  ExpectTabs(app_browser, {in_scope_1_});
 }
 
 INSTANTIATE_TEST_SUITE_P(

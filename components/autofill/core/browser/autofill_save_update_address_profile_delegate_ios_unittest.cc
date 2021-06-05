@@ -9,7 +9,9 @@
 #include "base/test/mock_callback.h"
 #include "components/autofill/core/browser/autofill_client.h"
 #include "components/autofill/core/browser/autofill_test_utils.h"
+#include "components/strings/grit/components_strings.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "ui/base/l10n/l10n_util.h"
 
 namespace autofill {
 
@@ -37,8 +39,12 @@ TEST(AutofillSaveUpdateAddressProfileDelegateIOSTest, TestSaveAddressStrings) {
       profile, /*original_profile=*/nullptr, /*locale=*/"en-US",
       callback.Get());
 
-  EXPECT_EQ(delegate->GetMessageActionText(), std::u16string(u"Save..."));
-  EXPECT_EQ(delegate->GetMessageText(), std::u16string(u"Save Address?"));
+  EXPECT_EQ(delegate->GetMessageActionText(),
+            l10n_util::GetStringUTF16(
+                IDS_IOS_AUTOFILL_SAVE_ADDRESS_MESSAGE_PRIMARY_ACTION));
+  EXPECT_EQ(
+      delegate->GetMessageText(),
+      l10n_util::GetStringUTF16(IDS_IOS_AUTOFILL_SAVE_ADDRESS_MESSAGE_TITLE));
   EXPECT_EQ(delegate->GetDescription(),
             std::u16string(u"John H. Doe, 666 Erebus St."));
 }
@@ -54,35 +60,59 @@ TEST(AutofillSaveUpdateAddressProfileDelegateIOSTest,
   auto delegate = std::make_unique<AutofillSaveUpdateAddressProfileDelegateIOS>(
       profile, &original_profile, /*locale=*/"en-US", callback.Get());
 
-  EXPECT_EQ(delegate->GetMessageActionText(), std::u16string(u"Update..."));
-  EXPECT_EQ(delegate->GetMessageText(), std::u16string(u"Update Address?"));
+  EXPECT_EQ(delegate->GetMessageActionText(),
+            l10n_util::GetStringUTF16(
+                IDS_IOS_AUTOFILL_UPDATE_ADDRESS_MESSAGE_PRIMARY_ACTION));
+  EXPECT_EQ(
+      delegate->GetMessageText(),
+      l10n_util::GetStringUTF16(IDS_IOS_AUTOFILL_UPDATE_ADDRESS_MESSAGE_TITLE));
   EXPECT_EQ(delegate->GetDescription(),
             std::u16string(u"John Doe, 666 Erebus St."));
 }
 
-// Tests that delegate returns the correct profile difference.
-TEST(AutofillSaveUpdateAddressProfileDelegateIOSTest, TestProfileDiff) {
+// Tests that the callback is run with kDeclined on destruction.
+TEST(AutofillSaveUpdateAddressProfileDelegateIOSTest,
+     TestCallbackOnDestruction) {
   AutofillProfile profile = test::GetFullProfile();
-  AutofillProfile original_profile = test::GetFullProfile2();
-  original_profile.SetInfo(NAME_FULL, u"John Doe", "en-US");
+  base::MockCallback<AutofillClient::AddressProfileSavePromptCallback> callback;
   auto delegate = std::make_unique<AutofillSaveUpdateAddressProfileDelegateIOS>(
-      profile, &original_profile, /*locale=*/"en-US", base::DoNothing());
+      profile, /*original_profile=*/nullptr, /*locale=*/"en-US",
+      callback.Get());
 
-  base::flat_map<ServerFieldType, std::pair<std::u16string, std::u16string>>
-      expected_difference;
-  expected_difference.insert({NAME_FULL, {u"John H. Doe", u"John Doe"}});
-  expected_difference.insert(
-      {EMAIL_ADDRESS, {u"johndoe@hades.com", u"jsmith@example.com"}});
-  expected_difference.insert(
-      {PHONE_HOME_WHOLE_NUMBER, {u"16502111111", u"13105557889"}});
-  expected_difference.insert({ADDRESS_HOME_CITY, {u"Elysium", u"Greensdale"}});
-  expected_difference.insert({ADDRESS_HOME_STATE, {u"CA", u"MI"}});
-  expected_difference.insert({ADDRESS_HOME_ZIP, {u"91111", u"48838"}});
-  expected_difference.insert({COMPANY_NAME, {u"Underworld", u"ACME"}});
-  expected_difference.insert(
-      {ADDRESS_HOME_STREET_ADDRESS,
-       {u"666 Erebus St.\nApt 8", u"123 Main Street\nUnit 1"}});
-  EXPECT_EQ(delegate->GetProfileDiff(), expected_difference);
+  delegate->Cancel();
+  EXPECT_CALL(
+      callback,
+      Run(AutofillClient::SaveAddressProfileOfferUserDecision::kDeclined,
+          testing::_));
+  // The callback should run in the destructor.
+  delegate.reset();
+}
+
+// Tests that the callback is run with kAccepted on Accept.
+TEST(AutofillSaveUpdateAddressProfileDelegateIOSTest, TestCallbackOnSave) {
+  AutofillProfile profile = test::GetFullProfile();
+  base::MockCallback<AutofillClient::AddressProfileSavePromptCallback> callback;
+  EXPECT_CALL(
+      callback,
+      Run(AutofillClient::SaveAddressProfileOfferUserDecision::kAccepted,
+          testing::_));
+  AutofillSaveUpdateAddressProfileDelegateIOS(
+      profile, /*original_profile=*/nullptr, /*locale=*/"en-US", callback.Get())
+      .Accept();
+}
+
+// Tests that the callback is run with kEditAccepted on EditAccepted.
+TEST(AutofillSaveUpdateAddressProfileDelegateIOSTest,
+     TestCallbackOnEditAccepted) {
+  AutofillProfile profile = test::GetFullProfile();
+  base::MockCallback<AutofillClient::AddressProfileSavePromptCallback> callback;
+  EXPECT_CALL(
+      callback,
+      Run(AutofillClient::SaveAddressProfileOfferUserDecision::kEditAccepted,
+          testing::_));
+  AutofillSaveUpdateAddressProfileDelegateIOS(
+      profile, /*original_profile=*/nullptr, /*locale=*/"en-US", callback.Get())
+      .EditAccepted();
 }
 
 }  // namespace autofill

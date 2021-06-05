@@ -68,6 +68,7 @@ import org.chromium.base.test.util.DisabledTest;
 import org.chromium.chrome.autofill_assistant.R;
 import org.chromium.chrome.browser.autofill_assistant.generic_ui.AssistantDimension;
 import org.chromium.chrome.browser.autofill_assistant.proto.ActionProto;
+import org.chromium.chrome.browser.autofill_assistant.proto.AutofillCreditCardProto;
 import org.chromium.chrome.browser.autofill_assistant.proto.AutofillFormatProto;
 import org.chromium.chrome.browser.autofill_assistant.proto.AutofillProfileProto;
 import org.chromium.chrome.browser.autofill_assistant.proto.BooleanAndProto;
@@ -85,6 +86,7 @@ import org.chromium.chrome.browser.autofill_assistant.proto.ColorProto;
 import org.chromium.chrome.browser.autofill_assistant.proto.ComputeValueProto;
 import org.chromium.chrome.browser.autofill_assistant.proto.CreateCreditCardResponseProto;
 import org.chromium.chrome.browser.autofill_assistant.proto.CreateNestedGenericUiProto;
+import org.chromium.chrome.browser.autofill_assistant.proto.CreditCardList;
 import org.chromium.chrome.browser.autofill_assistant.proto.CreditCardResponseProto;
 import org.chromium.chrome.browser.autofill_assistant.proto.DateFormatProto;
 import org.chromium.chrome.browser.autofill_assistant.proto.DateList;
@@ -94,6 +96,7 @@ import org.chromium.chrome.browser.autofill_assistant.proto.DrawableProto;
 import org.chromium.chrome.browser.autofill_assistant.proto.ElementAreaProto;
 import org.chromium.chrome.browser.autofill_assistant.proto.ElementAreaProto.Rectangle;
 import org.chromium.chrome.browser.autofill_assistant.proto.ElementConditionProto;
+import org.chromium.chrome.browser.autofill_assistant.proto.Empty;
 import org.chromium.chrome.browser.autofill_assistant.proto.EndActionProto;
 import org.chromium.chrome.browser.autofill_assistant.proto.EventProto;
 import org.chromium.chrome.browser.autofill_assistant.proto.ForEachProto;
@@ -3023,7 +3026,6 @@ public class AutofillAssistantGenericUiTest {
      */
     @Test
     @MediumTest
-    @DisabledTest(message = "https://crbug.com/1102828")
     public void testCreditCardUi() throws Exception {
         // When the toggle button becomes checked, we write the current card to
         // |selected_credit_card|.
@@ -3110,12 +3112,6 @@ public class AutofillAssistantGenericUiTest {
                                                         .addChunk(
                                                                 Chunk.newBuilder().setText("•••• "))
                                                         .addChunk(Chunk.newBuilder().setKey(-4))))
-                                        .addCallbacks(CallbackProto.newBuilder().setCreateNestedUi(
-                                                CreateNestedGenericUiProto.newBuilder()
-                                                        .setGenericUiIdentifier("nested_ui_${i}")
-                                                        .setGenericUi(singleCardUi)
-                                                        .setParentViewIdentifier(
-                                                                "credit_card_container_view")))
                                         .addCallbacks(CallbackProto.newBuilder().setComputeValue(
                                                 ComputeValueProto.newBuilder()
                                                         .setResultModelIdentifier(
@@ -3126,8 +3122,19 @@ public class AutofillAssistantGenericUiTest {
                                                                 createValueReference(
                                                                         "previously_selected_card"),
                                                                 ValueComparisonProto.Mode.EQUAL))))
-
-                                        ))
+                                        // The nested view is created as the last step since
+                                        // creating views can trigger OnValueChanged events for
+                                        // model values. In this case OnValueChanged for
+                                        // credit_card_selected_${i} will trigger in the creation of
+                                        // the radio button, so we need to make sure it has already
+                                        // been updated to the correct value before creating the
+                                        // view.
+                                        .addCallbacks(CallbackProto.newBuilder().setCreateNestedUi(
+                                                CreateNestedGenericUiProto.newBuilder()
+                                                        .setGenericUiIdentifier("nested_ui_${i}")
+                                                        .setGenericUi(singleCardUi)
+                                                        .setParentViewIdentifier(
+                                                                "credit_card_container_view")))))
                         .build());
 
         // Every time |selected_credit_card| changes:
@@ -3524,17 +3531,45 @@ public class AutofillAssistantGenericUiTest {
 
     @Test
     @MediumTest
-    public void testDisplaySelectedAddressInfo() throws Exception {
+    public void testDisplaySelectedInfo() throws Exception {
         mHelper.addDummyCreditCard(
                 mHelper.addDummyProfile("Jane Doe", "johndoe@google.com"), "4111111111111111");
 
-        ViewProto rootView =
+        ViewProto creditCardView =
+                (ViewProto) ViewProto.newBuilder()
+                        .setTextView(TextViewProto.newBuilder().setModelIdentifier("card_type"))
+                        .setIdentifier("cardView")
+                        .build();
+
+        ViewProto profileView =
                 (ViewProto) ViewProto.newBuilder()
                         .setTextView(TextViewProto.newBuilder().setModelIdentifier("profile_name"))
-                        .setIdentifier("textView")
+                        .setIdentifier("profileView")
+                        .build();
+
+        ViewProto rootView =
+                (ViewProto) ViewProto.newBuilder()
+                        .setViewContainer(
+                                ViewContainerProto.newBuilder()
+                                        .setLinearLayout(
+                                                LinearLayoutProto.newBuilder().setOrientation(
+                                                        LinearLayoutProto.Orientation.VERTICAL))
+                                        .addViews(creditCardView)
+                                        .addViews(profileView))
                         .build();
 
         List<InteractionProto> interactions = new ArrayList<>();
+        interactions.add(
+                (InteractionProto) InteractionProto.newBuilder()
+                        .addTriggerEvent(EventProto.newBuilder().setOnValueChanged(
+                                OnModelValueChangedEventProto.newBuilder().setModelIdentifier(
+                                        "selected_card")))
+                        .addCallbacks(
+                                createAutofillToStringCallback("selected_card[0]", "card_type",
+                                        ValueExpression.newBuilder().addChunk(
+                                                Chunk.newBuilder().setKey(58))))
+                        .build());
+
         interactions.add(
                 (InteractionProto) InteractionProto.newBuilder()
                         .addTriggerEvent(EventProto.newBuilder().setOnValueChanged(
@@ -3544,23 +3579,32 @@ public class AutofillAssistantGenericUiTest {
                                 ValueExpression.newBuilder().addChunk(
                                         Chunk.newBuilder().setKey(3))))
                         .build());
+
         List<ModelProto.ModelValue> modelValues = new ArrayList<>();
+        modelValues.add(
+                ModelValue.newBuilder()
+                        .setValue(ValueProto.newBuilder().setCreditCards(
+                                CreditCardList.newBuilder().addValues(
+                                        AutofillCreditCardProto.newBuilder().setSelectedCreditCard(
+                                                Empty.newBuilder()))))
+                        .setIdentifier("selected_card")
+                        .build());
         modelValues.add(
                 ModelValue.newBuilder()
                         .setValue(ValueProto.newBuilder().setProfiles(
                                 ProfileList.newBuilder().addValues(
                                         AutofillProfileProto.newBuilder().setSelectedProfileName(
-                                                "SHIPPING_ADDRESS"))))
+                                                "billing_address"))))
                         .setIdentifier("profile")
                         .build());
 
         ArrayList<ActionProto> list = new ArrayList<>();
         list.add((ActionProto) ActionProto.newBuilder()
-                         .setCollectUserData(
-                                 CollectUserDataProto.newBuilder()
-                                         .setRequestTermsAndConditions(false)
-                                         .setShippingAddressSectionTitle("Delivery address")
-                                         .setShippingAddressName("SHIPPING_ADDRESS"))
+                         .setCollectUserData(CollectUserDataProto.newBuilder()
+                                                     .setRequestTermsAndConditions(false)
+                                                     .setRequestPaymentMethod(true)
+                                                     .setBillingAddressName("billing_address")
+                                                     .addSupportedBasicCardNetworks("visa"))
                          .build());
         list.add((ActionProto) ActionProto.newBuilder()
                          .setSetPersistentUi(
@@ -3594,6 +3638,7 @@ public class AutofillAssistantGenericUiTest {
         onView(withText("Continue")).perform(click());
 
         waitUntilViewMatchesCondition(withText("End"), isDisplayed());
+        waitUntilViewMatchesCondition(withText("Visa"), isCompletelyDisplayed());
         waitUntilViewMatchesCondition(withText("Jane"), isCompletelyDisplayed());
     }
 }

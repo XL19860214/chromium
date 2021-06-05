@@ -28,6 +28,19 @@ typedef NS_ENUM(NSUInteger, InitStage) {
   // The app is initializing the browser objects for the browser UI (e.g., the
   // browser state).
   InitStageBrowserObjectsForUI,
+  // If there are connected scenes, the app is creating browsers and starting
+  // the root coordinators. The BVCs and Tab switchers are created here. This
+  // is what is considered the normal UI.
+  //
+  // The stage is no-op for regular startups (no FRE, no Safe Mode) in which
+  // case the app will continue its transition to InitStageFinal and the UI is
+  // initialized when the scene transitions to the foreground.
+  InitStageNormalUI,
+  // TODO(crbug.com/1198246): Decouple FRE from Browser views to be able to go
+  // through this stage before InitStageNormalUI.
+  // The app is considering presenting the FRE UI. Will remain in that state
+  // when presenting the FRE.
+  InitStageFirstRun,
   // The final stage before being done with initialization. The label and
   // relative position (always last) of this enum item should not change.
   // The value may change when inserting enum items between Start and Final.

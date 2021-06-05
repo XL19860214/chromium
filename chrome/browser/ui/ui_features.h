@@ -39,8 +39,6 @@ extern const base::FeatureParam<std::string> kExtensionsSidePanelId;
 
 extern const base::Feature kForceSignInReauth;
 
-extern const base::Feature kNewProfilePicker;
-
 extern const base::Feature kNewTabstripAnimation;
 
 extern const base::Feature kProminentDarkModeActiveTabTitle;
@@ -72,15 +70,14 @@ extern const base::Feature kTabGroupsFeedback;
 
 extern const base::Feature kTabGroupsNewBadgePromo;
 
-extern const base::Feature kTabHoverCards;
-extern const char kTabHoverCardsFeatureParameterName[];
-
 extern const base::Feature kTabHoverCardImages;
 extern const char kTabHoverCardImagesNotReadyDelayParameterName[];
 extern const char kTabHoverCardImagesLoadingDelayParameterName[];
 extern const char kTabHoverCardImagesLoadedDelayParameterName[];
 
 extern const base::Feature kTabOutlinesInLowContrastThemes;
+
+extern const base::Feature kTabRestoreSubMenus;
 
 extern const base::Feature kTabSearchFuzzySearch;
 

@@ -18,6 +18,7 @@
 #include "storage/browser/file_system/file_system_quota_client.h"
 #include "storage/browser/file_system/file_system_usage_cache.h"
 #include "storage/browser/file_system/obfuscated_file_util.h"
+#include "storage/browser/quota/quota_manager_proxy.h"
 #include "storage/browser/test/async_file_test_helper.h"
 #include "storage/browser/test/test_file_system_context.h"
 #include "storage/common/file_system/file_system_types.h"
@@ -50,8 +51,8 @@ class FileSystemQuotaClientTest : public testing::Test {
 
   void SetUp() override {
     ASSERT_TRUE(data_dir_.CreateUniqueTempDir());
-    file_system_context_ =
-        CreateFileSystemContextForTesting(nullptr, data_dir_.GetPath());
+    file_system_context_ = CreateFileSystemContextForTesting(
+        /*quota_manager_proxy=*/nullptr, data_dir_.GetPath());
   }
 
   struct TestFile {
@@ -121,7 +122,8 @@ class FileSystemQuotaClientTest : public testing::Test {
   bool CreateFileSystemDirectory(const base::FilePath& file_path,
                                  const std::string& origin_url,
                                  StorageType storage_type) {
-    FileSystemType type = QuotaStorageTypeToFileSystemType(storage_type);
+    FileSystemType type =
+        FileSystemQuotaClient::QuotaStorageTypeToFileSystemType(storage_type);
     FileSystemURL url = file_system_context_->CreateCrackedFileSystemURL(
         url::Origin::Create(GURL(origin_url)), type, file_path);
 
@@ -137,7 +139,8 @@ class FileSystemQuotaClientTest : public testing::Test {
     if (file_path.empty())
       return false;
 
-    FileSystemType type = QuotaStorageTypeToFileSystemType(storage_type);
+    FileSystemType type =
+        FileSystemQuotaClient::QuotaStorageTypeToFileSystemType(storage_type);
     FileSystemURL url = file_system_context_->CreateCrackedFileSystemURL(
         url::Origin::Create(GURL(origin_url)), type, file_path);
 

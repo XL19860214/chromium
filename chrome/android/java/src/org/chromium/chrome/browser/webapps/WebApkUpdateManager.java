@@ -23,6 +23,7 @@ import org.chromium.chrome.browser.browserservices.intents.WebApkExtras;
 import org.chromium.chrome.browser.browserservices.intents.WebApkShareTarget;
 import org.chromium.chrome.browser.browserservices.intents.WebDisplayMode;
 import org.chromium.chrome.browser.dependency_injection.ActivityScope;
+import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.lifecycle.ActivityLifecycleDispatcher;
 import org.chromium.chrome.browser.lifecycle.DestroyObserver;
@@ -34,6 +35,8 @@ import org.chromium.components.background_task_scheduler.TaskIds;
 import org.chromium.components.background_task_scheduler.TaskInfo;
 import org.chromium.components.embedder_support.util.UrlUtilities;
 import org.chromium.components.webapps.WebappsIconUtils;
+import org.chromium.ui.modaldialog.DialogDismissalCause;
+import org.chromium.ui.modaldialog.ModalDialogManager;
 import org.chromium.webapk.lib.client.WebApkVersion;
 
 import java.util.ArrayList;
@@ -60,6 +63,18 @@ public class WebApkUpdateManager implements WebApkUpdateDataFetcher.Observer, De
 
     /** Data extracted from the WebAPK's launch intent and from the WebAPK's Android Manifest. */
     private WebappInfo mInfo;
+
+    /** The updated manifest information. */
+    private WebappInfo mFetchedInfo;
+
+    /** The URL of the primary icon. */
+    private String mFetchedPrimaryIconUrl;
+
+    /** The URL of the splash icon. */
+    private String mFetchedSplashIconUrl;
+
+    /** The list of reasons why an update was triggered. */
+    private @WebApkUpdateReason List<Integer> mUpdateReasons;
 
     /** The WebappDataStorage with cached data about prior update requests. */
     private WebappDataStorage mStorage;
@@ -121,21 +136,22 @@ public class WebApkUpdateManager implements WebApkUpdateDataFetcher.Observer, De
     @Override
     public void onGotManifestData(BrowserServicesIntentDataProvider fetchedIntentDataProvider,
             String primaryIconUrl, String splashIconUrl) {
-        WebappInfo fetchedInfo = WebappInfo.create(fetchedIntentDataProvider);
+        mFetchedInfo = WebappInfo.create(fetchedIntentDataProvider);
+        mFetchedPrimaryIconUrl = primaryIconUrl;
+        mFetchedSplashIconUrl = splashIconUrl;
 
         mStorage.updateTimeOfLastCheckForUpdatedWebManifest();
         if (mUpdateFailureHandler != null) {
             mUpdateFailureHandler.removeCallbacksAndMessages(null);
         }
 
-        boolean gotManifest = (fetchedInfo != null);
-        @WebApkUpdateReason
-        List<Integer> updateReasons =
-                generateUpdateReasons(mInfo, fetchedInfo, primaryIconUrl, splashIconUrl);
-        boolean needsUpgrade = !updateReasons.isEmpty();
+        boolean gotManifest = (mFetchedInfo != null);
+        mUpdateReasons = generateUpdateReasons(
+                mInfo, mFetchedInfo, mFetchedPrimaryIconUrl, mFetchedSplashIconUrl);
+        boolean needsUpgrade = !mUpdateReasons.isEmpty();
         if (mStorage.shouldForceUpdate() && needsUpgrade) {
             // Add to the front of the list to designate it as the primary reason.
-            updateReasons.add(0, WebApkUpdateReason.MANUALLY_TRIGGERED);
+            mUpdateReasons.add(0, WebApkUpdateReason.MANUALLY_TRIGGERED);
         }
         Log.i(TAG, "Got Manifest: " + gotManifest);
         Log.i(TAG, "WebAPK upgrade needed: " + needsUpgrade);
@@ -163,13 +179,51 @@ public class WebApkUpdateManager implements WebApkUpdateDataFetcher.Observer, De
             return;
         }
 
+        boolean iconChanging = mUpdateReasons.contains(WebApkUpdateReason.PRIMARY_ICON_HASH_DIFFERS)
+                || mUpdateReasons.contains(WebApkUpdateReason.PRIMARY_ICON_MASKABLE_DIFFERS);
+        boolean shortNameChanging = mUpdateReasons.contains(WebApkUpdateReason.SHORT_NAME_DIFFERS);
+        boolean nameChanging = mUpdateReasons.contains(WebApkUpdateReason.NAME_DIFFERS);
+        if (!iconOrNameUpdateDialogEnabled()
+                || (!iconChanging && !shortNameChanging && !nameChanging)) {
+            onUserApprovedUpdate(DialogDismissalCause.POSITIVE_BUTTON_CLICKED);
+            return;
+        }
+
+        showIconOrNameUpdateDialog(iconChanging, shortNameChanging, nameChanging);
+    }
+
+    protected boolean iconOrNameUpdateDialogEnabled() {
+        return ChromeFeatureList.isEnabled(ChromeFeatureList.PWA_UPDATE_DIALOG_FOR_NAME_AND_ICON);
+    }
+
+    protected void showIconOrNameUpdateDialog(
+            boolean iconChanging, boolean shortNameChanging, boolean nameChanging) {
+        // Show the dialog to confirm name and/or icon update.
+        ModalDialogManager dialogManager =
+                mTabProvider.get().getWindowAndroid().getModalDialogManager();
+        WebApkIconNameUpdateDialog dialog = new WebApkIconNameUpdateDialog();
+        dialog.show(dialogManager, mInfo.webApkPackageName(), iconChanging, shortNameChanging,
+                nameChanging, mInfo.shortName(), mFetchedInfo.shortName(), mInfo.name(),
+                mFetchedInfo.name(), mInfo.icon().bitmap(), mFetchedInfo.icon().bitmap(),
+                mInfo.isIconAdaptive(), mFetchedInfo.isIconAdaptive(), this::onUserApprovedUpdate);
+    }
+
+    protected void onUserApprovedUpdate(int dismissalCause) {
         // Set WebAPK update as having failed in case that Chrome is killed prior to
         // {@link onBuiltWebApk} being called.
         recordUpdate(mStorage, WebApkInstallResult.FAILURE, false /* relaxUpdates*/);
 
-        if (fetchedInfo != null) {
-            buildUpdateRequestAndSchedule(fetchedInfo, primaryIconUrl, splashIconUrl,
-                    false /* isManifestStale */, updateReasons);
+        // Continue if the user explicitly allows the update using the button, or isn't interested
+        // in the update dialog warning (presses Back). Otherwise, they can be left in a state where
+        // they always press Back and are stuck on an old version of the app forever.
+        if (dismissalCause != DialogDismissalCause.POSITIVE_BUTTON_CLICKED
+                && dismissalCause != DialogDismissalCause.NAVIGATE_BACK_OR_TOUCH_OUTSIDE) {
+            return;
+        }
+
+        if (mFetchedInfo != null) {
+            buildUpdateRequestAndSchedule(mFetchedInfo, mFetchedPrimaryIconUrl,
+                    mFetchedSplashIconUrl, false /* isManifestStale */, mUpdateReasons);
             return;
         }
 
@@ -177,7 +231,7 @@ public class WebApkUpdateManager implements WebApkUpdateDataFetcher.Observer, De
         // our Web Manifest data if the server's Web Manifest data is newer. This scenario can
         // occur if the Web Manifest is temporarily unreachable.
         buildUpdateRequestAndSchedule(mInfo, "" /* primaryIconUrl */, "" /* splashIconUrl */,
-                true /* isManifestStale */, updateReasons);
+                true /* isManifestStale */, mUpdateReasons);
     }
 
     /**
@@ -476,12 +530,12 @@ public class WebApkUpdateManager implements WebApkUpdateDataFetcher.Observer, De
         WebApkUpdateManagerJni.get().storeWebApkUpdateRequestToFile(updateRequestPath,
                 info.manifestStartUrl(), info.scopeUrl(), info.name(), info.shortName(),
                 primaryIconUrl, info.icon().bitmap(), info.isIconAdaptive(), splashIconUrl,
-                info.splashIcon().bitmap(), iconUrls, iconHashes, info.displayMode(),
-                info.orientation(), info.toolbarColor(), info.backgroundColor(), shareTargetAction,
-                shareTargetParamTitle, shareTargetParamText, shareTargetIsMethodPost,
-                shareTargetIsEncTypeMultipart, shareTargetParamFileNames, shareTargetParamAccepts,
-                shortcuts, info.manifestUrl(), info.webApkPackageName(), versionCode,
-                isManifestStale, updateReasonsArray, callback);
+                info.splashIcon().bitmap(), info.isSplashIconMaskable(), iconUrls, iconHashes,
+                info.displayMode(), info.orientation(), info.toolbarColor(), info.backgroundColor(),
+                shareTargetAction, shareTargetParamTitle, shareTargetParamText,
+                shareTargetIsMethodPost, shareTargetIsEncTypeMultipart, shareTargetParamFileNames,
+                shareTargetParamAccepts, shortcuts, info.manifestUrl(), info.webApkPackageName(),
+                versionCode, isManifestStale, updateReasonsArray, callback);
     }
 
     @NativeMethods
@@ -489,14 +543,14 @@ public class WebApkUpdateManager implements WebApkUpdateDataFetcher.Observer, De
         public void storeWebApkUpdateRequestToFile(String updateRequestPath, String startUrl,
                 String scope, String name, String shortName, String primaryIconUrl,
                 Bitmap primaryIcon, boolean isPrimaryIconMaskable, String splashIconUrl,
-                Bitmap splashIcon, String[] iconUrls, String[] iconHashes,
-                @WebDisplayMode int displayMode, int orientation, long themeColor,
-                long backgroundColor, String shareTargetAction, String shareTargetParamTitle,
-                String shareTargetParamText, boolean shareTargetParamIsMethodPost,
-                boolean shareTargetParamIsEncTypeMultipart, String[] shareTargetParamFileNames,
-                Object[] shareTargetParamAccepts, String[][] shortcuts, String manifestUrl,
-                String webApkPackage, int webApkVersion, boolean isManifestStale,
-                int[] updateReasons, Callback<Boolean> callback);
+                Bitmap splashIcon, boolean isSplashIconMaskable, String[] iconUrls,
+                String[] iconHashes, @WebDisplayMode int displayMode, int orientation,
+                long themeColor, long backgroundColor, String shareTargetAction,
+                String shareTargetParamTitle, String shareTargetParamText,
+                boolean shareTargetParamIsMethodPost, boolean shareTargetParamIsEncTypeMultipart,
+                String[] shareTargetParamFileNames, Object[] shareTargetParamAccepts,
+                String[][] shortcuts, String manifestUrl, String webApkPackage, int webApkVersion,
+                boolean isManifestStale, int[] updateReasons, Callback<Boolean> callback);
         public void updateWebApkFromFile(String updateRequestPath, WebApkUpdateCallback callback);
     }
 }

@@ -7,7 +7,6 @@
 
 #include "base/allocator/buildflags.h"
 #include "base/dcheck_is_on.h"
-#include "base/partition_alloc_buildflags.h"
 #include "build/build_config.h"
 
 // ARCH_CPU_64_BITS implies 64-bit instruction set, but not necessarily 64-bit
@@ -24,14 +23,21 @@ static_assert(sizeof(void*) != 8, "");
 // BackupRefPtr and PCScan are incompatible, and due to its conservative nature,
 // it is 64 bits only.
 #if defined(PA_HAS_64_BITS_POINTERS) && !BUILDFLAG(USE_BACKUP_REF_PTR)
-#define PA_ALLOW_PCSCAN 1
-#else
-#define PA_ALLOW_PCSCAN 0
+#define PA_ALLOW_PCSCAN
 #endif
 
 #if defined(PA_HAS_64_BITS_POINTERS) && \
     (defined(__ARM_NEON) || defined(__ARM_NEON__)) && defined(__ARM_FP)
 #define PA_STARSCAN_NEON_SUPPORTED
+#endif
+
+#if defined(PA_HAS_64_BITS_POINTERS) && \
+    (defined(OS_LINUX) || defined(OS_ANDROID))
+#include <linux/version.h>
+// TODO(bikineev): Enable for ChromeOS.
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 8, 0)
+#define PA_STARSCAN_UFFD_WRITE_PROTECTOR_SUPPORTED
+#endif
 #endif
 
 // POSIX is not only UNIX, e.g. macOS and other OSes. We do use Linux-specific
@@ -50,7 +56,9 @@ static_assert(sizeof(void*) != 8, "");
 // This applies only to normal buckets, as direct-map allocations are always
 // decommitted.
 // TODO(bartekn): Re-enable once PartitionAlloc-Everywhere evaluation is done.
-#define PA_ZERO_RANDOMLY_ON_FREE 0
+#if 0
+#define PA_ZERO_RANDOMLY_ON_FREE
+#endif
 
 // Need TLS support.
 #if defined(OS_POSIX) || defined(OS_WIN)
@@ -82,6 +90,8 @@ static_assert(sizeof(void*) != 8, "");
 #endif
 
 // Specifies whether allocation extras need to be added.
-#define PA_EXTRAS_REQUIRED (DCHECK_IS_ON() || BUILDFLAG(USE_BACKUP_REF_PTR))
+#if DCHECK_IS_ON() || BUILDFLAG(USE_BACKUP_REF_PTR)
+#define PA_EXTRAS_REQUIRED
+#endif
 
 #endif  // BASE_ALLOCATOR_PARTITION_ALLOCATOR_PARTITION_ALLOC_CONFIG_H_

@@ -6,8 +6,8 @@
  * @fileoverview UI element of a download item.
  */
 
+import 'chrome://resources/cr_elements/cr_button/cr_button.m.js';
 import 'chrome://resources/cr_elements/shared_vars_css.m.js';
-import './download_button.js';
 import './strings.m.js';
 
 import {assert} from 'chrome://resources/js/assert.m.js';
@@ -23,8 +23,8 @@ const DisplayMode = {
   kNormal: 'normal',
   // Shows icon + warning text + discard button + context menu button.
   kWarn: 'warn',
-  // Shows icon + warning text + save button + discard button.
-  kWarnSave: 'warn-save'
+  // Shows icon + warning text + keep button + discard button.
+  kWarnKeep: 'warn-keep'
 };
 
 export class DownloadItemElement extends CustomElement {
@@ -38,17 +38,40 @@ export class DownloadItemElement extends CustomElement {
     /** @private {DownloadItem} */
     this.item_;
 
+    /** @private {boolean} */
+    this.downloadUpdated_ = false;
+
+    /** @private {boolean} */
+    this.opening_ = false;
+
+    /** @property {boolean} */
+    this.opened = false;
+
     /** @private {!DownloadShelfApiProxy} */
     this.apiProxy_ = DownloadShelfApiProxyImpl.getInstance();
 
+    this.$('#shadow-mask')
+        .addEventListener('click', e => this.onOpenButtonClick_(e));
     this.$('#dropdown-button')
         .addEventListener('click', e => this.onDropdownButtonClick_(e));
-    this.$('#discard-button')
-        .addEventListener('click', e => this.onDiscardButtonClick_(e));
+    const discardButton = this.$('#discard-button');
+    discardButton.innerText = loadTimeData.getString('discardButtonText');
+    discardButton.addEventListener('click', e => this.onDiscardButtonClick_(e));
+    this.$('#keep-button')
+        .addEventListener('click', e => this.onKeepButtonClick_(e));
     this.addEventListener('contextmenu', e => this.onContextMenu_(e));
 
-    this.$('#discard-button').innerText =
-        loadTimeData.getString('discardButtonText');
+    this.$('.progress-indicator').addEventListener('animationend', () => {
+      this.$('.progress-indicator')
+          .classList.remove('download-complete-animation');
+    });
+  }
+
+  /** @param {DownloadItem} item */
+  onDownloadUpdated(item) {
+    this.downloadUpdated_ = true;
+    this.item_ = item;
+    this.update_();
   }
 
   /** @param {DownloadItem} value */
@@ -66,8 +89,8 @@ export class DownloadItemElement extends CustomElement {
   }
 
   /**
-   * @private
    * @return {string}
+   * @private
    */
   get clampedWarningText_() {
     // Views uses ui/gfx/text_elider.cc to elide text given a maximum width.
@@ -84,6 +107,14 @@ export class DownloadItemElement extends CustomElement {
         filename, this.elideFilename_(filename, maxFilenameLength));
   }
 
+  /** @param {boolean} value */
+  set opening(value) {
+    if (this.opening_ !== value) {
+      this.opening_ = value;
+      this.update_();
+    }
+  }
+
   /** @private */
   update_() {
     const item = this.item_;
@@ -92,8 +123,11 @@ export class DownloadItemElement extends CustomElement {
     }
     const downloadElement = this.$('.download-item');
     const filePath = item.fileNameDisplayString;
-    this.$('#filename').innerText =
-        filePath.substring(filePath.lastIndexOf('/') + 1);
+    let fileName = filePath.substring(filePath.lastIndexOf('/') + 1);
+    if (this.opening_) {
+      fileName = loadTimeData.getStringF('downloadStatusOpeningText', fileName);
+    }
+    this.$('#filename').innerText = fileName;
 
     const statusTextElement = this.$('#status-text');
     const statusText = (!item.shouldPromoteOrigin || !item.originalUrl.url) ?
@@ -102,18 +136,25 @@ export class DownloadItemElement extends CustomElement {
     statusTextElement.innerText = statusText;
 
     downloadElement.dataset.state = item.state;
-    switch (item.state) {
-      case DownloadState.kInProgress:
-        this.progress = item.totalBytes > 0 ?
-            Number(item.receivedBytes) / Number(item.totalBytes) :
-            0;
-        break;
-      case DownloadState.kComplete:
-        this.progress = 1;
-        break;
-      case DownloadState.kInterrupted:
-        this.progress = 0;
-        break;
+    if (item.mode === DownloadMode.kNormal) {
+      switch (item.state) {
+        case DownloadState.kInProgress:
+          this.progress = item.totalBytes > 0 ?
+              Number(item.receivedBytes) / Number(item.totalBytes) :
+              0;
+          break;
+        case DownloadState.kComplete:
+          this.progress = 1;
+          // Only start animation if it's called from OnDownloadUpdated.
+          if (this.downloadUpdated_) {
+            this.$('.progress-indicator')
+                .classList.add('download-complete-animation');
+          }
+          break;
+        case DownloadState.kInterrupted:
+          this.progress = 0;
+          break;
+      }
     }
 
     if (item.isPaused) {
@@ -131,13 +172,15 @@ export class DownloadItemElement extends CustomElement {
     } else if (
         item.mode === DownloadMode.kDangerous ||
         item.mode === DownloadMode.kMixedContentWarn) {
-      downloadElement.dataset.displayMode = DisplayMode.kWarnSave;
+      downloadElement.dataset.displayMode = DisplayMode.kWarnKeep;
     } else {
       downloadElement.dataset.displayMode = DisplayMode.kWarn;
     }
 
-    this.$('#save-button').innerText = item.warningConfirmButtonText;
+    this.$('#keep-button').innerText = item.warningConfirmButtonText;
     this.$('#warning-text').innerText = this.clampedWarningText_;
+
+    this.downloadUpdated_ = false;
   }
 
   /** @param {number} value */
@@ -163,8 +206,12 @@ export class DownloadItemElement extends CustomElement {
 
   /** @param {!Event} e */
   onDiscardButtonClick_(e) {
-    // TODO(crbug.com/1182529): Notify C++ through mojo. Remove this item
-    // from download_list.
+    this.apiProxy_.discardDownload(this.item.id);
+  }
+
+  /** @param {!Event} e */
+  onKeepButtonClick_(e) {
+    this.apiProxy_.keepDownload(this.item.id);
   }
 
   /**
@@ -188,6 +235,18 @@ export class DownloadItemElement extends CustomElement {
     } else {
       const subfix = '...' + s.substr(extIndex);
       return s.substr(0, maxlen - subfix.length) + subfix;
+    }
+  }
+
+  /** @param {!Event} e */
+  onOpenButtonClick_(e) {
+    if (this.opening_) {
+      return;
+    }
+    if (this.item_.mode === DownloadMode.kNormal) {
+      this.apiProxy_.openDownload(this.item.id);
+    } else {
+      // TODO(crbug.com/1182529): Handle the scanning case.
     }
   }
 }

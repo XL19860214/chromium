@@ -56,6 +56,7 @@ import org.chromium.chrome.browser.customtabs.CustomTabsTestUtils;
 import org.chromium.chrome.browser.document.ChromeLauncherActivity;
 import org.chromium.chrome.browser.firstrun.FirstRunActivityTestObserver.ScopedObserverData;
 import org.chromium.chrome.browser.locale.LocaleManager;
+import org.chromium.chrome.browser.locale.LocaleManagerDelegate;
 import org.chromium.chrome.browser.policy.EnterpriseInfo;
 import org.chromium.chrome.browser.preferences.ChromePreferenceKeys;
 import org.chromium.chrome.browser.preferences.SharedPreferencesManager;
@@ -90,6 +91,7 @@ public class FirstRunIntegrationTest {
     private static final String TEST_URL = "https://test.com";
     private static final String FOO_URL = "https://foo.com";
     private static final long ACTIVITY_WAIT_LONG_MS = TimeUnit.SECONDS.toMillis(10);
+    private static final String TEST_ENROLLMENT_TOKEN = "enrollment-token";
 
     @Rule
     public MultiActivityTestRule mTestRule = new MultiActivityTestRule();
@@ -204,6 +206,13 @@ public class FirstRunIntegrationTest {
         restrictions.putInt("TosDialogBehavior", TosDialogBehavior.SKIP);
         AbstractAppRestrictionsProvider.setTestRestrictions(restrictions);
         setDeviceOwnedForMock();
+    }
+
+    private void enableCloudManagementViaPolicy() {
+        setHasAppRestrictionForMock(true);
+        Bundle restrictions = new Bundle();
+        restrictions.putString("CloudManagementEnrollmentToken", TEST_ENROLLMENT_TOKEN);
+        AbstractAppRestrictionsProvider.setTestRestrictions(restrictions);
     }
 
     private void launchCustomTabs(String url) {
@@ -386,7 +395,7 @@ public class FirstRunIntegrationTest {
     private void runSearchEnginePromptTest(@SearchEnginePromoType final int searchPromoType)
             throws Exception {
         // Force the LocaleManager into a specific state.
-        LocaleManager mockManager = new LocaleManager() {
+        LocaleManagerDelegate mockDelegate = new LocaleManagerDelegate() {
             @Override
             public int getSearchEnginePromoShowType() {
                 return searchPromoType;
@@ -397,7 +406,8 @@ public class FirstRunIntegrationTest {
                 return TemplateUrlServiceFactory.get().getTemplateUrls();
             }
         };
-        LocaleManager.setInstanceForTest(mockManager);
+        TestThreadUtils.runOnUiThreadBlocking(
+                () -> LocaleManager.getInstance().setDelegateForTest(mockDelegate));
 
         FirstRunActivity firstRunActivity = launchFirstRunActivity();
 
@@ -680,6 +690,18 @@ public class FirstRunIntegrationTest {
 
         unblockOnFlowIsKnown();
         verifyUrlEquals(TEST_URL, waitAndGetUriFromChromeActivity(CustomTabActivity.class));
+    }
+
+    @Test
+    @MediumTest
+    public void testCloudManagementDoesNotBlockFirstRun() throws Exception {
+        // Ensures FRE is not blocked if cloud management is enabled.
+        enableCloudManagementViaPolicy();
+
+        launchViewIntent(TEST_URL);
+        FirstRunActivity firstRunActivity = waitForActivity(FirstRunActivity.class);
+        clickThroughFirstRun(firstRunActivity, SearchEnginePromoType.DONT_SHOW);
+        verifyUrlEquals(TEST_URL, waitAndGetUriFromChromeActivity(ChromeTabbedActivity.class));
     }
 
     private void clickButton(final Activity activity, final int id, final String message) {

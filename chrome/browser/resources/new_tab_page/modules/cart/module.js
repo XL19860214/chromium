@@ -173,7 +173,6 @@ class ChromeCartModuleElement extends mixinBehaviors
     const cartUrl = this.cartItems[this.currentMenuIndex_].cartUrl;
 
     await ChromeCartProxy.getInstance().handler.hideCart(cartUrl);
-    this.resetCartData_();
 
     this.dismissedCartData_ = {
       message: loadTimeData.getStringF(
@@ -182,7 +181,10 @@ class ChromeCartModuleElement extends mixinBehaviors
         await ChromeCartProxy.getInstance().handler.restoreHiddenCart(cartUrl);
       },
     };
-    $$(this, '#dismissCartToast').show();
+    const isModuleVisible = await this.resetCartData_();
+    if (isModuleVisible) {
+      $$(this, '#dismissCartToast').show();
+    }
   }
 
   /** @private */
@@ -192,7 +194,6 @@ class ChromeCartModuleElement extends mixinBehaviors
     const cartUrl = this.cartItems[this.currentMenuIndex_].cartUrl;
 
     await ChromeCartProxy.getInstance().handler.removeCart(cartUrl);
-    this.resetCartData_();
 
     this.dismissedCartData_ = {
       message: loadTimeData.getStringF(
@@ -201,28 +202,53 @@ class ChromeCartModuleElement extends mixinBehaviors
         await ChromeCartProxy.getInstance().handler.restoreRemovedCart(cartUrl);
       },
     };
-    $$(this, '#dismissCartToast').show();
+    const isModuleVisible = await this.resetCartData_();
+    if (isModuleVisible) {
+      $$(this, '#dismissCartToast').show();
+    }
   }
 
   /** @private */
   async onUndoDismissCartButtonClick_() {
     // Restore the module item.
     await this.dismissedCartData_.restoreCallback();
+    this.dismissedCartData_ = null;
     this.resetCartData_();
 
     // Notify the user.
     $$(this, '#dismissCartToast').hide();
-
-    this.dismissedCartData_ = null;
   }
 
-  /** @private */
+  /**
+   * @return {!Promise<!boolean>} Whether the module is visible after reset.
+   * @private
+   */
   async resetCartData_() {
-    // TODO(crbug.com/1157892): Hide the module silently if there is no cart
-    // item to show.
     const {carts} =
         await ChromeCartProxy.getInstance().handler.getMerchantCarts();
     this.cartItems = carts;
+    const isModuleVisible = this.cartItems.length !== 0;
+    if (!isModuleVisible && this.dismissedCartData_ !== null) {
+      this.dispatchEvent(new CustomEvent('dismiss-module', {
+        bubbles: true,
+        composed: true,
+        detail: {
+          message: this.dismissedCartData_.message,
+          restoreCallback: async () => {
+            chrome.metricsPrivate.recordUserAction(
+                'NewTabPage.Carts.RestoreLastCartRestoresModule');
+            await this.dismissedCartData_.restoreCallback();
+            this.dismissedCartData_ = null;
+            const {carts} =
+                await ChromeCartProxy.getInstance().handler.getMerchantCarts();
+            this.cartItems = carts;
+          },
+        },
+      }));
+      chrome.metricsPrivate.recordUserAction(
+          'NewTabPage.Carts.DismissLastCartHidesModule');
+    }
+    return isModuleVisible;
   }
 
   /** @private */
@@ -396,12 +422,16 @@ customElements.define(ChromeCartModuleElement.is, ChromeCartModuleElement);
 
 /** @return {!Promise<?HTMLElement>} */
 async function createCartElement() {
+  // getWarmWelcomeVisible makes server-side change and might flip the status of
+  // whether welcome surface should show or not. Anything whose visibility
+  // dependes on welcome surface (e.g. RBD consent) should check before
+  // getWarmWelcomeVisible.
+  const {consentVisible} = await ChromeCartProxy.getInstance()
+                               .handler.getDiscountConsentCardVisible();
   const {welcomeVisible} =
       await ChromeCartProxy.getInstance().handler.getWarmWelcomeVisible();
   const {carts} =
       await ChromeCartProxy.getInstance().handler.getMerchantCarts();
-  const {consentVisible} = await ChromeCartProxy.getInstance()
-                               .handler.getDiscountConsentCardVisible();
   chrome.metricsPrivate.recordSmallCount(
       'NewTabPage.Carts.CartCount', carts.length);
   if (carts.length === 0) {

@@ -23,7 +23,7 @@ import merge_js_lib as javascript_merger
 
 def _MergeAPIArgumentParser(*args, **kwargs):
   """Parameters passed to this merge script, as per:
-  https://chromium.googlesource.com/chromium/tools/build/+/master/scripts/slave/recipe_modules/swarming/resources/merge_api.py
+  https://chromium.googlesource.com/chromium/tools/build/+/main/scripts/slave/recipe_modules/swarming/resources/merge_api.py
   """
   parser = argparse.ArgumentParser(*args, **kwargs)
   parser.add_argument('--build-properties', help=argparse.SUPPRESS)
@@ -100,6 +100,9 @@ def main():
     if not params.merged_js_cov_filename:
       parser.error('--merged-js-cov-filename required when merging '
                    'JavaScript coverage')
+
+    javascript_merger.write_parsed_scripts(
+        os.path.join(params.task_output_dir))
 
     # Ensure JavaScript coverage dir exists.
     if not os.path.exists(params.javascript_coverage_dir):

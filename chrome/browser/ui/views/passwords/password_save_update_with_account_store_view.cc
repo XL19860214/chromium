@@ -636,6 +636,12 @@ void PasswordSaveUpdateWithAccountStoreView::UpdateBubbleUIElements() {
 }
 
 void PasswordSaveUpdateWithAccountStoreView::UpdateHeaderImage() {
+  if (base::FeatureList::IsEnabled(
+          password_manager::features::
+              kUseNewHeaderForSavePasswordWithAccountStoreBubble)) {
+    SetBubbleHeader(IDR_SAVE_PASSWORD, IDR_SAVE_PASSWORD_DARK);
+    return;
+  }
   int light_image_id = controller_.IsCurrentStateAffectingTheAccountStore()
                            ? IDR_SAVE_PASSWORD_MULTI_DEVICE
                            : IDR_SAVE_PASSWORD_ONE_DEVICE;
@@ -673,9 +679,9 @@ void PasswordSaveUpdateWithAccountStoreView::MaybeShowIPH(IPHType type) {
   FeaturePromoBubbleParams bubble_params;
   bubble_params.anchor_view = destination_dropdown_;
   bubble_params.arrow = views::BubbleBorder::RIGHT_CENTER;
-  bubble_params.preferred_width = kAccountStoragePromoWidth;
-  bubble_params.allow_focus = true;
+  bubble_params.focus_on_create = true;
   bubble_params.persist_on_blur = false;
+  bubble_params.preferred_width = kAccountStoragePromoWidth;
   bubble_params.timeout_default = GetRegularIPHTimeout();
   bubble_params.timeout_short = GetShortIPHTimeout();
 

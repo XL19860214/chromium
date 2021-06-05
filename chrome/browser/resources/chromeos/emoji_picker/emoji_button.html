@@ -1,9 +1,10 @@
 <style>
   :host {
     --emoji-background: transparent;
-
+    --emoji-hover-background: var(--cr-hover-background-color);
     height: var(--emoji-size);
     width: var(--emoji-size);
+    position: relative;
   }
 
   #emoji-button {
@@ -24,8 +25,6 @@
 
   #emoji-button:focus,
   #emoji-button:active {
-    --emoji-background: rgba(var(--cr-hairline-rgb), 0.1);
-    border-radius: 50%;
     outline-color: var(--cr-toggle-color);
     outline-width: 2px;
   }
@@ -40,7 +39,7 @@
   }
 
   #emoji-button:hover {
-    background-color: var(--cr-hover-background-color);
+    background-color: var(--emoji-hover-background);
     border-radius: 50%;
   }
 
@@ -66,8 +65,8 @@
     --paper-tooltip-background: var(--cr-menu-background-color);
     --paper-tooltip-opacity: 1;
     --paper-tooltip-text-color: var(--cr-secondary-text-color);
-    --paper-tooltip-delay-in: 200ms;
-    --paper-tooltip-delay-out: 200ms;
+    --paper-tooltip-delay-in: 500ms;
+    --paper-tooltip-delay-out: 500ms;
     --paper-tooltip-duration-in: 0;
     --paper-tooltip-duration-out: 0;
 
@@ -76,7 +75,7 @@
      * third_party)
      */
     --paper-tooltip: {
-      box-shadow: var(--cr-elevation-3);
+      box-shadow: var(--cr-elevation-1);
       font-family: 'Roboto', sans-serif;
       font-size: 12px;
       margin: 4px;
@@ -96,10 +95,13 @@
     aria-label="[[_label(emoji, variants)]]">
   [[emoji]]
 </button>
-<paper-tooltip id="tooltip" for="emoji-button" fit-to-visible-bounds
-  part="tooltip" offset="8">
-  [[tooltip]]
-</paper-tooltip>
+<template is="dom-if" if="[[!variant]]">
+  <paper-tooltip id="tooltip" for="emoji-button" fit-to-visible-bounds
+    part="tooltip" offset="8">
+    [[tooltip]]
+  </paper-tooltip>
+</tooltip>
 <template is="dom-if" if="[[variantsVisible]]">
-  <emoji-variants variants="[[variants]]"></emoji-variants>
+  <emoji-variants variants="[[variants]]" tooltip="[[tooltip]]">
+  </emoji-variants>
 </template>

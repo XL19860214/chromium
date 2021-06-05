@@ -23,6 +23,10 @@
 // test will have consecutive numbers.
 + (id<GREYMatcher>)windowWithNumber:(int)windowNumber;
 
+// Same as above, but for the blocking window which only appears when a blocking
+// UI is shown in another window.
++ (id<GREYMatcher>)blockerWindowWithNumber:(int)windowNumber;
+
 // Matcher for element with accessibility label corresponding to |label| and
 // accessibility trait UIAccessibilityTraitButton.
 + (id<GREYMatcher>)buttonWithAccessibilityLabel:(NSString*)label;
@@ -404,6 +408,11 @@
 
 // Returns a matcher for the current WebState's scroll view.
 + (id<GREYMatcher>)webStateScrollViewMatcher;
+
+// Returns a matcher for the current WebState's scroll view in the given
+// |windowNumber|.
++ (id<GREYMatcher>)webStateScrollViewMatcherInWindowWithNumber:
+    (int)windowNumber;
 
 // Returns a matcher for the Clear Browsing Data button in the History UI.
 + (id<GREYMatcher>)historyClearBrowsingDataButton;

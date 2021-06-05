@@ -10,6 +10,7 @@
 #include "base/strings/stringprintf.h"
 #include "base/test/bind.h"
 #include "base/test/scoped_feature_list.h"
+#include "build/build_config.h"
 #include "content/browser/direct_sockets/direct_sockets_service_impl.h"
 #include "content/browser/renderer_host/frame_tree_node.h"
 #include "content/browser/renderer_host/render_frame_host_impl.h"
@@ -32,6 +33,7 @@
 #include "net/traffic_annotation/network_traffic_annotation.h"
 #include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
 #include "services/network/public/mojom/host_resolver.mojom.h"
+#include "services/network/public/mojom/mdns_responder.mojom.h"
 #include "services/network/public/mojom/network_context.mojom.h"
 #include "services/network/public/mojom/tcp_socket.mojom.h"
 #include "testing/gmock/include/gmock/gmock-matchers.h"
@@ -270,6 +272,7 @@ class DirectSocketsTcpBrowserTest : public ContentBrowserTest {
 
  protected:
   void SetUp() override {
+    DirectSocketsServiceImpl::SetConnectionDialogBypassForTesting(true);
     DirectSocketsServiceImpl::SetEnterpriseManagedForTesting(false);
 
     embedded_test_server()->AddDefaultHandlers(GetTestDataFilePath());
@@ -313,7 +316,13 @@ IN_PROC_BROWSER_TEST_F(DirectSocketsTcpBrowserTest, OpenTcp_Success_Global) {
               StartsWith("openTcp succeeded"));
 }
 
-IN_PROC_BROWSER_TEST_F(DirectSocketsTcpBrowserTest, OpenTcp_MDNS) {
+#if defined(OS_MAC)
+// https://crbug.com/1211492 Keep failing on Mac11.3
+#define MAYBE_OpenTcp_MDNS DISABLED_OpenTcp_MDNS
+#else
+#define MAYBE_OpenTcp_MDNS OpenTcp_MDNS
+#endif
+IN_PROC_BROWSER_TEST_F(DirectSocketsTcpBrowserTest, MAYBE_OpenTcp_MDNS) {
   EXPECT_TRUE(NavigateToURL(shell(), GetTestOpenPageURL()));
 
   const uint16_t listening_port = StartTcpServer();

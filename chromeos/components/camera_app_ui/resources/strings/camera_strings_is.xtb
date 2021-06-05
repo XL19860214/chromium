@@ -38,6 +38,7 @@
 <translation id="3227137524299004712">Hljóðnemi</translation>
 <translation id="3240426699337459095">Tengill afritaður</translation>
 <translation id="3259149966178251584">Upplausn myndavélar</translation>
+<translation id="3448774564454087943">Ekki er hægt að vista myndskeiðið því það er of stutt</translation>
 <translation id="3517926952904427380">Ekki tókst að taka andlitsmynd</translation>
 <translation id="3569311554794739032">Viltu örugglega fjarlægja <ph name="FILE" />?</translation>
 <translation id="3733597664308256288">Viðbótarstýringar tiltækar fyrir myndavél. Leit + ör til hægri til að fá aðgang.</translation>
@@ -76,6 +77,7 @@ Ef ábendingin þín snýr að gæðum mynda eða myndskeiða máttu hengja við
 <translation id="6420689864531458495">(<ph name="ASPECT_RATIO_WIDTH" />:<ph name="ASPECT_RATIO_HEIGHT" /> - <ph name="WIDTH" />x<ph name="HEIGHT" />) <ph name="MEGAPIXEL" /> megapixlar</translation>
 <translation id="6681668084120808868">Taka mynd</translation>
 <translation id="6778482348691154169">Ekki tókst að taka mynd</translation>
+<translation id="695140971690006676">Endurstilla allt</translation>
 <translation id="6965382102122355670">Í lagi</translation>
 <translation id="698156982839284926">3 sekúndur</translation>
 <translation id="712848772518857951">Viltu örugglega fjarlægja <ph name="COUNT" /> atriði?</translation>

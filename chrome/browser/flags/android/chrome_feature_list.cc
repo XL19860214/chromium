@@ -12,7 +12,6 @@
 #include "base/android/jni_string.h"
 #include "base/feature_list.h"
 #include "base/metrics/field_trial_params.h"
-#include "base/stl_util.h"
 #include "chrome/browser/flags/jni_headers/ChromeFeatureList_jni.h"
 #include "chrome/browser/notifications/chime/android/features.h"
 #include "chrome/browser/performance_hints/performance_hints_features.h"
@@ -55,7 +54,6 @@
 #include "content/public/common/content_features.h"
 #include "device/fido/features.h"
 #include "media/base/media_switches.h"
-#include "net/base/features.h"
 #include "services/device/public/cpp/device_features.h"
 #include "ui/base/ui_base_features.h"
 
@@ -74,7 +72,6 @@ namespace {
 // in other locations in the code base (e.g. chrome/, components/, etc).
 const base::Feature* const kFeaturesExposedToJava[] = {
     &autofill::features::kAutofillCreditCardAuthentication,
-    &autofill::features::kAutofillDownstreamCvcPromptUseGooglePayLogo,
     &autofill::features::kAutofillEnablePasswordInfoBarAccountIndicationFooter,
     &autofill::features::kAutofillEnableSaveCardInfoBarAccountIndicationFooter,
     &autofill::features::kAutofillKeyboardAccessory,
@@ -97,7 +94,6 @@ const base::Feature* const kFeaturesExposedToJava[] = {
     &download::features::kSmartSuggestionForLargeDownloads,
     &download::features::kUseDownloadOfflineContentProvider,
     &embedder_support::kShowTrustedPublisherURL,
-    &features::kAdaptiveButtonInTopToolbar,
     &features::kClearOldBrowsingData,
     &features::kContinuousFeeds,
     &features::kContinuousSearch,
@@ -116,6 +112,7 @@ const base::Feature* const kFeaturesExposedToJava[] = {
     &features::kQuietNotificationPrompts,
     &features::kRequestDesktopSiteForTablets,
     &features::kSearchHistoryLink,
+    &features::kShareUsageRanking,
     &features::kToolbarUseHardwareBitmapDraw,
     &features::kUseNotificationCompatBuilder,
     &features::kWebNfc,
@@ -129,9 +126,12 @@ const base::Feature* const kFeaturesExposedToJava[] = {
     &feed::kInterestFeedV2,
     &feed::kInterestFeedV2Autoplay,
     &feed::kInterestFeedV2Hearts,
+    &feed::kReliabilityLogging,
     &feed::kWebFeed,
     &feed::kXsurfaceMetricsReporting,
     &history::kHideFromApi3Transitions,
+    &kAdaptiveButtonInTopToolbar,
+    &kAdaptiveButtonInTopToolbarCustomization,
     &kAddToHomescreenIPH,
     &kAllowNewIncognitoTabIntents,
     &kAllowRemoteContextForNotifications,
@@ -166,7 +166,6 @@ const base::Feature* const kFeaturesExposedToJava[] = {
     &kChromeShareLongScreenshot,
     &kChromeShareScreenshot,
     &kChromeSharingHub,
-    &kChromeStartupDelegate,
     &kChromeSurveyNextAndroid,
     &kCommandLineOnNonRooted,
     &kCommerceMerchantViewer,
@@ -195,7 +194,6 @@ const base::Feature* const kFeaturesExposedToJava[] = {
     &kDownloadRename,
     &kDuetTabStripIntegrationAndroid,
     &kEnhancedProtectionPromoCard,
-    &kEphemeralTabUsingBottomSheet,
     &kExperimentsForAgsa,
     &kExploreSites,
     &kFocusOmniboxInIncognitoTabIntents,
@@ -215,6 +213,8 @@ const base::Feature* const kFeaturesExposedToJava[] = {
     &kOmniboxSpareRenderer,
     &kPageAnnotationsService,
     &kProbabilisticCryptidRenderer,
+    &kPwaUpdateDialogForNameAndIcon,
+    &kQuickActionSearchWidgetAndroid,
     &kReachedCodeProfiler,
     &kReaderModeInCCT,
     &kReengagementNotification,
@@ -243,14 +243,6 @@ const base::Feature* const kFeaturesExposedToJava[] = {
     &kTestDefaultEnabled,
     &kThemeRefactorAndroid,
     &kToolbarIphAndroid,
-    &kToolbarIphAndroidCohort1,
-    &kToolbarIphAndroidCohort2,
-    &kToolbarIphAndroidCohort3,
-    &kToolbarIphAndroidCohort4,
-    &kToolbarIphAndroidCohort5,
-    &kToolbarIphAndroidCohort6,
-    &kToolbarIphAndroidCohort7,
-    &kToolbarIphAndroidCohort8,
     &kToolbarMicIphAndroid,
     &kTrustedWebActivityLocationDelegation,
     &kTrustedWebActivityNewDisclosure,
@@ -269,13 +261,13 @@ const base::Feature* const kFeaturesExposedToJava[] = {
     &kPrefetchNotificationSchedulingIntegration,
     &kWebNotesStylize,
     &features::kDnsOverHttps,
-    &net::features::kSameSiteByDefaultCookies,
-    &net::features::kCookiesWithoutSameSiteMustBeSecure,
     &notifications::features::kUseChimeAndroidSdk,
     &paint_preview::kPaintPreviewDemo,
     &paint_preview::kPaintPreviewShowOnStartup,
+    &language::kAppLanguagePrompt,
     &language::kDetailedLanguageSettings,
     &language::kExplicitLanguageAsk,
+    &language::kForceAppLanguagePrompt,
     &language::kTranslateAssistContent,
     &language::kTranslateIntent,
     &messages::kMessagesForAndroidInfrastructure,
@@ -297,6 +289,7 @@ const base::Feature* const kFeaturesExposedToJava[] = {
     &password_manager::features::kEditPasswordsInSettings,
     &password_manager::features::kPasswordScriptsFetching,
     &password_manager::features::kRecoverFromNeverSaveAndroid,
+    &password_manager::features::kUseNewHeaderForLegacySavePasswordBubble,
     &performance_hints::features::kContextMenuPerformanceInfo,
     &query_tiles::features::kQueryTilesGeoFilter,
     &query_tiles::features::kQueryTiles,
@@ -334,6 +327,13 @@ const base::Feature* FindFeatureExposedToJava(const std::string& feature_name) {
 }  // namespace
 
 // Alphabetical:
+
+const base::Feature kAdaptiveButtonInTopToolbar{
+    "AdaptiveButtonInTopToolbar", base::FEATURE_DISABLED_BY_DEFAULT};
+
+const base::Feature kAdaptiveButtonInTopToolbarCustomization{
+    "AdaptiveButtonInTopToolbarCustomization",
+    base::FEATURE_DISABLED_BY_DEFAULT};
 
 const base::Feature kAddToHomescreenIPH{"AddToHomescreenIPH",
                                         base::FEATURE_DISABLED_BY_DEFAULT};
@@ -441,9 +441,6 @@ const base::Feature kChromeShareScreenshot{"ChromeShareScreenshot",
 const base::Feature kChromeSharingHub{"ChromeSharingHub",
                                       base::FEATURE_ENABLED_BY_DEFAULT};
 
-const base::Feature kChromeStartupDelegate{"ChromeStartupDelegate",
-                                           base::FEATURE_DISABLED_BY_DEFAULT};
-
 const base::Feature kChromeSurveyNextAndroid{"ChromeSurveyNextAndroid",
                                              base::FEATURE_DISABLED_BY_DEFAULT};
 
@@ -540,9 +537,6 @@ const base::Feature kDuetTabStripIntegrationAndroid{
 const base::Feature kEnhancedProtectionPromoCard{
     "EnhancedProtectionPromoCard", base::FEATURE_DISABLED_BY_DEFAULT};
 
-const base::Feature kEphemeralTabUsingBottomSheet{
-    "EphemeralTabUsingBottomSheet", base::FEATURE_DISABLED_BY_DEFAULT};
-
 const base::Feature kExperimentsForAgsa{"ExperimentsForAgsa",
                                         base::FEATURE_ENABLED_BY_DEFAULT};
 
@@ -598,6 +592,12 @@ const base::Feature kPageAnnotationsService{"PageAnnotationsService",
 
 const base::Feature kProbabilisticCryptidRenderer{
     "ProbabilisticCryptidRenderer", base::FEATURE_DISABLED_BY_DEFAULT};
+
+const base::Feature kPwaUpdateDialogForNameAndIcon{
+    "PwaUpdateDialogForNameAndIcon", base::FEATURE_DISABLED_BY_DEFAULT};
+
+const base::Feature kQuickActionSearchWidgetAndroid{
+    "QuickActionSearchWidgetAndroid", base::FEATURE_DISABLED_BY_DEFAULT};
 
 const base::Feature kReachedCodeProfiler{"ReachedCodeProfiler",
                                          base::FEATURE_DISABLED_BY_DEFAULT};
@@ -673,23 +673,7 @@ const base::Feature kThemeRefactorAndroid{"ThemeRefactorAndroid",
                                           base::FEATURE_DISABLED_BY_DEFAULT};
 
 const base::Feature kToolbarIphAndroid{"ToolbarIphAndroid",
-                                       base::FEATURE_DISABLED_BY_DEFAULT};
-const base::Feature kToolbarIphAndroidCohort1{
-    "ToolbarIphAndroidCohort1", base::FEATURE_DISABLED_BY_DEFAULT};
-const base::Feature kToolbarIphAndroidCohort2{
-    "ToolbarIphAndroidCohort2", base::FEATURE_DISABLED_BY_DEFAULT};
-const base::Feature kToolbarIphAndroidCohort3{
-    "ToolbarIphAndroidCohort3", base::FEATURE_DISABLED_BY_DEFAULT};
-const base::Feature kToolbarIphAndroidCohort4{
-    "ToolbarIphAndroidCohort4", base::FEATURE_DISABLED_BY_DEFAULT};
-const base::Feature kToolbarIphAndroidCohort5{
-    "ToolbarIphAndroidCohort5", base::FEATURE_DISABLED_BY_DEFAULT};
-const base::Feature kToolbarIphAndroidCohort6{
-    "ToolbarIphAndroidCohort6", base::FEATURE_DISABLED_BY_DEFAULT};
-const base::Feature kToolbarIphAndroidCohort7{
-    "ToolbarIphAndroidCohort7", base::FEATURE_DISABLED_BY_DEFAULT};
-const base::Feature kToolbarIphAndroidCohort8{
-    "ToolbarIphAndroidCohort8", base::FEATURE_DISABLED_BY_DEFAULT};
+                                       base::FEATURE_ENABLED_BY_DEFAULT};
 
 const base::Feature kToolbarMicIphAndroid{"ToolbarMicIphAndroid",
                                           base::FEATURE_DISABLED_BY_DEFAULT};

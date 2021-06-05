@@ -4,7 +4,7 @@
 
 #include "chrome/common/pref_names.h"
 
-#include "base/stl_util.h"
+#include "base/cxx17_backports.h"
 #include "build/branding_buildflags.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
@@ -112,12 +112,11 @@ const char kURLsToRestoreOnStartup[] = "session.startup_urls";
 const char kUserFeedbackAllowed[] = "feedback_allowed";
 
 #if !defined(OS_ANDROID)
-// Used to store the value of the SerialAllowAllPortsForUrls policy.
-const char kManagedSerialAllowAllPortsForUrls[] =
+// Replaced by kManagedSerialAllowAllPortsForUrls in M-93.
+const char kManagedProfileSerialAllowAllPortsForUrlsDeprecated[] =
     "profile.managed.serial_allow_all_ports_for_urls";
-
-// Used to store the value of the SerialAllowUsbDevicesForUrls policy.
-const char kManagedSerialAllowUsbDevicesForUrls[] =
+// Replaced by kManagedSerialAllowUsbDevicesForUrls in M-93.
+const char kManagedProfileSerialAllowUsbDevicesForUrlsDeprecated[] =
     "profile.managed.serial_allow_usb_devices_for_urls";
 #endif  // !defined(OS_ANDROID)
 
@@ -1317,6 +1316,12 @@ const char kProfileUsingGAIAAvatar[] = "profile.using_gaia_avatar";
 // The supervised user ID.
 const char kSupervisedUserId[] = "profile.managed_user_id";
 
+// Boolean specifying if the user has accepted account management. This enables
+// the browser to fetch profile policies even if they have not consented to
+// sync.
+extern const char kUserAcceptedAccountManagement[] =
+    "profile.user_accepted_account_management";
+
 // Integer that specifies the number of times that we have shown the upgrade
 // tutorial card in the avatar menu bubble.
 const char kProfileAvatarTutorialShown[] =
@@ -1552,6 +1557,18 @@ const char kWebRTCAllowLegacyTLSProtocols[] =
 #if !defined(OS_ANDROID)
 // Whether or not this profile has been shown the Welcome page.
 const char kHasSeenWelcomePage[] = "browser.has_seen_welcome_page";
+
+// The restriction imposed on managed accounts.
+const char kManagedAccountsSigninRestriction[] =
+    "profile.managed_accounts.restriction.value";
+
+// Whether or not the restriction is applied on all managed accounts of the
+// machine. If this is set to True, the restriction set in
+// `profile.managed_accounts.restriction.value` will be applied on all managed
+// accounts on the machine, otherwhise only the account where the policy is set
+// will have the restriction applied.
+const char kManagedAccountsSigninRestrictionScopeMachine[] =
+    "profile.managed_accounts.restriction.all_managed_accounts";
 #endif
 
 #if defined(OS_WIN)
@@ -1591,6 +1608,16 @@ const char kSuppressDifferentOriginSubframeJSDialogs[] =
 
 // *************** LOCAL STATE ***************
 // These are attached to the machine/installation
+
+#if !defined(OS_ANDROID)
+// Used to store the value of the SerialAllowAllPortsForUrls policy.
+const char kManagedSerialAllowAllPortsForUrls[] =
+    "managed.serial_allow_all_ports_for_urls";
+
+// Used to store the value of the SerialAllowUsbDevicesForUrls policy.
+const char kManagedSerialAllowUsbDevicesForUrls[] =
+    "managed.serial_allow_usb_devices_for_urls";
+#endif  // !defined(OS_ANDROID)
 
 // Directory of the last profile used.
 const char kProfileLastUsed[] = "profile.last_used";
@@ -1835,11 +1862,6 @@ const char kNtpSearchSuggestionsBlocklist[] =
 const char kNtpSearchSuggestionsImpressions[] =
     "ntp.search_suggestions_impressions";
 const char kNtpSearchSuggestionsOptOut[] = "ntp.search_suggestions_opt_out";
-// Tracks whether the user has chosen to hide the shortcuts tiles on the NTP.
-const char kNtpShortcutsVisible[] = "ntp.shortcust_visible";
-// Tracks whether the user has chosen to use custom links or most visited sites
-// for the shortcut tiles on the NTP.
-const char kNtpUseMostVisitedTiles[] = "ntp.use_most_visited_tiles";
 #endif  // defined(OS_ANDROID)
 
 // Which page should be visible on the new tab page v4
@@ -1957,6 +1979,10 @@ const char kWebAppsUninstalledDefaultChromeApps[] =
 // outlive the app installation and uninstallation.
 const char kWebAppsPreferences[] = "web_apps.web_app_ids";
 
+// Dictionary that maps the origin of a web app to other preferences related to
+// its isolation requirements.
+const char kWebAppsIsolationState[] = "web_apps.isolation_state";
+
 #if defined(OS_WIN) || defined(OS_MAC) || \
     (defined(OS_LINUX) && !BUILDFLAG(IS_CHROMEOS_LACROS))
 // Dictionary that maps origins to web apps that can act as URL handlers.
@@ -2009,6 +2035,12 @@ const char kMediaDeviceIdSalt[] = "media.device_id_salt";
 // media to bind persistent licenses to the device which is authorized to play
 // the content.
 const char kMediaStorageIdSalt[] = "media.storage_id_salt";
+
+#if defined(OS_WIN)
+// Mapping of origin to their origin id (UnguessableToken). Origin IDs are only
+// stored for origins using MediaFoundation-based CDMs.
+const char kMediaCdmOrigin[] = "media.cdm.origins";
+#endif  // defined(OS_WIN)
 
 // The last used printer and its settings.
 const char kPrintPreviewStickySettings[] =
@@ -2369,12 +2401,12 @@ const char kExtensionInstallEventLoggingEnabled[] =
 const char kRemoveUsersRemoteCommand[] = "remove_users_remote_command";
 
 // Integer pref used by the metrics::DailyEvent owned by
-// chromeos::power::auto_screen_brightness::MetricsReporter.
+// ash::power::auto_screen_brightness::MetricsReporter.
 const char kAutoScreenBrightnessMetricsDailySample[] =
     "auto_screen_brightness.metrics.daily_sample";
 
 // Integer prefs used to back event counts reported by
-// chromeos::power::auto_screen_brightness::MetricsReporter.
+// ash::power::auto_screen_brightness::MetricsReporter.
 const char kAutoScreenBrightnessMetricsAtlasUserAdjustmentCount[] =
     "auto_screen_brightness.metrics.atlas_user_adjustment_count";
 const char kAutoScreenBrightnessMetricsEveUserAdjustmentCount[] =

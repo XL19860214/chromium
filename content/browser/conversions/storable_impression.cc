@@ -9,7 +9,7 @@
 namespace content {
 
 StorableImpression::StorableImpression(
-    const std::string& impression_data,
+    uint64_t impression_data,
     const url::Origin& impression_origin,
     const url::Origin& conversion_origin,
     const url::Origin& reporting_origin,
@@ -41,6 +41,10 @@ StorableImpression::~StorableImpression() = default;
 
 net::SchemefulSite StorableImpression::ConversionDestination() const {
   return net::SchemefulSite(conversion_origin_);
+}
+
+net::SchemefulSite StorableImpression::ImpressionSite() const {
+  return net::SchemefulSite(impression_origin_);
 }
 
 }  // namespace content

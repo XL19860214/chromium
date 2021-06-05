@@ -38,6 +38,7 @@
 <translation id="3227137524299004712">الميكروفون</translation>
 <translation id="3240426699337459095">تم نسخ الرابط</translation>
 <translation id="3259149966178251584">درجة دقة الكاميرا</translation>
+<translation id="3448774564454087943">لم يتم حفظ الفيديو لأنّه قصير جدًا.</translation>
 <translation id="3517926952904427380">تعذّر التقاط صور أشخاص</translation>
 <translation id="3569311554794739032">هل تريد فعلاً إزالة <ph name="FILE" />؟</translation>
 <translation id="3733597664308256288">تتوفّر عناصر تحكُّم إضافية في الكاميرا. للوصول إلى هذه العناصر، اضغط على مفتاح البحث + السهم المتّجه لليمين.</translation>
@@ -77,6 +78,7 @@
 <translation id="6420689864531458495">‏(<ph name="ASPECT_RATIO_WIDTH" />:<ph name="ASPECT_RATIO_HEIGHT" /> - <ph name="WIDTH" />x<ph name="HEIGHT" />) <ph name="MEGAPIXEL" /> ميغابكسل</translation>
 <translation id="6681668084120808868">التقاط صورة</translation>
 <translation id="6778482348691154169">تعذّر التقاط الصورة</translation>
+<translation id="695140971690006676">إعادة ضبط الكل</translation>
 <translation id="6965382102122355670">حسنًا</translation>
 <translation id="698156982839284926">3 ثوانٍ</translation>
 <translation id="712848772518857951">هل تريد فعلاً إزالة <ph name="COUNT" /> من العناصر؟</translation>

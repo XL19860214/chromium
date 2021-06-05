@@ -160,7 +160,7 @@ reviews. Googlers can read more about this at go/gwsq-gerrit.
   </summary>
 </histogram>
 
-<histogram name="Tab.NewTab" enum="NewTabType" expires_after="2021-09-19">
+<histogram name="Tab.NewTab" enum="NewTabType" expires_after="2021-11-21">
   <owner>tbergquist@chromium.org</owner>
   <owner>bsep@chromium.org</owner>
   <summary>
@@ -2316,7 +2316,7 @@ reviews. Googlers can read more about this at go/gwsq-gerrit.
 </histogram>
 
 <histogram name="Tabs.TabSearch.PageHandlerConstructionDelay" units="ms"
-    expires_after="2021-09-19">
+    expires_after="2021-11-21">
   <owner>tluk@chromium.org</owner>
   <owner>robliao@chromium.org</owner>
   <owner>yuhengh@chromium.org</owner>
@@ -2803,6 +2803,9 @@ reviews. Googlers can read more about this at go/gwsq-gerrit.
 
 <histogram name="TabStrip.PaintChildrenDuration" units="microseconds"
     expires_after="M80">
+  <obsolete>
+    Obsolete in M93. Histogram data was not used.
+  </obsolete>
   <owner>collinbaker@chromium.org</owner>
   <owner>chrome-desktop-ui-sea@google.com</owner>
   <summary>
@@ -2830,12 +2833,30 @@ reviews. Googlers can read more about this at go/gwsq-gerrit.
 
 <histogram name="TabStrip.Tab.Icon.PaintDuration" units="microseconds"
     expires_after="M80">
+  <obsolete>
+    Obsolete in M93. Histogram data was not used.
+  </obsolete>
   <owner>collinbaker@chromium.org</owner>
   <owner>chrome-desktop-ui-sea@google.com</owner>
   <summary>
     Time spent painting a tab icon. This includes a page's favicon and loading
     animation (when loading). This is recorded at the end of TabIcon::OnPaint().
   </summary>
+</histogram>
+
+<histogram name="TabStrip.Tab.{Framework}.ActivationAction"
+    enum="TabActivationTypes" expires_after="2022-05-21">
+  <owner>yuhengh@chromium.org</owner>
+  <owner>tluk@chromium.org</owner>
+  <owner>romanarora@chromium.org</owner>
+  <summary>
+    Tab activation triggered by click or touch on a tab. This is used to measure
+    tab activation count of tab strip vs WebUI tab strip.
+  </summary>
+  <token key="Framework">
+    <variant name="Views"/>
+    <variant name="WebUI"/>
+  </token>
 </histogram>
 
 <histogram name="TabStrip.TabCountOnPageLoad" units="tabs"
@@ -2847,6 +2868,16 @@ reviews. Googlers can read more about this at go/gwsq-gerrit.
 
     If the loading happens in a tab that does not belong to a group, we log 0.
     Else, we log a positive number &gt;= 2.
+  </summary>
+</histogram>
+
+<histogram name="TabStrip.TimeToCreateNewTabFromPress" units="ms"
+    expires_after="2021-11-14">
+  <owner>robliao@chromium.org</owner>
+  <owner>chrome-desktop-ui-sea@google.com</owner>
+  <summary>
+    The amount of time from receiving a new tab button pressed to creating the
+    elements necessary to represent a new tab.
   </summary>
 </histogram>
 

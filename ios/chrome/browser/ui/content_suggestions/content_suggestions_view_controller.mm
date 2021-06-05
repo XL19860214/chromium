@@ -99,9 +99,6 @@ const CGFloat kDiscoverFeedLoadedHeight = 1000;
 // The layout of the content suggestions collection view.
 @property(nonatomic, strong) ContentSuggestionsLayout* layout;
 
-// |YES| the NTP feed is collapsed and enabled.
-@property(nonatomic, assign, getter=isFeedVisible) BOOL feedVisible;
-
 @end
 
 @implementation ContentSuggestionsViewController
@@ -779,6 +776,7 @@ const CGFloat kDiscoverFeedLoadedHeight = 1000;
       }
     }
   }
+  scrollView.showsHorizontalScrollIndicator = NO;
 }
 
 - (BOOL)scrollViewShouldScrollToTop:(UIScrollView*)scrollView {

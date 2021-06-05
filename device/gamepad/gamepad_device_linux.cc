@@ -12,8 +12,8 @@
 #include <sys/ioctl.h>
 
 #include "base/callback_helpers.h"
+#include "base/cxx17_backports.h"
 #include "base/posix/eintr_wrapper.h"
-#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
@@ -51,7 +51,8 @@ const size_t kSpecialKeys[] = {
     // Start, Back, and Guide buttons are often reported as Consumer Home or
     // Back.
     KEY_HOMEPAGE, KEY_BACK,
-};
+    // Record is used for Xbox Series X's share button over BT.
+    KEY_RECORD};
 const size_t kSpecialKeysLen = base::size(kSpecialKeys);
 
 #define LONG_BITS (CHAR_BIT * sizeof(long))

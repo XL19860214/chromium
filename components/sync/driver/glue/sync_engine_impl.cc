@@ -419,8 +419,6 @@ void SyncEngineImpl::FinishConfigureDataTypesOnFrontendLoop(
 }
 
 void SyncEngineImpl::HandleInitializationSuccessOnFrontendLoop(
-    ModelTypeSet initial_types,
-    const WeakHandle<JsBackend> js_backend,
     const WeakHandle<DataTypeDebugInfoListener> debug_info_listener,
     std::unique_ptr<ModelTypeConnector> model_type_connector,
     const std::string& birthday,
@@ -465,14 +463,13 @@ void SyncEngineImpl::HandleInitializationSuccessOnFrontendLoop(
     UpdateLastSyncedTime();
   }
 
-  host_->OnEngineInitialized(initial_types, js_backend, debug_info_listener,
-                             /*success=*/true, is_first_time_sync_configure);
+  host_->OnEngineInitialized(debug_info_listener, /*success=*/true,
+                             is_first_time_sync_configure);
 }
 
 void SyncEngineImpl::HandleInitializationFailureOnFrontendLoop() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  host_->OnEngineInitialized(ModelTypeSet(), WeakHandle<JsBackend>(),
-                             WeakHandle<DataTypeDebugInfoListener>(),
+  host_->OnEngineInitialized(WeakHandle<DataTypeDebugInfoListener>(),
                              /*success=*/false,
                              /*is_first_time_sync_configure=*/false);
 }
@@ -635,7 +632,7 @@ void SyncEngineImpl::OnActiveDevicesChanged() {
   if (!base::FeatureList::IsEnabled(switches::kSyncE2ELatencyMeasurement)) {
     // End-to-end latency measurement relies on reflection, so if this is
     // enabled, don't filter out the local device.
-    local_cache_guid = cached_status_.sync_id;
+    local_cache_guid = cached_status_.cache_guid;
   }
   sync_task_runner_->PostTask(
       FROM_HERE,

@@ -562,6 +562,20 @@ reviews. Googlers can read more about this at go/gwsq-gerrit.
   </summary>
 </histogram>
 
+<histogram name="Media.Audio.MaxOutputStreamsPerInputStream" units="streams"
+    expires_after="M99">
+  <owner>saza@chromium.org</owner>
+  <owner>olka@chromium.org</owner>
+  <summary>
+    The maximum number of concurrently active (playing and not muting by
+    diverting to a fake AudioOutputStream) OutputStreams observed when at least
+    one InputStream is recording. The metric is reported each time the number of
+    actively recording input streams drops to 0. The metric provides an estimate
+    of the number of output streams that may need to be mixed for echo
+    cancellation.
+  </summary>
+</histogram>
+
 <histogram name="Media.Audio.Output.Win.{AudioOutputMethod}Error"
     enum="Hresult" expires_after="M98">
   <owner>dalecurtis@chromium.org</owner>
@@ -762,8 +776,9 @@ reviews. Googlers can read more about this at go/gwsq-gerrit.
 </histogram>
 
 <histogram name="Media.Audio.Render.OutputDeviceAuthorizationTime" units="ms"
-    expires_after="2020-04-05">
-  <owner>maxmorin@chromium.org</owner>
+    expires_after="2022-01-30">
+  <owner>olka@chromium.org</owner>
+  <owner>henrika@chromium.org</owner>
   <summary>
     Similar to Media.Audio.OutputDeviceAuthorizationTime, this histogram
     measures the time required for device authorization, but it is measured on
@@ -771,12 +786,13 @@ reviews. Googlers can read more about this at go/gwsq-gerrit.
     the IO thread until it receives OnDeviceAuthorized, also on the IO thread.
     Note that an authorization timeout will cause OnDeviceAuthorized to be
     called, so for platforms that use a timeout, very few times will be above
-    the timeout value.
+    the timeout value. Warning: this histogram was expired from 2020-04-05 to
+    2021-06-04; data may be missing.
   </summary>
 </histogram>
 
 <histogram name="Media.Audio.Render.OutputDeviceAuthorizationTimedOut"
-    enum="BooleanTimedOut" expires_after="2021-10-10">
+    enum="BooleanTimedOut" expires_after="2022-01-30">
   <owner>guidou@chromium.org</owner>
   <owner>olka@chromium.org</owner>
   <summary>
@@ -796,12 +812,14 @@ reviews. Googlers can read more about this at go/gwsq-gerrit.
 </histogram>
 
 <histogram name="Media.Audio.Render.OutputStreamDuration" units="ms"
-    expires_after="2020-04-05">
-  <owner>maxmorin@chromium.org</owner>
+    expires_after="2022-01-30">
+  <owner>olka@chromium.org</owner>
+  <owner>henrika@chromium.org</owner>
   <summary>
     This histogram measures the duration of every output stream, as seen from
     the renderer. It counts from when it has been successfully started, until it
-    is stopped. Streams that fail to start are not logged.
+    is stopped. Streams that fail to start are not logged. Warning: this
+    histogram was expired from 2020-04-05 to 2021-06-04; data may be missing.
   </summary>
 </histogram>
 
@@ -960,7 +978,7 @@ reviews. Googlers can read more about this at go/gwsq-gerrit.
 </histogram>
 
 <histogram name="Media.AudioCapturerMissedReadDeadline" units="%"
-    expires_after="2021-06-01">
+    expires_after="2021-10-04">
   <owner>gudou@chromium.org</owner>
   <owner>olka@chromium.org</owner>
   <summary>
@@ -1021,7 +1039,7 @@ reviews. Googlers can read more about this at go/gwsq-gerrit.
 </histogram>
 
 <histogram name="Media.AudioOutputController.CallbackError" enum="BooleanError"
-    expires_after="2021-08-09">
+    expires_after="2021-10-09">
   <owner>guidou@chromium.org</owner>
   <owner>olka@chromium.org</owner>
   <summary>
@@ -1094,7 +1112,7 @@ reviews. Googlers can read more about this at go/gwsq-gerrit.
 
 <histogram name="Media.AudioOutputResampler.OpenLowLatencyStream"
     enum="AudioOutputResamplerLowLatencyOpenStreamResult"
-    expires_after="2021-08-09">
+    expires_after="2021-10-09">
   <owner>armax@chromium.org</owner>
   <owner>guidou@chromium.org</owner>
   <owner>olka@chromium.org</owner>
@@ -1291,6 +1309,17 @@ reviews. Googlers can read more about this at go/gwsq-gerrit.
   </summary>
 </histogram>
 
+<histogram name="Media.BreakoutBox.Usage" enum="BreakoutBoxUsage"
+    expires_after="2022-05-21">
+  <owner>guidou@chromium.org</owner>
+  <owner>hta@chromium.org</owner>
+  <owner>tguilbert@chromium.org</owner>
+  <summary>
+    Usage of various BreakoutBox features. Recorded when a stream is created or
+    transferred in MediaStreamTrackProcessor or MediaStreamTrackGenerator.
+  </summary>
+</histogram>
+
 <histogram name="Media.Capabilities.DecodingInfo.Time.Video" units="ms"
     expires_after="2021-10-04">
   <owner>chcunningham@chromium.org</owner>
@@ -1347,7 +1376,7 @@ reviews. Googlers can read more about this at go/gwsq-gerrit.
 </histogram>
 
 <histogram base="true" name="Media.ConfigChangeDecoderSelectionTime" units="ms"
-    expires_after="2021-06-25">
+    expires_after="2021-09-25">
   <owner>cassew@google.com</owner>
   <owner>media-dev@chromium.org</owner>
   <summary>
@@ -1359,8 +1388,8 @@ reviews. Googlers can read more about this at go/gwsq-gerrit.
 </histogram>
 
 <histogram name="Media.Controls.CTR" enum="MediaControlsCTREvent"
-    expires_after="2020-04-05">
-  <owner>mlamouri@chromium.org</owner>
+    expires_after="2022-05-18">
+  <owner>steimel@chromium.org</owner>
   <owner>media-dev@chromium.org</owner>
   <summary>
     Records events related to click through rate (CTR) calculation.
@@ -1374,6 +1403,8 @@ reviews. Googlers can read more about this at go/gwsq-gerrit.
     visibility. Furthermore, because the controls UI changes while loading,
     &quot;Displayed&quot; is only computed when metadata are available unless
     preloading was disabled on the element or the browser.
+
+    Data is missing from 2020-04-05 to 2021-05-18.
   </summary>
 </histogram>
 
@@ -2385,7 +2416,7 @@ reviews. Googlers can read more about this at go/gwsq-gerrit.
 </histogram>
 
 <histogram base="true" name="Media.InitialDecoderSelectionTime" units="ms"
-    expires_after="2021-06-25">
+    expires_after="2021-09-25">
   <owner>cassew@google.com</owner>
   <owner>media-dev@chromium.org</owner>
   <summary>
@@ -2405,10 +2436,11 @@ reviews. Googlers can read more about this at go/gwsq-gerrit.
   </summary>
 </histogram>
 
-<histogram name="Media.InputStreamDuration" units="ms"
-    expires_after="2021-07-01">
+<histogram name="Media.InputStreamDuration" units="ms" expires_after="never">
+<!-- expires-never: essential indicator for audio input stability in Chrome -->
+
   <owner>henrika@chromium.org</owner>
-  <owner>webrtc-audio@google.com</owner>
+  <owner>media-dev@chromium.org</owner>
   <summary>
     Duration in milliseconds of low-latency audio input streams. Sampled when
     the stream is closed by the AudioInputController.
@@ -2416,11 +2448,13 @@ reviews. Googlers can read more about this at go/gwsq-gerrit.
 </histogram>
 
 <histogram name="Media.InputStreamDurationWithoutCallback" units="ms"
-    expires_after="2020-10-11">
-  <owner>maxmorin@chromium.org</owner>
+    expires_after="2021-10-11">
+  <owner>olka@chromium.org</owner>
+  <owner>henrika@chromium.org</owner>
   <summary>
     Duration in milliseconds of low-latency audio input streams which never got
-    any callbacks.
+    any callbacks. Warning: this histogram was expired from 2020-10-11 to
+    2021-06-04; data may be missing.
   </summary>
 </histogram>
 
@@ -3253,15 +3287,13 @@ reviews. Googlers can read more about this at go/gwsq-gerrit.
 
 <histogram name="Media.Remoting.AllowedByPage" enum="BooleanEnabled"
     expires_after="2021-11-07">
-  <owner>miu@chromium.org</owner>
   <owner>jophba@chromium.org</owner>
   <owner>openscreen-eng@google.com</owner>
   <summary>Tracks whether a web page allows content to be remoted.</summary>
 </histogram>
 
 <histogram name="Media.Remoting.AudioBitrate" units="kbps"
-    expires_after="2021-07-01">
-  <owner>miu@chromium.org</owner>
+    expires_after="2022-07-01">
   <owner>jophba@chromium.org</owner>
   <owner>openscreen-eng@google.com</owner>
   <summary>
@@ -3270,8 +3302,7 @@ reviews. Googlers can read more about this at go/gwsq-gerrit.
 </histogram>
 
 <histogram name="Media.Remoting.AudioChannelLayout" enum="ChannelLayout"
-    expires_after="2021-07-01">
-  <owner>miu@chromium.org</owner>
+    expires_after="2022-07-01">
   <owner>jophba@chromium.org</owner>
   <owner>openscreen-eng@google.com</owner>
   <summary>Audio channel layout used while remoting content.</summary>
@@ -3279,23 +3310,20 @@ reviews. Googlers can read more about this at go/gwsq-gerrit.
 
 <histogram name="Media.Remoting.AudioCodec" enum="AudioCodec"
     expires_after="2021-11-07">
-  <owner>miu@chromium.org</owner>
   <owner>jophba@chromium.org</owner>
   <owner>openscreen-eng@google.com</owner>
   <summary>Audio codec used while remoting content.</summary>
 </histogram>
 
 <histogram name="Media.Remoting.AudioSamplesPerSecond" enum="AudioSampleRate"
-    expires_after="2021-07-01">
-  <owner>miu@chromium.org</owner>
+    expires_after="2022-07-01">
   <owner>jophba@chromium.org</owner>
   <owner>openscreen-eng@google.com</owner>
   <summary>Audio sampling rate while remoting audio content.</summary>
 </histogram>
 
 <histogram name="Media.Remoting.AudioSamplesPerSecondUnexpected" units="Hz"
-    expires_after="2021-07-01">
-  <owner>miu@chromium.org</owner>
+    expires_after="2022-07-01">
   <owner>jophba@chromium.org</owner>
   <owner>openscreen-eng@google.com</owner>
   <summary>
@@ -3316,7 +3344,6 @@ reviews. Googlers can read more about this at go/gwsq-gerrit.
 
 <histogram name="Media.Remoting.SessionDuration" units="ms"
     expires_after="2021-11-07">
-  <owner>miu@chromium.org</owner>
   <owner>jophba@chromium.org</owner>
   <owner>openscreen-eng@google.com</owner>
   <summary>Measures the duration of each remoting session.</summary>
@@ -3324,7 +3351,6 @@ reviews. Googlers can read more about this at go/gwsq-gerrit.
 
 <histogram name="Media.Remoting.SessionStartTrigger"
     enum="RemotingStartTrigger" expires_after="2021-11-07">
-  <owner>miu@chromium.org</owner>
   <owner>jophba@chromium.org</owner>
   <owner>openscreen-eng@google.com</owner>
   <summary>Tracks the trigger for starting a remoting session.</summary>
@@ -3334,7 +3360,6 @@ reviews. Googlers can read more about this at go/gwsq-gerrit.
     expires_after="2021-11-07">
 <!-- Name completed by histogram_suffixes name="RemotingSessionDuration" -->
 
-  <owner>miu@chromium.org</owner>
   <owner>jophba@chromium.org</owner>
   <owner>openscreen-eng@google.com</owner>
   <summary>Tracks the trigger for stopping a remoting session.</summary>
@@ -3342,7 +3367,6 @@ reviews. Googlers can read more about this at go/gwsq-gerrit.
 
 <histogram name="Media.Remoting.ShortSessionDuration" units="ms"
     expires_after="2021-11-07">
-  <owner>miu@chromium.org</owner>
   <owner>jophba@chromium.org</owner>
   <owner>openscreen-eng@google.com</owner>
   <summary>
@@ -3351,8 +3375,7 @@ reviews. Googlers can read more about this at go/gwsq-gerrit.
 </histogram>
 
 <histogram name="Media.Remoting.TimeUntilFirstPlayout" units="ms"
-    expires_after="2021-07-01">
-  <owner>miu@chromium.org</owner>
+    expires_after="2022-07-01">
   <owner>jophba@chromium.org</owner>
   <owner>openscreen-eng@google.com</owner>
   <summary>
@@ -3363,7 +3386,6 @@ reviews. Googlers can read more about this at go/gwsq-gerrit.
 
 <histogram name="Media.Remoting.TimeUntilRemoteInitialized" units="ms"
     expires_after="2021-11-07">
-  <owner>miu@chromium.org</owner>
   <owner>jophba@chromium.org</owner>
   <owner>openscreen-eng@google.com</owner>
   <summary>
@@ -3374,7 +3396,6 @@ reviews. Googlers can read more about this at go/gwsq-gerrit.
 
 <histogram name="Media.Remoting.TrackConfiguration"
     enum="RemotingTrackConfiguration" expires_after="2021-11-07">
-  <owner>miu@chromium.org</owner>
   <owner>jophba@chromium.org</owner>
   <owner>openscreen-eng@google.com</owner>
   <summary>Tracks whether audio or video or both are remoted.</summary>
@@ -3382,15 +3403,13 @@ reviews. Googlers can read more about this at go/gwsq-gerrit.
 
 <histogram name="Media.Remoting.VideoAspectRatio" units="%"
     expires_after="2021-11-07">
-  <owner>miu@chromium.org</owner>
   <owner>jophba@chromium.org</owner>
   <owner>openscreen-eng@google.com</owner>
   <summary>Aspect ratio of video while remoting content.</summary>
 </histogram>
 
 <histogram name="Media.Remoting.VideoBitrate" units="kbps"
-    expires_after="2021-07-01">
-  <owner>miu@chromium.org</owner>
+    expires_after="2022-07-01">
   <owner>jophba@chromium.org</owner>
   <owner>openscreen-eng@google.com</owner>
   <summary>
@@ -3400,7 +3419,6 @@ reviews. Googlers can read more about this at go/gwsq-gerrit.
 
 <histogram name="Media.Remoting.VideoCodec" enum="VideoCodec"
     expires_after="2021-11-07">
-  <owner>miu@chromium.org</owner>
   <owner>jophba@chromium.org</owner>
   <owner>openscreen-eng@google.com</owner>
   <summary>Video codec used while remoting content.</summary>
@@ -3408,7 +3426,6 @@ reviews. Googlers can read more about this at go/gwsq-gerrit.
 
 <histogram name="Media.Remoting.VideoCodecProfile" enum="VideoCodecProfile"
     expires_after="2021-11-07">
-  <owner>miu@chromium.org</owner>
   <owner>jophba@chromium.org</owner>
   <owner>openscreen-eng@google.com</owner>
   <summary>Video codec profile used while remoting content.</summary>
@@ -3416,7 +3433,6 @@ reviews. Googlers can read more about this at go/gwsq-gerrit.
 
 <histogram name="Media.Remoting.VideoNaturalWidth" units="pixels"
     expires_after="2021-11-07">
-  <owner>miu@chromium.org</owner>
   <owner>jophba@chromium.org</owner>
   <owner>openscreen-eng@google.com</owner>
   <summary>Video width while remoting content.</summary>
@@ -4011,6 +4027,9 @@ reviews. Googlers can read more about this at go/gwsq-gerrit.
 
 <histogram name="Media.Video.Autoplay.Muted" enum="AutoplaySource"
     expires_after="2021-06-01">
+  <obsolete>
+    Removed in May 2021.
+  </obsolete>
   <owner>dalecurtis@chromium.org</owner>
   <owner>media-dev@chromium.org</owner>
   <summary>Records the autoplay source of muted videos.</summary>
@@ -4978,7 +4997,7 @@ reviews. Googlers can read more about this at go/gwsq-gerrit.
 </histogram>
 
 <histogram name="MediaRouter.Cast.LaunchSessionRequest.SupportedAppTypes"
-    enum="ReceiverAppTypeSet" expires_after="2021-06-08">
+    enum="ReceiverAppTypeSet" expires_after="2022-06-08">
   <owner>muyaoxu@google.com</owner>
   <owner>openscreen-eng@google.com</owner>
   <summary>
@@ -4998,7 +5017,7 @@ reviews. Googlers can read more about this at go/gwsq-gerrit.
 </histogram>
 
 <histogram name="MediaRouter.Cast.Mdns.Channel.Open_Failure" units="ms"
-    expires_after="2021-07-01">
+    expires_after="2022-07-01">
   <owner>mfoltz@chromium.org</owner>
   <owner>openscreen-eng@google.com</owner>
   <summary>
@@ -5008,7 +5027,7 @@ reviews. Googlers can read more about this at go/gwsq-gerrit.
 </histogram>
 
 <histogram name="MediaRouter.Cast.Mdns.Channel.Open_Success" units="ms"
-    expires_after="2021-07-01">
+    expires_after="2022-07-01">
   <owner>mfoltz@chromium.org</owner>
   <owner>openscreen-eng@google.com</owner>
   <summary>

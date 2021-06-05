@@ -319,9 +319,15 @@ AppBrowserController::GetTabMenuModelFactory() const {
   return nullptr;
 }
 
+bool AppBrowserController::AppUsesWindowControlsOverlay() const {
+  return false;
+}
+
 bool AppBrowserController::IsWindowControlsOverlayEnabled() const {
   return false;
 }
+
+void AppBrowserController::ToggleWindowControlsOverlayEnabled() {}
 
 bool AppBrowserController::HasReloadButton() const {
   if (!system_app_type_)

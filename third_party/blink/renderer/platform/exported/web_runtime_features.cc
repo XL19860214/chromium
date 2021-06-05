@@ -662,10 +662,6 @@ void WebRuntimeFeatures::EnableRestrictGamepadAccess(bool enable) {
   RuntimeEnabledFeatures::SetRestrictGamepadAccessEnabled(enable);
 }
 
-void WebRuntimeFeatures::EnableConversionMeasurementInfraSupport(bool enable) {
-  RuntimeEnabledFeatures::SetConversionMeasurementInfraSupportEnabled(enable);
-}
-
 void WebRuntimeFeatures::EnableParseUrlProtocolHandler(bool enable) {
   RuntimeEnabledFeatures::SetParseUrlProtocolHandlerEnabled(enable);
 }
@@ -676,10 +672,6 @@ void WebRuntimeFeatures::EnableWebID(bool enable) {
 
 void WebRuntimeFeatures::EnableTargetBlankImpliesNoOpener(bool enable) {
   RuntimeEnabledFeatures::SetTargetBlankImpliesNoOpenerEnabled(enable);
-}
-
-void WebRuntimeFeatures::EnableCSSColorSchemeUARendering(bool enable) {
-  RuntimeEnabledFeatures::SetCSSColorSchemeUARenderingEnabled(enable);
 }
 
 void WebRuntimeFeatures::EnableDocumentTransition(bool enable) {

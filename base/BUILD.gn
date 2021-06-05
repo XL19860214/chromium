@@ -64,29 +64,6 @@ declare_args() {
   # LockImpl::PriorityInheritanceAvailable() in lock_impl_posix.cc for the
   # platform requirements to safely enable priority inheritance.
   enable_mutex_priority_inheritance = false
-
-  # Set to true to use BackupRefPtr as the implementation of CheckedPtr.
-  # Optionally can be controlled (partially disabled) at run-time.
-  # Optionally can place ref count at the end of the previous slot (or in
-  # metadata if a slot starts at the page boundary).
-  # The _fake option doesn't enable BackupRefPtr, but pretends it's enabled for
-  # syntethic field trial (for testing purposes only).
-  use_backup_ref_ptr = false
-  use_backup_ref_ptr_fake = false
-  enable_runtime_backup_ref_ptr_control = false
-  put_ref_count_in_previous_slot = false
-
-  # Enable additional safety checks for BackupRefPtr that are too expensive to
-  # have on by default.
-  enable_backup_ref_ptr_slow_checks = false
-
-  # Ensure that a non-BRP memory region can't be reused for the BRP pool while
-  # there are associated CheckedPtr instances left.
-  use_brp_pool_blocklist = false
-
-  # Never remove super-pages from the block list. This lets us replace an
-  # expensive CAS operations with relaxed stores (or even no-ops).
-  never_remove_from_brp_pool_blocklist = false
 }
 
 # Mutex priority inheritance is disabled by default due to security
@@ -96,42 +73,6 @@ declare_args() {
 # so it is safe to use mutex priority inheritance on Chromecast platform.
 assert(!enable_mutex_priority_inheritance || is_chromecast,
        "Do not enable PI mutexes without consulting the security team")
-
-# Prevent using BackupRefPtr when PartitionAlloc-Everywhere isn't used.
-# In theory, such a configuration is possible, but its scope would be limited to
-# only Blink partitions, which is currently not tested. Better to trigger an
-# error, than have BackupRefPtr silently disabled while believing it is enabled.
-if (!is_nacl) {
-  assert(!use_backup_ref_ptr || use_allocator == "partition",
-         "Can't use BackupRefPtr without PartitionAlloc-Everywhere")
-}
-
-# enable_runtime_backup_ref_ptr_control can only be used if use_backup_ref_ptr
-# is true.
-assert(use_backup_ref_ptr || !enable_runtime_backup_ref_ptr_control,
-       "Can't control BackupRefPtr at run-time if it isn't enabled at all")
-
-# enable_backup_ref_ptr_slow_checks can only be used if use_backup_ref_ptr
-# is true.
-assert(use_backup_ref_ptr || !enable_backup_ref_ptr_slow_checks,
-       "Can't enable additional BackupRefPtr checks if it isn't enabled at all")
-
-# use_brp_pool_blocklist can only be used if use_backup_ref_ptr
-# is true.
-assert(use_backup_ref_ptr || !use_brp_pool_blocklist,
-       "The BRP pool blocklist is a BackupRefPtr-specific feature")
-
-# never_remove_from_brp_pool_blocklist can only be used if use_brp_pool_blocklist
-# is true.
-assert(
-    use_brp_pool_blocklist || !never_remove_from_brp_pool_blocklist,
-    "never_remove_from_brp_pool_blocklist requires the BRP pool block-list to be enabled")
-
-# put_ref_count_in_previous_slot can only be used if use_backup_ref_ptr
-# is true.
-assert(
-    use_backup_ref_ptr || !put_ref_count_in_previous_slot,
-    "Can't put ref count in the previous slot if BackupRefPtr isn't enabled at all")
 
 # Determines whether libevent should be dep.
 dep_libevent =
@@ -286,6 +227,7 @@ component("base") {
     "cpu.cc",
     "cpu.h",
     "critical_closure.h",
+    "cxx17_backports.h",
     "dcheck_is_on.h",
     "debug/activity_analyzer.cc",
     "debug/activity_analyzer.h",
@@ -510,7 +452,6 @@ component("base") {
     "observer_list_types.h",
     "one_shot_event.cc",
     "one_shot_event.h",
-    "optional.h",
     "os_compat_nacl.cc",
     "os_compat_nacl.h",
     "parameter_pack.h",
@@ -857,6 +798,8 @@ component("base") {
     "time/tick_clock.h",
     "time/time.cc",
     "time/time.h",
+    "time/time_delta_from_string.cc",
+    "time/time_delta_from_string.h",
     "time/time_override.cc",
     "time/time_override.h",
     "time/time_to_iso8601.cc",
@@ -1280,6 +1223,7 @@ component("base") {
       "files/file_path_watcher_linux.cc",
       "files/file_path_watcher_linux.h",
       "files/file_util_linux.cc",
+      "files/scoped_file_linux.cc",
       "process/internal_linux.cc",
       "process/internal_linux.h",
       "process/memory_linux.cc",
@@ -1373,7 +1317,6 @@ component("base") {
     ":debugging_buildflags",
     ":logging_buildflags",
     ":orderfile_buildflags",
-    ":partition_alloc_buildflags",
     ":profiler_buildflags",
     ":sanitizer_buildflags",
     ":synchronization_buildflags",
@@ -1936,6 +1879,8 @@ component("base") {
         "allocator/partition_allocator/starscan/starscan_fwd.h",
         "allocator/partition_allocator/starscan/stats_collector.cc",
         "allocator/partition_allocator/starscan/stats_collector.h",
+        "allocator/partition_allocator/starscan/write_protector.cc",
+        "allocator/partition_allocator/starscan/write_protector.h",
         "allocator/partition_allocator/thread_cache.cc",
         "allocator/partition_allocator/thread_cache.h",
         "allocator/partition_allocator/yield_processor.h",
@@ -2485,49 +2430,6 @@ buildflag_header("anchor_functions_buildflags") {
   ]
 }
 
-should_use_backup_ref_ptr =
-    use_backup_ref_ptr && use_partition_alloc && !is_nacl
-should_use_backup_ref_ptr_fake =
-    use_backup_ref_ptr_fake && use_partition_alloc && !is_nacl
-should_enable_runtime_backup_ref_ptr_control =
-    enable_runtime_backup_ref_ptr_control && should_use_backup_ref_ptr
-should_enable_backup_ref_ptr_slow_checks =
-    enable_backup_ref_ptr_slow_checks && should_use_backup_ref_ptr
-should_put_ref_count_in_previous_slot =
-    put_ref_count_in_previous_slot && should_use_backup_ref_ptr
-should_use_brp_pool_blocklist =
-    use_brp_pool_blocklist && should_use_backup_ref_ptr
-should_never_remove_from_brp_pool_from_blocklist =
-    never_remove_from_brp_pool_blocklist && should_use_backup_ref_ptr
-
-# AlignedAlloc relies on natural alignment offered by the allocator (see the
-# comment inside PartitionRoot::AlignedAllocFlags). Any extras in front of the
-# allocation will mess up that alignment. Such extras are used when DCHECK is
-# on or when BackupRefPtr is on (but not when ref-count is at the end of the
-# previous slot). In these cases, we have to create a separate, small
-# partition, dedicated to handle only aligned allocations, where those extras
-# are disabled.
-use_dedicated_partition_for_aligned_alloc =
-    dcheck_always_on ||
-    (should_use_backup_ref_ptr && !should_put_ref_count_in_previous_slot)
-
-buildflag_header("partition_alloc_buildflags") {
-  header = "partition_alloc_buildflags.h"
-  header_dir = "base"
-
-  flags = [
-    "USE_PARTITION_ALLOC=$use_partition_alloc",
-    "USE_BACKUP_REF_PTR=$should_use_backup_ref_ptr",
-    "USE_BACKUP_REF_PTR_FAKE=$should_use_backup_ref_ptr_fake",
-    "ENABLE_RUNTIME_BACKUP_REF_PTR_CONTROL=$should_enable_runtime_backup_ref_ptr_control",
-    "ENABLE_BACKUP_REF_PTR_SLOW_CHECKS=$should_enable_backup_ref_ptr_slow_checks",
-    "PUT_REF_COUNT_IN_PREVIOUS_SLOT=$should_put_ref_count_in_previous_slot",
-    "USE_BRP_POOL_BLOCKLIST=$should_use_brp_pool_blocklist",
-    "NEVER_REMOVE_FROM_BRP_POOL_BLOCKLIST=$should_never_remove_from_brp_pool_from_blocklist",
-    "USE_DEDICATED_PARTITION_FOR_ALIGNED_ALLOC=$use_dedicated_partition_for_aligned_alloc",
-  ]
-}
-
 buildflag_header("clang_profiling_buildflags") {
   header = "clang_profiling_buildflags.h"
   header_dir = "base"
@@ -2955,6 +2857,7 @@ test("base_unittests") {
     "containers/unique_ptr_adapters_unittest.cc",
     "containers/vector_buffer_unittest.cc",
     "cpu_unittest.cc",
+    "cxx17_backports_unittest.cc",
     "debug/activity_analyzer_unittest.cc",
     "debug/activity_tracker_unittest.cc",
     "debug/alias_unittest.cc",
@@ -3205,6 +3108,7 @@ test("base_unittests") {
     "threading/thread_unittest.cc",
     "threading/watchdog_unittest.cc",
     "time/pr_time_unittest.cc",
+    "time/time_delta_from_string_unittest.cc",
     "time/time_unittest.cc",
     "timer/elapsed_timer_unittest.cc",
     "timer/hi_res_timer_manager_unittest.cc",
@@ -3326,7 +3230,10 @@ test("base_unittests") {
   }
 
   if (is_linux || is_chromeos) {
-    sources += [ "debug/proc_maps_linux_unittest.cc" ]
+    sources += [
+      "debug/proc_maps_linux_unittest.cc",
+      "files/scoped_file_linux_unittest.cc",
+    ]
   }
 
   if (is_mac) {
@@ -3512,6 +3419,7 @@ test("base_unittests") {
       "allocator/partition_allocator/address_space_randomization_unittest.cc",
       "allocator/partition_allocator/memory_reclaimer_unittest.cc",
       "allocator/partition_allocator/page_allocator_unittest.cc",
+      "allocator/partition_allocator/partition_address_space_unittest.cc",
       "allocator/partition_allocator/partition_alloc_unittest.cc",
       "allocator/partition_allocator/partition_lock_unittest.cc",
       "allocator/partition_allocator/starscan/object_bitmap_unittest.cc",
@@ -3678,6 +3586,7 @@ test("base_unittests") {
     }
 
     deps += [
+      "//third_party/perfetto/include/perfetto/trace_processor:storage",
       "//third_party/perfetto/protos/perfetto/trace:lite",
       "//third_party/perfetto/protos/perfetto/trace/interned_data:lite",
       "//third_party/perfetto/protos/perfetto/trace/track_event:lite",
@@ -3935,10 +3844,16 @@ if (is_android) {
       "android/java/src/org/chromium/base/compat/ApiHelperForQ.java",
       "android/java/src/org/chromium/base/compat/ApiHelperForR.java",
       "android/java/src/org/chromium/base/compat/ApiHelperForS.java",
+      "android/java/src/org/chromium/base/jank_tracker/FrameMetrics.java",
+      "android/java/src/org/chromium/base/jank_tracker/FrameMetricsListener.java",
+      "android/java/src/org/chromium/base/jank_tracker/FrameMetricsStore.java",
       "android/java/src/org/chromium/base/jank_tracker/JankActivityTracker.java",
-      "android/java/src/org/chromium/base/jank_tracker/JankFrameMetricsListener.java",
-      "android/java/src/org/chromium/base/jank_tracker/JankMetricMeasurement.java",
+      "android/java/src/org/chromium/base/jank_tracker/JankMetricCalculator.java",
       "android/java/src/org/chromium/base/jank_tracker/JankMetricUMARecorder.java",
+      "android/java/src/org/chromium/base/jank_tracker/JankMetrics.java",
+      "android/java/src/org/chromium/base/jank_tracker/JankReportingRunnable.java",
+      "android/java/src/org/chromium/base/jank_tracker/JankReportingScheduler.java",
+      "android/java/src/org/chromium/base/jank_tracker/JankScenario.java",
       "android/java/src/org/chromium/base/jank_tracker/JankTracker.java",
       "android/java/src/org/chromium/base/library_loader/LegacyLinker.java",
       "android/java/src/org/chromium/base/library_loader/LibraryLoader.java",
@@ -3948,6 +3863,8 @@ if (is_android) {
       "android/java/src/org/chromium/base/library_loader/ModernLinker.java",
       "android/java/src/org/chromium/base/library_loader/NativeLibraryPreloader.java",
       "android/java/src/org/chromium/base/library_loader/ProcessInitException.java",
+      "android/java/src/org/chromium/base/lifetime/DestroyChecker.java",
+      "android/java/src/org/chromium/base/lifetime/Destroyable.java",
       "android/java/src/org/chromium/base/memory/JavaHeapDumpGenerator.java",
       "android/java/src/org/chromium/base/memory/MemoryPressureCallback.java",
       "android/java/src/org/chromium/base/memory/MemoryPressureMonitor.java",
@@ -4217,11 +4134,16 @@ if (is_android) {
       "android/junit/src/org/chromium/base/PromiseTest.java",
       "android/junit/src/org/chromium/base/UnownedUserDataHostTest.java",
       "android/junit/src/org/chromium/base/UnownedUserDataKeyTest.java",
+      "android/junit/src/org/chromium/base/jank_tracker/FrameMetricsListenerTest.java",
+      "android/junit/src/org/chromium/base/jank_tracker/FrameMetricsStoreTest.java",
       "android/junit/src/org/chromium/base/jank_tracker/JankActivityTrackerTest.java",
-      "android/junit/src/org/chromium/base/jank_tracker/JankFrameMetricsListenerTest.java",
-      "android/junit/src/org/chromium/base/jank_tracker/JankMetricMeasurementTest.java",
+      "android/junit/src/org/chromium/base/jank_tracker/JankMetricCalculatorTest.java",
+      "android/junit/src/org/chromium/base/jank_tracker/JankMetricUMARecorderTest.java",
+      "android/junit/src/org/chromium/base/jank_tracker/JankReportingRunnableTest.java",
+      "android/junit/src/org/chromium/base/jank_tracker/JankReportingSchedulerTest.java",
       "android/junit/src/org/chromium/base/memory/MemoryPressureMonitorTest.java",
       "android/junit/src/org/chromium/base/metrics/CachingUmaRecorderTest.java",
+      "android/junit/src/org/chromium/base/metrics/test/ShadowRecordHistogramTest.java",
       "android/junit/src/org/chromium/base/process_launcher/ChildConnectionAllocatorTest.java",
       "android/junit/src/org/chromium/base/process_launcher/ChildProcessConnectionTest.java",
       "android/junit/src/org/chromium/base/supplier/ObservableSupplierImplTest.java",

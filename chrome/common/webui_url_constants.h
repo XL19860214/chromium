@@ -11,6 +11,7 @@
 #include <stddef.h>
 
 #include "base/strings/string_piece_forward.h"
+#include "build/branding_buildflags.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/common/buildflags.h"
@@ -36,7 +37,6 @@ extern const char kChromeUIAutofillInternalsHost[];
 extern const char kChromeUIBluetoothInternalsHost[];
 extern const char kChromeUIBookmarksHost[];
 extern const char kChromeUIBookmarksURL[];
-extern const char kChromeUICastFeedbackHost[];
 extern const char kChromeUICertificateViewerHost[];
 extern const char kChromeUICertificateViewerURL[];
 extern const char kChromeUIChromeSigninHost[];
@@ -109,6 +109,7 @@ extern const char kChromeUIInterstitialHost[];
 extern const char kChromeUIInterstitialURL[];
 extern const char kChromeUIInvalidationsHost[];
 extern const char kChromeUIKillHost[];
+extern const char kChromeUILauncherInternalsHost[];
 extern const char kChromeUILocalStateHost[];
 extern const char kChromeUIManagementHost[];
 extern const char kChromeUIManagementURL[];
@@ -413,6 +414,10 @@ extern const char kPrivacySandboxSubPagePath[];
 
 #if defined(OS_WIN)
 extern const char kCleanupSubPage[];
+#endif
+
+#if !defined(OS_ANDROID) && BUILDFLAG(GOOGLE_CHROME_BRANDING)
+extern const char kChromeUICastFeedbackHost[];
 #endif
 
 // Extensions sub pages.

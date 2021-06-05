@@ -51,16 +51,21 @@ export class RecentEmojiStore {
     save(this.data);
   }
 
+  clearPrefs() {
+    this.data.preference = {};
+    save(this.data);
+  }
+
   /**
    * Moves the given emoji to the front of the MRU list, inserting it if
    * it did not previously exist.
    * @param {!StoredEmoji} newEmoji most recently used emoji.
    */
   bumpEmoji(newEmoji) {
-    // find and remove newEmoji from array if it previously existed.
+    // Find and remove newEmoji from array if it previously existed.
     // Note, this explicitly allows for multiple recent emoji entries for the
     // same "base" emoji just with a different variant.
-    const oldIndex = this.data.history.findIndex(x => x === newEmoji);
+    const oldIndex = this.data.history.findIndex(x => x.base === newEmoji.base);
     if (oldIndex !== -1) {
       this.data.history.splice(oldIndex, 1);
     }

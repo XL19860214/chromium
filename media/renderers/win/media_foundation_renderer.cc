@@ -11,6 +11,7 @@
 
 #include "base/callback_helpers.h"
 #include "base/guid.h"
+#include "base/process/process_handle.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/win/scoped_bstr.h"
@@ -203,7 +204,9 @@ HRESULT MediaFoundationRenderer::CreateMediaEngine(
 
   // Has encrypted stream.
   RETURN_IF_FAILED(MakeAndInitialize<MediaFoundationProtectionManager>(
-      &content_protection_manager_));
+      &content_protection_manager_, task_runner_,
+      base::BindRepeating(&MediaFoundationRenderer::OnWaiting,
+                          weak_factory_.GetWeakPtr())));
   ComPtr<IMFMediaEngineProtectedContent> protected_media_engine;
   RETURN_IF_FAILED(mf_media_engine_.As(&protected_media_engine));
   RETURN_IF_FAILED(protected_media_engine->SetContentProtectionManager(
@@ -336,9 +339,10 @@ void MediaFoundationRenderer::OnCdmProxyReceived(
   }
 
   waiting_for_mf_cdm_ = false;
+  cdm_proxy_ = std::move(cdm_proxy);
+  content_protection_manager_->SetCdmProxy(cdm_proxy_);
+  mf_source_->SetCdmProxy(cdm_proxy_);
 
-  content_protection_manager_->SetCdmProxy(cdm_proxy);
-  mf_source_->SetCdmProxy(cdm_proxy);
   HRESULT hr = SetSourceOnMediaEngine();
   if (FAILED(hr)) {
     DLOG(ERROR) << "Failed to set source on media engine: " << PrintHr(hr);
@@ -419,7 +423,19 @@ void MediaFoundationRenderer::GetDCompSurface(GetDCompSurfaceCB callback) {
   HANDLE surface_handle = INVALID_HANDLE_VALUE;
   HRESULT hr = GetDCompSurfaceInternal(&surface_handle);
   DVLOG_IF(1, FAILED(hr)) << "Failed to get DComp surface: " << PrintHr(hr);
-  std::move(callback).Run(std::move(surface_handle));
+
+  // Only need read & execute access right for the handle to be duplicated
+  // without breaking in sandbox_win.cc!CheckDuplicateHandle().
+  const base::ProcessHandle process = ::GetCurrentProcess();
+  HANDLE duplicated_handle = INVALID_HANDLE_VALUE;
+  const BOOL result = ::DuplicateHandle(
+      process, surface_handle, process, &duplicated_handle,
+      GENERIC_READ | GENERIC_EXECUTE, false, DUPLICATE_CLOSE_SOURCE);
+  if (!result) {
+    DLOG(ERROR) << "Duplicate surface_handle failed: " << ::GetLastError();
+  }
+
+  std::move(callback).Run(std::move(duplicated_handle));
 }
 
 // TODO(crbug.com/1070030): Investigate if we need to add
@@ -545,6 +561,10 @@ base::TimeDelta MediaFoundationRenderer::GetMediaTime() {
 
 void MediaFoundationRenderer::OnPlaybackError(PipelineStatus status) {
   DVLOG_FUNC(1) << "status=" << status;
+  DCHECK(task_runner_->RunsTasksInCurrentSequence());
+
+  if (status == PIPELINE_ERROR_HARDWARE_CONTEXT_RESET && cdm_proxy_)
+    cdm_proxy_->OnHardwareContextReset();
 
   renderer_client_->OnError(status);
   StopSendingStatistics();
@@ -552,6 +572,7 @@ void MediaFoundationRenderer::OnPlaybackError(PipelineStatus status) {
 
 void MediaFoundationRenderer::OnPlaybackEnded() {
   DVLOG_FUNC(2);
+  DCHECK(task_runner_->RunsTasksInCurrentSequence());
 
   renderer_client_->OnEnded();
   StopSendingStatistics();
@@ -561,6 +582,7 @@ void MediaFoundationRenderer::OnBufferingStateChange(
     BufferingState state,
     BufferingStateChangeReason reason) {
   DVLOG_FUNC(2);
+  DCHECK(task_runner_->RunsTasksInCurrentSequence());
 
   if (state == BufferingState::BUFFERING_HAVE_ENOUGH) {
     max_buffering_state_ = state;
@@ -578,7 +600,7 @@ void MediaFoundationRenderer::OnBufferingStateChange(
 }
 
 void MediaFoundationRenderer::OnVideoNaturalSizeChange() {
-  DVLOG_FUNC(2);
+  DCHECK(task_runner_->RunsTasksInCurrentSequence());
 
   const bool has_video = mf_media_engine_->HasVideo();
   DVLOG_FUNC(2) << "has_video=" << has_video;
@@ -625,6 +647,15 @@ void MediaFoundationRenderer::OnVideoNaturalSizeChange() {
   return;
 }
 
-void MediaFoundationRenderer::OnTimeUpdate() {}
+void MediaFoundationRenderer::OnTimeUpdate() {
+  DVLOG_FUNC(3);
+  DCHECK(task_runner_->RunsTasksInCurrentSequence());
+}
+
+void MediaFoundationRenderer::OnWaiting(WaitingReason reason) {
+  DVLOG_FUNC(2);
+  DCHECK(task_runner_->RunsTasksInCurrentSequence());
+  renderer_client_->OnWaiting(reason);
+}
 
 }  // namespace media

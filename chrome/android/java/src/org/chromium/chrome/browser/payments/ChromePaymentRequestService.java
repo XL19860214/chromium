@@ -236,7 +236,6 @@ public class ChromePaymentRequestService
         mPaymentUiService = mDelegate.createPaymentUiService(/*delegate=*/this,
                 /*params=*/paymentRequestService, mWebContents,
                 paymentRequestService.isOffTheRecord(), mJourneyLogger, topLevelOrigin);
-        mPaymentRequestService = paymentRequestService;
         if (PaymentRequestService.getNativeObserverForTest() != null) {
             PaymentRequestService.getNativeObserverForTest().onPaymentUiServiceCreated(
                     mPaymentUiService);
@@ -354,7 +353,8 @@ public class ChromePaymentRequestService
         // Only allowing payment apps that own their own UIs.
         // This excludes AutofillPaymentInstrument as its UI is rendered inline in
         // the app selector UI, thus can't be skipped.
-        if (!urlPaymentMethodIdentifiersSupported && !mDelegate.skipUiForBasicCard()) {
+        if (!urlPaymentMethodIdentifiersSupported && !mDelegate.skipUiForBasicCard()
+                && !mSpec.isSecurePaymentConfirmationRequested()) {
             shouldSkipAppSelector = false;
         }
         if (mSkipToGPayHelper != null) shouldSkipAppSelector = true;

@@ -68,17 +68,18 @@ bool HaveIconBitmapsChanged(const IconBitmaps& disk_icon_bitmaps,
 // Some apps, such as pre-installed apps, have been vetted and are therefore
 // considered safe and permitted to update their names.
 bool AllowNameUpdating(const AppId& app_id, const AppRegistrar& registrar) {
-  return registrar.AsWebAppRegistrar()->GetAppById(app_id)->IsPreinstalledApp();
+  const WebApp* web_app = registrar.AsWebAppRegistrar()->GetAppById(app_id);
+  return web_app && web_app->IsPreinstalledApp();
 }
 
 // Some apps, such as pre-installed apps, have been vetted and are therefore
 // considered safe and permitted to update their icon. For others, the feature
 // flag needs to be on.
 bool AllowIconUpdating(const AppId& app_id, const AppRegistrar& registrar) {
-  return registrar.AsWebAppRegistrar()
-             ->GetAppById(app_id)
-             ->IsPreinstalledApp() ||
-         base::FeatureList::IsEnabled(features::kWebAppManifestIconUpdating);
+  const WebApp* web_app = registrar.AsWebAppRegistrar()->GetAppById(app_id);
+  return web_app &&
+         (web_app->IsPreinstalledApp() ||
+          base::FeatureList::IsEnabled(features::kWebAppManifestIconUpdating));
 }
 
 }  // namespace
@@ -130,6 +131,29 @@ bool HaveFileHandlersChanged(
         }
       }
     }
+  }
+  return false;
+}
+
+bool HaveProtocolHandlersChanged(
+    const apps::ProtocolHandlers* old_handlers,
+    const std::vector<blink::Manifest::ProtocolHandler>& new_handlers) {
+  if (!old_handlers)
+    return true;
+
+  if (old_handlers->size() != new_handlers.size())
+    return true;
+
+  for (size_t i = 0; i < old_handlers->size(); ++i) {
+    // Compare apps::ProtocolHandlerInfo and blink::Manifest::ProtocolHandler.
+    const apps::ProtocolHandlerInfo& old_handler = (*old_handlers)[i];
+    const blink::Manifest::ProtocolHandler& new_handler = new_handlers[i];
+
+    if (old_handler.protocol != base::UTF16ToUTF8(new_handler.protocol))
+      return true;
+
+    if (old_handler.url != new_handler.url)
+      return true;
   }
   return false;
 }
@@ -244,6 +268,8 @@ void ManifestUpdateTask::OnDidGetInstallableData(
 
 bool ManifestUpdateTask::IsUpdateNeededForManifest() const {
   DCHECK(web_application_info_.has_value());
+  const WebApp* app = registrar_.AsWebAppRegistrar()->GetAppById(app_id_);
+  DCHECK(app);
 
   if (web_application_info_->theme_color !=
       registrar_.GetAppThemeColor(app_id_))
@@ -288,13 +314,24 @@ bool ManifestUpdateTask::IsUpdateNeededForManifest() const {
     return true;
   }
 
-  if (web_application_info_->capture_links !=
-      registrar_.GetAppCaptureLinks(app_id_)) {
+  if (HaveProtocolHandlersChanged(
+          /*old_handlers=*/registrar_.GetAppProtocolHandlers(app_id_),
+          /*new_handlers=*/web_application_info_->protocol_handlers)) {
     return true;
   }
 
   if (web_application_info_->url_handlers !=
       registrar_.GetAppUrlHandlers(app_id_)) {
+    return true;
+  }
+
+  if (web_application_info_->note_taking_new_note_url !=
+      app->note_taking_new_note_url()) {
+    return true;
+  }
+
+  if (web_application_info_->capture_links !=
+      registrar_.GetAppCaptureLinks(app_id_)) {
     return true;
   }
 
@@ -320,6 +357,8 @@ bool ManifestUpdateTask::IsUpdateNeededForManifest() const {
           base::UTF8ToUTF16(registrar_.GetAppShortName(app_id_))) {
     return true;
   }
+
+  // TODO(crbug.com/1212849): Handle changes to is_storage_isolated.
 
   // TODO(crbug.com/926083): Check more manifest fields.
   return false;

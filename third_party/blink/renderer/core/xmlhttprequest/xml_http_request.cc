@@ -37,8 +37,6 @@
 #include "third_party/blink/public/mojom/permissions_policy/permissions_policy.mojom-blink-forward.h"
 #include "third_party/blink/public/mojom/permissions_policy/permissions_policy.mojom-blink.h"
 #include "third_party/blink/public/platform/web_url_request.h"
-#include "third_party/blink/renderer/bindings/core/v8/array_buffer_or_array_buffer_view_or_blob_or_usv_string.h"
-#include "third_party/blink/renderer/bindings/core/v8/document_or_xml_http_request_body_init.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_union_arraybuffer_arraybufferview_blob_document_formdata_urlsearchparams_usvstring.h"
 #include "third_party/blink/renderer/core/dom/document_init.h"
 #include "third_party/blink/renderer/core/dom/document_parser.h"
@@ -763,7 +761,6 @@ bool XMLHttpRequest::InitSend(ExceptionState& exception_state) {
   return true;
 }
 
-#if defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
 void XMLHttpRequest::send(const V8UnionDocumentOrXMLHttpRequestBodyInit* body,
                           ExceptionState& exception_state) {
   probe::WillSendXMLHttpOrFetchNetworkRequest(GetExecutionContext(), Url());
@@ -790,52 +787,6 @@ void XMLHttpRequest::send(const V8UnionDocumentOrXMLHttpRequestBodyInit* body,
 
   NOTREACHED();
 }
-#else   // defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
-void XMLHttpRequest::send(
-    const DocumentOrBlobOrArrayBufferOrArrayBufferViewOrFormDataOrURLSearchParamsOrUSVString&
-        body,
-    ExceptionState& exception_state) {
-  probe::WillSendXMLHttpOrFetchNetworkRequest(GetExecutionContext(), Url());
-
-  if (body.IsNull()) {
-    send(String(), exception_state);
-    return;
-  }
-
-  if (body.IsDocument()) {
-    send(body.GetAsDocument(), exception_state);
-    return;
-  }
-
-  if (body.IsBlob()) {
-    send(body.GetAsBlob(), exception_state);
-    return;
-  }
-
-  if (body.IsArrayBuffer()) {
-    send(body.GetAsArrayBuffer(), exception_state);
-    return;
-  }
-
-  if (body.IsArrayBufferView()) {
-    send(body.GetAsArrayBufferView().Get(), exception_state);
-    return;
-  }
-
-  if (body.IsFormData()) {
-    send(body.GetAsFormData(), exception_state);
-    return;
-  }
-
-  if (body.IsURLSearchParams()) {
-    send(body.GetAsURLSearchParams(), exception_state);
-    return;
-  }
-
-  DCHECK(body.IsUSVString());
-  send(body.GetAsUSVString(), exception_state);
-}
-#endif  // defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
 
 bool XMLHttpRequest::AreMethodAndURLValidForSend() {
   return method_ != http_names::kGET && method_ != http_names::kHEAD &&
@@ -1692,7 +1643,7 @@ String XMLHttpRequest::statusText() const {
   return String();
 }
 
-void XMLHttpRequest::DidFail(const ResourceError& error) {
+void XMLHttpRequest::DidFail(uint64_t, const ResourceError& error) {
   DVLOG(1) << this << " didFail()";
   ScopedEventDispatchProtect protect(&event_dispatch_recursion_level_);
 
@@ -1725,7 +1676,7 @@ void XMLHttpRequest::DidFail(const ResourceError& error) {
   HandleNetworkError();
 }
 
-void XMLHttpRequest::DidFailRedirectCheck() {
+void XMLHttpRequest::DidFailRedirectCheck(uint64_t) {
   DVLOG(1) << this << " didFailRedirectCheck()";
   ScopedEventDispatchProtect protect(&event_dispatch_recursion_level_);
 

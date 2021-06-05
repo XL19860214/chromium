@@ -20,7 +20,7 @@
 #include "ios/chrome/browser/signin/authentication_service.h"
 #include "ios/chrome/browser/signin/authentication_service_delegate_fake.h"
 #include "ios/chrome/browser/signin/authentication_service_factory.h"
-#include "ios/chrome/browser/sync/profile_sync_service_factory.h"
+#include "ios/chrome/browser/sync/sync_service_factory.h"
 #include "ios/chrome/browser/sync/sync_setup_service_factory.h"
 #include "ios/chrome/browser/sync/sync_setup_service_mock.h"
 #import "ios/chrome/browser/ui/settings/clear_browsing_data/fake_browsing_data_counter_wrapper_producer.h"
@@ -56,7 +56,7 @@ class ClearBrowsingDataManagerTest : public PlatformTest {
     RegisterBrowserStatePrefs(registry.get());
 
     TestChromeBrowserState::Builder builder;
-    builder.AddTestingFactory(ProfileSyncServiceFactory::GetInstance(),
+    builder.AddTestingFactory(SyncServiceFactory::GetInstance(),
                               base::BindRepeating(&CreateTestSyncService));
     builder.AddTestingFactory(
         SyncSetupServiceFactory::GetInstance(),
@@ -82,7 +82,7 @@ class ClearBrowsingDataManagerTest : public PlatformTest {
             [[FakeBrowsingDataCounterWrapperProducer alloc] init]];
 
     test_sync_service_ = static_cast<syncer::TestSyncService*>(
-        ProfileSyncServiceFactory::GetForBrowserState(browser_state_.get()));
+        SyncServiceFactory::GetForBrowserState(browser_state_.get()));
 
     time_range_pref_.Init(browsing_data::prefs::kDeleteTimePeriod,
                           browser_state_->GetPrefs());
@@ -125,11 +125,10 @@ TEST_F(ClearBrowsingDataManagerTest, TestModelSignedInSyncOff) {
 
   [manager_ loadModel:model_];
 
-  EXPECT_EQ(4, [model_ numberOfSections]);
+  EXPECT_EQ(3, [model_ numberOfSections]);
   EXPECT_EQ(1, [model_ numberOfItemsInSection:0]);
   EXPECT_EQ(5, [model_ numberOfItemsInSection:1]);
   EXPECT_EQ(0, [model_ numberOfItemsInSection:2]);
-  EXPECT_EQ(0, [model_ numberOfItemsInSection:3]);
 }
 
 TEST_F(ClearBrowsingDataManagerTest, TestCacheCounterFormattingForAllTime) {

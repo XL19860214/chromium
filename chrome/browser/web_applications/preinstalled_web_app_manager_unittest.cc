@@ -25,6 +25,7 @@
 #include "chrome/browser/web_applications/components/preinstalled_app_install_features.h"
 #include "chrome/browser/web_applications/components/web_app_constants.h"
 #include "chrome/browser/web_applications/preinstalled_web_apps/preinstalled_web_apps.h"
+#include "chrome/browser/web_applications/web_app_provider.h"
 #include "chrome/common/chrome_features.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/test/base/testing_profile.h"
@@ -109,6 +110,12 @@ class PreinstalledWebAppManagerTest : public testing::Test {
 
     auto preinstalled_web_app_manager =
         std::make_unique<PreinstalledWebAppManager>(profile);
+
+    auto* provider = WebAppProvider::Get(profile);
+    DCHECK(provider);
+    preinstalled_web_app_manager->SetSubsystems(
+        provider->registrar().AsWebAppRegistrar(),
+        &provider->externally_managed_app_manager());
 
     std::vector<ExternalInstallOptions> result;
     base::RunLoop run_loop;
@@ -264,6 +271,7 @@ TEST_F(PreinstalledWebAppManagerTest, GoodJson) {
     install_options.add_to_desktop = true;
     install_options.add_to_quick_launch_bar = true;
     install_options.require_manifest = true;
+    install_options.disable_if_touchscreen_with_stylus_not_supported = false;
     test_install_options_list.push_back(std::move(install_options));
   }
   {
@@ -277,6 +285,7 @@ TEST_F(PreinstalledWebAppManagerTest, GoodJson) {
     install_options.add_to_desktop = false;
     install_options.add_to_quick_launch_bar = false;
     install_options.require_manifest = true;
+    install_options.disable_if_touchscreen_with_stylus_not_supported = false;
     install_options.uninstall_and_replace.push_back("migrationsourceappid");
     test_install_options_list.push_back(std::move(install_options));
   }

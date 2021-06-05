@@ -116,6 +116,11 @@
       status: "stable",
     },
     {
+      name: "AccessibilityAriaTouchPassthrough",
+      status: "experimental",
+      origin_trial_feature_name: "AccessibilityAriaTouchPassthrough",
+    },
+    {
       name: "AccessibilityAriaVirtualContent",
       status: "experimental",
     },
@@ -339,6 +344,7 @@
     },
     {
       name: "CaptureHandle",
+      origin_trial_feature_name: "CaptureHandle",
       depends_on: ["GetDisplayMedia"],
       status: {"Android": "", "default": "experimental"},
     },
@@ -367,6 +373,7 @@
     },
     {
       name: "CompositeBGColorAnimation",
+      status: "experimental",
     },
     {
       name: "CompositeClipPathAnimation",
@@ -418,12 +425,6 @@
       origin_trial_feature_name: "ConversionMeasurement",
       origin_trial_allows_third_party: true,
       status: "experimental",
-      depends_on: ["ConversionMeasurementInfraSupport"],
-    },
-    {
-      // Feature to explicitly disable/enable the Conversion
-      // Measurement API when there is not browser process side infra.
-      name: "ConversionMeasurementInfraSupport",
     },
     {
       name: "CookiesWithoutSameSiteMustBeSecure",
@@ -454,28 +455,13 @@
       status: "experimental",
     },
     {
-      name: "CSSAspectRatioInterpolation",
-      status: "stable",
-    },
-    {
-      name: "CSSAspectRatioProperty",
-      status: "stable",
-    },
-    {
-      // https://drafts.csswg.org/css-counter-styles-3
-      name: "CSSAtRuleCounterStyle",
-      status: "stable",
-    },
-    {
       // Whether <image> values are allowed as counter style <symbol>
       name: "CSSAtRuleCounterStyleImageSymbols",
-      depends_on: ["CSSAtRuleCounterStyle"]
     },
     {
       // https://github.com/w3c/csswg-drafts/issues/5693
       // Experimental support of @counter-style rules in shadow DOM.
       name: "CSSAtRuleCounterStyleInShadowDOM",
-      depends_on: ["CSSAtRuleCounterStyle"],
       status: "test",
     },
     {
@@ -491,15 +477,6 @@
       // https://drafts.csswg.org/selectors-4/#attribute-case
       name: "CSSCaseSensitiveSelector",
       status: "test",
-    },
-    {
-      // When the color-scheme is supported via the CSS color-scheme property
-      // (CSSColorScheme) or the meta tag (MetaColorScheme), the only UA
-      // rendering change is for the canvas background and the :root element
-      // color property. Enabling this runtime flag will enable dark UA
-      // rendering for form controls, scrollbars, etc.
-      name: "CSSColorSchemeUARendering",
-      status: "stable",
     },
     {
       name: "CSSColorTypedOM",
@@ -529,6 +506,12 @@
       status: "experimental"
     },
     {
+      // Include custom properties in CSSComputedStyleDeclaration::item/length.
+      // https://crbug.com/949807
+      name: "CSSEnumeratedCustomProperties",
+      status: "test",
+    },
+    {
       name: "CSSFocusVisible",
       status: "stable",
     },
@@ -537,23 +520,9 @@
       status: "experimental",
     },
     {
-      // @font-face descriptor advance-override.
-      // https://drafts.csswg.org/css-fonts-5/#descdef-font-face-advance-override
-      name: "CSSFontFaceAdvanceOverride",
-      status: "test",
-      depends_on: ["CSSFontMetricsOverride"],
-    },
-    {
       // @font-face descriptor size-adjust.
       // https://drafts.csswg.org/css-fonts-5/#descdef-font-face-size-adjust
       name: "CSSFontFaceSizeAdjust",
-      status: "stable",
-    },
-    {
-      // @font-face descriptors ascent-override, descent-override and
-      // line-gap-override.
-      // https://drafts.csswg.org/css-fonts-4/#font-metrics-override-desc
-      name: "CSSFontMetricsOverride",
       status: "stable",
     },
     {
@@ -639,6 +608,10 @@
     {
       name: "CSSPseudoDir",
       status: "experimental",
+    },
+    {
+      name: "CSSPseudoHas",
+      status: "test",
     },
     {
       // When an audio, video, or similar resource is "playing"
@@ -751,6 +724,10 @@
       status: "experimental",
     },
     {
+      name: "DialogFocusNewSpecBehavior",
+      status: "stable",
+    },
+    {
       name: "DigitalGoods",
       origin_trial_feature_name: "DigitalGoods",
       origin_trial_os: ["android", "chromeos"],
@@ -765,6 +742,12 @@
     {
       name: "DirectSockets",
       status: "test",
+    },
+    {
+      name: "DisableDifferentOriginSubframeDialogSuppression",
+      origin_trial_feature_name: "DisableDifferentOriginSubframeDialogSuppression",
+      origin_trial_type: "deprecation",
+      origin_trial_allows_insecure: true,
     },
     {
       name: "DisableHardwareNoiseSuppression",
@@ -1042,7 +1025,7 @@
     {
       name: "HandwritingRecognition",
       status: "experimental",
-      // Trial also requires kHandwritingRecognitionWebPlatformApi enabled.
+      // Trial also requires kHandwritingRecognitionWebPlatformApiFinch enabled.
       origin_trial_feature_name: "HandwritingRecognition",
       origin_trial_os: ["chromeos"]
     },
@@ -1086,10 +1069,6 @@
       name: "ImplicitRootScroller",
       settable_from_internals: true,
       status: {"Android": "stable"},
-    },
-    {
-      name: "ImportMaps",
-      status: "stable"
     },
     {
       name: "InertAttribute",
@@ -1189,6 +1168,10 @@
       status: "stable"
     },
     {
+      name: "LayoutNGTextCombine",
+      depends_on: ["LayoutNG"],
+    },
+    {
       name: "LayoutNGTextControl",
       depends_on: ["EditingNG"],
       status: "stable",
@@ -1247,6 +1230,10 @@
     {
       name: "MediaCapabilitiesSpatialAudio",
       status: "test",
+    },
+    {
+      name: "MediaCapabilitiesWebRtc",
+      status: "experimental",
     },
     {
       name: "MediaCapture",
@@ -1951,7 +1938,7 @@
     // https://crbug.com/1190167
     {
       name: "SpeculationRulesPrefetchProxy",
-      origin_trial_feature_name: "SpeculationRulesPrefetchProxy",
+      origin_trial_feature_name: "SpeculationRulesPrefetch",
     },
     {
       name: "SrcsetMaxDensity",

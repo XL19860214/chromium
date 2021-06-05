@@ -40,7 +40,6 @@ class FollowManagementMediator {
     private Context mContext;
     private Adapter mAdapter;
     private boolean mSubscribed;
-    private WebFeedBridge mWebFeedBridge;
     private LargeIconBridge mLargeIconBridge;
 
     /**
@@ -70,11 +69,11 @@ class FollowManagementMediator {
             // intended new state, so make the reality match the checkbox state.
             if (itemView.isSubscribed()) {
                 // The lambda will set the item as subscribed if the follow operation succeeds.
-                mWebFeedBridge.followFromId(
+                WebFeedBridge.followFromId(
                         mId, results -> itemView.setSubscribed(results.requestStatus == SUCCESS));
             } else {
                 // The lambda will set the item as unsubscribed if the unfollow operation succeeds.
-                mWebFeedBridge.unfollow(
+                WebFeedBridge.unfollow(
                         mId, results -> itemView.setSubscribed(results.requestStatus != SUCCESS));
             }
 
@@ -150,24 +149,25 @@ class FollowManagementMediator {
         mModelList = modelList;
         mContext = context;
         mAdapter = adapter;
-        mWebFeedBridge = new WebFeedBridge();
         mLargeIconBridge = largeIconBridge;
 
         // Control flow is to refresh the feeds, then get the feed list, then display it.
         // TODO(https://.crbug.com/1197286) Add a spinner while waiting for results.
-        mWebFeedBridge.refreshFollowedWebFeeds(this::getFollowedWebFeeds);
+        WebFeedBridge.refreshFollowedWebFeeds(this::getFollowedWebFeeds);
     }
 
     // Once the list of feeds has been refreshed, get the list.
     private void getFollowedWebFeeds(boolean success) {
         // TODO(https://.crbug.com/1197286) If this fails, show a snackbar with a failure message.
-        mWebFeedBridge.getAllFollowedWebFeeds(this::fillRecyclerView);
+        WebFeedBridge.getAllFollowedWebFeeds(this::fillRecyclerView);
     }
 
     // When we get the list of followed pages, add them to the recycler view.
     private void fillRecyclerView(List<WebFeedMetadata> followedWebFeeds) {
         String updatesUnavailable =
                 mContext.getResources().getString(R.string.follow_manage_updates_unavailable);
+
+        // Add the list items (if any) to the recycler view.
         for (WebFeedMetadata page : followedWebFeeds) {
             String title = page.title;
             GURL url = page.visitUrl;
@@ -196,6 +196,14 @@ class FollowManagementMediator {
 
             // getFavicon is async.  We'll get the favicon, then add it to the model.
             faviconProvider.startFaviconFetch();
+        }
+        // If there are no subscribed feeds, show the empty state instead.
+        if (followedWebFeeds.isEmpty()) {
+            // Inflate and show the empty state view inside the recycler view.
+            PropertyModel pageModel = new PropertyModel();
+            SimpleRecyclerViewAdapter.ListItem listItem = new SimpleRecyclerViewAdapter.ListItem(
+                    FollowManagementItemProperties.EMPTY_ITEM_TYPE, pageModel);
+            mModelList.add(listItem);
         }
     }
 

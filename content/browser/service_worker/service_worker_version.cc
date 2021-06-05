@@ -27,7 +27,7 @@
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/default_clock.h"
 #include "base/time/default_tick_clock.h"
-#include "components/services/storage/public/cpp/storage_key.h"
+#include "base/trace_event/trace_event.h"
 #include "content/browser/bad_message.h"
 #include "content/browser/child_process_security_policy_impl.h"
 #include "content/browser/renderer_host/back_forward_cache_can_store_document_result.h"
@@ -54,6 +54,7 @@
 #include "third_party/blink/public/common/features.h"
 #include "third_party/blink/public/common/origin_trials/trial_token_validator.h"
 #include "third_party/blink/public/common/service_worker/service_worker_type_converters.h"
+#include "third_party/blink/public/common/storage_key/storage_key.h"
 
 namespace content {
 namespace {
@@ -160,6 +161,7 @@ void OnOpenWindowFinished(
 
 void DidShowPaymentHandlerWindow(
     const GURL& url,
+    const blink::StorageKey& key,
     const base::WeakPtr<ServiceWorkerContextCore>& context,
     blink::mojom::ServiceWorkerHost::OpenPaymentHandlerWindowCallback callback,
     bool success,
@@ -167,7 +169,7 @@ void DidShowPaymentHandlerWindow(
     int render_frame_id) {
   if (success) {
     service_worker_client_utils::DidNavigate(
-        context, url.GetOrigin(),
+        context, url.GetOrigin(), key,
         base::BindOnce(&OnOpenWindowFinished, std::move(callback)),
         render_process_id, render_frame_id);
   } else {
@@ -243,7 +245,7 @@ ServiceWorkerVersion::ServiceWorkerVersion(
     : version_id_(version_id),
       registration_id_(registration->id()),
       script_url_(script_url),
-      origin_(registration->origin()),
+      key_(registration->key()),
       scope_(registration->scope()),
       script_type_(script_type),
       fetch_handler_existence_(FetchHandlerExistence::UNKNOWN),
@@ -257,7 +259,8 @@ ServiceWorkerVersion::ServiceWorkerVersion(
       validator_(std::make_unique<blink::TrialTokenValidator>()),
       remote_reference_(std::move(remote_reference)),
       ukm_source_id_(ukm::ConvertToSourceId(ukm::AssignNewSourceId(),
-                                            ukm::SourceIdType::WORKER_ID)) {
+                                            ukm::SourceIdType::WORKER_ID)),
+      reporting_source_(base::UnguessableToken::Create()) {
   DCHECK_NE(blink::mojom::kInvalidServiceWorkerVersionId, version_id);
   DCHECK(context_);
   DCHECK(registration);
@@ -382,7 +385,7 @@ ServiceWorkerVersionInfo ServiceWorkerVersion::GetInfo() {
   DCHECK_CURRENTLY_ON(ServiceWorkerContext::GetCoreThreadId());
   ServiceWorkerVersionInfo info(
       running_status(), status(), fetch_handler_existence(), script_url(),
-      scope(), origin(), registration_id(), version_id(),
+      scope(), key().origin(), registration_id(), version_id(),
       embedded_worker()->process_id(), embedded_worker()->thread_id(),
       embedded_worker()->worker_devtools_agent_route_id(), ukm_source_id());
   for (const auto& controllee : controllee_map_) {
@@ -465,7 +468,7 @@ void ServiceWorkerVersion::StartWorker(ServiceWorkerMetrics::EventType purpose,
   // get associated with it in
   // ServiceWorkerHost::CompleteStartWorkerPreparation.
   context_->registry()->FindRegistrationForId(
-      registration_id_, storage::StorageKey(origin_),
+      registration_id_, key_,
       base::BindOnce(
           &ServiceWorkerVersion::DidEnsureLiveRegistrationForStartWorker,
           weak_factory_.GetWeakPtr(), purpose, status_,
@@ -583,7 +586,7 @@ void ServiceWorkerVersion::StartUpdate() {
   if (!context_)
     return;
   context_->registry()->FindRegistrationForId(
-      registration_id_, storage::StorageKey(origin_),
+      registration_id_, key_,
       base::BindOnce(&ServiceWorkerVersion::FoundRegistrationForUpdate,
                      weak_factory_.GetWeakPtr()));
 }
@@ -874,12 +877,10 @@ void ServiceWorkerVersion::RestoreControlleeFromBackForwardCacheMap(
     CHECK(base::Contains(controllees_to_be_evicted_, client_uuid));
     // TODO(crbug.com/1021718): Remove DumpWithoutCrashing once we confirm the
     // cause of the crash.
-    static auto* no_controllee_reason = base::debug::AllocateCrashKeyString(
-        "no_controllee_reason", base::debug::CrashKeySize::Size32);
     BackForwardCacheCanStoreDocumentResult can_store;
     can_store.No(controllees_to_be_evicted_.at(client_uuid));
-    base::debug::ScopedCrashKeyString scoped_no_controllee_reason(
-        no_controllee_reason, can_store.ToString());
+    SCOPED_CRASH_KEY_STRING32("RestoreForBFCache", "no_controllee_reason",
+                              can_store.ToString());
     base::debug::DumpWithoutCrashing();
     return;
   }
@@ -894,8 +895,7 @@ void ServiceWorkerVersion::RemoveControlleeFromBackForwardCacheMap(
   bfcached_controllee_map_.erase(client_uuid);
 }
 
-void ServiceWorkerVersion::OnControlleeDestroyed(
-    const std::string& client_uuid) {
+void ServiceWorkerVersion::Uncontrol(const std::string& client_uuid) {
   if (!IsBackForwardCacheEnabled()) {
     RemoveControllee(client_uuid);
   } else {
@@ -1025,7 +1025,9 @@ void ServiceWorkerVersion::InitializeGlobalScope(
         script_loader_factories,
     std::unique_ptr<blink::PendingURLLoaderFactoryBundle>
         subresource_loader_factories) {
-  DCHECK(service_worker_host_);
+  receiver_.reset();
+  receiver_.Bind(service_worker_host_.InitWithNewEndpointAndPassReceiver());
+
   scoped_refptr<ServiceWorkerRegistration> registration =
       base::WrapRefCounted(context_->GetLiveRegistration(registration_id_));
   // The registration must exist since we keep a reference to it during
@@ -1397,6 +1399,8 @@ void ServiceWorkerVersion::GetClientInternal(const std::string& client_uuid,
 
 void ServiceWorkerVersion::OpenNewTab(const GURL& url,
                                       OpenNewTabCallback callback) {
+  // TODO(crbug.com/1199077): After StorageKey implements partitioning update
+  // this to reject with InvalidAccessError if key_ is partitioned.
   OpenWindow(url, service_worker_client_utils::WindowType::NEW_TAB_WINDOW,
              std::move(callback));
 }
@@ -1412,7 +1416,8 @@ void ServiceWorkerVersion::OpenPaymentHandlerWindow(
     return;
   }
 
-  if (!url.is_valid() || !url::Origin::Create(url).IsSameOriginWith(origin_)) {
+  if (!url.is_valid() ||
+      !url::Origin::Create(url).IsSameOriginWith(key_.origin())) {
     mojo::ReportBadMessage(
         "Received PaymentRequestEvent#openWindow() request for a cross-origin "
         "URL.");
@@ -1422,7 +1427,7 @@ void ServiceWorkerVersion::OpenPaymentHandlerWindow(
 
   PaymentHandlerSupport::ShowPaymentHandlerWindow(
       url, context_.get(),
-      base::BindOnce(&DidShowPaymentHandlerWindow, url, context_),
+      base::BindOnce(&DidShowPaymentHandlerWindow, url, key_, context_),
       base::BindOnce(
           &ServiceWorkerVersion::OpenWindow, weak_factory_.GetWeakPtr(), url,
           service_worker_client_utils::WindowType::PAYMENT_HANDLER_WINDOW),
@@ -1578,7 +1583,7 @@ void ServiceWorkerVersion::NavigateClient(const std::string& client_uuid,
   }
 
   service_worker_client_utils::NavigateClient(
-      url, script_url_, container_host->process_id(),
+      url, script_url_, key_, container_host->process_id(),
       container_host->frame_id(), context_,
       base::BindOnce(&DidNavigateClient, std::move(callback), url));
 }
@@ -1674,7 +1679,7 @@ void ServiceWorkerVersion::OpenWindow(
   }
 
   service_worker_client_utils::OpenWindow(
-      url, script_url_, embedded_worker_->embedded_worker_id(),
+      url, script_url_, key_, embedded_worker_->embedded_worker_id(),
       embedded_worker_->process_id(), context_, type,
       base::BindOnce(&OnOpenWindowFinished, std::move(callback)));
 }
@@ -1896,15 +1901,6 @@ void ServiceWorkerVersion::StartWorkerInternal() {
   CHECK(params->service_worker_receiver.is_valid());
   service_worker_remote_.set_disconnect_handler(
       base::BindOnce(&OnConnectionError, embedded_worker_->AsWeakPtr()));
-  receiver_.reset();
-  receiver_.Bind(service_worker_host_.InitWithNewEndpointAndPassReceiver());
-
-  // Initialize the global scope now if the worker won't be paused. Otherwise,
-  // delay initialization until the main script is loaded.
-  if (!initialize_global_scope_after_main_script_loaded_) {
-    InitializeGlobalScope(/*script_loader_factories=*/nullptr,
-                          /*subresource_loader_factories=*/nullptr);
-  }
 
   if (!controller_receiver_.is_valid()) {
     controller_receiver_ = remote_controller_.BindNewPipeAndPassReceiver();

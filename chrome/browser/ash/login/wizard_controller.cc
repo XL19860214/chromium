@@ -75,6 +75,7 @@
 #include "chrome/browser/ash/login/screens/kiosk_autolaunch_screen.h"
 #include "chrome/browser/ash/login/screens/kiosk_enable_screen.h"
 #include "chrome/browser/ash/login/screens/locale_switch_screen.h"
+#include "chrome/browser/ash/login/screens/management_transition_screen.h"
 #include "chrome/browser/ash/login/screens/marketing_opt_in_screen.h"
 #include "chrome/browser/ash/login/screens/multidevice_setup_screen.h"
 #include "chrome/browser/ash/login/screens/network_error.h"
@@ -85,7 +86,6 @@
 #include "chrome/browser/ash/login/screens/recommend_apps_screen.h"
 #include "chrome/browser/ash/login/screens/reset_screen.h"
 #include "chrome/browser/ash/login/screens/signin_fatal_error_screen.h"
-#include "chrome/browser/ash/login/screens/supervision_transition_screen.h"
 #include "chrome/browser/ash/login/screens/sync_consent_screen.h"
 #include "chrome/browser/ash/login/screens/tpm_error_screen.h"
 #include "chrome/browser/ash/login/screens/update_required_screen.h"
@@ -139,11 +139,13 @@
 #include "chrome/browser/ui/webui/chromeos/login/kiosk_autolaunch_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/kiosk_enable_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/locale_switch_screen_handler.h"
+#include "chrome/browser/ui/webui/chromeos/login/management_transition_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/marketing_opt_in_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/multidevice_setup_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/network_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/offline_login_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/oobe_ui.h"
+#include "chrome/browser/ui/webui/chromeos/login/os_install_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/packaged_license_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/parental_handoff_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/pin_setup_screen_handler.h"
@@ -151,7 +153,6 @@
 #include "chrome/browser/ui/webui/chromeos/login/reset_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/signin_fatal_error_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/signin_screen_handler.h"
-#include "chrome/browser/ui/webui/chromeos/login/supervision_transition_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/sync_consent_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/terms_of_service_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/tpm_error_screen_handler.h"
@@ -193,9 +194,10 @@
 #include "third_party/cros_system_api/dbus/service_constants.h"
 #include "ui/base/accelerators/accelerator.h"
 
-using content::BrowserThread;
-
+namespace ash {
 namespace {
+
+using ::content::BrowserThread;
 
 bool g_using_zero_delays = false;
 
@@ -233,7 +235,7 @@ const chromeos::StaticOobeScreenId kScreensWithHiddenStatusArea[] = {
     chromeos::EnableDebuggingScreenView::kScreenId,
     chromeos::KioskAutolaunchScreenView::kScreenId,
     chromeos::KioskEnableScreenView::kScreenId,
-    chromeos::SupervisionTransitionScreenView::kScreenId,
+    chromeos::ManagementTransitionScreenView::kScreenId,
     chromeos::TpmErrorView::kScreenId,
     chromeos::WrongHWIDScreenView::kScreenId,
 };
@@ -241,10 +243,10 @@ const chromeos::StaticOobeScreenId kScreensWithHiddenStatusArea[] = {
 // The HID detection screen is only allowed for form factors without built-in
 // inputs: Chromebases, Chromebits, and Chromeboxes (crbug.com/965765).
 bool CanShowHIDDetectionScreen() {
-  switch (chromeos::GetDeviceType()) {
-    case chromeos::DeviceType::kChromebase:
-    case chromeos::DeviceType::kChromebit:
-    case chromeos::DeviceType::kChromebox:
+  switch (GetDeviceType()) {
+    case DeviceType::kChromebase:
+    case DeviceType::kChromebit:
+    case DeviceType::kChromebox:
       return true;
     default:
       return false;
@@ -328,12 +330,12 @@ void RecordUMAHistogramForOOBEStepCompletionTime(chromeos::OobeScreenId screen,
   histogram_with_reason->AddTime(step_time);
 }
 
-chromeos::LoginDisplayHost* GetLoginDisplayHost() {
-  return chromeos::LoginDisplayHost::default_host();
+LoginDisplayHost* GetLoginDisplayHost() {
+  return LoginDisplayHost::default_host();
 }
 
 chromeos::OobeUI* GetOobeUI() {
-  auto* host = chromeos::LoginDisplayHost::default_host();
+  auto* host = LoginDisplayHost::default_host();
   return host ? host->GetOobeUI() : nullptr;
 }
 
@@ -351,8 +353,6 @@ chromeos::OobeScreenId PrefToScreenId(const std::string& pref_value) {
 }
 
 }  // namespace
-
-namespace chromeos {
 
 // static
 const int WizardController::kMinAudibleOutputVolumePercent = 10;
@@ -372,7 +372,7 @@ bool WizardController::is_branded_build_ = false;
 
 // static
 WizardController* WizardController::default_controller() {
-  auto* host = chromeos::LoginDisplayHost::default_host();
+  auto* host = LoginDisplayHost::default_host();
   return host ? host->GetWizardController() : nullptr;
 }
 
@@ -489,7 +489,7 @@ void WizardController::AdvanceToScreenAfterHIDDetection(
   }
 
   if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          chromeos::switches::kOobeSkipToLogin)) {
+          switches::kOobeSkipToLogin)) {
     SkipToLoginForTesting();
   }
 }
@@ -625,9 +625,9 @@ std::vector<std::unique_ptr<BaseScreen>> WizardController::CreateScreens() {
       oobe_ui->GetView<DeviceDisabledScreenHandler>()));
   append(std::make_unique<EncryptionMigrationScreen>(
       oobe_ui->GetView<EncryptionMigrationScreenHandler>()));
-  append(std::make_unique<SupervisionTransitionScreen>(
-      oobe_ui->GetView<SupervisionTransitionScreenHandler>(),
-      base::BindRepeating(&WizardController::OnSupervisionTransitionScreenExit,
+  append(std::make_unique<ManagementTransitionScreen>(
+      oobe_ui->GetView<ManagementTransitionScreenHandler>(),
+      base::BindRepeating(&WizardController::OnManagementTransitionScreenExit,
                           weak_factory_.GetWeakPtr())));
   append(std::make_unique<UpdateRequiredScreen>(
       oobe_ui->GetView<UpdateRequiredScreenHandler>(),
@@ -716,6 +716,9 @@ std::vector<std::unique_ptr<BaseScreen>> WizardController::CreateScreens() {
       oobe_ui->GetView<ParentalHandoffScreenHandler>(),
       base::BindRepeating(&WizardController::OnParentalHandoffScreenExit,
                           weak_factory_.GetWeakPtr())));
+
+  append(std::make_unique<OsInstallScreen>(
+      oobe_ui->GetView<OsInstallScreenHandler>()));
 
   return result;
 }
@@ -876,8 +879,8 @@ void WizardController::ShowEncryptionMigrationScreen() {
   SetCurrentScreen(GetScreen(EncryptionMigrationScreenView::kScreenId));
 }
 
-void WizardController::ShowSupervisionTransitionScreen() {
-  SetCurrentScreen(GetScreen(SupervisionTransitionScreenView::kScreenId));
+void WizardController::ShowManagementTransitionScreen() {
+  SetCurrentScreen(GetScreen(ManagementTransitionScreenView::kScreenId));
 }
 
 void WizardController::ShowUpdateRequiredScreen() {
@@ -910,6 +913,10 @@ void WizardController::ShowEduCoexistenceLoginScreen() {
 
 void WizardController::ShowParentalHandoffScreen() {
   SetCurrentScreen(GetScreen(ParentalHandoffScreenView::kScreenId));
+}
+
+void WizardController::ShowOsInstallScreen() {
+  SetCurrentScreen(GetScreen(OsInstallScreenView::kScreenId));
 }
 
 void WizardController::ShowActiveDirectoryPasswordChangeScreen(
@@ -1043,21 +1050,6 @@ void WizardController::SkipToLoginForTesting() {
   OnDeviceDisabledChecked(false /* device_disabled */);
 }
 
-void WizardController::SkipToUpdateForTesting() {
-  VLOG(1) << "SkipToUpdateForTesting.";
-  wizard_context_->skip_to_update_for_tests = true;
-  StartupUtils::MarkEulaAccepted();
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          chromeos::switches::kDisableHIDDetectionOnOOBEForTesting)) {
-    // We store the flag into local state so it persists restart after the
-    // update. Command line switch does not persist the restart during the
-    // test.
-    StartupUtils::DisableHIDDetectionScreenForTests();
-  }
-  PerformPostEulaActions();
-  InitiateOOBEUpdate();
-}
-
 void WizardController::OnScreenExit(OobeScreenId screen,
                                     const std::string& exit_reason) {
   VLOG(1) << "Wizard screen " << screen
@@ -1115,8 +1107,7 @@ void WizardController::OnWelcomeScreenExit(WelcomeScreen::Result result) {
       ShowEnableDebuggingScreen();
       return;
     case WelcomeScreen::Result::START_OS_INSTALL:
-      // TODO(b/182386612): show OS installation screen once it's implemented.
-      NOTIMPLEMENTED();
+      AdvanceToScreen(OsInstallScreenView::kScreenId);
       return;
     case WelcomeScreen::Result::NEXT:
       ShowNetworkScreen();
@@ -1561,8 +1552,8 @@ void WizardController::OnDeviceModificationCanceled() {
   ShowPackagedLicenseScreen();
 }
 
-void WizardController::OnSupervisionTransitionScreenExit() {
-  OnScreenExit(SupervisionTransitionScreenView::kScreenId, kDefaultExitReason);
+void WizardController::OnManagementTransitionScreenExit() {
+  OnScreenExit(ManagementTransitionScreenView::kScreenId, kDefaultExitReason);
 
   OnOobeFlowFinished();
 }
@@ -1645,7 +1636,7 @@ void WizardController::OnDeviceDisabledChecked(bool device_disabled) {
 void WizardController::InitiateOOBEUpdate() {
   // If this is a Cellular First device, instruct UpdateEngine to allow
   // updates over cellular data connections.
-  if (chromeos::switches::IsCellularFirstDevice()) {
+  if (switches::IsCellularFirstDevice()) {
     DBusThreadManager::Get()
         ->GetUpdateEngineClient()
         ->SetUpdateOverCellularPermission(
@@ -1897,8 +1888,8 @@ void WizardController::AdvanceToScreen(OobeScreenId screen_id) {
     ShowFingerprintSetupScreen();
   } else if (screen_id == MarketingOptInScreenView::kScreenId) {
     ShowMarketingOptInScreen();
-  } else if (screen_id == SupervisionTransitionScreenView::kScreenId) {
-    ShowSupervisionTransitionScreen();
+  } else if (screen_id == ManagementTransitionScreenView::kScreenId) {
+    ShowManagementTransitionScreen();
   } else if (screen_id == TpmErrorView::kScreenId ||
              screen_id == GaiaPasswordChangedView::kScreenId ||
              screen_id == ActiveDirectoryPasswordChangeView::kScreenId ||
@@ -1908,14 +1899,15 @@ void WizardController::AdvanceToScreen(OobeScreenId screen_id) {
              screen_id == ActiveDirectoryLoginView::kScreenId ||
              screen_id == SignInFatalErrorView::kScreenId ||
              screen_id == LocaleSwitchView::kScreenId ||
-             screen_id == OfflineLoginView::kScreenId) {
+             screen_id == OfflineLoginView::kScreenId ||
+             screen_id == OsInstallScreenView::kScreenId) {
     SetCurrentScreen(GetScreen(screen_id));
   } else {
     NOTREACHED();
   }
 }
 
-bool WizardController::HandleAccelerator(ash::LoginAcceleratorAction action) {
+bool WizardController::HandleAccelerator(LoginAcceleratorAction action) {
   if (current_screen_) {
     if (current_screen_->HandleAccelerator(action))
       return true;
@@ -2145,7 +2137,7 @@ void WizardController::OnTimezoneResolved(
   if (!timezone->timeZoneId.empty()) {
     VLOG(1) << "Resolve TimeZone: setting timezone to '" << timezone->timeZoneId
             << "'";
-    chromeos::system::SetSystemAndSigninScreenTimezone(timezone->timeZoneId);
+    system::SetSystemAndSigninScreenTimezone(timezone->timeZoneId);
   }
 }
 
@@ -2264,4 +2256,4 @@ AutoEnrollmentController* WizardController::GetAutoEnrollmentController() {
   return auto_enrollment_controller_.get();
 }
 
-}  // namespace chromeos
+}  // namespace ash

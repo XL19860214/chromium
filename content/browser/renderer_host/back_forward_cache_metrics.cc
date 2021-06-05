@@ -4,6 +4,8 @@
 
 #include "content/browser/renderer_host/back_forward_cache_metrics.h"
 
+#include "base/debug/crash_logging.h"
+#include "base/debug/dump_without_crashing.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/metrics_hashes.h"
 #include "base/metrics/sparse_histogram.h"
@@ -13,6 +15,7 @@
 #include "content/browser/renderer_host/navigation_request.h"
 #include "content/browser/renderer_host/should_swap_browsing_instance.h"
 #include "content/browser/site_instance_impl.h"
+#include "content/common/debug_utils.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/navigation_details.h"
 #include "content/public/browser/reload_type.h"
@@ -122,6 +125,37 @@ void BackForwardCacheMetrics::DidCommitNavigation(
 
   if (IsHistoryNavigation(navigation)) {
     UpdateNotRestoredReasonsForNavigation(navigation);
+
+    // If a navigation serves the result from back/forward cache, then it must
+    // not have logged any NotRestoredReasons. Also if it is not restored from
+    // back/forward cache, the logged reasons must match the actual condition of
+    // the navigation and other logged data.
+    bool served_from_bfcache_not_match =
+        navigation->IsServedFromBackForwardCache() &&
+        page_store_result_->not_stored_reasons().to_ullong() != 0ULL;
+    bool browsing_instance_not_swapped_not_match =
+        page_store_result_->HasNotStoredReason(
+            NotRestoredReason::kBrowsingInstanceNotSwapped) &&
+        DidSwapBrowsingInstance();
+    bool disable_for_rfh_not_match =
+        page_store_result_->HasNotStoredReason(
+            NotRestoredReason::kDisableForRenderFrameHostCalled) &&
+        page_store_result_->disabled_reasons().size() == 0;
+    bool blocklisted_features_not_match =
+        page_store_result_->HasNotStoredReason(
+            NotRestoredReason::kBlocklistedFeatures) &&
+        page_store_result_->blocklisted_features() == 0ULL;
+    if (served_from_bfcache_not_match ||
+        browsing_instance_not_swapped_not_match || disable_for_rfh_not_match ||
+        blocklisted_features_not_match) {
+      // Record if logged reasons and the situations do not match.
+      SCOPED_CRASH_KEY_STRING256("PageStoreResult", "page_store_result_",
+                                 page_store_result_->ToString());
+      CaptureTraceForNavigationDebugScenario(
+          DebugScenario::kDebugBackForwardCacheMetricsMismatch);
+      base::debug::DumpWithoutCrashing();
+    }
+
     TRACE_EVENT1("navigation", "HistoryNavigationOutcome", "outcome",
                  page_store_result_->ToString());
     RecordMetricsForHistoryNavigationCommit(navigation,
@@ -258,9 +292,7 @@ void BackForwardCacheMetrics::MarkNotRestoredWithReason(
     const BackForwardCacheCanStoreDocumentResult& can_store) {
   page_store_result_->AddReasonsFrom(can_store);
 
-  if (can_store.not_stored_reasons().test(
-          static_cast<size_t>(BackForwardCacheMetrics::NotRestoredReason::
-                                  kRendererProcessKilled))) {
+  if (can_store.HasNotStoredReason(NotRestoredReason::kRendererProcessKilled)) {
     renderer_killed_timestamp_ = Now();
   }
 }
@@ -292,10 +324,6 @@ void BackForwardCacheMetrics::UpdateNotRestoredReasonsForNavigation(
 void BackForwardCacheMetrics::RecordMetricsForHistoryNavigationCommit(
     NavigationRequest* navigation,
     bool back_forward_cache_allowed) const {
-  DCHECK(!navigation->IsServedFromBackForwardCache() ||
-         page_store_result_->not_stored_reasons().none())
-      << "If the navigation is served from bfcache, no not restored reasons "
-         "should be recorded";
   HistoryNavigationOutcome outcome = HistoryNavigationOutcome::kNotRestored;
   if (navigation->IsServedFromBackForwardCache()) {
     outcome = HistoryNavigationOutcome::kRestored;
@@ -303,12 +331,11 @@ void BackForwardCacheMetrics::RecordMetricsForHistoryNavigationCommit(
     if (back_forward_cache_allowed) {
       UMA_HISTOGRAM_ENUMERATION(
           "BackForwardCache.EvictedAfterDocumentRestoredReason",
-          BackForwardCacheMetrics::EvictedAfterDocumentRestoredReason::
-              kRestored);
+          EvictedAfterDocumentRestoredReason::kRestored);
     }
     UMA_HISTOGRAM_ENUMERATION(
         "BackForwardCache.AllSites.EvictedAfterDocumentRestoredReason",
-        BackForwardCacheMetrics::EvictedAfterDocumentRestoredReason::kRestored);
+        EvictedAfterDocumentRestoredReason::kRestored);
   }
 
   if (back_forward_cache_allowed) {
@@ -324,8 +351,8 @@ void BackForwardCacheMetrics::RecordMetricsForHistoryNavigationCommit(
   UMA_HISTOGRAM_ENUMERATION(
       "BackForwardCache.AllSites.HistoryNavigationOutcome", outcome);
 
-  for (int i = 0; i <= static_cast<int>(NotRestoredReason::kMaxValue); i++) {
-    if (!page_store_result_->not_stored_reasons().test(static_cast<size_t>(i)))
+  for (size_t i = 0; i <= static_cast<int>(NotRestoredReason::kMaxValue); i++) {
+    if (!page_store_result_->not_stored_reasons().test(i))
       continue;
     DCHECK(!navigation->IsServedFromBackForwardCache());
     NotRestoredReason reason = static_cast<NotRestoredReason>(i);
@@ -337,8 +364,7 @@ void BackForwardCacheMetrics::RecordMetricsForHistoryNavigationCommit(
     UMA_HISTOGRAM_ENUMERATION(
         "BackForwardCache.AllSites.HistoryNavigationOutcome.NotRestoredReason",
         reason);
-    if (reason ==
-        BackForwardCacheMetrics::NotRestoredReason::kRendererProcessKilled) {
+    if (reason == NotRestoredReason::kRendererProcessKilled) {
       DCHECK(renderer_killed_timestamp_);
       DCHECK(navigated_away_from_main_document_timestamp_);
       base::TimeDelta time =

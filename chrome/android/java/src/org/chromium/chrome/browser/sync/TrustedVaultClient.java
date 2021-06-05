@@ -54,6 +54,46 @@ public class TrustedVaultClient {
          * took any effect (false positives acceptable).
          */
         Promise<Boolean> markKeysAsStale(CoreAccountInfo accountInfo);
+
+        /**
+         * Returns whether recoverability of the keys is degraded and user action is required to add
+         * a new method. This may be called frequently and implementations are responsible for
+         * implementing caching and possibly throttling.
+         *
+         * @param accountInfo Account representing the user.
+         * @return a promise which indicates completion and representing whether recoverability is
+         *         actually degraded.
+         */
+        // TODO(crbug.com/1100279): Switch to non-default method once all implementations are ready.
+        default Promise<Boolean> getIsRecoverabilityDegraded(CoreAccountInfo accountInfo) {
+            return Promise.fulfilled(false);
+        }
+
+        /**
+         * Gets a PendingIntent that can be used to display a UI that allows the user to resolve a
+         * degraded recoverability state, usually involving reauthentication.
+         *
+         * @param accountInfo Account representing the user.
+         * @return a promise for a PendingIntent object. The promise will be rejected if no
+         *         user action is actually required.
+         */
+        // TODO(crbug.com/1100279): Switch to non-default method once all implementations are ready.
+        default Promise<PendingIntent> createRecoverabilityDegradedIntent(
+                CoreAccountInfo accountInfo) {
+            return Promise.rejected();
+        }
+
+        /**
+         * Gets a PendingIntent that can be used to display a UI that allows the user to opt into
+         * trusted vault encryption.
+         *
+         * @param accountInfo Account representing the user.
+         * @return a promise for a PendingIntent object.
+         */
+        // TODO(crbug.com/1100279): Switch to non-default method once all implementations are ready.
+        default Promise<PendingIntent> createOptInIntent(CoreAccountInfo accountInfo) {
+            return Promise.rejected();
+        }
     }
 
     /**
@@ -127,6 +167,27 @@ public class TrustedVaultClient {
     }
 
     /**
+     * Creates an intent that launches an activity that triggers the degraded recoverability UI.
+     *
+     * @param accountInfo Account representing the user.
+     * @return a promise with the intent for opening the degraded recoverability activity. The
+     *         promise will be rejected if no user action is actually required.
+     */
+    public Promise<PendingIntent> createRecoverabilityDegradedIntent(CoreAccountInfo accountInfo) {
+        return mBackend.createRecoverabilityDegradedIntent(accountInfo);
+    }
+
+    /**
+     * Creates an intent that launches an activity that triggers the opt in flow for trusted vault.
+     *
+     * @param accountInfo Account representing the user.
+     * @return a promise with the intent for opening the opt-in activity.
+     */
+    public Promise<PendingIntent> createOptInIntent(CoreAccountInfo accountInfo) {
+        return mBackend.createOptInIntent(accountInfo);
+    }
+
+    /**
      * Registers a C++ client, which is a prerequisite before interacting with Java.
      */
     @VisibleForTesting
@@ -159,7 +220,7 @@ public class TrustedVaultClient {
      */
     @CalledByNative
     private static void fetchKeys(
-            long nativeTrustedVaultClientAndroid, CoreAccountInfo accountInfo) {
+            long nativeTrustedVaultClientAndroid, int requestId, CoreAccountInfo accountInfo) {
         assert isNativeRegistered(nativeTrustedVaultClientAndroid);
 
         get().mBackend.fetchKeys(accountInfo)
@@ -168,15 +229,15 @@ public class TrustedVaultClient {
                                 -> {
                             if (isNativeRegistered(nativeTrustedVaultClientAndroid)) {
                                 TrustedVaultClientJni.get().fetchKeysCompleted(
-                                        nativeTrustedVaultClientAndroid, accountInfo.getGaiaId(),
-                                        keys.toArray(new byte[0][]));
+                                        nativeTrustedVaultClientAndroid, requestId,
+                                        accountInfo.getGaiaId(), keys.toArray(new byte[0][]));
                             }
                         },
                         (exception) -> {
                             if (isNativeRegistered(nativeTrustedVaultClientAndroid)) {
                                 TrustedVaultClientJni.get().fetchKeysCompleted(
-                                        nativeTrustedVaultClientAndroid, accountInfo.getGaiaId(),
-                                        new byte[0][]);
+                                        nativeTrustedVaultClientAndroid, requestId,
+                                        accountInfo.getGaiaId(), new byte[0][]);
                             }
                         });
     }
@@ -187,7 +248,7 @@ public class TrustedVaultClient {
      */
     @CalledByNative
     private static void markKeysAsStale(
-            long nativeTrustedVaultClientAndroid, CoreAccountInfo accountInfo) {
+            long nativeTrustedVaultClientAndroid, int requestId, CoreAccountInfo accountInfo) {
         assert isNativeRegistered(nativeTrustedVaultClientAndroid);
 
         get().mBackend.markKeysAsStale(accountInfo)
@@ -196,7 +257,7 @@ public class TrustedVaultClient {
                                 -> {
                             if (isNativeRegistered(nativeTrustedVaultClientAndroid)) {
                                 TrustedVaultClientJni.get().markKeysAsStaleCompleted(
-                                        nativeTrustedVaultClientAndroid, result);
+                                        nativeTrustedVaultClientAndroid, requestId, result);
                             }
                         },
                         (exception) -> {
@@ -205,15 +266,46 @@ public class TrustedVaultClient {
                                 // difference so let's return true indicating that it might have,
                                 // since false positives are allowed.
                                 TrustedVaultClientJni.get().markKeysAsStaleCompleted(
-                                        nativeTrustedVaultClientAndroid, true);
+                                        nativeTrustedVaultClientAndroid, requestId, true);
+                            }
+                        });
+    }
+
+    /**
+     * Forwards calls to Backend.getIsRecoverabilityDegraded() and upon completion invokes native
+     * method getIsRecoverabilityDegradedCompleted().
+     */
+    @CalledByNative
+    private static void getIsRecoverabilityDegraded(
+            long nativeTrustedVaultClientAndroid, int requestId, CoreAccountInfo accountInfo) {
+        assert isNativeRegistered(nativeTrustedVaultClientAndroid);
+
+        get().mBackend.getIsRecoverabilityDegraded(accountInfo)
+                .then(
+                        (result)
+                                -> {
+                            if (isNativeRegistered(nativeTrustedVaultClientAndroid)) {
+                                TrustedVaultClientJni.get().getIsRecoverabilityDegradedCompleted(
+                                        nativeTrustedVaultClientAndroid, requestId, result);
+                            }
+                        },
+                        (exception) -> {
+                            if (isNativeRegistered(nativeTrustedVaultClientAndroid)) {
+                                // In doubt, let's not bother the user with a prompt.
+                                TrustedVaultClientJni.get().getIsRecoverabilityDegradedCompleted(
+                                        nativeTrustedVaultClientAndroid, requestId, false);
                             }
                         });
     }
 
     @NativeMethods
     interface Natives {
-        void fetchKeysCompleted(long nativeTrustedVaultClientAndroid, String gaiaId, byte[][] keys);
-        void markKeysAsStaleCompleted(long nativeTrustedVaultClientAndroid, boolean result);
+        void fetchKeysCompleted(
+                long nativeTrustedVaultClientAndroid, int requestId, String gaiaId, byte[][] keys);
+        void markKeysAsStaleCompleted(
+                long nativeTrustedVaultClientAndroid, int requestId, boolean result);
+        void getIsRecoverabilityDegradedCompleted(
+                long nativeTrustedVaultClientAndroid, int requestId, boolean result);
         void notifyKeysChanged(long nativeTrustedVaultClientAndroid);
     }
 }

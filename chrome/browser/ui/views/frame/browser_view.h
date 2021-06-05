@@ -228,6 +228,10 @@ class BrowserView : public BrowserWindow,
   // Accessor for the contents WebView.
   views::WebView* contents_web_view() { return contents_web_view_; }
 
+  base::WeakPtr<BrowserView> GetAsWeakPtr() {
+    return weak_ptr_factory_.GetWeakPtr();
+  }
+
   // Accessor for the BrowserView's TabSearchButton instance.
   TabSearchButton* GetTabSearchButton();
 
@@ -341,6 +345,10 @@ class BrowserView : public BrowserWindow,
   // Returns true when the window controls overlay should be displayed instead
   // of a full titlebar. This is only supported for desktop web apps.
   bool IsWindowControlsOverlayEnabled() const;
+
+  // Enable or disable the window controls overlay and notify the browser frame
+  // view of the update.
+  void ToggleWindowControlsOverlayEnabled();
 
   // BrowserWindow:
   void Show() override;

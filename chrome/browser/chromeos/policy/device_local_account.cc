@@ -10,8 +10,8 @@
 #include <set>
 #include <utility>
 
+#include "base/cxx17_backports.h"
 #include "base/logging.h"
-#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/values.h"
@@ -21,6 +21,7 @@
 #include "components/account_id/account_id.h"
 #include "components/user_manager/user_names.h"
 #include "google_apis/gaia/gaia_auth_util.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace policy {
 
@@ -260,10 +261,10 @@ std::vector<DeviceLocalAccount> GetDeviceLocalAccounts(
       continue;
     }
 
-    int type;
-    if (!entry->GetIntegerWithoutPathExpansion(
-            chromeos::kAccountsPrefDeviceLocalAccountsKeyType, &type) ||
-        type < 0 || type >= DeviceLocalAccount::TYPE_COUNT) {
+    absl::optional<int> type =
+        entry->FindIntKey(chromeos::kAccountsPrefDeviceLocalAccountsKeyType);
+    if (!type || type.value() < 0 ||
+        type.value() >= DeviceLocalAccount::TYPE_COUNT) {
       LOG(ERROR) << "Missing or invalid account type in device-local account "
                  << "list at index " << i << ".";
       continue;
@@ -275,7 +276,7 @@ std::vector<DeviceLocalAccount> GetDeviceLocalAccounts(
       continue;
     }
 
-    switch (type) {
+    switch (type.value()) {
       case DeviceLocalAccount::TYPE_PUBLIC_SESSION:
         accounts.push_back(DeviceLocalAccount(
             DeviceLocalAccount::TYPE_PUBLIC_SESSION, account_id, "", ""));

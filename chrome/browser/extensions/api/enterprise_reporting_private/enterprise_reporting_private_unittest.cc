@@ -2,6 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <tuple>
+
+#include "chrome/browser/enterprise/signals/device_info_fetcher.h"
 #include "chrome/browser/extensions/api/enterprise_reporting_private/enterprise_reporting_private_api.h"
 
 #include "base/command_line.h"
@@ -115,8 +118,14 @@ TEST_F(EnterpriseReportingPrivateDeviceDataFunctionsTest, DeviceDataMissing) {
                                              browser(),
                                              extensions::api_test_utils::NONE);
   ASSERT_TRUE(function->GetResultList());
-  EXPECT_EQ(0u, function->GetResultList()->GetSize());
+  EXPECT_EQ(1u, function->GetResultList()->GetSize());
   EXPECT_TRUE(function->GetError().empty());
+
+  const base::Value* single_result = nullptr;
+  EXPECT_TRUE(function->GetResultList()->Get(0, &single_result));
+  ASSERT_TRUE(single_result);
+  ASSERT_TRUE(single_result->is_blob());
+  EXPECT_EQ(base::Value::BlobStorage(), single_result->GetBlob());
 }
 
 TEST_F(EnterpriseReportingPrivateDeviceDataFunctionsTest, DeviceBadId) {
@@ -193,8 +202,13 @@ TEST_F(EnterpriseReportingPrivateDeviceDataFunctionsTest, RetrieveDeviceData) {
                                              std::move(values2), browser(),
                                              extensions::api_test_utils::NONE);
   ASSERT_TRUE(get_function2->GetResultList());
-  EXPECT_EQ(0u, get_function2->GetResultList()->GetSize());
+  EXPECT_EQ(1u, get_function2->GetResultList()->GetSize());
   EXPECT_TRUE(get_function2->GetError().empty());
+
+  EXPECT_TRUE(get_function2->GetResultList()->Get(0, &single_result));
+  ASSERT_TRUE(single_result);
+  ASSERT_TRUE(single_result->is_blob());
+  EXPECT_EQ(base::Value::BlobStorage(), single_result->GetBlob());
 }
 
 // TODO(pastarmovj): Remove once implementation for the other platform exists.
@@ -310,9 +324,31 @@ TEST_F(EnterpriseReportingPrivateGetDeviceInfoTest, GetDeviceInfo) {
             info.screen_lock_secured);
   EXPECT_EQ(enterprise_reporting_private::SETTING_VALUE_DISABLED,
             info.disk_encrypted);
-  ASSERT_EQ(1, info.mac_addresses.size());
+  ASSERT_EQ(1u, info.mac_addresses.size());
   EXPECT_EQ("00:00:00:00:00:00", info.mac_addresses[0]);
 #endif
+}
+
+TEST_F(EnterpriseReportingPrivateGetDeviceInfoTest, GetDeviceInfoConversion) {
+  // Verify that the conversion from a DeviceInfoFetcher result works,
+  // regardless of platform.
+  auto device_info_fetcher =
+      enterprise_signals::DeviceInfoFetcher::CreateStubInstanceForTesting();
+
+  enterprise_reporting_private::DeviceInfo info =
+      EnterpriseReportingPrivateGetDeviceInfoFunction::ToDeviceInfo(
+          device_info_fetcher->Fetch());
+  EXPECT_EQ("stubOS", info.os_name);
+  EXPECT_EQ("0.0.0.0", info.os_version);
+  EXPECT_EQ("midnightshift", info.device_host_name);
+  EXPECT_EQ("topshot", info.device_model);
+  EXPECT_EQ("twirlchange", info.serial_number);
+  EXPECT_EQ(enterprise_reporting_private::SETTING_VALUE_ENABLED,
+            info.screen_lock_secured);
+  EXPECT_EQ(enterprise_reporting_private::SETTING_VALUE_DISABLED,
+            info.disk_encrypted);
+  ASSERT_EQ(1u, info.mac_addresses.size());
+  EXPECT_EQ("00:00:00:00:00:00", info.mac_addresses[0]);
 }
 
 #endif  // !defined(OS_CHROMEOS)
@@ -349,7 +385,56 @@ TEST_F(EnterpriseReportingPrivateGetContextInfoTest, NoSpecialContext) {
             info.realtime_url_check_mode);
   EXPECT_TRUE(info.on_security_event_providers.empty());
   EXPECT_EQ(version_info::GetVersionNumber(), info.browser_version);
+  EXPECT_EQ(enterprise_reporting_private::SAFE_BROWSING_LEVEL_STANDARD,
+            info.safe_browsing_protection_level);
 }
+
+class EnterpriseReportingPrivateGetContextInfoSafeBrowsingTest
+    : public EnterpriseReportingPrivateGetContextInfoTest,
+      public testing::WithParamInterface<std::tuple<bool, bool>> {};
+
+TEST_P(EnterpriseReportingPrivateGetContextInfoSafeBrowsingTest, Test) {
+  std::tuple<bool, bool> params = GetParam();
+
+  bool safe_browsing_enabled = std::get<0>(params);
+  bool safe_browsing_enhanced_enabled = std::get<1>(params);
+
+  profile()->GetPrefs()->SetBoolean(prefs::kSafeBrowsingEnabled,
+                                    safe_browsing_enabled);
+  profile()->GetPrefs()->SetBoolean(prefs::kSafeBrowsingEnhanced,
+                                    safe_browsing_enhanced_enabled);
+
+  enterprise_reporting_private::ContextInfo info = GetContextInfo();
+
+  EXPECT_TRUE(info.browser_affiliation_ids.empty());
+  EXPECT_TRUE(info.profile_affiliation_ids.empty());
+  EXPECT_TRUE(info.on_file_attached_providers.empty());
+  EXPECT_TRUE(info.on_file_downloaded_providers.empty());
+  EXPECT_TRUE(info.on_bulk_data_entry_providers.empty());
+  EXPECT_EQ(enterprise_reporting_private::REALTIME_URL_CHECK_MODE_DISABLED,
+            info.realtime_url_check_mode);
+  EXPECT_TRUE(info.on_security_event_providers.empty());
+  EXPECT_EQ(version_info::GetVersionNumber(), info.browser_version);
+
+  if (safe_browsing_enabled) {
+    if (safe_browsing_enhanced_enabled)
+      EXPECT_EQ(enterprise_reporting_private::SAFE_BROWSING_LEVEL_ENHANCED,
+                info.safe_browsing_protection_level);
+    else
+      EXPECT_EQ(enterprise_reporting_private::SAFE_BROWSING_LEVEL_STANDARD,
+                info.safe_browsing_protection_level);
+  } else {
+    EXPECT_EQ(enterprise_reporting_private::SAFE_BROWSING_LEVEL_DISABLED,
+              info.safe_browsing_protection_level);
+  }
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    EnterpriseReportingPrivateGetContextInfoSafeBrowsingTest,
+    testing::Values(std::make_tuple(false, false),
+                    std::make_tuple(true, false),
+                    std::make_tuple(true, true)));
 
 class EnterpriseReportingPrivateGetContextInfoRealTimeURLCheckTest
     : public EnterpriseReportingPrivateGetContextInfoTest,
@@ -395,6 +480,8 @@ TEST_P(EnterpriseReportingPrivateGetContextInfoRealTimeURLCheckTest, Test) {
   EXPECT_TRUE(info.on_bulk_data_entry_providers.empty());
   EXPECT_TRUE(info.on_security_event_providers.empty());
   EXPECT_EQ(version_info::GetVersionNumber(), info.browser_version);
+  EXPECT_EQ(enterprise_reporting_private::SAFE_BROWSING_LEVEL_STANDARD,
+            info.safe_browsing_protection_level);
 }
 
 }  // namespace extensions

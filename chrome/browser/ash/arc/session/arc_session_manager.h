@@ -18,11 +18,12 @@
 #include "chrome/browser/ash/arc/session/adb_sideloading_availability_delegate_impl.h"
 #include "chrome/browser/ash/arc/session/arc_app_id_provider_impl.h"
 #include "chrome/browser/ash/arc/session/arc_session_manager_observer.h"
-#include "chrome/browser/chromeos/policy/android_management_client.h"
+#include "chrome/browser/chromeos/policy/arc/android_management_client.h"
 #include "chromeos/dbus/concierge/concierge_client.h"
 #include "chromeos/dbus/session_manager/session_manager_client.h"
 #include "components/arc/session/arc_session_runner.h"
 #include "components/arc/session/arc_stop_reason.h"
+#include "components/policy/core/common/policy_service.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/abseil-cpp/absl/types/variant.h"
 
@@ -51,7 +52,8 @@ enum class ArcStopReason;
 class ArcSessionManager : public ArcSessionRunner::Observer,
                           public ArcSupportHost::ErrorDelegate,
                           public chromeos::SessionManagerClient::Observer,
-                          public chromeos::ConciergeClient::VmObserver {
+                          public chromeos::ConciergeClient::VmObserver,
+                          public policy::PolicyService::Observer {
  public:
   // Represents each State of ARC session.
   // NOT_INITIALIZED: represents the state that the Profile is not yet ready
@@ -221,6 +223,11 @@ class ArcSessionManager : public ArcSessionRunner::Observer,
   // A helper function that calls ArcSessionRunner's SetUserInfo.
   void SetUserInfo();
 
+  // Trims VM's memory by moving it to zram. |callback| is called when the
+  // operation is done.
+  using TrimVmMemoryCallback = ArcSessionRunner::TrimVmMemoryCallback;
+  void TrimVmMemory(TrimVmMemoryCallback callback);
+
   // Returns the time when ARC was pre-started (mini-ARC start), or a null time
   // if ARC has not been pre-started yet.
   base::TimeTicks pre_start_time() const { return pre_start_time_; }
@@ -280,6 +287,10 @@ class ArcSessionManager : public ArcSessionRunner::Observer,
     OnExpandPropertyFilesAndReadSalt(ExpansionResult{{}, result});
   }
 
+  // Invokes OnBackgroundAndroidManagementChecked as if the check is done.
+  void OnBackgroundAndroidManagementCheckedForTesting(
+      policy::AndroidManagementClient::Result result);
+
   void reset_property_files_expansion_result() {
     property_files_expansion_result_.reset();
   }
@@ -289,6 +300,9 @@ class ArcSessionManager : public ArcSessionRunner::Observer,
       const vm_tools::concierge::VmStartedSignal& vm_signal) override;
   void OnVmStopped(
       const vm_tools::concierge::VmStoppedSignal& vm_signal) override;
+
+  // policy::PolicyServer::Observer override.
+  void OnFirstPoliciesLoaded(policy::PolicyDomain domain) override;
 
   // Getter for |vm_info_|.
   // If ARCVM is not running, return absl::nullopt.
@@ -392,6 +406,13 @@ class ArcSessionManager : public ArcSessionRunner::Observer,
   // Called when ExpandPropertyFilesAndReadSalt is done.
   void OnExpandPropertyFilesAndReadSalt(ExpansionResult result);
 
+  // Sets up a timer to wait for policies load, or immediately calls
+  // OnFirstPoliciesLoadedOrTimeout.
+  void WaitForPoliciesLoad();
+  // Called when first policies are loaded or when wait_for_policy_timer_
+  // expires.
+  void OnFirstPoliciesLoadedOrTimeout();
+
   std::unique_ptr<ArcSessionRunner> arc_session_runner_;
   std::unique_ptr<AdbSideloadingAvailabilityDelegateImpl>
       adb_sideloading_availability_delegate_;
@@ -442,6 +463,10 @@ class ArcSessionManager : public ArcSessionRunner::Observer,
   absl::optional<bool> property_files_expansion_result_;
 
   absl::optional<vm_tools::concierge::VmInfo> vm_info_;
+
+  // Timer to wait for policiesin case we are suspecting the user might be
+  // transitioning to the managed state.
+  base::OneShotTimer wait_for_policy_timer_;
 
   // Must be the last member.
   base::WeakPtrFactory<ArcSessionManager> weak_ptr_factory_{this};

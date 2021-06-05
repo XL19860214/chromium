@@ -5,6 +5,7 @@
 module mojom;
 
 import "url/mojom/origin.mojom";
+import "url/mojom/url.mojom";
 
 // Represents StorableImpression::SourceType.
 enum SourceType {
@@ -15,8 +16,8 @@ enum SourceType {
 // Struct containing stored data that will be sent in a future conversion
 // report.
 struct WebUIConversionReport {
-  string impression_data;
-  string conversion_data;
+  uint64 impression_data;
+  uint64 conversion_data;
   url.mojom.Origin conversion_origin;
   url.mojom.Origin reporting_origin;
   double report_time;
@@ -25,18 +26,26 @@ struct WebUIConversionReport {
 
 // Struct representing a stored impression that will be displayed by WebUI.
 struct WebUIImpression {
-  string impression_data;
+  uint64 impression_data;
   url.mojom.Origin impression_origin;
   url.mojom.Origin conversion_destination;
   url.mojom.Origin reporting_origin;
   double impression_time;
   double expiry_time;
   SourceType source_type;
-  string priority;
+  int64 priority;
 };
 
-// Mojo interface used for communication between a WebUI and the storage layer
-// for conversion measurement.
+// Struct containing info for reports sent in this session.
+struct SentReportInfo {
+  url.mojom.Url report_url;
+  // The JSON POSTed to the report URL.
+  string report_body;
+  int32 http_response_code;
+};
+
+// Mojo interface for the conversion internals WebUI to communicate with the
+// storage layer.
 interface ConversionInternalsHandler {
   // Returns whether conversion measurement and the debug mode are enabled in
   // the browsing context the WebUI is in.
@@ -50,6 +59,9 @@ interface ConversionInternalsHandler {
   // Returns all reports contained in storage, including those that are actively
   // being sent.
   GetPendingReports() => (array<WebUIConversionReport> reports);
+
+  // Returns the info for all reports that have been sent in this session.
+  GetSentReports() => (array<SentReportInfo> reports);
 
   // Sends all stored reports, ignoring delay, returning when the
   // operation has been completed and all reports have been cleared from

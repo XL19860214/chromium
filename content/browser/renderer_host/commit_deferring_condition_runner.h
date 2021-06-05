@@ -61,9 +61,17 @@ class CONTENT_EXPORT CommitDeferringConditionRunner {
   // asynchronously.
   void ProcessChecks();
 
+  // Call to register all deferring conditions. This should be called when
+  // NavigationState >= WILL_START_REQUEST.
+  void RegisterDeferringConditions(NavigationRequest& navigation_request);
+
   // Used in tests to inject mock conditions.
   void AddConditionForTesting(
       std::unique_ptr<CommitDeferringCondition> condition);
+
+  // Used in tests to check if CommitDeferringConditionRunner is currently
+  // deferred for the navigation or not.
+  bool is_deferred_for_testing() const;
 
  private:
   friend class CommitDeferringConditionRunnerTest;
@@ -75,7 +83,6 @@ class CONTENT_EXPORT CommitDeferringConditionRunner {
   // method is passed into each condition when WillCommitNavigation is called.
   void ResumeProcessing();
 
-  void RegisterDeferringConditions(NavigationRequest& navigation_request);
   void ProcessConditions();
   void AddCondition(std::unique_ptr<CommitDeferringCondition> condition);
 

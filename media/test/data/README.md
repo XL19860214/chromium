@@ -1207,6 +1207,12 @@ ffmpeg -f lavfi -i "sine=frequency=500:sample_rate=48000" -t 5 -c:v libvpx a500h
 ffmpeg -i red.webm -i green.webm -i blue.webm -i a300hz.webm -i a500hz.webm -map 0 -map 1 -map 2 -map 3 -map 4  multitrack-3video-2audio.webm
 ```
 
+### Spherical metadata WebM files
+
+#### bear-spherical-metadata.webm
+bear_silent.webm video injected with "stereo_mode=SIDE_BY_SIDE_LEFT_EYE_FIRST", "projectionType=EQUIRECTANGULAR", 
+and projection pose_yaw, pose_pitch, and pose_roll = 10, 20, and 30 respectively.
+
 ### Opus pre-skip and end-trimming test clips
 https://people.xiph.org/~greg/opus_testvectors/
 
@@ -1215,4 +1221,4 @@ https://people.xiph.org/~greg/opus_testvectors/
 * opus-trimming-test.webm
 
 [libaom test vectors]: https://aomedia.googlesource.com/aom/+/master/test/test_vectors.cc
-[libaom LICENSE]: https://source.chromium.org/chromium/chromium/src/+/master:media/test/data/licenses/AOM-LICENSE
+[libaom LICENSE]: https://source.chromium.org/chromium/chromium/src/+/main:media/test/data/licenses/AOM-LICENSE

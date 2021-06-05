@@ -26,6 +26,7 @@ struct SortedTokenComparisonResult;
 // Represents the validation status of value stored in the AutofillProfile.
 // The associated integer values used to store the verification code in SQL and
 // should not be modified.
+// GENERATED_JAVA_ENUM_PACKAGE: org.chromium.chrome.browser.autofill
 enum class VerificationStatus {
   // No verification status assigned.
   kNoStatus = 0,
@@ -39,6 +40,7 @@ enum class VerificationStatus {
   kUserVerified = 4,
   // The token was parsed by the server.
   kServerParsed = 5,
+  kMaxValue = kServerParsed
 };
 
 // Prints the string representation of |status| to |os|.

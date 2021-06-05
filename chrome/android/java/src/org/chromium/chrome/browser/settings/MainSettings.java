@@ -20,7 +20,6 @@ import androidx.preference.PreferenceFragmentCompat;
 import org.chromium.base.ContextUtils;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.datareduction.settings.DataReductionPreferenceFragment;
-import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.homepage.HomepageManager;
 import org.chromium.chrome.browser.net.spdyproxy.DataReductionProxySettings;
 import org.chromium.chrome.browser.night_mode.NightModeUtils;
@@ -39,6 +38,7 @@ import org.chromium.chrome.browser.sync.settings.SignInPreference;
 import org.chromium.chrome.browser.sync.settings.SyncPromoPreference;
 import org.chromium.chrome.browser.sync.settings.SyncPromoPreference.State;
 import org.chromium.chrome.browser.sync.settings.SyncSettingsUtils;
+import org.chromium.chrome.browser.toolbar.adaptive.AdaptiveToolbarFeatures;
 import org.chromium.chrome.browser.tracing.settings.DeveloperSettings;
 import org.chromium.components.browser_ui.settings.ChromeBasePreference;
 import org.chromium.components.browser_ui.settings.ManagedPreferenceDelegate;
@@ -60,16 +60,15 @@ public class MainSettings extends PreferenceFragmentCompat
         implements TemplateUrlService.LoadListener, ProfileSyncService.SyncStateChangedListener,
                    SigninManager.SignInStateObserver {
     public static final String PREF_SYNC_PROMO = "sync_promo";
-    public static final String PREF_ACCOUNT_SECTION = "account_section";
     public static final String PREF_ACCOUNT_AND_GOOGLE_SERVICES_SECTION =
             "account_and_google_services_section";
     public static final String PREF_SIGN_IN = "sign_in";
-    public static final String PREF_SYNC_AND_SERVICES = "sync_and_services";
     public static final String PREF_MANAGE_SYNC = "manage_sync";
     public static final String PREF_GOOGLE_SERVICES = "google_services";
     public static final String PREF_SEARCH_ENGINE = "search_engine";
     public static final String PREF_PASSWORDS = "passwords";
     public static final String PREF_HOMEPAGE = "homepage";
+    public static final String PREF_TOOLBAR_SHORTCUT = "toolbar_shortcut";
     public static final String PREF_UI_THEME = "ui_theme";
     public static final String PREF_PRIVACY = "privacy";
     public static final String PREF_SAFETY_CHECK = "safety_check";
@@ -194,15 +193,8 @@ public class MainSettings extends PreferenceFragmentCompat
             TemplateUrlServiceFactory.get().load();
         }
 
-        // Replace the account section header, replace SyncAndServicesSettings with
-        // ManageSyncSettings and add GoogleServicesSettings row if this flag is enabled.
-        if (ChromeFeatureList.isEnabled(ChromeFeatureList.MOBILE_IDENTITY_CONSISTENCY)) {
-            getPreferenceScreen().removePreference(findPreference(PREF_ACCOUNT_SECTION));
-            getPreferenceScreen().removePreference(findPreference(PREF_SYNC_AND_SERVICES));
-
-            findPreference(PREF_ACCOUNT_AND_GOOGLE_SERVICES_SECTION).setVisible(true);
-            mManageSync.setVisible(true);
-            findPreference(PREF_GOOGLE_SERVICES).setVisible(true);
+        if (!AdaptiveToolbarFeatures.isCustomizationEnabled()) {
+            getPreferenceScreen().removePreference(findPreference(PREF_TOOLBAR_SHORTCUT));
         }
     }
 
@@ -235,7 +227,7 @@ public class MainSettings extends PreferenceFragmentCompat
             removePreferenceIfPresent(PREF_SIGN_IN);
         }
 
-        updateSyncPreference();
+        updateManageSyncPreference();
         updateSearchEnginePreference();
 
         Preference homepagePref = addPreferenceIfAbsent(PREF_HOMEPAGE);
@@ -269,32 +261,14 @@ public class MainSettings extends PreferenceFragmentCompat
         if (preference != null) getPreferenceScreen().removePreference(preference);
     }
 
-    private void updateSyncPreference() {
-        if (ChromeFeatureList.isEnabled(ChromeFeatureList.MOBILE_IDENTITY_CONSISTENCY)) {
-            updateManageSyncPreference();
-        } else {
-            updateSyncAndServicesPreference();
-        }
-    }
-
-    private void updateSyncAndServicesPreference() {
-        ChromeBasePreference preference = findPreference(PREF_SYNC_AND_SERVICES);
-        preference.setIcon(SyncSettingsUtils.getSyncStatusIcon(getActivity()));
-        preference.setSummary(SyncSettingsUtils.getSyncStatusSummary(getActivity()));
-    }
-
     private void updateManageSyncPreference() {
         String primaryAccountName = CoreAccountInfo.getEmailFrom(
                 IdentityServicesProvider.get()
                         .getIdentityManager(Profile.getLastUsedRegularProfile())
                         .getPrimaryAccountInfo(ConsentLevel.SIGNIN));
-        boolean showManageSync =
-                ChromeFeatureList.isEnabled(ChromeFeatureList.MOBILE_IDENTITY_CONSISTENCY)
-                && primaryAccountName != null;
+        boolean showManageSync = primaryAccountName != null;
         mManageSync.setVisible(showManageSync);
-        if (!showManageSync) {
-            return;
-        }
+        if (!showManageSync) return;
 
         boolean isSyncConsentAvailable =
                 IdentityServicesProvider.get()
@@ -366,10 +340,8 @@ public class MainSettings extends PreferenceFragmentCompat
         // Remove "Account" section header if the personalized sign-in promo is shown.
         boolean isShowingPersonalizedSigninPromo =
                 mSyncPromoPreference.getState() == State.PERSONALIZED_SIGNIN_PROMO;
-        String prefName = ChromeFeatureList.isEnabled(ChromeFeatureList.MOBILE_IDENTITY_CONSISTENCY)
-                ? PREF_ACCOUNT_AND_GOOGLE_SERVICES_SECTION
-                : PREF_ACCOUNT_SECTION;
-        findPreference(prefName).setVisible(!isShowingPersonalizedSigninPromo);
+        findPreference(PREF_ACCOUNT_AND_GOOGLE_SERVICES_SECTION)
+                .setVisible(!isShowingPersonalizedSigninPromo);
         mSignInPreference.setVisible(!isShowingPersonalizedSigninPromo);
     }
 
@@ -382,7 +354,7 @@ public class MainSettings extends PreferenceFragmentCompat
 
     @Override
     public void syncStateChanged() {
-        updateSyncPreference();
+        updateManageSyncPreference();
     }
 
     @VisibleForTesting

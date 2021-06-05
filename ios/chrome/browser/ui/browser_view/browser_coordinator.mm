@@ -7,7 +7,7 @@
 #include <memory>
 
 #import "base/metrics/histogram_functions.h"
-#include "base/scoped_observer.h"
+#include "base/scoped_observation.h"
 #include "components/profile_metrics/browser_profile_type.h"
 #import "ios/chrome/browser/app_launcher/app_launcher_abuse_detector.h"
 #import "ios/chrome/browser/app_launcher/app_launcher_tab_helper.h"
@@ -25,7 +25,6 @@
 #import "ios/chrome/browser/ui/activity_services/activity_params.h"
 #import "ios/chrome/browser/ui/activity_services/requirements/activity_service_positioner.h"
 #import "ios/chrome/browser/ui/alert_coordinator/repost_form_coordinator.h"
-#import "ios/chrome/browser/ui/authentication/signin/user_signin/policy_signout_commands.h"
 #import "ios/chrome/browser/ui/authentication/signin/user_signin/user_policy_signout_coordinator.h"
 #import "ios/chrome/browser/ui/autofill/form_input_accessory/form_input_accessory_coordinator.h"
 #import "ios/chrome/browser/ui/badges/badge_popup_menu_coordinator.h"
@@ -42,6 +41,7 @@
 #import "ios/chrome/browser/ui/commands/page_info_commands.h"
 #import "ios/chrome/browser/ui/commands/password_breach_commands.h"
 #import "ios/chrome/browser/ui/commands/password_protection_commands.h"
+#import "ios/chrome/browser/ui/commands/policy_signout_commands.h"
 #import "ios/chrome/browser/ui/commands/qr_generation_commands.h"
 #import "ios/chrome/browser/ui/commands/share_highlight_command.h"
 #import "ios/chrome/browser/ui/commands/text_zoom_commands.h"
@@ -74,11 +74,9 @@
 #import "ios/chrome/browser/ui/recent_tabs/recent_tabs_coordinator.h"
 #import "ios/chrome/browser/ui/settings/autofill/autofill_add_credit_card_coordinator.h"
 #import "ios/chrome/browser/ui/sharing/sharing_coordinator.h"
-#import "ios/chrome/browser/ui/snackbar/snackbar_coordinator.h"
 #import "ios/chrome/browser/ui/text_zoom/text_zoom_coordinator.h"
 #import "ios/chrome/browser/ui/toolbar/accessory/toolbar_accessory_coordinator_delegate.h"
 #import "ios/chrome/browser/ui/toolbar/accessory/toolbar_accessory_presenter.h"
-#import "ios/chrome/browser/ui/translate/legacy_translate_infobar_coordinator.h"
 #include "ios/chrome/browser/ui/ui_feature_flags.h"
 #import "ios/chrome/browser/url_loading/url_loading_browser_agent.h"
 #import "ios/chrome/browser/url_loading/url_loading_params.h"
@@ -185,19 +183,11 @@
 // Coordinator for sharing scenarios.
 @property(nonatomic, strong) SharingCoordinator* sharingCoordinator;
 
-// Coordinator for displaying snackbars.
-@property(nonatomic, strong) SnackbarCoordinator* snackbarCoordinator;
-
 // Coordinator for presenting SKStoreProductViewController.
 @property(nonatomic, strong) StoreKitCoordinator* storeKitCoordinator;
 
 // Coordinator for Text Zoom.
 @property(nonatomic, strong) TextZoomCoordinator* textZoomCoordinator;
-
-// Coordinator for the translate infobar's language selection and translate
-// option popup menus.
-@property(nonatomic, strong)
-    LegacyTranslateInfobarCoordinator* translateInfobarCoordinator;
 
 // Coordinator that manages the default browser promo modal.
 @property(nonatomic, strong)
@@ -226,8 +216,8 @@
 @implementation BrowserCoordinator {
   // Observers for WebStateList.
   std::unique_ptr<WebStateListObserverBridge> _webStateListObserverBridge;
-  std::unique_ptr<ScopedObserver<WebStateList, WebStateListObserver>>
-      _scopedWebStateListObserver;
+  std::unique_ptr<base::ScopedObservation<WebStateList, WebStateListObserver>>
+      _scopedWebStateListObservation;
 }
 
 #pragma mark - ChromeCoordinator
@@ -406,16 +396,6 @@
   self.formInputAccessoryCoordinator.navigator = self;
   [self.formInputAccessoryCoordinator start];
 
-  self.snackbarCoordinator = [[SnackbarCoordinator alloc]
-      initWithBaseViewController:self.viewController
-                         browser:self.browser];
-  [self.snackbarCoordinator start];
-
-  self.translateInfobarCoordinator = [[LegacyTranslateInfobarCoordinator alloc]
-      initWithBaseViewController:self.viewController
-                         browser:self.browser];
-  [self.translateInfobarCoordinator start];
-
   self.passKitCoordinator =
       [[PassKitCoordinator alloc] initWithBaseViewController:self.viewController
                                                      browser:self.browser];
@@ -509,17 +489,11 @@
   [self.sharingCoordinator stop];
   self.sharingCoordinator = nil;
 
-  [self.snackbarCoordinator stop];
-  self.snackbarCoordinator = nil;
-
   [self.storeKitCoordinator stop];
   self.storeKitCoordinator = nil;
 
   [self.textZoomCoordinator stop];
   self.textZoomCoordinator = nil;
-
-  [self.translateInfobarCoordinator stop];
-  self.translateInfobarCoordinator = nil;
 
   [self.addCreditCardCoordinator stop];
   self.addCreditCardCoordinator = nil;
@@ -956,15 +930,15 @@
 - (void)addWebStateListObserver {
   _webStateListObserverBridge =
       std::make_unique<WebStateListObserverBridge>(self);
-  _scopedWebStateListObserver =
-      std::make_unique<ScopedObserver<WebStateList, WebStateListObserver>>(
-          _webStateListObserverBridge.get());
-  _scopedWebStateListObserver->Add(self.browser->GetWebStateList());
+  _scopedWebStateListObservation = std::make_unique<
+      base::ScopedObservation<WebStateList, WebStateListObserver>>(
+      _webStateListObserverBridge.get());
+  _scopedWebStateListObservation->Observe(self.browser->GetWebStateList());
 }
 
 // Removes observer for WebStateList.
 - (void)removeWebStateListObserver {
-  _scopedWebStateListObserver.reset();
+  _scopedWebStateListObservation.reset();
   _webStateListObserverBridge.reset();
 }
 

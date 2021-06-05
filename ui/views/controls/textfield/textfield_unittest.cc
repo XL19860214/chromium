@@ -12,10 +12,10 @@
 #include <vector>
 
 #include "base/command_line.h"
+#include "base/cxx17_backports.h"
 #include "base/format_macros.h"
 #include "base/i18n/rtl.h"
 #include "base/pickle.h"
-#include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
@@ -75,6 +75,10 @@
 #if defined(OS_MAC)
 #include "ui/base/cocoa/secure_password_input.h"
 #include "ui/base/cocoa/text_services_context_menu.h"
+#endif
+
+#if defined(USE_OZONE)
+#include "ui/events/ozone/layout/keyboard_layout_engine_test_utils.h"
 #endif
 
 namespace views {
@@ -396,6 +400,13 @@ void TextfieldTest::SetUp() {
   ui::Clipboard::SetClipboardForCurrentThread(
       std::make_unique<ui::TestClipboard>());
   ViewsTestBase::SetUp();
+
+#if defined(USE_OZONE)
+  // TODO(crbug.com/1209477): Wayland bots use Weston with Headless backend that
+  // sets up XkbKeyboardLayoutEngine differently. When that is fixed, remove the
+  // workaround below.
+  ui::WaitUntilLayoutEngineIsReadyForTest();
+#endif
 }
 
 void TextfieldTest::TearDown() {

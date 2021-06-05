@@ -226,7 +226,8 @@ TEST(SyncUIUtilTest, DistinctCasesReportProperMessages) {
     signin::IdentityTestEnvironment environment;
 
     // Need a primary account signed in before calling SetUpDistinctCase().
-    environment.MakePrimaryAccountAvailable(kTestUser);
+    environment.MakePrimaryAccountAvailable(kTestUser,
+                                            signin::ConsentLevel::kSync);
 
     StatusLabels expected_labels = SetUpDistinctCase(
         &service, &environment, static_cast<DistinctState>(index));
@@ -245,7 +246,7 @@ TEST(SyncUIUtilTest, UnrecoverableErrorWithActionableError) {
   syncer::TestSyncService service;
   signin::IdentityTestEnvironment environment;
 
-  environment.SetPrimaryAccount(kTestUser);
+  environment.SetPrimaryAccount(kTestUser, signin::ConsentLevel::kSync);
   service.SetFirstSetupComplete(true);
   service.SetDisableReasons(
       syncer::SyncService::DISABLE_REASON_UNRECOVERABLE_ERROR);
@@ -281,7 +282,7 @@ TEST(SyncUIUtilTest, ActionableErrorWithPassiveMessage) {
   syncer::TestSyncService service;
   signin::IdentityTestEnvironment environment;
 
-  environment.SetPrimaryAccount(kTestUser);
+  environment.SetPrimaryAccount(kTestUser, signin::ConsentLevel::kSync);
   service.SetFirstSetupComplete(true);
   service.SetDisableReasons(
       syncer::SyncService::DISABLE_REASON_UNRECOVERABLE_ERROR);
@@ -304,7 +305,7 @@ TEST(SyncUIUtilTest, SyncSettingsConfirmationNeededTest) {
   syncer::TestSyncService service;
   signin::IdentityTestEnvironment environment;
 
-  environment.SetPrimaryAccount(kTestUser);
+  environment.SetPrimaryAccount(kTestUser, signin::ConsentLevel::kSync);
   service.SetFirstSetupComplete(false);
   ASSERT_TRUE(ShouldRequestSyncConfirmation(&service));
 
@@ -323,7 +324,8 @@ TEST(SyncUIUtilTest, IgnoreSyncErrorForNonSyncAccount) {
   signin::IdentityTestEnvironment environment;
 
   const AccountInfo primary_account_info =
-      environment.MakePrimaryAccountAvailable(kTestUser);
+      environment.MakePrimaryAccountAvailable(kTestUser,
+                                              signin::ConsentLevel::kSync);
   service.SetAuthenticatedAccountInfo(primary_account_info);
   service.SetFirstSetupComplete(true);
 

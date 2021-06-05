@@ -67,6 +67,8 @@
 #import "ios/chrome/common/ui/favicon/favicon_view.h"
 #include "ios/chrome/grit/ios_chromium_strings.h"
 #include "ios/chrome/grit/ios_strings.h"
+#include "ios/public/provider/chrome/browser/chrome_browser_provider.h"
+#import "ios/public/provider/chrome/browser/modals/modals_provider.h"
 #import "ios/public/provider/chrome/browser/signin/signin_presenter.h"
 #import "ios/web/public/web_state.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -271,8 +273,7 @@ API_AVAILABLE(ios(13.0))
       [[TableViewDisclosureHeaderFooterItem alloc]
           initWithType:ItemTypeRecentlyClosedHeader];
   header.text = l10n_util::GetNSString(IDS_IOS_RECENT_TABS_RECENTLY_CLOSED);
-  if (base::FeatureList::IsEnabled(kIllustratedEmptyStates) &&
-      self.tabRestoreService->entries().empty()) {
+  if (self.tabRestoreService->entries().empty()) {
     header.subtitleText =
         l10n_util::GetNSString(IDS_IOS_RECENT_TABS_RECENTLY_CLOSED_EMPTY);
   }
@@ -463,9 +464,10 @@ API_AVAILABLE(ios(13.0))
 - (void)addOtherDevicesSectionForState:(SessionsSyncUserState)state {
   // If sign-in is disabled through user Settings, do not show Other Devices
   // section. However, if sign-in is disabled by policy Chrome will
-  // continue to show the Other Devices section with a specialized mesage.
-  if (!signin::IsSigninAllowed(self.browserState->GetPrefs()) &&
-      signin::IsSigninAllowedByPolicy()) {
+  // continue to show the Other Devices section with a specialized message.
+  const PrefService* prefs = self.browserState->GetPrefs();
+  if (!signin::IsSigninAllowed(prefs) &&
+      signin::IsSigninAllowedByPolicy(prefs)) {
     return;
   }
 
@@ -507,7 +509,7 @@ API_AVAILABLE(ios(13.0))
         [UIColor colorNamed:kTextSecondaryColor];
     [self.tableViewModel addItem:disabledByOrganizationText
          toSectionWithIdentifier:SectionIdentifierOtherDevices];
-  } else if (base::FeatureList::IsEnabled(kIllustratedEmptyStates)) {
+  } else {
     ItemType itemType;
     NSString* itemSubtitle;
     NSString* itemButtonText;
@@ -553,33 +555,6 @@ API_AVAILABLE(ios(13.0))
     [self.tableViewModel insertItem:illustratedItem
             inSectionWithIdentifier:SectionIdentifierOtherDevices
                             atIndex:0];
-  } else {
-    // Adds Other Devices item for |state|.
-    TableViewTextItem* dummyCell = nil;
-    switch (state) {
-      case SessionsSyncUserState::USER_SIGNED_IN_SYNC_ON_WITH_SESSIONS:
-        NOTREACHED();
-        return;
-      case SessionsSyncUserState::USER_SIGNED_IN_SYNC_OFF:
-        [self addUserSignedSyncOffItem];
-        return;
-      case SessionsSyncUserState::USER_SIGNED_IN_SYNC_ON_NO_SESSIONS:
-        dummyCell = [[TableViewTextItem alloc]
-            initWithType:ItemTypeOtherDevicesNoSessions];
-        dummyCell.text =
-            l10n_util::GetNSString(IDS_IOS_OPEN_TABS_NO_SESSION_INSTRUCTIONS);
-        break;
-      case SessionsSyncUserState::USER_SIGNED_OUT:
-        [self addSigninPromoViewItem];
-        return;
-      case SessionsSyncUserState::USER_SIGNED_IN_SYNC_IN_PROGRESS:
-        // Informational text in section header. No need for a cell in the
-        // section.
-        NOTREACHED();
-        return;
-    }
-    [self.tableViewModel addItem:dummyCell
-         toSectionWithIdentifier:SectionIdentifierOtherDevices];
   }
 }
 
@@ -598,17 +573,6 @@ API_AVAILABLE(ios(13.0))
   illustratedItem.buttonText = buttonText;
   illustratedItem.accessibilityIdentifier = accessibilityIdentifier;
   return illustratedItem;
-}
-
-- (void)addUserSignedSyncOffItem {
-  TableViewTextButtonItem* signinSyncOffItem = [[TableViewTextButtonItem alloc]
-      initWithType:ItemTypeOtherDevicesSyncOff];
-  signinSyncOffItem.text =
-      l10n_util::GetNSString(IDS_IOS_OPEN_TABS_SYNC_IS_OFF_MOBILE);
-  signinSyncOffItem.buttonText =
-      l10n_util::GetNSString(IDS_IOS_OPEN_TABS_ENABLE_SYNC_MOBILE);
-  [self.tableViewModel addItem:signinSyncOffItem
-       toSectionWithIdentifier:SectionIdentifierOtherDevices];
 }
 
 - (void)addSigninPromoViewItem {
@@ -798,6 +762,10 @@ API_AVAILABLE(ios(13.0))
 
 - (void)dismissModals {
   [self.contextMenuCoordinator stop];
+
+  ios::GetChromeBrowserProvider()
+      ->GetModalsProvider()
+      ->DismissModalsForTableView(self.tableView);
 }
 
 #pragma mark - UITableViewDelegate
@@ -869,7 +837,6 @@ API_AVAILABLE(ios(13.0))
   // If SigninPromo will be shown, |self.signinPromoViewMediator| must know.
   if (itemTypeSelected == ItemTypeOtherDevicesSigninPromo) {
     [self.signinPromoViewMediator signinPromoViewIsVisible];
-    if (base::FeatureList::IsEnabled(kIllustratedEmptyStates)) {
       TableViewSigninPromoCell* signinPromoCell =
           base::mac::ObjCCastStrict<TableViewSigninPromoCell>(cell);
       signinPromoCell.signinPromoView.imageView.hidden = YES;
@@ -877,7 +844,6 @@ API_AVAILABLE(ios(13.0))
       if (base::FeatureList::IsEnabled(kSettingsRefresh)) {
         signinPromoCell.backgroundColor = nil;
       }
-    }
   }
   // Retrieve favicons for closed tabs and remote sessions.
   if (itemTypeSelected == ItemTypeRecentlyClosed ||
@@ -892,24 +858,14 @@ API_AVAILABLE(ios(13.0))
   }
   // Set button action method for ItemTypeOtherDevicesSyncOff.
   if (itemTypeSelected == ItemTypeOtherDevicesSyncOff) {
-    if (base::FeatureList::IsEnabled(kIllustratedEmptyStates)) {
       TableViewIllustratedCell* illustratedCell =
           base::mac::ObjCCastStrict<TableViewIllustratedCell>(cell);
       [illustratedCell.button addTarget:self
                                  action:@selector(updateSyncState)
                        forControlEvents:UIControlEventTouchUpInside];
-    } else {
-      TableViewTextButtonCell* tableViewTextButtonCell =
-          base::mac::ObjCCastStrict<TableViewTextButtonCell>(cell);
-      [tableViewTextButtonCell.button addTarget:self
-                                         action:@selector(updateSyncState)
-                               forControlEvents:UIControlEventTouchUpInside];
-    }
   }
   // Hide the separator between this cell and the SignIn Promo.
   if (itemTypeSelected == ItemTypeOtherDevicesSignedOut) {
-    // This cell should only exist when illustrated-empty-states is enabled.
-    DCHECK(base::FeatureList::IsEnabled(kIllustratedEmptyStates));
     cell.separatorInset =
         UIEdgeInsetsMake(0, self.tableView.bounds.size.width, 0, 0);
   }
@@ -1376,6 +1332,17 @@ API_AVAILABLE(ios(13.0))
             (SigninPromoViewConfigurator*)configurator
                              identityChanged:(BOOL)identityChanged {
   DCHECK(self.signinPromoViewMediator);
+  if (![self.tableViewModel
+          hasSectionForSectionIdentifier:SectionIdentifierOtherDevices]) {
+    // Need to remove the sign-in promo view mediator when the section doesn't
+    // exist anymore. The mediator should not be removed each time the section
+    // is removed since the section is replaced at each reload.
+    // Metrics would be recorded too often.
+    [self.signinPromoViewMediator signinPromoViewIsRemoved];
+    self.signinPromoViewMediator.consumer = nil;
+    self.signinPromoViewMediator = nil;
+    return;
+  }
   // Update the TableViewSigninPromoItem configurator. It will be used by the
   // item to configure the cell once |self.tableView| requests a cell on
   // cellForRowAtIndexPath.

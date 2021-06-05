@@ -32,6 +32,8 @@
 #import "ios/chrome/browser/ui/util/rtl_geometry.h"
 #import "ios/chrome/browser/ui/util/uikit_ui_util.h"
 #import "ios/chrome/common/ui/util/constraints_ui_util.h"
+#include "ios/public/provider/chrome/browser/chrome_browser_provider.h"
+#import "ios/public/provider/chrome/browser/modals/modals_provider.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -75,6 +77,8 @@ NSIndexPath* CreateIndexPath(NSInteger index) {
 @property(nonatomic, copy) NSString* selectedItemID;
 // Index of the selected item in |items|.
 @property(nonatomic, readonly) NSUInteger selectedIndex;
+// Items selected for editing.
+@property(nonatomic, strong) NSMutableSet<NSString*>* selectedEditingItemIDs;
 // ID of the last item to be inserted. This is used to track if the active tab
 // was newly created when building the animation layout for transitions.
 @property(nonatomic, copy) NSString* lastInsertedItemID;
@@ -116,7 +120,9 @@ NSIndexPath* CreateIndexPath(NSInteger index) {
 - (instancetype)init {
   if (self = [super init]) {
     _items = [[NSMutableArray<TabSwitcherItem*> alloc] init];
+    _selectedEditingItemIDs = [[NSMutableSet<NSString*> alloc] init];
     _showsSelectionUpdates = YES;
+    _mode = TabGridModeNormal;
   }
   return self;
 }
@@ -225,6 +231,15 @@ NSIndexPath* CreateIndexPath(NSInteger index) {
 
 - (BOOL)isGridEmpty {
   return self.items.count == 0;
+}
+
+- (void)setMode:(TabGridMode)mode {
+  _mode = mode;
+  // Clear items when exiting selection mode.
+  if (mode == TabGridModeNormal) {
+    [self.selectedEditingItemIDs removeAllObjects];
+  }
+  [self.collectionView reloadData];
 }
 
 - (BOOL)isSelectedCellVisible {
@@ -780,6 +795,12 @@ NSIndexPath* CreateIndexPath(NSInteger index) {
   [self updateVisibleCellIdentifiers];
 }
 
+- (void)dismissModals {
+  ios::GetChromeBrowserProvider()
+      ->GetModalsProvider()
+      ->DismissModalsForCollectionView(self.collectionView);
+}
+
 #pragma mark - LayoutSwitcher
 
 - (void)willTransitionToLayout:(LayoutSwitcherState)nextState
@@ -960,6 +981,15 @@ NSIndexPath* CreateIndexPath(NSInteger index) {
   cell.itemIdentifier = item.identifier;
   cell.title = item.title;
   cell.titleHidden = item.hidesTitle;
+  if (self.mode == TabGridModeSelection) {
+    if ([self isItemWithIDSelectedForEditing:item.identifier]) {
+      cell.state = GridCellStateEditingSelected;
+    } else {
+      cell.state = GridCellStateEditingUnselected;
+    }
+  } else {
+    cell.state = GridCellStateNotEditing;
+  }
   NSString* itemIdentifier = item.identifier;
   [self.imageDataSource faviconForIdentifier:itemIdentifier
                                   completion:^(UIImage* icon) {
@@ -1001,7 +1031,16 @@ NSIndexPath* CreateIndexPath(NSInteger index) {
     return;
 
   NSString* itemID = self.items[index].identifier;
-  [self.delegate gridViewController:self didSelectItemWithID:itemID];
+  if (_mode == TabGridModeSelection) {
+    if ([self isItemWithIDSelectedForEditing:itemID]) {
+      [self deselectItemWithIDForEditing:itemID];
+    } else {
+      [self selectItemWithIDForEditing:itemID];
+    }
+    [self.collectionView reloadItemsAtIndexPaths:@[ indexPath ]];
+  } else {
+    [self.delegate gridViewController:self didSelectItemWithID:itemID];
+  }
 }
 
 // Animates the empty state into view.
@@ -1070,6 +1109,20 @@ NSIndexPath* CreateIndexPath(NSInteger index) {
     cell.accessibilityIdentifier = [NSString
         stringWithFormat:@"%@%ld", kGridCellIdentifierPrefix, itemIndex];
   }
+}
+
+#pragma mark - Private Editing Mode Selection
+
+- (BOOL)isItemWithIDSelectedForEditing:(NSString*)identifier {
+  return [self.selectedEditingItemIDs containsObject:identifier];
+}
+
+- (void)selectItemWithIDForEditing:(NSString*)identifier {
+  [self.selectedEditingItemIDs addObject:identifier];
+}
+
+- (void)deselectItemWithIDForEditing:(NSString*)identifier {
+  [self.selectedEditingItemIDs removeObject:identifier];
 }
 
 #pragma mark - ThumbStripSupporting

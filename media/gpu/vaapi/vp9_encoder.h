@@ -14,7 +14,7 @@
 #include "base/sequence_checker.h"
 #include "media/base/video_bitrate_allocation.h"
 #include "media/filters/vp9_parser.h"
-#include "media/gpu/vaapi/accelerated_video_encoder.h"
+#include "media/gpu/vaapi/vaapi_video_encoder_delegate.h"
 #include "media/gpu/vp9_picture.h"
 #include "media/gpu/vp9_reference_frame_vector.h"
 
@@ -22,7 +22,7 @@ namespace media {
 class VP9TemporalLayers;
 class VP9RateControl;
 
-class VP9Encoder : public AcceleratedVideoEncoder {
+class VP9Encoder : public VaapiVideoEncoderDelegate {
  public:
   struct EncodeParams {
     EncodeParams();
@@ -74,21 +74,16 @@ class VP9Encoder : public AcceleratedVideoEncoder {
         const Vp9ReferenceFrameVector& ref_frames,
         const std::array<bool, kVp9NumRefsPerFrame>& ref_frames_used) = 0;
 
-    void set_bitrate_control(BitrateControl bc) { bitrate_control_ = bc; }
-    BitrateControl bitrate_control() { return bitrate_control_; }
-
-   protected:
-    BitrateControl bitrate_control_ = BitrateControl::kConstantBitrate;
-
+   private:
     DISALLOW_COPY_AND_ASSIGN(Accelerator);
   };
 
   explicit VP9Encoder(std::unique_ptr<Accelerator> accelerator);
   ~VP9Encoder() override;
 
-  // AcceleratedVideoEncoder implementation.
+  // VaapiVideoEncoderDelegate implementation.
   bool Initialize(const VideoEncodeAccelerator::Config& config,
-                  const AcceleratedVideoEncoder::Config& ave_config) override;
+                  const VaapiVideoEncoderDelegate::Config& ave_config) override;
   bool UpdateRates(const VideoBitrateAllocation& bitrate_allocation,
                    uint32_t framerate) override;
   gfx::Size GetCodedSize() const override;
@@ -108,7 +103,6 @@ class VP9Encoder : public AcceleratedVideoEncoder {
                       VP9Picture* picture,
                       std::array<bool, kVp9NumRefsPerFrame>* ref_frames_used);
   void UpdateReferenceFrames(scoped_refptr<VP9Picture> picture);
-  void Reset();
 
   gfx::Size visible_size_;
   gfx::Size coded_size_;  // Macroblock-aligned.

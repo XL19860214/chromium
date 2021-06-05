@@ -24,6 +24,7 @@
 #include "content/public/test/test_content_client_initializer.h"
 #include "content/test/fuzzer/code_cache_host_mojolpm_fuzzer.pb.h"
 #include "mojo/core/embedder/embedder.h"
+#include "storage/browser/quota/quota_manager.h"
 #include "storage/browser/quota/special_storage_policy.h"
 #include "storage/browser/test/mock_special_storage_policy.h"
 #include "third_party/blink/public/mojom/loader/code_cache.mojom-mojolpm.h"
@@ -175,7 +176,10 @@ class CodeCacheHostTestcase {
 
   // Mapping from renderer id to CodeCacheHostImpl instances being fuzzed.
   // Access only from UI thread.
-  std::map<int, std::unique_ptr<content::CodeCacheHostImpl>> code_cache_hosts_;
+  std::map<
+      int,
+      std::unique_ptr<mojo::UniqueReceiverSet<blink::mojom::CodeCacheHost>>>
+      code_cache_host_receivers_;
 
   SEQUENCE_CHECKER(sequence_checker_);
 };
@@ -210,7 +214,9 @@ void CodeCacheHostTestcase::SetUpOnUIThread() {
       std::make_unique<content::CacheStorageControlWrapper>(
           content::GetIOThreadTaskRunner({}), browser_context_->GetPath(),
           browser_context_->GetSpecialStoragePolicy(),
-          /*quota_manager_proxy=*/nullptr,
+          browser_context_->GetDefaultStoragePartition()
+              ->GetQuotaManager()
+              ->proxy(),
           /*blob_storage_context=*/mojo::NullRemote());
 
   generated_code_cache_context_ =
@@ -230,7 +236,7 @@ void CodeCacheHostTestcase::TearDown() {
 }
 
 void CodeCacheHostTestcase::TearDownOnUIThread() {
-  code_cache_hosts_.clear();
+  code_cache_host_receivers_.clear();
   generated_code_cache_context_.reset();
   cache_storage_control_wrapper_.reset();
   browser_context_.reset();
@@ -295,10 +301,13 @@ void CodeCacheHostTestcase::AddCodeCacheHostImpl(
     mojo::PendingReceiver<::blink::mojom::CodeCacheHost>&& receiver) {
   auto code_cache_host = std::make_unique<content::CodeCacheHostImpl>(
       renderer_id, /*render_process_host_impl=*/nullptr,
-      generated_code_cache_context_, std::move(receiver));
+      generated_code_cache_context_);
   code_cache_host->SetCacheStorageControlForTesting(
       cache_storage_control_wrapper_.get());
-  code_cache_hosts_[renderer_id] = std::move(code_cache_host);
+  auto receivers =
+      std::make_unique<mojo::UniqueReceiverSet<blink::mojom::CodeCacheHost>>();
+  receivers->Add(std::move(code_cache_host), std::move(receiver));
+  code_cache_host_receivers_[renderer_id] = std::move(receivers);
 }
 
 void CodeCacheHostTestcase::AddCodeCacheHost(

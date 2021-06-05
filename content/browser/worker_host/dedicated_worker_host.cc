@@ -37,6 +37,7 @@
 #include "services/network/public/mojom/fetch_api.mojom.h"
 #include "third_party/blink/public/common/features.h"
 #include "third_party/blink/public/common/service_worker/service_worker_scope_match.h"
+#include "third_party/blink/public/common/storage_key/storage_key.h"
 #include "third_party/blink/public/common/tokens/tokens.h"
 #include "third_party/blink/public/mojom/loader/fetch_client_settings_object.mojom.h"
 
@@ -66,6 +67,7 @@ DedicatedWorkerHost::DedicatedWorkerHost(
       // the worker script URL.
       worker_origin_(creator_origin),
       isolation_info_(isolation_info),
+      reporting_source_(base::UnguessableToken::Create()),
       creator_cross_origin_embedder_policy_(cross_origin_embedder_policy),
       host_receiver_(this, std::move(host)),
       creator_coep_reporter_(std::move(creator_coep_reporter)),
@@ -675,31 +677,72 @@ void DedicatedWorkerHost::MaybeCountWebFeature(const GURL& script_url) {
 
   base::WeakPtr<ServiceWorkerContainerHost> container_host =
       ancestor_render_frame_host->GetLastCommittedServiceWorkerHost();
-  if (!container_host)
+  if (!container_host || !container_host->controller())
     return;
 
-  // Count the number of dedicated workers that are controlled by the service
-  // worker that is inherited from a controlled document, and will not be
-  // controlled after PlzDedicatedWorker is enabled.
-  if (container_host->controller_registration() &&
-      !blink::ServiceWorkerScopeMatches(
-          container_host->controller_registration()->scope(), script_url)) {
+  if (!blink::ServiceWorkerScopeMatches(container_host->controller()->scope(),
+                                        script_url)) {
+    // Count the number of dedicated workers that 1) are controlled by a service
+    // worker that is inherited from a controlled document, and 2) will not be
+    // controlled by that service worker after PlzDedicatedWorker is enabled.
     container_host->CountFeature(
         blink::mojom::WebFeature::kWorkerControlledByServiceWorkerOutOfScope);
 
-    // Count the number of dedicated workers that will not be controlled by the
-    // service worker with a fetch event handler. This better measures the risk
-    // of site breakage by PlzDedicatedWorker.
-    if (container_host->controller()) {
-      DCHECK_NE(container_host->controller()->fetch_handler_existence(),
-                ServiceWorkerVersion::FetchHandlerExistence::UNKNOWN);
-      if (container_host->controller()->fetch_handler_existence() ==
-          ServiceWorkerVersion::FetchHandlerExistence::EXISTS)
-        container_host->CountFeature(
-            blink::mojom::WebFeature::
-                kWorkerControlledByServiceWorkerWithFetchEventHandlerOutOfScope);
+    DCHECK_NE(container_host->controller()->fetch_handler_existence(),
+              ServiceWorkerVersion::FetchHandlerExistence::UNKNOWN);
+    if (container_host->controller()->fetch_handler_existence() ==
+        ServiceWorkerVersion::FetchHandlerExistence::EXISTS) {
+      // Count the number of dedicated workers that 1) are controlled by a
+      // service worker that is inherited from a controlled document, 2) will
+      // not be controlled by that service worker after PlzDedicatedWorker is
+      // enabled, and 3) have a fetch event handler.
+      // `kControlledWorkerWillBeUncontrolled` excludes the cases if a
+      // dedicated worker is controlled by any registered service worker.
+      container_host->CountFeature(
+          blink::mojom::WebFeature::
+              kWorkerControlledByServiceWorkerWithFetchEventHandlerOutOfScope);
+
+      ServiceWorkerContextWrapper* service_worker_context =
+          static_cast<StoragePartitionImpl*>(
+              worker_process_host_->GetStoragePartition())
+              ->GetServiceWorkerContext();
+      if (!service_worker_context)
+        return;
+
+      service_worker_context->GetRegistrationsForStorageKey(
+          blink::StorageKey(
+              ancestor_render_frame_host->GetLastCommittedOrigin()),
+          base::BindOnce(&DedicatedWorkerHost::ContinueOnMaybeCountWebFeature,
+                         weak_factory_.GetWeakPtr(), script_url,
+                         std::move(container_host)));
     }
   }
+}
+
+void DedicatedWorkerHost::ContinueOnMaybeCountWebFeature(
+    const GURL& script_url,
+    base::WeakPtr<ServiceWorkerContainerHost> ancestor_container_host,
+    blink::ServiceWorkerStatusCode status,
+    const std::vector<scoped_refptr<ServiceWorkerRegistration>>&
+        registrations) {
+  DCHECK(!base::FeatureList::IsEnabled(blink::features::kPlzDedicatedWorker));
+  if (!ancestor_container_host || status != blink::ServiceWorkerStatusCode::kOk)
+    return;
+
+  for (const auto& registration : registrations) {
+    // Do not record the UseCounter because a dedicated worker is in scope of
+    // one of service workers registered for the origin. The scope matched
+    // service worker may be different from the one that controls the ancestor
+    // frame.
+    if (blink::ServiceWorkerScopeMatches(registration->scope(), script_url))
+      return;
+  }
+
+  // Count the number of dedicated workers that are not controlled by any
+  // service worker registered for the origin after PlzDedicatedWorker is
+  // enabled.
+  ancestor_container_host->CountFeature(
+      blink::mojom::WebFeature::kControlledWorkerWillBeUncontrolled);
 }
 
 base::WeakPtr<CrossOriginEmbedderPolicyReporter>

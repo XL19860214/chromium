@@ -81,8 +81,6 @@ public class ManualFillingTestHelper {
     private final ChromeTabbedActivityTestRule mActivityTestRule;
     private final AtomicReference<WebContents> mWebContentsRef = new AtomicReference<>();
     private TestInputMethodManagerWrapper mInputMethodManagerWrapper;
-    private PropertyProvider<AccessorySheetData> mSheetSuggestionsProvider =
-            new PropertyProvider<>();
 
     private EmbeddedTestServer mEmbeddedTestServer;
 
@@ -132,8 +130,6 @@ public class ManualFillingTestHelper {
             final ImeAdapter imeAdapter = ImeAdapter.fromWebContents(mWebContentsRef.get());
             mInputMethodManagerWrapper = TestInputMethodManagerWrapper.create(imeAdapter);
             imeAdapter.setInputMethodManagerWrapper(mInputMethodManagerWrapper);
-            getManualFillingCoordinator().registerSheetDataProvider(
-                    mWebContentsRef.get(), AccessoryTabType.PASSWORDS, mSheetSuggestionsProvider);
         });
     }
 
@@ -514,5 +510,11 @@ public class ManualFillingTestHelper {
             ManualFillingComponentBridge.signalAutoGenerationStatus(
                     mActivityTestRule.getWebContents(), available);
         });
+    }
+
+    public void registerSheetDataProvider(@AccessoryTabType int tabType) {
+        PropertyProvider<AccessorySheetData> sheetDataProvider = new PropertyProvider<>();
+        getManualFillingCoordinator().registerSheetDataProvider(
+                mWebContentsRef.get(), tabType, sheetDataProvider);
     }
 }

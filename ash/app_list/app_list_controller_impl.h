@@ -12,7 +12,6 @@
 
 #include "ash/app_list/app_list_color_provider_impl.h"
 #include "ash/app_list/app_list_metrics.h"
-#include "ash/app_list/app_list_presenter_impl.h"
 #include "ash/app_list/app_list_view_delegate.h"
 #include "ash/app_list/home_launcher_animation_info.h"
 #include "ash/app_list/model/app_list_model.h"
@@ -52,8 +51,9 @@ class MouseWheelEvent;
 
 namespace ash {
 
-class AppListBubble;
+class AppListBubblePresenter;
 class AppListControllerObserver;
+class AppListPresenterImpl;
 
 // Ash's AppListController owns the AppListModel and implements interface
 // functions that allow Chrome to modify and observe the Shelf and AppListModel
@@ -87,7 +87,8 @@ class ASH_EXPORT AppListControllerImpl
 
   static void RegisterProfilePrefs(PrefRegistrySimple* registry);
 
-  AppListPresenterImpl* presenter() { return &presenter_; }
+  // TODO(crbug.com/1204554): Rename to fullscreen_presenter().
+  AppListPresenterImpl* presenter() { return fullscreen_presenter_.get(); }
 
   // AppListController:
   void SetClient(AppListClient* client) override;
@@ -153,8 +154,8 @@ class ASH_EXPORT AppListControllerImpl
   void UpdateYPositionAndOpacity(int y_position_in_screen,
                                  float background_opacity);
   void EndDragFromShelf(AppListViewState app_list_state);
-  void ProcessMouseWheelEvent(const ui::MouseWheelEvent& event,
-                              bool from_touchpad = false);
+  void ProcessMouseWheelEvent(const ui::MouseWheelEvent& event);
+  void ProcessScrollEvent(const ui::ScrollEvent& event);
 
   // In tablet mode, takes the user to the home screen, either by ending
   // Overview Mode/Split View Mode or by minimizing the other windows. Returns
@@ -197,7 +198,6 @@ class ASH_EXPORT AppListControllerImpl
   void ViewShown(int64_t display_id) override;
   bool AppListTargetVisibility() const override;
   void ViewClosing() override;
-  void ViewClosed() override {}
   const std::vector<SkColor>& GetWallpaperProminentColors() override;
   void ActivateItem(const std::string& id,
                     int event_flags,
@@ -225,6 +225,7 @@ class ASH_EXPORT AppListControllerImpl
   void MarkSuggestedContentInfoDismissed() override;
   void OnStateTransitionAnimationCompleted(AppListViewState state) override;
   void OnViewStateChanged(AppListViewState state) override;
+  int AdjustAppListViewScrollOffset(int offset, ui::EventType type) override;
 
   void GetAppLaunchedMetricParams(
       AppLaunchedMetricParams* metric_params) override;
@@ -372,7 +373,9 @@ class ASH_EXPORT AppListControllerImpl
   void SetHomeLauncherAnimationCallbackForTesting(
       HomeLauncherAnimationCallback callback);
 
-  AppListBubble* app_list_bubble_for_test() { return app_list_bubble_.get(); }
+  AppListBubblePresenter* bubble_presenter_for_test() {
+    return bubble_presenter_.get();
+  }
 
   void RecordShelfAppLaunched();
 
@@ -471,13 +474,14 @@ class ASH_EXPORT AppListControllerImpl
   // |presenter_| and UI.
   AppListColorProviderImpl color_provider_;
 
+  // Manages the fullscreen/peeking launcher and the tablet mode home launcher.
   // |presenter_| should be put below |client_| and |model_| to prevent a crash
   // in destruction.
-  AppListPresenterImpl presenter_;
+  std::unique_ptr<AppListPresenterImpl> fullscreen_presenter_;
 
   // Manages the clamshell launcher bubble. Null when the feature AppListBubble
   // is disabled.
-  std::unique_ptr<AppListBubble> app_list_bubble_;
+  std::unique_ptr<AppListBubblePresenter> bubble_presenter_;
 
   // True if the on-screen keyboard is shown.
   bool onscreen_keyboard_shown_ = false;

@@ -7,7 +7,9 @@
 #include <memory>
 #include <utility>
 
+#include "base/metrics/histogram_functions.h"
 #include "base/strings/stringprintf.h"
+#include "base/time/time.h"
 #include "chrome/browser/buildflags.h"
 #include "chrome/browser/cart/cart_handler.h"
 #include "chrome/browser/profiles/profile.h"
@@ -16,6 +18,8 @@
 #include "chrome/browser/search/instant_service_factory.h"
 #include "chrome/browser/search/task_module/task_module_handler.h"
 #include "chrome/browser/search_engines/template_url_service_factory.h"
+#include "chrome/browser/signin/identity_manager_factory.h"
+#include "chrome/browser/ui/webui/cr_components/most_visited/most_visited_handler.h"
 #include "chrome/browser/ui/webui/customize_themes/chrome_customize_themes_handler.h"
 #include "chrome/browser/ui/webui/favicon_source.h"
 #include "chrome/browser/ui/webui/new_tab_page/new_tab_page_handler.h"
@@ -36,13 +40,16 @@
 #include "components/favicon_base/favicon_url_parser.h"
 #include "components/google/core/common/google_util.h"
 #include "components/grit/components_scaled_resources.h"
+#include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
 #include "components/search/ntp_features.h"
 #include "components/search_engines/template_url_service.h"
+#include "components/signin/public/identity_manager/identity_manager.h"
 #include "components/strings/grit/components_strings.h"
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/url_data_source.h"
 #include "content/public/browser/web_ui_data_source.h"
+#include "google_apis/gaia/core_account_id.h"
 #include "media/base/media_switches.h"
 #include "services/network/public/mojom/content_security_policy.mojom.h"
 #include "ui/base/accelerators/accelerator.h"
@@ -60,6 +67,8 @@ using content::BrowserContext;
 using content::WebContents;
 
 namespace {
+
+constexpr char kPrevNavigationTimePrefName[] = "NewTabPage.PrevNavigationTime";
 
 content::WebUIDataSource* CreateNewTabPageUiHtmlSource(
     Profile* profile,
@@ -251,8 +260,8 @@ content::WebUIDataSource* CreateNewTabPageUiHtmlSource(
   source->AddBoolean(
       "chromeCartModuleEnabled",
       base::FeatureList::IsEnabled(ntp_features::kNtpChromeCartModule));
-  source->AddBoolean("driveModuleEnabled", base::FeatureList::IsEnabled(
-                                               ntp_features::kNtpDriveModule));
+  source->AddBoolean("driveModuleEnabled",
+                     NewTabPageUI::IsDriveModuleEnabled(profile));
   source->AddBoolean(
       "ruleBasedDiscountEnabled",
       base::GetFieldTrialParamValueByFeature(
@@ -293,6 +302,7 @@ NewTabPageUI::NewTabPageUI(content::WebUI* web_ui)
       content::WebContentsObserver(web_ui->GetWebContents()),
       page_factory_receiver_(this),
       customize_themes_factory_receiver_(this),
+      most_visited_page_factory_receiver_(this),
       profile_(Profile::FromWebUI(web_ui)),
       instant_service_(InstantServiceFactory::GetForProfile(profile_)),
       web_contents_(web_ui->GetWebContents()),
@@ -336,6 +346,29 @@ bool NewTabPageUI::IsNewTabPageOrigin(const GURL& url) {
   return url.GetOrigin() == GURL(chrome::kChromeUINewTabPageURL).GetOrigin();
 }
 
+// static
+void NewTabPageUI::RegisterProfilePrefs(PrefRegistrySimple* registry) {
+  registry->RegisterTimePref(kPrevNavigationTimePrefName, base::Time());
+}
+
+// static
+bool NewTabPageUI::IsDriveModuleEnabled(Profile* profile) {
+  if (!base::FeatureList::IsEnabled(ntp_features::kNtpDriveModule)) {
+    return false;
+  }
+  if (base::GetFieldTrialParamValueByFeature(
+          ntp_features::kNtpDriveModule,
+          ntp_features::kNtpDriveModuleManagedUsersOnlyParam) != "true") {
+    return true;
+  }
+  // TODO(https://crbug.com/1213351): Stop calling the private method
+  // FindExtendedPrimaryAccountInfo().
+  auto* identity_manager = IdentityManagerFactory::GetForProfile(profile);
+  return identity_manager
+      ->FindExtendedPrimaryAccountInfo(signin::ConsentLevel::kSync)
+      .IsManaged();
+}
+
 void NewTabPageUI::BindInterface(
     mojo::PendingReceiver<new_tab_page::mojom::PageHandlerFactory>
         pending_receiver) {
@@ -367,6 +400,15 @@ void NewTabPageUI::BindInterface(
     customize_themes_factory_receiver_.reset();
   }
   customize_themes_factory_receiver_.Bind(std::move(pending_receiver));
+}
+
+void NewTabPageUI::BindInterface(
+    mojo::PendingReceiver<most_visited::mojom::MostVisitedPageHandlerFactory>
+        pending_receiver) {
+  if (most_visited_page_factory_receiver_.is_bound()) {
+    most_visited_page_factory_receiver_.reset();
+  }
+  most_visited_page_factory_receiver_.Bind(std::move(pending_receiver));
 }
 
 void NewTabPageUI::BindInterface(
@@ -417,6 +459,17 @@ void NewTabPageUI::CreateCustomizeThemesHandler(
       profile_);
 }
 
+void NewTabPageUI::CreatePageHandler(
+    mojo::PendingRemote<most_visited::mojom::MostVisitedPage> pending_page,
+    mojo::PendingReceiver<most_visited::mojom::MostVisitedPageHandler>
+        pending_page_handler) {
+  DCHECK(pending_page.is_valid());
+  most_visited_page_handler_ = std::make_unique<MostVisitedHandler>(
+      std::move(pending_page_handler), std::move(pending_page), profile_,
+      web_contents_, GURL(chrome::kChromeUINewTabPageThirdPartyURL),
+      navigation_start_time_);
+}
+
 void NewTabPageUI::NtpThemeChanged(const NtpTheme& theme) {
   // Load time data is cached across page reloads. Update the background color
   // here to prevent a white flicker on page reload.
@@ -427,12 +480,23 @@ void NewTabPageUI::MostVisitedInfoChanged(const InstantMostVisitedInfo& info) {}
 
 void NewTabPageUI::DidStartNavigation(
     content::NavigationHandle* navigation_handle) {
-  if (navigation_handle->IsInMainFrame()) {
+  if (navigation_handle->IsInMainFrame() &&
+      navigation_handle->GetURL() == GURL(chrome::kChromeUINewTabPageURL)) {
     navigation_start_time_ = base::Time::Now();
     std::unique_ptr<base::DictionaryValue> update(new base::DictionaryValue);
     update->SetDouble("navigationStartTime", navigation_start_time_.ToJsTime());
     content::WebUIDataSource::Update(profile_, chrome::kChromeUINewTabPageHost,
                                      std::move(update));
+    auto prev_navigation_time =
+        profile_->GetPrefs()->GetTime(kPrevNavigationTimePrefName);
+    if (!prev_navigation_time.is_null()) {
+      base::UmaHistogramCustomTimes(
+          "NewTabPage.TimeSinceLastNTP",
+          navigation_start_time_ - prev_navigation_time,
+          base::TimeDelta::FromSeconds(1), base::TimeDelta::FromDays(1), 100);
+    }
+    profile_->GetPrefs()->SetTime(kPrevNavigationTimePrefName,
+                                  navigation_start_time_);
   }
 }
 

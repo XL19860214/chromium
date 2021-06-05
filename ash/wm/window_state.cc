@@ -9,7 +9,7 @@
 
 #include "ash/focus_cycler.h"
 #include "ash/metrics/pip_uma.h"
-#include "ash/public/cpp/app_types.h"
+#include "ash/public/cpp/app_types_util.h"
 #include "ash/public/cpp/ash_features.h"
 #include "ash/public/cpp/shell_window_ids.h"
 #include "ash/public/cpp/window_animation_types.h"
@@ -34,6 +34,7 @@
 #include "chromeos/ui/base/window_pin_type.h"
 #include "chromeos/ui/base/window_properties.h"
 #include "chromeos/ui/base/window_state_type.h"
+#include "components/full_restore/full_restore_utils.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/layout_manager.h"
 #include "ui/aura/window.h"
@@ -72,6 +73,13 @@ bool IsToplevelContainer(aura::Window* window) {
   // WindowState to manage its state.
   return IsActivatableShellWindowId(container_id) ||
          container_id == kShellWindowId_ArcVirtualKeyboardContainer;
+}
+
+// ARC windows will not be in a top level container until they are associated
+// with a task. We still want a WindowState created for these windows as they
+// will be moved to a top level container soon.
+bool IsTemporarilyHiddenForFullrestore(aura::Window* window) {
+  return window->GetProperty(full_restore::kParentToHiddenContainerKey);
 }
 
 // A tentative class to set the bounds on the window.
@@ -137,7 +145,7 @@ WMEventType WMEventTypeFromWindowPinType(chromeos::WindowPinType type) {
 float GetCurrentSnappedWidthRatio(aura::Window* window) {
   gfx::Rect maximized_bounds =
       screen_util::GetMaximizedWindowBoundsInParent(window);
-  return static_cast<float>(window->bounds().width()) /
+  return static_cast<float>(window->GetTargetBounds().width()) /
          static_cast<float>(maximized_bounds.width());
 }
 
@@ -255,8 +263,8 @@ bool WindowState::IsMaximizedOrFullscreenOrPinned() const {
 }
 
 bool WindowState::IsSnapped() const {
-  return GetStateType() == WindowStateType::kLeftSnapped ||
-         GetStateType() == WindowStateType::kRightSnapped;
+  return GetStateType() == WindowStateType::kPrimarySnapped ||
+         GetStateType() == WindowStateType::kSecondarySnapped;
 }
 
 bool WindowState::IsPinned() const {
@@ -431,6 +439,52 @@ void WindowState::ClearRestoreBounds() {
   window_->ClearProperty(::wm::kVirtualKeyboardRestoreBoundsKey);
 }
 
+bool WindowState::VerticallyShrinkWindow(const gfx::Rect& work_area) {
+  if (!HasRestoreBounds())
+    return false;
+  // Check if window is not work area vertical maximized.
+  gfx::Rect bounds = window_->bounds();
+  if (bounds.height() != work_area.height() || bounds.y() != work_area.y())
+    return false;
+
+  gfx::Rect restore_bounds = GetRestoreBoundsInParent();
+  gfx::Rect new_bounds = restore_bounds;
+
+  // Shrink from work area maximized window.
+  if (bounds == work_area) {
+    new_bounds = gfx::Rect(work_area.x(), restore_bounds.y(), work_area.width(),
+                           restore_bounds.height());
+    // Restore bounds is not cleared here in case a 2nd shrink is called next.
+  } else {
+    ClearRestoreBounds();
+  }
+
+  SetBoundsDirectCrossFade(new_bounds);
+  return true;
+}
+
+bool WindowState::HorizontallyShrinkWindow(const gfx::Rect& work_area) {
+  if (!HasRestoreBounds())
+    return false;
+  // Check if window is not work area horizontal maximized.
+  gfx::Rect bounds = window_->bounds();
+  if (bounds.width() != work_area.width() || bounds.x() != work_area.x())
+    return false;
+
+  gfx::Rect restore_bounds = GetRestoreBoundsInParent();
+  gfx::Rect new_bounds = restore_bounds;
+
+  // Shrink from work area maximized window.
+  if (bounds == work_area) {
+    new_bounds = gfx::Rect(restore_bounds.x(), work_area.y(),
+                           restore_bounds.width(), work_area.height());
+  } else {
+    ClearRestoreBounds();
+  }
+  SetBoundsDirectCrossFade(new_bounds);
+  return true;
+}
+
 std::unique_ptr<WindowState::State> WindowState::SetStateObject(
     std::unique_ptr<WindowState::State> new_state) {
   current_state_->DetachState(this);
@@ -448,8 +502,9 @@ void WindowState::UpdateSnappedWidthRatio(const WMEvent* event) {
 
   const WMEventType type = event->type();
   // Initializes |snapped_width_ratio_| whenever |event| is snapping event.
-  if (type == WM_EVENT_SNAP_LEFT || type == WM_EVENT_SNAP_RIGHT ||
-      type == WM_EVENT_CYCLE_SNAP_LEFT || type == WM_EVENT_CYCLE_SNAP_RIGHT) {
+  if (type == WM_EVENT_SNAP_PRIMARY || type == WM_EVENT_SNAP_SECONDARY ||
+      type == WM_EVENT_CYCLE_SNAP_PRIMARY ||
+      type == WM_EVENT_CYCLE_SNAP_SECONDARY) {
     // Since |UpdateSnappedWidthRatio()| is called post WMEvent taking effect,
     // |window_|'s bounds is in a correct state for ratio update.
     snapped_width_ratio_ =
@@ -618,9 +673,9 @@ void WindowState::AdjustSnappedBounds(gfx::Rect* bounds) {
     bounds->set_width(
         static_cast<int>(*snapped_width_ratio_ * maximized_bounds.width()));
   }
-  if (GetStateType() == WindowStateType::kLeftSnapped)
+  if (GetStateType() == WindowStateType::kPrimarySnapped)
     bounds->set_x(maximized_bounds.x());
-  else if (GetStateType() == WindowStateType::kRightSnapped)
+  else if (GetStateType() == WindowStateType::kSecondarySnapped)
     bounds->set_x(maximized_bounds.right() - bounds->width());
   bounds->set_y(maximized_bounds.y());
   bounds->set_height(maximized_bounds.height());
@@ -871,8 +926,13 @@ WindowState* WindowState::Get(aura::Window* window) {
 
   DCHECK(window->parent());
 
-  if (!IsToplevelContainer(window->parent()))
+  // WindowState is only for windows in top level container, unless they are
+  // temporarily hidden when launched by full restore. The will be reparented to
+  // a top level container soon, and need a WindowState.
+  if (!IsToplevelContainer(window->parent()) &&
+      !IsTemporarilyHiddenForFullrestore(window)) {
     return nullptr;
+  }
 
   state = new WindowState(window);
   window->SetProperty(kWindowStateKey, state);

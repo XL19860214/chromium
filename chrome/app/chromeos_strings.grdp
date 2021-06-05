@@ -315,8 +315,8 @@
   <message name="IDS_CELLULAR_SETUP_ESIM_PROFILE_DETECT_MESSAGE" desc="Message displayed during loading page in eSIM setup flow when looking for eSIM profiles.">
     Looking for available profiles...
   </message>
-  <message name="IDS_CELLULAR_SETUP_ESIM_CONNECTION_WARNING" desc="Message displayed during loading page in eSIM setup flow when looking for eSIM profiles informing the user that cellular setup may disconnect their current cellular network connection.">
-    This may cause your mobile network to briefly disconnect
+  <message name="IDS_CELLULAR_SETUP_ESIM_PROFILE_DETECT_DURING_ACTIVE_CELLULAR_CONNECTION_MESSAGE" desc="Message displayed during loading page in eSIM setup flow when looking for eSIM profiles informing the user that cellular setup may disconnect their current cellular network connection.">
+    Looking for available profiles. This may cause your mobile network to disconnect for a few minutes.
   </message>
   <message name="IDS_CELLULAR_SETUP_PROFILE_LIST_PAGE_MESSAGE" desc="Label informing the user that they are able to select multiple eSIM profiles for downloading.">
     We've found multiple profiles available to download. Select the ones you would like to download before proceeding.
@@ -1573,6 +1573,9 @@
   <message name="IDS_CHROMEOS_NETWORK_ERROR_NOT_REGISTERED" desc="Network error details in notifications: NOT_REGISTERED. Error when a connect attempt fails because the modem is not registered.">
     Modem not registered
   </message>
+  <message name="IDS_CHROMEOS_NETWORK_ERROR_WRONG_STATE" desc="Network error details in notifications: NOT_REGISTERED. Error when a connect attempt fails because the modem is in a busy state.">
+    Device is busy
+  </message>
   <message name="IDS_NETWORK_ERROR_CANNOT_CHANGE_SHARED_CONFIG" desc="Network error message shown when attempting to change a shared network configuration if the operation is not allowed">
     Changing shared network configurations is not allowed
   </message>
@@ -1980,7 +1983,13 @@
     Unlock
   </message>
   <message name="IDS_SETTINGS_INTERNET_NETWORK_SIM_ENTER_PIN_TITLE" desc="Settings > Internet > Network details > Lock/unlock SIM card: Title for enter PIN dialog.">
-    Enter SIM PIN
+    Enter PIN
+  </message>
+  <message name="IDS_SETTINGS_INTERNET_NETWORK_SIM_ENTER_PIN_DESCRIPTION" desc="Settings > Internet > Network details > Lock/unlock SIM card: Description for enter PIN dialog.">
+    Anyone using this device will need to enter the PIN to connect to this mobile network
+  </message>
+  <message name="IDS_SETTINGS_INTERNET_NETWORK_SIM_ENTER_PIN_DESCRIPTION_TEXT_LABEL" desc="Settings > Internet > Network details > Lock/unlock SIM card: Label for the text input.">
+    Enter at least 4 numbers
   </message>
   <message name="IDS_SETTINGS_INTERNET_NETWORK_SIM_CHANGE_PIN_TITLE" desc="Settings > Internet > Network details > Lock/unlock SIM card: Title for change PIN dialog.">
     Change SIM PIN
@@ -1989,10 +1998,19 @@
     Connect to this network to change SIM lock setting
   </message>
   <message name="IDS_SETTINGS_INTERNET_NETWORK_SIM_LOCKED_TITLE" desc="Settings > Internet > Network details > Lock/unlock SIM card: Title for SIM locked dialog.">
-    SIM Card is locked
+    SIM card is locked
   </message>
-  <message name="IDS_SETTINGS_INTERNET_NETWORK_SIM_LOCKED_PUK_SUBTITLE" desc="Settings > Internet > Network details > Lock/unlock SIM card: Title informing the user to enter a PIN provided by the carrier in order unlock network">
-    Enter the 8-digit PIN Unblocking Key provided by your carrier
+  <message name="IDS_SETTINGS_INTERNET_NETWORK_SIM_LOCKED_PUK_SUBTITLE" desc="Settings > Internet > Network details > Lock/unlock SIM card: Title informing the user to enter a PIN provided by the carrier in order unlock network.">
+    An incorrect PIN was entered too many times. To set up a new PIN, enter the 8-digit Personal Unblocking Key (PUK) provided by your carrier.
+  </message>
+  <message name="IDS_SETTINGS_INTERNET_NETWORK_SIM_LOCKED_PUK_WARNING_NO_FAILURES" desc="Settings > Internet > Network details > Lock/unlock SIM card: Warning shown to the user indicating that the network cannot be used until a new PIN is set up.">
+    You won't be able to use this network until you set up a new PIN
+  </message>
+  <message name="IDS_SETTINGS_INTERNET_NETWORK_SIM_LOCKED_PUK_WARNING_WITH_FAILURE" desc="Settings > Internet > Network details > Lock/unlock SIM card: Warning shown to the user indicating that the network cannot be used until a new PIN is set up and alerting the user that they have one attempt left to enter the correct code.">
+    You have 1 remaining attempt. You won't be able to use this network until you set up a new PIN.
+  </message>
+  <message name="IDS_SETTINGS_INTERNET_NETWORK_SIM_LOCKED_PUK_WARNING_WITH_FAILURES" desc="Settings > Internet > Network details > Lock/unlock SIM card: Warning shown to the user indicating that the network cannot be used until a new PIN is set up and alerting the user about the number of attempts they have left to enter the correct code.">
+    You have <ph name="RETRIES">$1<ex>3</ex></ph> remaining attempts. You won't be able to use this network until you set up a new PIN.
   </message>
   <message name="IDS_SETTINGS_INTERNET_NETWORK_SIM_LOCKED_SUBTITLE" desc="Subtitle for Network Summary item when the SIM is locked.">
     SIM Locked
@@ -2004,7 +2022,7 @@
     Enter PIN
   </message>
   <message name="IDS_SETTINGS_INTERNET_NETWORK_SIM_ENTER_OLD_PIN" desc="Settings > Internet > Network details > Lock/unlock SIM card: Label for entering an old (current) PIN.">
-    Enter old PIN
+    Enter current PIN
   </message>
   <message name="IDS_SETTINGS_INTERNET_NETWORK_SIM_ENTER_NEW_PIN" desc="Settings > Internet > Network details > Lock/unlock SIM card: Label for entering a new PIN.">
     Enter new PIN
@@ -2013,7 +2031,7 @@
     Re-enter new PIN
   </message>
   <message name="IDS_SETTINGS_INTERNET_NETWORK_SIM_ENTER_PUK" desc="Settings > Internet > Network details > Lock/unlock SIM card: Label for entering a PUK.">
-    Enter PIN Unlock Key
+    Enter Personal Unblocking Key (PUK)
   </message>
   <message name="IDS_SETTINGS_INTERNET_NETWORK_SIM_ERROR_INCORRECT_PIN" desc="Settings > Internet > Network details > Lock/unlock SIM card: Message when an incorrect PIN was entered and there is only a single retry attempt remaining.">
     Incorrect PIN. You have 1 remaining attempt.
@@ -2022,10 +2040,7 @@
     Incorrect PIN. You have <ph name="RETRIES">$1<ex>3</ex></ph> remaining attempts.
   </message>
   <message name="IDS_SETTINGS_INTERNET_NETWORK_SIM_ERROR_INCORRECT_PUK" desc="Settings > Internet > Network details > Lock/unlock SIM card: Message when an incorrect PUK was entered.">
-    Incorrect PUK. You have 1 remaining attempt before you must contact your carrier to regain network access.
-  </message>
-  <message name="IDS_SETTINGS_INTERNET_NETWORK_SIM_ERROR_INCORRECT_PUK_PLURAL" desc="Settings > Internet > Network details > Lock/unlock SIM card: Message when an incorrect PUK was entered and there is only a single retry attempte remaining.">
-    Incorrect PUK. You have <ph name="RETRIES">$1<ex>3</ex></ph> remaining attempts before you must contact your carrier to regain network access.
+    Incorrect PUK
   </message>
   <message name="IDS_SETTINGS_INTERNET_NETWORK_SIM_ERROR_INVALID_PIN" desc="Settings > Internet > Network details > Lock/unlock SIM card: Message when an invalid PIN was entered.">
     Invalid PIN. You have 1 remaining attempt.
@@ -2034,10 +2049,7 @@
     Invalid PIN. You have <ph name="RETRIES">$1<ex>3</ex></ph> remaining attempts.
   </message>
   <message name="IDS_SETTINGS_INTERNET_NETWORK_SIM_ERROR_INVALID_PUK" desc="Settings > Internet > Network details > Lock/unlock SIM card: Message when an invalid PUK was entered and there is only a single retry attempt remaining.">
-      Invalid PUK. You have 1 remaining attempt.
-  </message>
-  <message name="IDS_SETTINGS_INTERNET_NETWORK_SIM_ERROR_INVALID_PUK_PLURAL" desc="Settings > Internet > Network details > Lock/unlock SIM card: Message when an invalid PUK was entered and there are multiple retry attempts remaining.">
-      Invalid PUK. You have <ph name="RETRIES">$1<ex>3</ex></ph> remaining attempts.
+    Invalid PUK
   </message>
   <message name="IDS_SETTINGS_INTERNET_NETWORK_SIM_ERROR_PIN_MISMATCH" desc="Settings > Internet > Network details > Lock/unlock SIM card: Message when PIN values do not match.">
     PIN values do not match.
@@ -3007,11 +3019,6 @@
   </message>
   <message name="IDS_FILEMANAGER_APP_DESCRIPTION" desc="Description for the File Manager app.">
     The Files app provides quick access to files that you've saved on Google Drive, external storage, or your Chrome OS device.
-  </message>
-
-  <!-- Platform verification UI -->
-  <message name="IDS_PLATFORM_VERIFICATION_DIALOG_HEADLINE" desc="The label to describe what the dialog wants to confirm.">
-    <ph name="DOMAIN">$1<ex>example.com</ex></ph> wants to uniquely identify your device so it can play the highest quality protected video and audio.
   </message>
 
   <!-- Network portal notification -->
@@ -4225,6 +4232,12 @@
   </message>
 
   <!-- Supervision transition OOBE screen. -->
+  <message name="IDS_ADDING_MANAGEMENT_TITLE" desc="Title of the management transition OOBE scree when user transitions to managed state. MANAGER can be a domain or an email address.">
+    Setting up management by <ph name="MANAGER">$1<ex>example.com</ex></ph>
+  </message>
+  <message name="IDS_ADDING_MANAGEMENT_TITLE_UNKNOWN_ADMIN" desc="Title of the management transition OOBE scree when user transitions to managed state and managment entity is unknown.">
+    Setting up management
+  </message>
   <message name="IDS_REMOVING_SUPERVISION_TITLE" desc="Title of the supervision transition OOBE screen when stopping supervision.">
     Stopping supervision...
   </message>
@@ -4440,12 +4453,6 @@
   </message>
   <message name="IDS_CROSTINI_TERMINAL_STATUS_START_CONTAINER" desc="Text shown in the crostini terminal when it is starting the Linux container">
     Starting the Linux container
-  </message>
-  <message name="IDS_CROSTINI_TERMINAL_STATUS_FETCH_SSH_KEYS" desc="Text shown in the crostini terminal when it is fetching the Linux container ssh keys">
-    Fetching the Linux container ssh keys
-  </message>
-  <message name="IDS_CROSTINI_TERMINAL_STATUS_MOUNT_CONTAINER" desc="Text shown in the crostini terminal when it is mounting container sshfs (ssh filesystem)">
-    Mounting the Linux container sshfs
   </message>
   <message name="IDS_CROSTINI_TERMINAL_STATUS_CONNECT_CONTAINER" desc="Text shown in the crostini terminal when it is connecting to the container">
     Connecting to the container
@@ -5393,6 +5400,9 @@
   <message name="IDS_PLUGIN_VM_INSTALLER_ERROR_MESSAGE_DOWNLOAD_FAILED" desc="Text of the Plugin VM installer if the installation failed because something went wrong while downloading the virtual machine.">
     Couldn't install the virtual machine because of a network error. Please try again, or contact your administrator. Error code: <ph name="ERROR_CODE">$1<ex>7</ex></ph>.
   </message>
+  <message name="IDS_PLUGIN_VM_INSTALLER_ERROR_MESSAGE_DOWNLOAD_HTTP_ERROR" desc="Text of the Parallels Desktop installer when downloading the virtual machine image failed due to a HTTP error (e.g. 401, 403, 404).">
+    Couldn't install <ph name="VM_NAME">$1<ex>Parallels Desktop</ex></ph>: Image URL returned a <ph name="HTTP_ERROR">$2<ex>404</ex></ph> error code. Please contact your administrator.
+  </message>
   <message name="IDS_PLUGIN_VM_INSTALLER_ERROR_MESSAGE_INSTALLING_FAILED" desc="Text of the Plugin VM installer if the installation failed because downloaded Plugin VM could not be installed.">
     Couldn't install the virtual machine. Please try again, or contact your administrator. Error code: <ph name="ERROR_CODE">$1<ex>7</ex></ph>.
   </message>
@@ -5852,6 +5862,9 @@ You can manage this account’s settings by installing the Family Link app on yo
   <message name="IDS_SETTINGS_PEOPLE_CONFIGURE_PIN_WEAK_PIN" desc="Message shown below the title that warns the user they have entered a PIN that is easy to guess.">
     PIN may be easy to guess
   </message>
+  <message name="IDS_SETTINGS_PEOPLE_CONFIGURE_PIN_INTERNAL_ERROR" desc="Message shown below the title that warns the user that internal error occured.">
+    Internal error
+  </message>
   <message name="IDS_SETTINGS_PEOPLE_CONFIGURE_PIN_TOO_SHORT" desc="Message shown below the title that tells the user that the PIN they entered needs to be at least minimum digits long.">
     PIN must be at least <ph name="MINIMUM">$1<ex>4</ex></ph> digits
   </message>
@@ -5927,6 +5940,9 @@ You can manage this account’s settings by installing the Family Link app on yo
   </message>
   <message name="IDS_SUGGESTION_AUTOCORRECT_UNDO_WINDOW_SHOWN" desc="String announced by screenreader when a button to undo an autocorrect is shown. Example, user types 'hllo', system autocorrects to 'hello', user then prepares to revert the autocorrect.">
     Autocorrect undo dialog is shown for <ph name="TYPED_WORD">$1<ex>hllo</ex></ph> corrected to <ph name="CORRECTED_WORD">$2<ex>hello</ex></ph>.  Press up arrow to access, escape to ignore.
+  </message>
+  <message name="IDS_SUGGESTION_TAB_KEY" desc="This string is the tab key annotation, which is used to educate users how to accept a predictive writing suggestion">
+    Tab
   </message>
 
   <!-- Strings for emoji picker-->

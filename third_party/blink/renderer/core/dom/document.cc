@@ -66,20 +66,17 @@
 #include "third_party/blink/public/common/thread_safe_browser_interface_broker_proxy.h"
 #include "third_party/blink/public/mojom/css/preferred_color_scheme.mojom-blink-forward.h"
 #include "third_party/blink/public/mojom/input/focus_type.mojom-blink.h"
-#include "third_party/blink/public/mojom/insecure_input/insecure_input_service.mojom-blink.h"
 #include "third_party/blink/public/mojom/page_state/page_state.mojom-blink.h"
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/public/platform/task_type.h"
 #include "third_party/blink/public/platform/web_content_settings_client.h"
 #include "third_party/blink/public/platform/web_theme_engine.h"
 #include "third_party/blink/public/web/web_print_page_description.h"
-#include "third_party/blink/renderer/bindings/core/v8/html_script_element_or_svg_script_element.h"
 #include "third_party/blink/renderer/bindings/core/v8/isolated_world_csp.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_controller.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise_resolver.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_value.h"
 #include "third_party/blink/renderer/bindings/core/v8/source_location.h"
-#include "third_party/blink/renderer/bindings/core/v8/string_or_element_creation_options.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_element_creation_options.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_element_registration_options.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_interest_cohort.h"
@@ -103,6 +100,7 @@
 #include "third_party/blink/renderer/core/css/invalidation/style_invalidator.h"
 #include "third_party/blink/renderer/core/css/media_query_list.h"
 #include "third_party/blink/renderer/core/css/media_query_matcher.h"
+#include "third_party/blink/renderer/core/css/media_values.h"
 #include "third_party/blink/renderer/core/css/parser/css_parser.h"
 #include "third_party/blink/renderer/core/css/properties/css_property.h"
 #include "third_party/blink/renderer/core/css/property_registry.h"
@@ -183,6 +181,7 @@
 #include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/local_frame_client.h"
+#include "third_party/blink/renderer/core/frame/local_frame_ukm_aggregator.h"
 #include "third_party/blink/renderer/core/frame/local_frame_view.h"
 #include "third_party/blink/renderer/core/frame/page_dismissal_scope.h"
 #include "third_party/blink/renderer/core/frame/performance_monitor.h"
@@ -743,7 +742,6 @@ Document::Document(const DocumentInit& initializer,
               ? kAllowDeferredParsing
               : kAllowAsynchronousParsing),
       node_count_(0),
-      logged_field_edit_(false),
       // Use the source id from the document initializer if it is available.
       // Otherwise, generate a new source id to cover any cases that don't
       // receive a valid source id, this for example includes but is not limited
@@ -1045,7 +1043,6 @@ Element* Document::CreateElementForBinding(const AtomicString& name,
       QualifiedName(g_null_atom, name, g_null_atom), this);
 }
 
-#if defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
 AtomicString GetTypeExtension(
     Document* document,
     const V8UnionElementCreationOptionsOrString* string_or_options) {
@@ -1068,48 +1065,15 @@ AtomicString GetTypeExtension(
   NOTREACHED();
   return AtomicString();
 }
-#else   // defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
-AtomicString GetTypeExtension(
-    Document* document,
-    const StringOrElementCreationOptions& string_or_options) {
-  if (string_or_options.IsNull())
-    return AtomicString();
-
-  if (string_or_options.IsString()) {
-    UseCounter::Count(document,
-                      WebFeature::kDocumentCreateElement2ndArgStringHandling);
-    return AtomicString(string_or_options.GetAsString());
-  }
-
-  if (string_or_options.IsElementCreationOptions()) {
-    const ElementCreationOptions& options =
-        *string_or_options.GetAsElementCreationOptions();
-    if (options.hasIs())
-      return AtomicString(options.is());
-  }
-
-  return AtomicString();
-}
-#endif  // defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
 
 // https://dom.spec.whatwg.org/#dom-document-createelement
 Element* Document::CreateElementForBinding(
     const AtomicString& local_name,
-#if defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
     const V8UnionElementCreationOptionsOrString* string_or_options,
-#else   // defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
-    const StringOrElementCreationOptions& string_or_options,
-#endif  // defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
     ExceptionState& exception_state) {
-#if defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
   if (!string_or_options) {
     return CreateElementForBinding(local_name, exception_state);
   }
-#else   // defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
-  if (string_or_options.IsNull()) {
-    return CreateElementForBinding(local_name, exception_state);
-  }
-#endif  // defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
 
   // 1. If localName does not match Name production, throw InvalidCharacterError
   if (!IsValidElementName(this, local_name)) {
@@ -1126,22 +1090,13 @@ Element* Document::CreateElementForBinding(
                            ? html_names::xhtmlNamespaceURI
                            : g_null_atom);
 
-#if !defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
-  bool create_builtin = string_or_options.IsElementCreationOptions() ||
-                        string_or_options.IsString();
-#endif  // !defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
-
   // 3.
   const AtomicString& is = GetTypeExtension(this, string_or_options);
 
   // 5. Let element be the result of creating an element given ...
   Element* element =
       CreateElement(q_name, CreateElementFlags::ByCreateElement(),
-#if defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
                     is
-#else   // defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
-                    create_builtin ? is : g_null_atom
-#endif  // defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
       );
 
   return element;
@@ -1187,29 +1142,15 @@ Element* Document::createElementNS(const AtomicString& namespace_uri,
 Element* Document::createElementNS(
     const AtomicString& namespace_uri,
     const AtomicString& qualified_name,
-#if defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
     const V8UnionElementCreationOptionsOrString* string_or_options,
-#else   // defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
-    const StringOrElementCreationOptions& string_or_options,
-#endif  // defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
     ExceptionState& exception_state) {
-#if defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
   DCHECK(string_or_options);
-#else   // defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
-  if (string_or_options.IsNull())
-    return createElementNS(namespace_uri, qualified_name, exception_state);
-#endif  // defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
 
   // 1. Validate and extract
   QualifiedName q_name(
       CreateQualifiedName(namespace_uri, qualified_name, exception_state));
   if (q_name == QualifiedName::Null())
     return nullptr;
-
-#if !defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
-  bool create_builtin = string_or_options.IsElementCreationOptions() ||
-                        string_or_options.IsString();
-#endif  // !defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
 
   // 2.
   const AtomicString& is = GetTypeExtension(this, string_or_options);
@@ -1225,11 +1166,7 @@ Element* Document::createElementNS(
   // 3. Let element be the result of creating an element
   Element* element =
       CreateElement(q_name, CreateElementFlags::ByCreateElement(),
-#if defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
                     is
-#else   // defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
-                    create_builtin ? is : g_null_atom
-#endif  // defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
       );
 
   return element;
@@ -1593,8 +1530,6 @@ Element* Document::scrollingElement() {
 Element* Document::ScrollingElementNoLayout() {
   if (RuntimeEnabledFeatures::ScrollTopLeftInteropEnabled()) {
     if (InQuirksMode()) {
-      DCHECK(!IsActive() || InStyleRecalc() ||
-             lifecycle_.GetState() >= DocumentLifecycle::kStyleClean);
       HTMLBodyElement* body = FirstBodyElement();
       if (body && body->GetLayoutObject() &&
           body->GetLayoutObject()->IsScrollContainer())
@@ -2072,6 +2007,9 @@ void Document::UpdateStyleAndLayoutTreeForThisDocument() {
   }
 #endif
 
+  SCOPED_UMA_AND_UKM_TIMER(View()->EnsureUkmAggregator(),
+                           LocalFrameUkmAggregator::kStyle);
+
   // RecalcSlotAssignments should be done before checking
   // NeedsLayoutTreeUpdate().
   GetSlotAssignmentEngine().RecalcSlotAssignments();
@@ -2150,6 +2088,8 @@ void Document::UpdateStyleAndLayoutTreeForThisDocument() {
 
   // Make sure that document.fonts.ready fires, if appropriate.
   FontFaceSetDocument::DidLayout(*this);
+
+  UnblockLoadEventAfterLayoutTreeUpdate();
 
   TRACE_EVENT_END1("blink,devtools.timeline", "UpdateLayoutTree",
                    "elementCount", element_count);
@@ -2770,8 +2710,8 @@ void Document::Shutdown() {
 
   markers_->PrepareForDestruction();
 
-  if (GetFrame()->GetTextFragmentSelectorGenerator())
-    GetFrame()->GetTextFragmentSelectorGenerator()->ClearSelection();
+  if (TextFragmentHandler* handler = GetFrame()->GetTextFragmentHandler())
+    handler->DidDetachDocumentOrFrame();
 
   GetPage()->DocumentDetached(this);
 
@@ -3096,7 +3036,7 @@ void Document::open(LocalDOMWindow* entered_window,
       new_url.SetFragmentIdentifier(String());
     SetURL(new_url);
     if (Loader())
-      Loader()->UpdateUrlForDocumentOpen(new_url);
+      Loader()->DidOpenDocumentInputStream(new_url);
 
     if (dom_window_ != entered_window) {
       // We inherit the sandbox flags of the entered document, so mask on
@@ -3356,8 +3296,7 @@ Element* Document::ViewportDefiningElement() const {
   const ComputedStyle* root_style = root_element->GetComputedStyle();
   if (!root_style || root_style->IsEnsuredInDisplayNone())
     return nullptr;
-  if (body_element && root_style->IsOverflowVisibleAlongBothAxes() &&
-      IsA<HTMLHtmlElement>(root_element))
+  if (body_element && root_style->IsOverflowVisibleAlongBothAxes())
     return body_element;
   return root_element;
 }
@@ -3477,7 +3416,8 @@ void Document::ImplicitClose() {
 
   fetcher_->ScheduleWarnUnusedPreloads();
 
-  UpdateStyleAndLayout(DocumentUpdateReason::kUnknown);
+  if (GetStyleEngine().HaveRenderBlockingStylesheetsLoaded())
+    UpdateStyleAndLayout(DocumentUpdateReason::kUnknown);
 
   load_event_progress_ = kLoadEventCompleted;
 
@@ -4581,6 +4521,7 @@ void Document::LayoutViewportWasResized() {
   if (View()->DidFirstLayout() ||
       load_event_progress_ == kLoadEventInProgress) {
     EnqueueResizeEvent();
+    EnqueueVisualViewportResizeEvent();
   }
   if (!HasViewportUnits())
     return;
@@ -5276,17 +5217,6 @@ const OriginAccessEntry& Document::AccessEntryFromURL() {
   return *access_entry_from_url_;
 }
 
-void Document::SendDidEditFieldInInsecureContext() {
-  if (!GetFrame())
-    return;
-
-  mojo::Remote<mojom::blink::InsecureInputService> insecure_input_service;
-  GetFrame()->GetBrowserInterfaceBroker().GetInterface(
-      insecure_input_service.BindNewPipeAndPassReceiver());
-
-  insecure_input_service->DidEditFieldInInsecureContext();
-}
-
 void Document::RegisterEventFactory(
     std::unique_ptr<EventFactoryBase> event_factory) {
   DCHECK(!EventFactories().Contains(event_factory.get()));
@@ -5437,6 +5367,9 @@ String Document::cookie(ExceptionState& exception_state) const {
           "Cookies are disabled inside 'data:' URLs.");
     } else {
       exception_state.ThrowSecurityError("Access is denied for this document.");
+      if (Url().ProtocolIs("urn")) {
+        CountUse(WebFeature::kUrnDocumentAccessedCookies);
+      }
     }
     return String();
   } else if (dom_window_->GetSecurityOrigin()->IsLocal()) {
@@ -5462,6 +5395,9 @@ void Document::setCookie(const String& value, ExceptionState& exception_state) {
           "Cookies are disabled inside 'data:' URLs.");
     } else {
       exception_state.ThrowSecurityError("Access is denied for this document.");
+      if (Url().ProtocolIs("urn")) {
+        CountUse(WebFeature::kUrnDocumentAccessedCookies);
+      }
     }
     return;
   } else if (dom_window_->GetSecurityOrigin()->IsLocal()) {
@@ -6325,7 +6261,6 @@ KURL Document::OpenSearchDescriptionURL() {
   return KURL();
 }
 
-#if defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
 V8HTMLOrSVGScriptElement* Document::currentScriptForBinding() const {
   if (current_script_stack_.IsEmpty())
     return nullptr;
@@ -6334,15 +6269,6 @@ V8HTMLOrSVGScriptElement* Document::currentScriptForBinding() const {
     return nullptr;
   return script_element_base->AsV8HTMLOrSVGScriptElement();
 }
-#else   // defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
-void Document::currentScriptForBinding(
-    HTMLScriptElementOrSVGScriptElement& script_element) const {
-  if (!current_script_stack_.IsEmpty()) {
-    if (ScriptElementBase* script_element_base = current_script_stack_.back())
-      script_element_base->SetScriptElementForBinding(script_element);
-  }
-}
-#endif  // defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
 
 void Document::PushCurrentScript(ScriptElementBase* new_current_script) {
   current_script_stack_.push_back(new_current_script);
@@ -6642,8 +6568,10 @@ void Document::FinishedParsing() {
     // the window load event too early.  To avoid this we force the styles to be
     // up to date before calling FrameLoader::finishedParsing().  See
     // https://bugs.webkit.org/show_bug.cgi?id=36864 starting around comment 35.
-    if (!is_initial_empty_document_)
+    if (!is_initial_empty_document_ &&
+        GetStyleEngine().HaveRenderBlockingStylesheetsLoaded()) {
       UpdateStyleAndLayoutTree();
+    }
 
     BeginLifecycleUpdatesIfRenderingReady();
 
@@ -7779,25 +7707,6 @@ PropertyRegistry& Document::EnsurePropertyRegistry() {
   return *property_registry_;
 }
 
-void Document::MaybeQueueSendDidEditFieldInInsecureContext() {
-  if (logged_field_edit_ || sensitive_input_edited_task_.IsActive() ||
-      execution_context_->IsSecureContext()) {
-    // Send a message on the first edit; the browser process doesn't care
-    // about the presence of additional edits.
-    //
-    // The browser process only cares about editing fields on pages where the
-    // top-level URL is not secure. Secure contexts must have a top-level URL
-    // that is secure, so there is no need to send notifications for editing
-    // in secure contexts.
-    return;
-  }
-  logged_field_edit_ = true;
-  sensitive_input_edited_task_ = PostCancellableTask(
-      *GetTaskRunner(TaskType::kUserInteraction), FROM_HERE,
-      WTF::Bind(&Document::SendDidEditFieldInInsecureContext,
-                WrapWeakPersistent(this)));
-}
-
 DocumentResourceCoordinator* Document::GetResourceCoordinator() {
   if (!resource_coordinator_ && GetFrame()) {
     resource_coordinator_ = DocumentResourceCoordinator::MaybeCreate(
@@ -8034,11 +7943,9 @@ bool Document::ChildrenCanHaveStyle() const {
 }
 
 ComputedAccessibleNode* Document::GetOrCreateComputedAccessibleNode(
-    AXID ax_id,
-    WebComputedAXTree* tree) {
+    AXID ax_id) {
   if (computed_node_mapping_.find(ax_id) == computed_node_mapping_.end()) {
-    auto* node =
-        MakeGarbageCollected<ComputedAccessibleNode>(ax_id, tree, this);
+    auto* node = MakeGarbageCollected<ComputedAccessibleNode>(ax_id, this);
     computed_node_mapping_.insert(ax_id, node);
   }
   return computed_node_mapping_.at(ax_id);
@@ -8063,6 +7970,10 @@ void Document::ColorSchemeChanged() {
   UpdateForcedColors();
   GetStyleEngine().ColorSchemeChanged();
   MediaQueryAffectingValueChanged(MediaValueChange::kOther);
+  MediaValues* media_values =
+      MediaValues::CreateDynamicIfFrameExists(GetFrame());
+  GetFrame()->GetLocalFrameHostRemote().DidUpdatePreferredColorScheme(
+      media_values->GetPreferredColorScheme());
 }
 
 void Document::VisionDeficiencyChanged() {
@@ -8167,7 +8078,7 @@ const Node* Document::GetFindInPageActiveMatchNode() const {
   return find_in_page_active_match_node_;
 }
 
-void Document::ActivateForPrerendering() {
+void Document::ActivateForPrerendering(base::TimeTicks activation_start) {
   DCHECK(RuntimeEnabledFeatures::Prerender2Enabled());
 
   // For subframes, this can be called before the navigation commit, and this
@@ -8183,7 +8094,13 @@ void Document::ActivateForPrerendering() {
   is_prerendering_ = false;
 
   if (DocumentLoader* loader = Loader())
-    loader->NotifyPrerenderingDocumentActivated();
+    loader->NotifyPrerenderingDocumentActivated(activation_start);
+
+  Vector<base::OnceClosure> callbacks;
+  callbacks.swap(will_dispatch_prerenderingchange_callbacks_);
+  for (auto& callback : callbacks) {
+    std::move(callback).Run();
+  }
 
   // https://jeremyroman.github.io/alternate-loading-modes/#prerendering-browsing-context-activate
   // Step 8.3.4 "Fire an event named prerenderingchange at doc."
@@ -8195,6 +8112,12 @@ void Document::ActivateForPrerendering() {
 
   if (LocalFrame* frame = GetFrame())
     frame->DidActivateForPrerendering();
+}
+
+void Document::AddWillDispatchPrerenderingchangeCallback(
+    base::OnceClosure closure) {
+  DCHECK(is_prerendering_);
+  will_dispatch_prerenderingchange_callbacks_.push_back(std::move(closure));
 }
 
 void Document::AddPostPrerenderingActivationStep(base::OnceClosure callback) {
@@ -8212,6 +8135,20 @@ void Document::RunPostPrerenderingActivationSteps() {
 bool Document::InStyleRecalc() const {
   return lifecycle_.GetState() == DocumentLifecycle::kInStyleRecalc ||
          style_engine_->InContainerQueryStyleRecalc();
+}
+
+void Document::DelayLoadEventUntilLayoutTreeUpdate() {
+  if (delay_load_event_until_layout_tree_update_)
+    return;
+  delay_load_event_until_layout_tree_update_ = true;
+  IncrementLoadEventDelayCount();
+}
+
+void Document::UnblockLoadEventAfterLayoutTreeUpdate() {
+  if (delay_load_event_until_layout_tree_update_) {
+    delay_load_event_until_layout_tree_update_ = false;
+    DecrementLoadEventDelayCount();
+  }
 }
 
 Document::PaintPreviewScope::PaintPreviewScope(Document& document,

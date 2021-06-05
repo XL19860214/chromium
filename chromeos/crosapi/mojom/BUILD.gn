@@ -18,6 +18,7 @@ mojom("mojom") {
     "crosapi.mojom",
     "device_attributes.mojom",
     "download_controller.mojom",
+    "drive_integration_service.mojom",
     "feedback.mojom",
     "file_manager.mojom",
     "holding_space_service.mojom",
@@ -29,6 +30,7 @@ mojom("mojom") {
     "metrics_reporting.mojom",
     "notification.mojom",
     "prefs.mojom",
+    "remoting.mojom",
     "screen_manager.mojom",
     "select_file.mojom",
     "system_display.mojom",
@@ -48,6 +50,7 @@ mojom("mojom") {
     "//mojo/public/mojom/base",
     "//printing/backend/mojom",
     "//printing/mojom",
+    "//remoting/host/mojom:mojom",
     "//services/device/public/mojom:mojom",
     "//services/media_session/public/mojom:mojom",
     "//ui/accessibility:ax_enums_mojo",
@@ -77,6 +80,15 @@ mojom("mojom") {
           cpp = "::apps::mojom::CapabilityAccessPtr"
           move_only = true
         },
+        {
+          mojom = "crosapi.mojom.IconType"
+          cpp = "::apps::mojom::IconType"
+        },
+        {
+          mojom = "crosapi.mojom.IconValue"
+          cpp = "::apps::mojom::IconValuePtr"
+          move_only = true
+        },
       ]
       traits_headers = [
         "//chromeos/crosapi/mojom/app_service_types_mojom_traits.h",
@@ -101,5 +113,6 @@ source_set("unit_tests") {
     "//components/services/app_service/public/mojom:mojom",
     "//mojo/public/cpp/test_support:test_utils",
     "//testing/gtest",
+    "//ui/gfx:test_support",
   ]
 }

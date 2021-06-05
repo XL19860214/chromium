@@ -152,7 +152,7 @@ public abstract class BaseCustomTabActivity extends ChromeActivity<BaseCustomTab
                         -> mNavigationController,
                 getActivityTabProvider(), mTabModelProfileSupplier, mBookmarkBridgeSupplier,
                 this::getContextualSearchManager, getTabModelSelectorSupplier(),
-                getBrowserControlsManager());
+                getBrowserControlsManager(), getWindowAndroid());
     }
 
     @Override
@@ -444,8 +444,9 @@ public abstract class BaseCustomTabActivity extends ChromeActivity<BaseCustomTab
     @Override
     public int getActivityThemeColor() {
         BrowserServicesIntentDataProvider intentDataProvider = getIntentDataProvider();
-        if (!intentDataProvider.isOpenedByChrome() && intentDataProvider.hasCustomToolbarColor()) {
-            return intentDataProvider.getToolbarColor();
+        if (!intentDataProvider.isOpenedByChrome()
+                && intentDataProvider.getColorProvider().hasCustomToolbarColor()) {
+            return intentDataProvider.getColorProvider().getToolbarColor();
         }
         return TabState.UNSPECIFIED_THEME_COLOR;
     }
@@ -465,8 +466,9 @@ public abstract class BaseCustomTabActivity extends ChromeActivity<BaseCustomTab
 
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
-        Boolean result = KeyboardShortcuts.dispatchKeyEvent(
-                event, this, mToolbarCoordinator.toolbarIsInitialized());
+        Boolean result = KeyboardShortcuts.dispatchKeyEvent(event,
+                mToolbarCoordinator.toolbarIsInitialized(), getFullscreenManager(),
+                /* menuOrKeyboardActionController= */ this);
         return result != null ? result : super.dispatchKeyEvent(event);
     }
 
@@ -493,7 +495,8 @@ public abstract class BaseCustomTabActivity extends ChromeActivity<BaseCustomTab
         if (!mToolbarCoordinator.toolbarIsInitialized()) {
             return super.onKeyDown(keyCode, event);
         }
-        return KeyboardShortcuts.onKeyDown(event, this, true, false)
+        return KeyboardShortcuts.onKeyDown(event, true, false, getTabModelSelector(),
+                       /* menuOrKeyboardActionController= */ this, getToolbarManager())
                 || super.onKeyDown(keyCode, event);
     }
 

@@ -15,6 +15,7 @@
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/browser/ui/views/web_apps/frame_toolbar/web_app_frame_toolbar_view.h"
 #include "chrome/browser/ui/views/web_apps/frame_toolbar/web_app_toolbar_button_container.h"
+#include "chrome/browser/ui/web_applications/app_browser_controller.h"
 #include "chrome/browser/ui/web_applications/test/web_app_browsertest_util.h"
 #include "chrome/browser/web_applications/components/web_application_info.h"
 #include "chrome/browser/web_applications/test/web_app_install_test_utils.h"
@@ -237,10 +238,37 @@ IN_PROC_BROWSER_TEST_F(WebAppGlassBrowserFrameViewWindowControlsOverlayTest,
   if (!InstallAndLaunchWebAppWithWindowControlsOverlay())
     return;
 
+  browser_view_->ToggleWindowControlsOverlayEnabled();
   static_cast<views::View*>(glass_frame_view_)->Layout();
 
   constexpr gfx::Point kPoint(50, 50);
   EXPECT_EQ(glass_frame_view_->NonClientHitTest(kPoint), HTCAPTION);
   EXPECT_FALSE(browser_view_->ShouldDescendIntoChildForEventHandling(
       browser_view_->GetNativeWindow(), kPoint));
+}
+
+IN_PROC_BROWSER_TEST_F(WebAppGlassBrowserFrameViewWindowControlsOverlayTest,
+                       ToggleWindowControlsOverlay) {
+  if (!InstallAndLaunchWebAppWithWindowControlsOverlay())
+    return;
+
+  // Make sure it launches in standalone mode by default.
+  EXPECT_FALSE(browser_view_->IsWindowControlsOverlayEnabled());
+  EXPECT_TRUE(browser_view_->browser()
+                  ->app_controller()
+                  ->AppUsesWindowControlsOverlay());
+
+  // Toggle WCO on, and verify that the UI updates accordingly.
+  browser_view_->ToggleWindowControlsOverlayEnabled();
+  EXPECT_TRUE(browser_view_->IsWindowControlsOverlayEnabled());
+  EXPECT_TRUE(browser_view_->browser()
+                  ->app_controller()
+                  ->AppUsesWindowControlsOverlay());
+
+  // Toggle WCO off, and verify that the app returns to 'standalone' mode
+  browser_view_->ToggleWindowControlsOverlayEnabled();
+  EXPECT_FALSE(browser_view_->IsWindowControlsOverlayEnabled());
+  EXPECT_TRUE(browser_view_->browser()
+                  ->app_controller()
+                  ->AppUsesWindowControlsOverlay());
 }

@@ -17,8 +17,8 @@
 #include "chrome/browser/sync/test/integration/sync_test.h"
 #include "chrome/common/chrome_paths.h"
 #include "components/sync/base/model_type.h"
-#include "components/sync/driver/profile_sync_service.h"
 #include "components/sync/driver/sync_driver_switches.h"
+#include "components/sync/driver/sync_service_impl.h"
 #include "content/public/test/browser_test.h"
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
@@ -30,7 +30,7 @@
 namespace {
 
 syncer::ModelTypeSet AllowedTypesInStandaloneTransportMode() {
-  static_assert(37 == syncer::GetNumModelTypes(),
+  static_assert(38 == syncer::GetNumModelTypes(),
                 "Add new types below if they run in transport mode");
   // Only some special allowlisted types (and control types) are allowed in
   // standalone transport mode.
@@ -61,7 +61,7 @@ base::FilePath GetTestFilePathForCacheGuid() {
 
 class SyncDisabledByUserChecker : public SingleClientStatusChangeChecker {
  public:
-  explicit SyncDisabledByUserChecker(syncer::ProfileSyncService* service)
+  explicit SyncDisabledByUserChecker(syncer::SyncServiceImpl* service)
       : SingleClientStatusChangeChecker(service) {}
 
   bool IsExitConditionSatisfied(std::ostream* os) override {

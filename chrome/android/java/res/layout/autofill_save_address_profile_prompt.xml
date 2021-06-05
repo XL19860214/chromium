@@ -22,7 +22,7 @@
         android:layout_marginEnd="8dp"
         android:padding="12dp"
         android:background="?attr/selectableItemBackground"
-        android:contentDescription="@string/payments_edit_address"
+        android:contentDescription="@string/autofill_save_address_prompt_edit_button_tooltip"
         android:scaleType="fitCenter"
         app:srcCompat="@drawable/edit_icon"
         app:tint="@color/default_icon_color_tint_list"
@@ -42,19 +42,22 @@
           android:layout_width="match_parent"
           android:layout_height="wrap_content"
           android:layout_marginBottom="12dp"
-          app:leading="@dimen/text_size_medium_leading"
+          android:textAppearance="@style/TextAppearance.TextLarge.Secondary"
+          app:leading="@dimen/text_size_large_leading"
           tools:text="Alex Park\n345 High Street\nSan Francisco, CA, 94105\nUnited States" />
 
       <TextView
           android:id="@+id/email"
           android:layout_width="match_parent"
           android:layout_height="wrap_content"
+          android:textAppearance="@style/TextAppearance.TextLarge.Secondary"
           tools:text="alex.park@gmail.com" />
 
       <TextView
           android:id="@+id/phone"
           android:layout_width="match_parent"
           android:layout_height="wrap_content"
+          android:textAppearance="@style/TextAppearance.TextLarge.Secondary"
           tools:text="+1 858 230 4000" />
     </LinearLayout>
   </RelativeLayout>

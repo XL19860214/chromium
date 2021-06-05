@@ -236,6 +236,9 @@ AddressPoolManager::Pool::~Pool() = default;
 
 #else  // defined(PA_HAS_64_BITS_POINTERS)
 
+uint16_t AddressPoolManager::reservation_offset_table_
+    [AddressPoolManager::kReservationOffsetTableSize] = {};
+
 static_assert(
     kSuperPageSize % AddressPoolManagerBitmap::kBytesPer1BitOfBRPPoolBitmap ==
         0,
@@ -279,7 +282,7 @@ void ResetBitmap(std::bitset<bitsize>& bitmap,
 char* AddressPoolManager::Reserve(pool_handle handle,
                                   void* requested_address,
                                   size_t length) {
-  PA_DCHECK(!(length & PageAllocationGranularityOffsetMask()));
+  PA_DCHECK(!(length & DirectMapAllocationGranularityOffsetMask()));
   char* ptr = reinterpret_cast<char*>(
       AllocPages(requested_address, length, kSuperPageSize, PageInaccessible,
                  PageTag::kPartitionAlloc));
@@ -295,7 +298,7 @@ void AddressPoolManager::UnreserveAndDecommit(pool_handle handle,
                                               size_t length) {
   uintptr_t ptr_as_uintptr = reinterpret_cast<uintptr_t>(ptr);
   PA_DCHECK(!(ptr_as_uintptr & kSuperPageOffsetMask));
-  PA_DCHECK(!(length & PageAllocationGranularityOffsetMask()));
+  PA_DCHECK(!(length & DirectMapAllocationGranularityOffsetMask()));
   MarkUnused(handle, ptr_as_uintptr, length);
   FreePages(ptr, length);
 }
@@ -306,12 +309,16 @@ void AddressPoolManager::MarkUsed(pool_handle handle,
   uintptr_t ptr_as_uintptr = reinterpret_cast<uintptr_t>(address);
   AutoLock guard(AddressPoolManagerBitmap::GetLock());
   if (handle == kNonBRPPoolHandle) {
-    SetBitmap(AddressPoolManagerBitmap::non_brp_pool_bits_,
-              ptr_as_uintptr / PageAllocationGranularity(),
-              length / PageAllocationGranularity());
+    PA_DCHECK((length %
+               AddressPoolManagerBitmap::kBytesPer1BitOfNonBRPPoolBitmap) == 0);
+    SetBitmap(
+        AddressPoolManagerBitmap::non_brp_pool_bits_,
+        ptr_as_uintptr >> AddressPoolManagerBitmap::kBitShiftOfNonBRPPoolBitmap,
+        length >> AddressPoolManagerBitmap::kBitShiftOfNonBRPPoolBitmap);
   } else {
     PA_DCHECK(handle == kBRPPoolHandle);
-    PA_DCHECK(!(length & kSuperPageOffsetMask));
+    PA_DCHECK(
+        (length % AddressPoolManagerBitmap::kBytesPer1BitOfBRPPoolBitmap) == 0);
 
     // Make IsManagedByBRPPoolPool() return false when an address inside the
     // first or the last PartitionPageSize()-bytes block is given:
@@ -347,16 +354,26 @@ void AddressPoolManager::MarkUnused(pool_handle handle,
                                     uintptr_t address,
                                     size_t length) {
   AutoLock guard(AddressPoolManagerBitmap::GetLock());
-  // Currently, address regions allocated by kBRPPoolHandle are never freed
-  // in PartitionAlloc, except on error paths, because only normal buckets are
-  // allocated from there. Thus LIKELY is used.
+  // Address regions allocated for normal buckets are never freed, so frequency
+  // of codepaths taken depends solely on which pool direct map allocations go
+  // to. In the ENABLE_BRP_DIRECTMAP_SUPPORT case, they usually go to BRP pool,
+  // and non-BRP pool otherwise.
+#if BUILDFLAG(ENABLE_BRP_DIRECTMAP_SUPPORT)
+  if (UNLIKELY(handle == kNonBRPPoolHandle)) {
+#else
   if (LIKELY(handle == kNonBRPPoolHandle)) {
-    ResetBitmap(AddressPoolManagerBitmap::non_brp_pool_bits_,
-                address / PageAllocationGranularity(),
-                length / PageAllocationGranularity());
+#endif
+    PA_DCHECK((length %
+               AddressPoolManagerBitmap::kBytesPer1BitOfNonBRPPoolBitmap) == 0);
+    ResetBitmap(
+        AddressPoolManagerBitmap::non_brp_pool_bits_,
+        address >> AddressPoolManagerBitmap::kBitShiftOfNonBRPPoolBitmap,
+        length >> AddressPoolManagerBitmap::kBitShiftOfNonBRPPoolBitmap);
   } else {
     PA_DCHECK(handle == kBRPPoolHandle);
-    PA_DCHECK(!(length & kSuperPageOffsetMask));
+    PA_DCHECK(
+        (length % AddressPoolManagerBitmap::kBytesPer1BitOfBRPPoolBitmap) == 0);
+
     // Make IsManagedByBRPPoolPool() return false when an address inside the
     // first or the last PartitionPageSize()-bytes block is given.
     // (See MarkUsed comment)

@@ -12,6 +12,8 @@
 #include "chrome/browser/speech/speech_recognizer.h"
 #include "chrome/browser/speech/speech_recognizer_delegate.h"
 #include "media/mojo/mojom/speech_recognition_service.mojom.h"
+#include "mojo/public/cpp/bindings/receiver.h"
+#include "mojo/public/cpp/bindings/remote.h"
 
 class Profile;
 class SpeechRecognizerDelegate;
@@ -34,11 +36,15 @@ class OnDeviceSpeechRecognizer
   // |language_or_locale| specificies the recognition language.
   // |recognition_mode_ime| is whether to use speech recognition configured for
   // IME or Captions.
+  // |enable_formatting| is whether to include extra, assumed formatting and
+  // punctuation.
+  // TODO(katie): Combine bools into an int of bits.
   OnDeviceSpeechRecognizer(
       const base::WeakPtr<SpeechRecognizerDelegate>& delegate,
       Profile* profile,
       std::string language_or_locale,
-      bool recognition_mode_ime);
+      bool recognition_mode_ime,
+      bool enable_formatting);
   ~OnDeviceSpeechRecognizer() override;
   OnDeviceSpeechRecognizer(const OnDeviceSpeechRecognizer&) = delete;
   OnDeviceSpeechRecognizer& operator=(const OnDeviceSpeechRecognizer&) = delete;
@@ -50,7 +56,7 @@ class OnDeviceSpeechRecognizer
 
   // media::mojom::SpeechRecognitionRecognizerClient:
   void OnSpeechRecognitionRecognitionEvent(
-      media::mojom::SpeechRecognitionResultPtr result,
+      const media::SpeechRecognitionResult& result,
       OnSpeechRecognitionRecognitionEventCallback reply) override;
   void OnSpeechRecognitionError() override;
   void OnLanguageIdentificationEvent(

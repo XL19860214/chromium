@@ -39,7 +39,6 @@
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/accessibility/accessibility_labels_service.h"
 #include "chrome/browser/accessibility/accessibility_labels_service_factory.h"
-#include "chrome/browser/accessibility/caption_util.h"
 #include "chrome/browser/after_startup_task_utils.h"
 #include "chrome/browser/bluetooth/chrome_bluetooth_delegate.h"
 #include "chrome/browser/browser_about_handler.h"
@@ -104,6 +103,8 @@
 #include "chrome/browser/policy/profile_policy_connector.h"
 #include "chrome/browser/prefetch/no_state_prefetch/chrome_no_state_prefetch_contents_delegate.h"
 #include "chrome/browser/prefetch/no_state_prefetch/no_state_prefetch_manager_factory.h"
+#include "chrome/browser/prefetch/no_state_prefetch/no_state_prefetch_navigation_throttle.h"
+#include "chrome/browser/prefetch/prefetch_proxy/chrome_speculation_host_delegate.h"
 #include "chrome/browser/prefetch/prefetch_proxy/prefetch_proxy_features.h"
 #include "chrome/browser/prefetch/prefetch_proxy/prefetch_proxy_service.h"
 #include "chrome/browser/prefetch/prefetch_proxy/prefetch_proxy_service_factory.h"
@@ -215,7 +216,6 @@
 #include "components/content_settings/core/common/content_settings_types.h"
 #include "components/content_settings/core/common/content_settings_utils.h"
 #include "components/content_settings/core/common/pref_names.h"
-#include "components/data_reduction_proxy/core/browser/data_reduction_proxy_data.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_service.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_features.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_params.h"
@@ -235,6 +235,7 @@
 #include "components/keep_alive_registry/keep_alive_types.h"
 #include "components/keep_alive_registry/scoped_keep_alive.h"
 #include "components/language/core/browser/pref_names.h"
+#include "components/live_caption/caption_util.h"
 #include "components/media_router/browser/presentation/presentation_service_delegate_impl.h"
 #include "components/media_router/browser/presentation/receiver_presentation_service_delegate_impl.h"
 #include "components/metrics/client_info.h"
@@ -436,7 +437,7 @@
 #include "chrome/browser/chromeos/fileapi/mtp_file_system_backend_delegate.h"
 #include "chrome/browser/chromeos/net/system_proxy_manager.h"
 #include "chrome/browser/chromeos/policy/browser_policy_connector_chromeos.h"
-#include "chrome/browser/chromeos/policy/policy_cert_service_factory.h"
+#include "chrome/browser/chromeos/policy/networking/policy_cert_service_factory.h"
 #include "chrome/browser/chromeos/policy/system_features_disable_list_policy_handler.h"
 #include "chrome/browser/chromeos/smb_client/fileapi/smbfs_file_system_backend_delegate.h"
 #include "chrome/browser/speech/tts_chromeos.h"
@@ -496,6 +497,7 @@
 #include "chrome/browser/serial/chrome_serial_delegate.h"
 #include "chrome/browser/task_manager/task_manager_interface.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/browser_dialogs.h"
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/browser_window.h"
@@ -1962,6 +1964,15 @@ bool ChromeContentBrowserClient::MayReuseHost(
   return true;
 }
 
+size_t ChromeContentBrowserClient::GetProcessCountToIgnoreForLimit() {
+#if BUILDFLAG(ENABLE_EXTENSIONS)
+  return ChromeContentBrowserClientExtensionsPart::
+      GetProcessCountToIgnoreForLimit();
+#else
+  return 0;
+#endif
+}
+
 bool ChromeContentBrowserClient::ShouldTryToUseExistingProcessHost(
     content::BrowserContext* browser_context,
     const GURL& url) {
@@ -2588,7 +2599,7 @@ bool ChromeContentBrowserClient::AllowSharedWorker(
     const GURL& site_for_cookies,
     const absl::optional<url::Origin>& top_frame_origin,
     const std::string& name,
-    const storage::StorageKey& storage_key,
+    const blink::StorageKey& storage_key,
     content::BrowserContext* context,
     int render_process_id,
     int render_frame_id) {
@@ -3716,7 +3727,7 @@ void ChromeContentBrowserClient::GetAdditionalFileSystemBackends(
         additional_backends) {
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   storage::ExternalMountPoints* external_mount_points =
-      content::BrowserContext::GetMountPoints(browser_context);
+      browser_context->GetMountPoints();
   DCHECK(external_mount_points);
   auto backend = std::make_unique<chromeos::FileSystemBackend>(
       Profile::FromBrowserContext(browser_context),
@@ -4204,6 +4215,11 @@ ChromeContentBrowserClient::CreateThrottlesForNavigation(
 
   MaybeAddThrottle(
       payments::PaymentHandlerNavigationThrottle::MaybeCreateThrottleFor(
+          handle),
+      &throttles);
+
+  MaybeAddThrottle(
+      prerender::NoStatePrefetchNavigationThrottle::MaybeCreateThrottleFor(
           handle),
       &throttles);
 
@@ -4984,6 +5000,56 @@ void ChromeContentBrowserClient::CreateWebSocket(
 #endif
 }
 
+void ChromeContentBrowserClient::WillCreateWebTransport(
+    content::RenderFrameHost* frame,
+    const GURL& url,
+    WillCreateWebTransportCallback callback) {
+#if BUILDFLAG(SAFE_BROWSING_AVAILABLE)
+  if (!frame) {
+    std::move(callback).Run(absl::nullopt);
+    return;
+  }
+  int frame_tree_node_id = frame->GetFrameTreeNodeId();
+  content::WebContents* web_contents =
+      content::WebContents::FromFrameTreeNodeId(frame_tree_node_id);
+  DCHECK(web_contents);
+  Profile* profile =
+      Profile::FromBrowserContext(web_contents->GetBrowserContext());
+  DCHECK(profile);
+  auto checker = std::make_unique<safe_browsing::WebApiHandshakeChecker>(
+      base::BindOnce(
+          &ChromeContentBrowserClient::GetSafeBrowsingUrlCheckerDelegate,
+          base::Unretained(this),
+          safe_browsing::IsSafeBrowsingEnabled(*profile->GetPrefs()),
+          /*should_check_on_sb_disabled=*/false,
+          safe_browsing::GetURLAllowlistByPolicy(profile->GetPrefs())),
+      base::BindRepeating(&content::WebContents::FromFrameTreeNodeId,
+                          frame_tree_node_id),
+      frame_tree_node_id);
+  auto* raw_checker = checker.get();
+  raw_checker->Check(
+      url,
+      base::BindOnce(
+          &ChromeContentBrowserClient::SafeBrowsingWebApiHandshakeChecked,
+          weak_factory_.GetWeakPtr(), std::move(checker), std::move(callback)));
+#else
+  std::move(callback).Run(absl::nullopt);
+#endif
+}
+
+void ChromeContentBrowserClient::SafeBrowsingWebApiHandshakeChecked(
+    std::unique_ptr<safe_browsing::WebApiHandshakeChecker> checker,
+    WillCreateWebTransportCallback callback,
+    safe_browsing::WebApiHandshakeChecker::CheckResult result) {
+  if (result == safe_browsing::WebApiHandshakeChecker::CheckResult::kProceed) {
+    std::move(callback).Run(absl::nullopt);
+  } else {
+    std::move(callback).Run(network::mojom::WebTransportError::New(
+        net::ERR_ABORTED, quic::QUIC_INTERNAL_ERROR,
+        "SafeBrowsing check failed", false));
+  }
+}
+
 bool ChromeContentBrowserClient::WillCreateRestrictedCookieManager(
     network::mojom::RestrictedCookieManagerRole role,
     content::BrowserContext* browser_context,
@@ -5160,6 +5226,26 @@ ChromeContentBrowserClient::GetWebAuthenticationRequestDelegate(
     content::RenderFrameHost* render_frame_host) {
   return AuthenticatorRequestScheduler::CreateRequestDelegate(
       render_frame_host);
+}
+
+void ChromeContentBrowserClient::ShowDirectSocketsConnectionDialog(
+    content::RenderFrameHost* owner,
+    const std::string& address,
+    base::OnceCallback<void(bool, const std::string&, const std::string&)>
+        callback) {
+  auto* contents = content::WebContents::FromRenderFrameHost(owner);
+  if (!contents)
+    return;
+
+  auto* browser = chrome::FindBrowserWithWebContents(contents);
+  if (!browser ||
+      browser->tab_strip_model()->GetActiveWebContents() != contents) {
+    std::move(callback).Run(false, std::string(), std::string());
+    return;
+  }
+
+  chrome::ShowDirectSocketsConnectionDialog(browser, address,
+                                            std::move(callback));
 }
 #endif
 
@@ -5648,7 +5734,7 @@ bool ChromeContentBrowserClient::ArePersistentMediaDeviceIDsAllowed(
   // Persistent MediaDevice IDs are allowed if cookies are allowed.
   return CookieSettingsFactory::GetForProfile(
              Profile::FromBrowserContext(browser_context))
-      ->IsCookieAccessAllowed(url, site_for_cookies, top_frame_origin);
+      ->IsFullCookieAccessAllowed(url, site_for_cookies, top_frame_origin);
 }
 
 #if !defined(OS_ANDROID)
@@ -5940,6 +6026,12 @@ bool ChromeContentBrowserClient::SuppressDifferentOriginSubframeJSDialogs(
   }
   return ContentBrowserClient::SuppressDifferentOriginSubframeJSDialogs(
       browser_context);
+}
+
+std::unique_ptr<content::SpeculationHostDelegate>
+ChromeContentBrowserClient::CreateSpeculationHostDelegate(
+    content::RenderFrameHost& render_frame_host) {
+  return std::make_unique<ChromeSpeculationHostDelegate>(render_frame_host);
 }
 
 #if !defined(OS_ANDROID)

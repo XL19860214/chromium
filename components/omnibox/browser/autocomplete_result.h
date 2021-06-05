@@ -125,7 +125,7 @@ class AutocompleteResult {
   // Called after matches are deduped and sorted and before they are culled.
   void GroupAndDemoteMatchesWithHeaders();
 
-  // Sets |pedal| in matches that have Pedal-triggering text.
+  // Sets |action| in matches that have Pedal-triggering text.
   void AttachPedalsToMatches(const AutocompleteInput& input,
                              const AutocompleteProviderClient& client);
 
@@ -244,6 +244,9 @@ class AutocompleteResult {
  private:
   FRIEND_TEST_ALL_PREFIXES(AutocompleteResultTest,
                            DemoteOnDeviceSearchSuggestions);
+  FRIEND_TEST_ALL_PREFIXES(
+      AutocompleteResultTest,
+      GroupSuggestionsBySearchVsURLHonorsProtectedSuggestions);
   friend class HistoryURLProviderTest;
 
   typedef std::map<AutocompleteProvider*, ACMatches> ProviderToMatches;

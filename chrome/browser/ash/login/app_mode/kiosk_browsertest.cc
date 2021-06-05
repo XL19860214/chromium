@@ -29,7 +29,7 @@
 #include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
-#include "base/system/sys_info.h"
+#include "base/test/scoped_chromeos_version_info.h"
 #include "chrome/browser/ash/accessibility/accessibility_manager.h"
 #include "chrome/browser/ash/accessibility/speech_monitor.h"
 #include "chrome/browser/ash/app_mode/app_session.h"
@@ -295,12 +295,6 @@ extensions::Manifest::Type GetAppType(const std::string& app_id) {
   return app->GetType();
 }
 
-void SetPlatformVersion(const std::string& platform_version) {
-  const std::string lsb_release = base::StringPrintf(
-      "CHROMEOS_RELEASE_VERSION=%s", platform_version.c_str());
-  base::SysInfo::SetChromeOSVersionInfoForTest(lsb_release, base::Time::Now());
-}
-
 class KioskFakeDiskMountManager : public file_manager::FakeDiskMountManager {
  public:
   KioskFakeDiskMountManager() {}
@@ -438,7 +432,7 @@ class AppDataLoadWaiter : public KioskAppManagerObserver {
 // Replaces settings urls for KioskSettingsNavigationThrottle.
 class ScopedSettingsPages {
  public:
-  ScopedSettingsPages(
+  explicit ScopedSettingsPages(
       std::vector<KioskSettingsNavigationThrottle::SettingsPage>* pages) {
     KioskSettingsNavigationThrottle::SetSettingPagesForTesting(pages);
   }
@@ -660,8 +654,9 @@ class KioskTest : public OobeBaseTest {
 
     // Check that the app had been informed that it is running in a kiosk
     // session.
-    if (check_launch_data)
-      EXPECT_TRUE(launch_data_check_listener.was_satisfied());
+    if (check_launch_data) {
+      EXPECT_TRUE(launch_data_check_listener.WaitUntilSatisfied());
+    }
   }
 
   void WaitForAppLaunchSuccess() {
@@ -1120,9 +1115,8 @@ IN_PROC_BROWSER_TEST_F(KioskDeviceOwnedTest, DISABLED_LaunchAppUserCancel) {
 IN_PROC_BROWSER_TEST_F(KioskTest, AutolaunchWarningCancel) {
   EnableConsumerKioskMode();
 
-  chromeos::WizardController::SkipPostLoginScreensForTesting();
-  chromeos::WizardController* wizard_controller =
-      chromeos::WizardController::default_controller();
+  WizardController::SkipPostLoginScreensForTesting();
+  auto* wizard_controller = WizardController::default_controller();
   ASSERT_TRUE(wizard_controller);
 
   // Start login screen after configuring auto launch app since the warning
@@ -1143,13 +1137,11 @@ IN_PROC_BROWSER_TEST_F(KioskTest, AutolaunchWarningCancel) {
   EXPECT_FALSE(KioskAppManager::Get()->IsAutoLaunchEnabled());
 }
 
-// TODO(crbug.com/1201207): Fix flakiness.
-IN_PROC_BROWSER_TEST_F(KioskTest, DISABLED_AutolaunchWarningConfirm) {
+IN_PROC_BROWSER_TEST_F(KioskTest, AutolaunchWarningConfirm) {
   EnableConsumerKioskMode();
 
-  chromeos::WizardController::SkipPostLoginScreensForTesting();
-  chromeos::WizardController* wizard_controller =
-      chromeos::WizardController::default_controller();
+  WizardController::SkipPostLoginScreensForTesting();
+  auto* wizard_controller = WizardController::default_controller();
   ASSERT_TRUE(wizard_controller);
 
   // Start login screen after configuring auto launch app since the warning
@@ -1180,9 +1172,8 @@ IN_PROC_BROWSER_TEST_F(KioskTest, DISABLED_AutolaunchWarningConfirm) {
 }
 
 IN_PROC_BROWSER_TEST_F(KioskTest, KioskEnableCancel) {
-  chromeos::WizardController::SkipPostLoginScreensForTesting();
-  chromeos::WizardController* wizard_controller =
-      chromeos::WizardController::default_controller();
+  WizardController::SkipPostLoginScreensForTesting();
+  auto* wizard_controller = WizardController::default_controller();
   ASSERT_TRUE(wizard_controller);
 
   // Check Kiosk mode status.
@@ -1209,9 +1200,8 @@ IN_PROC_BROWSER_TEST_F(KioskTest, KioskEnableCancel) {
 
 IN_PROC_BROWSER_TEST_F(KioskTest, KioskEnableConfirmed) {
   // Start UI, find menu entry for this app and launch it.
-  chromeos::WizardController::SkipPostLoginScreensForTesting();
-  chromeos::WizardController* wizard_controller =
-      chromeos::WizardController::default_controller();
+  WizardController::SkipPostLoginScreensForTesting();
+  auto* wizard_controller = WizardController::default_controller();
   ASSERT_TRUE(wizard_controller);
 
   // Check Kiosk mode status.
@@ -1239,9 +1229,8 @@ IN_PROC_BROWSER_TEST_F(KioskTest, KioskEnableConfirmed) {
 }
 
 IN_PROC_BROWSER_TEST_F(KioskTest, KioskEnableAfter2ndSigninScreen) {
-  chromeos::WizardController::SkipPostLoginScreensForTesting();
-  chromeos::WizardController* wizard_controller =
-      chromeos::WizardController::default_controller();
+  WizardController::SkipPostLoginScreensForTesting();
+  auto* wizard_controller = WizardController::default_controller();
   ASSERT_TRUE(wizard_controller);
 
   // Check Kiosk mode status.
@@ -1309,9 +1298,8 @@ IN_PROC_BROWSER_TEST_F(KioskTest, NoConsumerAutoLaunchWhenUntrusted) {
   EnableConsumerKioskMode();
 
   // Wait for and confirm the auto-launch warning.
-  chromeos::WizardController::SkipPostLoginScreensForTesting();
-  chromeos::WizardController* wizard_controller =
-      chromeos::WizardController::default_controller();
+  WizardController::SkipPostLoginScreensForTesting();
+  auto* wizard_controller = WizardController::default_controller();
   ASSERT_TRUE(wizard_controller);
   wizard_controller->AdvanceToScreen(WelcomeView::kScreenId);
   ReloadAutolaunchKioskApps();
@@ -2245,7 +2233,8 @@ IN_PROC_BROWSER_TEST_F(KioskUpdateTest,
 }
 
 IN_PROC_BROWSER_TEST_F(KioskUpdateTest, PRE_IncompliantPlatformDelayInstall) {
-  SetPlatformVersion("1233.0.0");
+  base::test::ScopedChromeOSVersionInfo version(
+      "CHROMEOS_RELEASE_VERSION=1234.0.0", base::Time::Now());
 
   set_test_app_id(kTestOfflineEnabledKioskApp);
   set_test_app_version("2.0.0");
@@ -2266,7 +2255,8 @@ IN_PROC_BROWSER_TEST_F(KioskUpdateTest, PRE_IncompliantPlatformDelayInstall) {
 }
 
 IN_PROC_BROWSER_TEST_F(KioskUpdateTest, IncompliantPlatformDelayInstall) {
-  SetPlatformVersion("1234.0.0");
+  base::test::ScopedChromeOSVersionInfo version(
+      "CHROMEOS_RELEASE_VERSION=1234.0.0", base::Time::Now());
 
   set_test_app_id(kTestOfflineEnabledKioskApp);
   set_test_app_version("2.0.0");
@@ -2290,7 +2280,8 @@ IN_PROC_BROWSER_TEST_F(KioskUpdateTest, IncompliantPlatformDelayInstall) {
 // Tests that app is installed for the first time even on an incompliant
 // platform.
 IN_PROC_BROWSER_TEST_F(KioskUpdateTest, IncompliantPlatformFirstInstall) {
-  SetPlatformVersion("1233.0.0");
+  base::test::ScopedChromeOSVersionInfo version(
+      "CHROMEOS_RELEASE_VERSION=1234.0.0", base::Time::Now());
 
   set_test_app_id(kTestOfflineEnabledKioskApp);
   set_test_app_version("2.0.0");
@@ -2782,7 +2773,7 @@ IN_PROC_BROWSER_TEST_F(KioskHiddenWebUITest, AutolaunchWarning) {
   // Set kiosk app to autolaunch.
   EnableConsumerKioskMode();
   WizardController::SkipPostLoginScreensForTesting();
-  WizardController* wizard_controller = WizardController::default_controller();
+  auto* wizard_controller = WizardController::default_controller();
   ASSERT_TRUE(wizard_controller);
 
   // Start login screen after configuring auto launch app since the warning

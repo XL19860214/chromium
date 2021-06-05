@@ -28,6 +28,7 @@
 #include "chrome/browser/ui/browser_tabstrip.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/toolbar/recent_tabs_builder_test_helper.h"
+#include "chrome/browser/ui/ui_features.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/test/base/browser_with_test_window_test.h"
 #include "chrome/test/base/menu_model_test.h"
@@ -270,6 +271,8 @@ TEST_F(RecentTabsSubMenuModelTest, RecentlyClosedTabsFromCurrentSession) {
 // Test recently closed groups with no foreign tabs.
 TEST_F(RecentTabsSubMenuModelTest, RecentlyClosedGroupsFromCurrentSession) {
   DisableSync();
+  base::test::ScopedFeatureList scoped_features;
+  scoped_features.InitAndEnableFeature(features::kTabRestoreSubMenus);
 
   TabRestoreServiceFactory::GetInstance()->SetTestingFactory(
       profile(),
@@ -303,7 +306,9 @@ TEST_F(RecentTabsSubMenuModelTest, RecentlyClosedGroupsFromCurrentSession) {
   EXPECT_TRUE(model.IsEnabledAt(1));
   EXPECT_FALSE(model.IsEnabledAt(2));
   EXPECT_TRUE(model.IsEnabledAt(3));
+  EXPECT_EQ(ui::MenuModel::TYPE_SUBMENU, model.GetTypeAt(3));
   EXPECT_TRUE(model.IsEnabledAt(4));
+  EXPECT_EQ(ui::MenuModel::TYPE_SUBMENU, model.GetTypeAt(4));
   model.ActivatedAt(3);
   model.ActivatedAt(4);
   EXPECT_FALSE(model.IsEnabledAt(6));
@@ -331,6 +336,8 @@ TEST_F(RecentTabsSubMenuModelTest, RecentlyClosedGroupsFromCurrentSession) {
 
 TEST_F(RecentTabsSubMenuModelTest,
        RecentlyClosedTabsAndWindowsFromLastSession) {
+  base::test::ScopedFeatureList scoped_features;
+  scoped_features.InitAndEnableFeature(features::kTabRestoreSubMenus);
   DisableSync();
 
   TabRestoreServiceFactory::GetInstance()->SetTestingFactory(
@@ -420,6 +427,7 @@ TEST_F(RecentTabsSubMenuModelTest,
   EXPECT_EQ(ui::MenuModel::TYPE_SEPARATOR, model.GetTypeAt(1));
   EXPECT_FALSE(model.IsEnabledAt(2));
   EXPECT_TRUE(model.IsEnabledAt(3));
+  EXPECT_EQ(ui::MenuModel::TYPE_SUBMENU, model.GetTypeAt(3));
   EXPECT_TRUE(model.IsEnabledAt(4));
   EXPECT_TRUE(model.IsEnabledAt(5));
   model.ActivatedAt(3);

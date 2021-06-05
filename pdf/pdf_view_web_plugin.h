@@ -111,6 +111,11 @@ class PdfViewWebPlugin final : public PdfViewPluginBase,
   bool CanRedo() const override;
   bool ExecuteEditCommand(const blink::WebString& name,
                           const blink::WebString& value) override;
+  bool StartFind(const blink::WebString& search_text,
+                 bool case_sensitive,
+                 int /*identifier*/) override;
+  void SelectFindResult(bool forward, int /*identifier*/) override;
+  void StopFind() override;
   blink::WebTextInputType GetPluginTextInputType() override;
 
   // PdfViewPluginBase:
@@ -133,7 +138,6 @@ class PdfViewWebPlugin final : public PdfViewPluginBase,
   void DocumentHasUnsupportedFeature(const std::string& feature) override;
   bool IsPrintPreview() override;
   void SelectionChanged(const gfx::Rect& left, const gfx::Rect& right) override;
-  void EnteredEditMode() override;
   void SetSelectedText(const std::string& selected_text) override;
   void SetLinkUnderCursor(const std::string& link_under_cursor) override;
   bool IsValidLink(const std::string& url) override;
@@ -173,6 +177,7 @@ class PdfViewWebPlugin final : public PdfViewPluginBase,
   void DidOpenPreview(std::unique_ptr<UrlLoader> loader,
                       int32_t result) override;
   void SendMessage(base::Value message) override;
+  void SaveAs() override;
   void InitImageData(const gfx::Size& size) override;
   void SetFormFieldInFocus(bool in_focus) override;
   void SetAccessibilityDocInfo(const AccessibilityDocInfo& doc_info) override;
@@ -183,6 +188,7 @@ class PdfViewWebPlugin final : public PdfViewPluginBase,
   void SetAccessibilityViewportInfo(
       const AccessibilityViewportInfo& viewport_info) override;
   void SetContentRestrictions(int content_restrictions) override;
+  void SetPluginCanSave(bool can_save) override;
   void DidStartLoading() override;
   void DidStopLoading() override;
   void OnPrintPreviewLoaded() override;

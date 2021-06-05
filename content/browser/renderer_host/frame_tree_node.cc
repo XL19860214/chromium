@@ -14,7 +14,6 @@
 #include "base/macros.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "content/browser/devtools/devtools_instrumentation.h"
 #include "content/browser/renderer_host/navigation_controller_impl.h"
@@ -109,7 +108,7 @@ FrameTreeNode* FrameTreeNode::From(RenderFrameHost* rfh) {
 FrameTreeNode::FrameTreeNode(
     FrameTree* frame_tree,
     RenderFrameHostImpl* parent,
-    blink::mojom::TreeScopeType scope,
+    blink::mojom::TreeScopeType tree_scope_type,
     const std::string& name,
     const std::string& unique_name,
     bool is_created_by_script,
@@ -121,6 +120,7 @@ FrameTreeNode::FrameTreeNode(
       parent_(parent),
       depth_(parent ? parent->frame_tree_node()->depth_ + 1 : 0u),
       frame_owner_element_type_(owner_type),
+      tree_scope_type_(tree_scope_type),
       replication_state_(blink::mojom::FrameReplicationState::New(
           url::Origin(),
           name,
@@ -128,7 +128,6 @@ FrameTreeNode::FrameTreeNode(
           blink::ParsedPermissionsPolicy(),
           network::mojom::WebSandboxFlags::kNone,
           blink::FramePolicy(),
-          scope,
           // should enforce strict mixed content checking
           blink::mojom::InsecureRequestPolicy::kLeaveInsecureRequestsAlone,
           // hashes of hosts for insecure request upgrades
@@ -136,7 +135,7 @@ FrameTreeNode::FrameTreeNode(
           false /* is a potentially trustworthy unique origin */,
           false /* has an active user gesture */,
           false /* has received a user gesture before nav */,
-          blink::mojom::AdFrameType::kNonAd)),
+          false /* is_ad_subframe */)),
       is_created_by_script_(is_created_by_script),
       devtools_frame_token_(devtools_frame_token),
       frame_owner_properties_(frame_owner_properties),
@@ -260,8 +259,7 @@ bool FrameTreeNode::IsMainFrame() const {
   return frame_tree_->root() == this;
 }
 
-void FrameTreeNode::ResetForNavigation(
-    bool was_served_from_back_forward_cache) {
+void FrameTreeNode::ResetForNavigation() {
   // This frame has had its user activation bits cleared in the renderer before
   // arriving here. We just need to clear them here and in the other renderer
   // processes that may have a reference to this frame.
@@ -783,12 +781,12 @@ void FrameTreeNode::PruneChildFrameNavigationEntries(
   }
 }
 
-void FrameTreeNode::SetAdFrameType(blink::mojom::AdFrameType ad_frame_type) {
-  if (ad_frame_type == replication_state_->ad_frame_type)
+void FrameTreeNode::SetIsAdSubframe(bool is_ad_subframe) {
+  if (is_ad_subframe == replication_state_->is_ad_subframe)
     return;
 
-  replication_state_->ad_frame_type = ad_frame_type;
-  render_manager()->OnDidSetAdFrameType(ad_frame_type);
+  replication_state_->is_ad_subframe = is_ad_subframe;
+  render_manager()->OnDidSetIsAdSubframe(is_ad_subframe);
 }
 
 void FrameTreeNode::SetInitialPopupURL(const GURL& initial_popup_url) {

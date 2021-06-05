@@ -110,8 +110,7 @@ class DesktopNativeWidgetTopLevelHandler : public aura::WindowObserver {
 #if defined(OS_WIN)
     // For menus, on Windows versions that support drop shadow remove
     // the standard frame in order to keep just the shadow.
-    if (::features::IsFormControlsRefreshEnabled() &&
-        init_params.type == Widget::InitParams::TYPE_MENU)
+    if (init_params.type == Widget::InitParams::TYPE_MENU)
       init_params.remove_standard_frame = true;
 #endif
     init_params.bounds = bounds;
@@ -907,7 +906,7 @@ void DesktopNativeWidgetAura::Restore() {
     desktop_window_tree_host_->Restore();
 }
 
-void DesktopNativeWidgetAura::SetFullscreen(bool fullscreen) {
+void DesktopNativeWidgetAura::SetFullscreen(bool fullscreen, bool delay) {
   if (content_window_)
     desktop_window_tree_host_->SetFullscreen(fullscreen);
 }

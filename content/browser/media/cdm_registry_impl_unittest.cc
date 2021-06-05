@@ -40,10 +40,15 @@ const char kVersion2[] = "1.1.1.2";
 const char kTestKeySystem[] = "com.example.somesystem";
 const char kTestFileSystemId[] = "file_system_id";
 
-// Helper function to compare a STL container to an initializer_list.
-template <typename Container, typename T>
-bool StlEquals(const Container a, std::initializer_list<T> b) {
-  return a == Container(b);
+// Helper function to convert a VideoCodecMap to a list of VideoCodec values
+// so that they can be compared. VideoCodecProfiles are ignored.
+std::vector<media::VideoCodec> VideoCodecMapToList(
+    const media::CdmCapability::VideoCodecMap& map) {
+  std::vector<media::VideoCodec> list;
+  for (const auto& entry : map) {
+    list.push_back(entry.first);
+  }
+  return list;
 }
 
 #define EXPECT_STL_EQ(container, ...)                            \
@@ -55,7 +60,7 @@ bool StlEquals(const Container a, std::initializer_list<T> b) {
   EXPECT_STL_EQ(cdm.capability->audio_codecs, __VA_ARGS__)
 
 #define EXPECT_VIDEO_CODECS(...) \
-  EXPECT_STL_EQ(cdm.capability->video_codecs, __VA_ARGS__)
+  EXPECT_STL_EQ(VideoCodecMapToList(cdm.capability->video_codecs), __VA_ARGS__)
 
 #define EXPECT_ENCRYPTION_SCHEMES(...) \
   EXPECT_STL_EQ(cdm.capability->encryption_schemes, __VA_ARGS__)
@@ -75,7 +80,7 @@ class CdmRegistryImplTest : public testing::Test {
  protected:
   media::CdmCapability GetTestCdmCapability() {
     return media::CdmCapability(
-        {media::kCodecVorbis}, {media::kCodecVP8, media::kCodecVP9},
+        {media::kCodecVorbis}, {{media::kCodecVP8, {}}, {media::kCodecVP9, {}}},
         {EncryptionScheme::kCenc},
         {CdmSessionType::kTemporary, CdmSessionType::kPersistentLicense});
   }
@@ -104,7 +109,7 @@ class CdmRegistryImplTest : public testing::Test {
   }
 
   bool IsRegistered(const std::string& name, const std::string& version) {
-    for (const auto& cdm : cdm_registry_.GetAllRegisteredCdms()) {
+    for (const auto& cdm : cdm_registry_.GetAllRegisteredCdmsForTesting()) {
       if (cdm.name == name && cdm.version.GetString() == version)
         return true;
     }
@@ -113,7 +118,7 @@ class CdmRegistryImplTest : public testing::Test {
 
   std::vector<std::string> GetVersions(const base::Token& guid) {
     std::vector<std::string> versions;
-    for (const auto& cdm : cdm_registry_.GetAllRegisteredCdms()) {
+    for (const auto& cdm : cdm_registry_.GetAllRegisteredCdmsForTesting()) {
       if (cdm.guid == guid)
         versions.push_back(cdm.version.GetString());
     }
@@ -127,7 +132,7 @@ class CdmRegistryImplTest : public testing::Test {
 TEST_F(CdmRegistryImplTest, Register) {
   Register(GetTestCdmInfo());
 
-  auto cdms = cdm_registry_.GetAllRegisteredCdms();
+  auto cdms = cdm_registry_.GetAllRegisteredCdmsForTesting();
   ASSERT_EQ(1u, cdms.size());
   CdmInfo cdm = cdms[0];
   EXPECT_EQ(kTestCdmName, cdm.name);
@@ -194,7 +199,7 @@ TEST_F(CdmRegistryImplTest, SupportedEncryptionSchemes) {
                                              EncryptionScheme::kCbcs};
   Register(cdm_info);
 
-  std::vector<CdmInfo> cdms = cdm_registry_.GetAllRegisteredCdms();
+  std::vector<CdmInfo> cdms = cdm_registry_.GetAllRegisteredCdmsForTesting();
   ASSERT_EQ(1u, cdms.size());
   const CdmInfo& cdm = cdms[0];
   EXPECT_ENCRYPTION_SCHEMES(EncryptionScheme::kCenc, EncryptionScheme::kCbcs);

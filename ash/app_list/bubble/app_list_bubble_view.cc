@@ -6,13 +6,15 @@
 
 #include <memory>
 
-#include "ash/app_list/bubble/bubble_apps_page.h"
-#include "ash/app_list/bubble/bubble_assistant_page.h"
-#include "ash/app_list/bubble/bubble_search_page.h"
+#include "ash/app_list/bubble/app_list_bubble_apps_page.h"
+#include "ash/app_list/bubble/app_list_bubble_assistant_page.h"
+#include "ash/app_list/bubble/app_list_bubble_search_page.h"
 #include "ash/public/cpp/shelf_types.h"
 #include "ash/public/cpp/shell_window_ids.h"
 #include "ash/shelf/shelf.h"
 #include "ash/shell.h"
+#include "ash/style/ash_color_provider.h"
+#include "base/bind.h"
 #include "base/i18n/rtl.h"
 #include "ui/base/ui_base_types.h"
 #include "ui/display/display.h"
@@ -63,8 +65,10 @@ BubbleBorder::Arrow GetArrowCorner(ShelfAlignment shelf_alignment) {
 
 }  // namespace
 
-AppListBubbleView::AppListBubbleView(aura::Window* root_window,
+AppListBubbleView::AppListBubbleView(AppListViewDelegate* view_delegate,
+                                     aura::Window* root_window,
                                      ShelfAlignment shelf_alignment) {
+  DCHECK(view_delegate);
   DCHECK(root_window);
   // The bubble is anchored to a screen corner point, but the API takes a rect.
   SetAnchorRect(gfx::Rect(GetAnchorPointInScreen(root_window, shelf_alignment),
@@ -74,6 +78,11 @@ AppListBubbleView::AppListBubbleView(aura::Window* root_window,
   SetButtons(ui::DIALOG_BUTTON_NONE);
   set_parent_window(
       Shell::GetContainer(root_window, kShellWindowId_AppListContainer));
+
+  // TODO(https://crbug.com/1204551): Add transparency and rounded corners.
+  // See TrayBubbleView and BubbleBorder.
+  set_color(AshColorProvider::Get()->GetBaseLayerColor(
+      AshColorProvider::BaseLayerType::kOpaque));
 
   auto* layout = SetLayoutManager(
       std::make_unique<BoxLayout>(BoxLayout::Orientation::kVertical));
@@ -88,12 +97,14 @@ AppListBubbleView::AppListBubbleView(aura::Window* root_window,
       base::BindRepeating(&AppListBubbleView::FlipPage, base::Unretained(this)),
       u"Flip page"));
 
-  apps_page_ = AddChildView(std::make_unique<BubbleAppsPage>());
+  apps_page_ =
+      AddChildView(std::make_unique<AppListBubbleAppsPage>(view_delegate));
 
-  search_page_ = AddChildView(std::make_unique<BubbleSearchPage>());
+  search_page_ = AddChildView(std::make_unique<AppListBubbleSearchPage>());
   search_page_->SetVisible(false);
 
-  assistant_page_ = AddChildView(std::make_unique<BubbleAssistantPage>());
+  assistant_page_ =
+      AddChildView(std::make_unique<AppListBubbleAssistantPage>());
   assistant_page_->SetVisible(false);
 }
 

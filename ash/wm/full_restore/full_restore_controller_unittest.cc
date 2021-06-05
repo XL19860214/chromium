@@ -18,6 +18,7 @@
 #include "ash/wm/splitview/split_view_controller.h"
 #include "ash/wm/tablet_mode/tablet_mode_controller_test_api.h"
 #include "ash/wm/window_state.h"
+#include "base/bind.h"
 #include "base/cancelable_callback.h"
 #include "base/containers/contains.h"
 #include "base/containers/flat_map.h"
@@ -119,7 +120,8 @@ class FullRestoreControllerTest : public AshTestBase, public aura::EnvObserver {
       aura::Window* root_window = Shell::GetPrimaryRootWindow(),
       absl::optional<int32_t> restore_window_id = absl::nullopt,
       chromeos::WindowStateType window_state_type =
-          chromeos::WindowStateType::kNormal) {
+          chromeos::WindowStateType::kNormal,
+      bool is_taskless_arc_app = false) {
     // Full restore widgets are inactive when created as we do not want to take
     // activation from a possible activated window, and we want to stack them in
     // a certain order.
@@ -140,9 +142,17 @@ class FullRestoreControllerTest : public AshTestBase, public aura::EnvObserver {
                                        *restore_window_id);
     }
 
+    if (is_taskless_arc_app) {
+      widget_builder
+          .SetWindowProperty(full_restore::kParentToHiddenContainerKey, true)
+          .SetWindowProperty(aura::client::kAppType,
+                             static_cast<int>(AppType::ARC_APP));
+    }
+
     views::Widget* widget = widget_builder.BuildOwnedByNativeWidget();
     SetResizable(widget);
-    FullRestoreController::Get()->OnWidgetInitialized(widget);
+    if (!is_taskless_arc_app)
+      FullRestoreController::Get()->OnWidgetInitialized(widget);
     if (window_state_type != chromeos::WindowStateType::kMinimized)
       widget->Show();
     return widget;
@@ -152,7 +162,8 @@ class FullRestoreControllerTest : public AshTestBase, public aura::EnvObserver {
   // `fake_full_restore_file_`. Returns nullptr if there is not an entry that
   // matches `restore_window_id`.
   views::Widget* CreateTestFullRestoredWidgetFromRestoreId(
-      int32_t restore_window_id) {
+      int32_t restore_window_id,
+      bool is_taskless_arc_app) {
     if (!fake_full_restore_file_.contains(restore_window_id))
       return nullptr;
 
@@ -162,9 +173,16 @@ class FullRestoreControllerTest : public AshTestBase, public aura::EnvObserver {
     const int32_t activation_index = info->activation_index.value_or(-1);
     const auto window_state_type =
         info->window_state_type.value_or(chromeos::WindowStateType::kNormal);
-    return CreateTestFullRestoredWidget(activation_index, bounds,
-                                        Shell::GetPrimaryRootWindow(),
-                                        restore_window_id, window_state_type);
+    return CreateTestFullRestoredWidget(
+        activation_index, bounds, Shell::GetPrimaryRootWindow(),
+        restore_window_id, window_state_type, is_taskless_arc_app);
+  }
+
+  views::Widget* CreateTestFullRestoredWidgetFromRestoreId(
+      int32_t restore_window_id) {
+    return CreateTestFullRestoredWidgetFromRestoreId(
+        restore_window_id,
+        /*is_taskless_arc_app=*/false);
   }
 
   void VerifyStackingOrder(aura::Window* parent,
@@ -179,19 +197,46 @@ class FullRestoreControllerTest : public AshTestBase, public aura::EnvObserver {
   // Adds an entry to the fake full restore file. Calling
   // If `CreateTestFullRestoreWidget` is called with a matching
   // `restore_window_id`, it will read and set the values set here.
-  void AddEntryToFakeFile(
-      int restore_window_id,
-      const gfx::Rect& bounds,
-      chromeos::WindowStateType window_state_type,
-      int32_t activation_index = -1,
-      int64_t display_id = WindowTreeHostManager::GetPrimaryDisplayId()) {
+  void AddEntryToFakeFile(int restore_window_id,
+                          const gfx::Rect& bounds,
+                          chromeos::WindowStateType window_state_type,
+                          int32_t activation_index,
+                          int64_t display_id,
+                          int32_t desk_id) {
     DCHECK(!fake_full_restore_file_.contains(restore_window_id));
     auto window_info = std::make_unique<full_restore::WindowInfo>();
     window_info->current_bounds = bounds;
     window_info->window_state_type = window_state_type;
     window_info->activation_index = activation_index;
     window_info->display_id = display_id;
+    window_info->desk_id = desk_id;
     fake_full_restore_file_[restore_window_id].info = std::move(window_info);
+  }
+
+  void AddEntryToFakeFile(int restore_window_id,
+                          const gfx::Rect& bounds,
+                          chromeos::WindowStateType window_state_type,
+                          int32_t activation_index,
+                          int64_t display_id) {
+    AddEntryToFakeFile(restore_window_id, bounds, window_state_type,
+                       activation_index, display_id, /*desk_id=*/1);
+  }
+
+  void AddEntryToFakeFile(int restore_window_id,
+                          const gfx::Rect& bounds,
+                          chromeos::WindowStateType window_state_type) {
+    AddEntryToFakeFile(
+        restore_window_id, bounds, window_state_type, /*activation_index=*/-1,
+        WindowTreeHostManager::GetPrimaryDisplayId(), /*desk_id=*/1);
+  }
+
+  void AddEntryToFakeFile(int restore_window_id,
+                          const gfx::Rect& bounds,
+                          chromeos::WindowStateType window_state_type,
+                          int32_t desk_id) {
+    AddEntryToFakeFile(restore_window_id, bounds, window_state_type,
+                       /*activation_index=*/-1,
+                       WindowTreeHostManager::GetPrimaryDisplayId(), desk_id);
   }
 
   // AshTestBase:
@@ -285,7 +330,6 @@ class FullRestoreControllerTest : public AshTestBase, public aura::EnvObserver {
     out_dst->activation_index = src.activation_index;
     out_dst->desk_id = src.desk_id;
     out_dst->visible_on_all_workspaces = src.visible_on_all_workspaces;
-    out_dst->restore_bounds = src.restore_bounds;
     out_dst->current_bounds = src.current_bounds;
     out_dst->window_state_type = src.window_state_type;
     out_dst->display_id = src.display_id;
@@ -604,9 +648,9 @@ TEST_F(FullRestoreControllerTest, ClamshellSnapWindow) {
   // other snapped right.
   const gfx::Rect restored_bounds(200, 200);
   AddEntryToFakeFile(/*restore_window_id=*/2, restored_bounds,
-                     chromeos::WindowStateType::kLeftSnapped);
+                     chromeos::WindowStateType::kPrimarySnapped);
   AddEntryToFakeFile(/*restore_window_id=*/3, restored_bounds,
-                     chromeos::WindowStateType::kRightSnapped);
+                     chromeos::WindowStateType::kSecondarySnapped);
 
   // Create two full restore windows with the same restore window ids as the
   // entries we added. Test they are snapped and have snapped bounds.
@@ -728,9 +772,9 @@ TEST_F(FullRestoreControllerTest, TabletSplitviewWindow) {
   ASSERT_TRUE(window1_info->window_state_type);
   ASSERT_TRUE(window2_info->window_state_type);
 
-  EXPECT_EQ(chromeos::WindowStateType::kLeftSnapped,
+  EXPECT_EQ(chromeos::WindowStateType::kPrimarySnapped,
             *window1_info->window_state_type);
-  EXPECT_EQ(chromeos::WindowStateType::kRightSnapped,
+  EXPECT_EQ(chromeos::WindowStateType::kSecondarySnapped,
             *window2_info->window_state_type);
   EXPECT_EQ(bounds, *window1_info->current_bounds);
   EXPECT_EQ(bounds, *window2_info->current_bounds);
@@ -743,9 +787,9 @@ TEST_F(FullRestoreControllerTest, TabletSnapWindow) {
   // other snapped right.
   const gfx::Rect restored_bounds(200, 200);
   AddEntryToFakeFile(/*restore_window_id=*/2, restored_bounds,
-                     chromeos::WindowStateType::kLeftSnapped);
+                     chromeos::WindowStateType::kPrimarySnapped);
   AddEntryToFakeFile(/*restore_window_id=*/3, restored_bounds,
-                     chromeos::WindowStateType::kRightSnapped);
+                     chromeos::WindowStateType::kSecondarySnapped);
 
   TabletModeControllerTestApi().EnterTabletMode();
 
@@ -889,12 +933,13 @@ TEST_F(FullRestoreControllerTest, HotseatIsHiddenOnRestoration) {
 
   // Add two entries, where the window highest on the z-order is minimized.
   // Restore both entries. The hotseat should now be hidden.
+  const int64_t primary_id = WindowTreeHostManager::GetPrimaryDisplayId();
   AddEntryToFakeFile(/*restore_window_id=*/1, gfx::Rect(200, 200),
                      chromeos::WindowStateType::kMinimized,
-                     /*activation_index=*/1);
+                     /*activation_index=*/1, /*display_id=*/primary_id);
   AddEntryToFakeFile(/*restore_window_id=*/2, gfx::Rect(200, 200),
                      chromeos::WindowStateType::kNormal,
-                     /*activation_index=*/2);
+                     /*activation_index=*/2, /*display_id=*/primary_id);
   views::Widget* restored_widget_1 =
       CreateTestFullRestoredWidgetFromRestoreId(/*restore_window_id=*/1);
   views::Widget* restored_widget_2 =
@@ -919,12 +964,13 @@ TEST_F(FullRestoreControllerTest,
 
   // Create multiple minimized entries and restore them. The app list should
   // still be active.
+  const int64_t primary_id = WindowTreeHostManager::GetPrimaryDisplayId();
   AddEntryToFakeFile(/*restore_window_id=*/1, gfx::Rect(200, 200),
                      chromeos::WindowStateType::kMinimized,
-                     /*activation_index=*/1);
+                     /*activation_index=*/1, /*display_id=*/primary_id);
   AddEntryToFakeFile(/*restore_window_id=*/2, gfx::Rect(200, 200),
                      chromeos::WindowStateType::kMinimized,
-                     /*activation_index=*/2);
+                     /*activation_index=*/2, /*display_id=*/primary_id);
   views::Widget* restored_widget_1 =
       CreateTestFullRestoredWidgetFromRestoreId(/*restore_window_id=*/1);
   views::Widget* restored_widget_2 =
@@ -953,6 +999,152 @@ TEST_F(FullRestoreControllerTest, RestorePropertyClearCallback) {
   ASSERT_EQ(1u, GetRestorePropertyClearCallbacks().size());
   restored_widget->CloseNow();
   EXPECT_EQ(0u, GetRestorePropertyClearCallbacks().size());
+}
+
+// Tests full restore behavior for when a ARC window is created without an
+// associated task.
+TEST_F(FullRestoreControllerTest, ArcAppWindowCreatedWithoutTask) {
+  constexpr int kRestoreId = 1;
+
+  // Create enough desks so that we can parent to the expected desk.
+  auto* desks_controller = DesksController::Get();
+  for (int i = 0; i < 4; ++i)
+    desks_controller->NewDesk(DesksCreationRemovalSource::kButton);
+
+  // Add a normal window to the fake file. The target desk is desk 3.
+  AddEntryToFakeFile(kRestoreId, gfx::Rect(400, 400),
+                     chromeos::WindowStateType::kNormal, 3);
+
+  aura::Window* root_window = Shell::GetPrimaryRootWindow();
+
+  // Restore the window, it should go to the invisible unparented container for
+  // now.
+  auto* restored_window = CreateTestFullRestoredWidgetFromRestoreId(
+                              kRestoreId, /*is_taskless_arc_app=*/true)
+                              ->GetNativeWindow();
+  EXPECT_EQ(
+      Shell::GetContainer(root_window, kShellWindowId_UnparentedContainer),
+      restored_window->parent());
+
+  // Simulate having the task ready. Our `restored_window` should now be
+  // parented to the desk associated with desk 3, which is desk D.
+  FullRestoreController::Get()->OnARCTaskReadyForUnparentedWindow(
+      restored_window);
+  EXPECT_EQ(Shell::GetContainer(root_window, kShellWindowId_DeskContainerD),
+            restored_window->parent());
+}
+
+// Tests that parenting ARC windows to hidden container works in the multi
+// display scenario, including if a display gets disconnected partway through.
+TEST_F(FullRestoreControllerTest, ArcAppWindowCreatedWithoutTaskMultiDisplay) {
+  UpdateDisplay("800x800,801+0-800x800");
+
+  const int64_t primary_id = WindowTreeHostManager::GetPrimaryDisplayId();
+  const int64_t second_id = display_manager()->GetDisplayAt(1).id();
+  display::ManagedDisplayInfo primary_info =
+      display_manager()->GetDisplayInfo(primary_id);
+  display::ManagedDisplayInfo second_info =
+      display_manager()->GetDisplayInfo(second_id);
+
+  aura::Window* primary_root_window = Shell::GetPrimaryRootWindow();
+  aura::Window* secondary_root_window = Shell::GetAllRootWindows()[1];
+
+  // Create enough desks so that we can parent to the expected desk.
+  auto* desks_controller = DesksController::Get();
+  for (int i = 0; i < 4; ++i)
+    desks_controller->NewDesk(DesksCreationRemovalSource::kButton);
+
+  // Add two normal windows to the fake file. The target desk is desk 3 and the
+  // target display is the secondary one.
+  constexpr int kRestoreId1 = 1;
+  constexpr int kRestoreId2 = 2;
+  AddEntryToFakeFile(kRestoreId1, gfx::Rect(900, 0, 400, 400),
+                     chromeos::WindowStateType::kNormal, 3);
+  AddEntryToFakeFile(kRestoreId2, gfx::Rect(900, 0, 400, 400),
+                     chromeos::WindowStateType::kNormal, 3);
+
+  // Restore the first window, it should go to the invisible unparented
+  // container for the secondary display until the ARC task is ready.
+  auto* restored_window1 = CreateTestFullRestoredWidgetFromRestoreId(
+                               kRestoreId1, /*is_taskless_arc_app=*/true)
+                               ->GetNativeWindow();
+  EXPECT_EQ(Shell::GetContainer(secondary_root_window,
+                                kShellWindowId_UnparentedContainer),
+            restored_window1->parent());
+  FullRestoreController::Get()->OnARCTaskReadyForUnparentedWindow(
+      restored_window1);
+  EXPECT_EQ(
+      Shell::GetContainer(secondary_root_window, kShellWindowId_DeskContainerD),
+      restored_window1->parent());
+
+  // Restore the second window, it should also go to the invisible unparented
+  // container for the secondary display.
+  auto* restored_window2 = CreateTestFullRestoredWidgetFromRestoreId(
+                               kRestoreId2, /*is_taskless_arc_app=*/true)
+                               ->GetNativeWindow();
+  EXPECT_EQ(Shell::GetContainer(secondary_root_window,
+                                kShellWindowId_UnparentedContainer),
+            restored_window2->parent());
+
+  // Remove the secondary display. When the ARC task is ready, it should go to
+  // container associated with desk 3 on the primary display.
+  std::vector<display::ManagedDisplayInfo> display_info_list;
+  display_info_list.push_back(primary_info);
+  display_manager()->OnNativeDisplaysChanged(display_info_list);
+
+  FullRestoreController::Get()->OnARCTaskReadyForUnparentedWindow(
+      restored_window2);
+  EXPECT_EQ(
+      Shell::GetContainer(primary_root_window, kShellWindowId_DeskContainerD),
+      restored_window2->parent());
+}
+
+// Tests that windows that are out-of-bounds of the display they're being
+// restored to are properly restored.
+TEST_F(FullRestoreControllerTest, OutOfBoundsWindows) {
+  UpdateDisplay("800x800");
+  const gfx::Rect kScreenBounds(0, 0, 800, 800);
+  const gfx::Rect kPartialBounds(-100, 100, 200, 200);
+  const gfx::Rect kFullBounds(801, 801, 400, 200);
+
+  // Add an entry that is partially out-of-bounds, one that is completely
+  // out-of-bounds, and one that is completely out-of-bounds and snapped.
+  const int64_t primary_id = WindowTreeHostManager::GetPrimaryDisplayId();
+  AddEntryToFakeFile(/*restore_id=*/1, kPartialBounds,
+                     chromeos::WindowStateType::kNormal, /*activation_index=*/1,
+                     /*display_id=*/primary_id);
+  AddEntryToFakeFile(/*restore_id=*/2, kFullBounds,
+                     chromeos::WindowStateType::kNormal, /*activation_index=*/2,
+                     /*display_id=*/primary_id);
+  AddEntryToFakeFile(/*restore_id=*/3, kFullBounds,
+                     chromeos::WindowStateType::kPrimarySnapped,
+                     /*activation_index=*/3, /*display_id=*/primary_id);
+
+  // Restore the first window. The window should have the exact same bounds.
+  const gfx::Rect& window_bounds_1 =
+      CreateTestFullRestoredWidgetFromRestoreId(/*restore_id=*/1)
+          ->GetNativeWindow()
+          ->GetBoundsInScreen();
+  EXPECT_EQ(kPartialBounds, window_bounds_1);
+
+  // Restore the second window. The window should be moved such that part of it
+  // is within the display.
+  gfx::Rect window_bounds_2(
+      CreateTestFullRestoredWidgetFromRestoreId(/*restore_id=*/2)
+          ->GetNativeWindow()
+          ->GetBoundsInScreen());
+  EXPECT_TRUE(window_bounds_2.Intersects(kScreenBounds));
+  EXPECT_LT(0, IntersectRects(kScreenBounds, window_bounds_2).size().GetArea());
+
+  // Restore the third window. The window's restore bounds should be moved such
+  // that part of it is within the display.
+  const gfx::Rect& window_bounds_3 =
+      WindowState::Get(
+          CreateTestFullRestoredWidgetFromRestoreId(/*restore_id=*/3)
+              ->GetNativeWindow())
+          ->GetRestoreBoundsInScreen();
+  EXPECT_TRUE(window_bounds_3.Intersects(kScreenBounds));
+  EXPECT_LT(0, IntersectRects(kScreenBounds, window_bounds_3).size().GetArea());
 }
 
 }  // namespace ash

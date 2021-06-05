@@ -13,6 +13,7 @@
 #include <utility>
 #include <vector>
 
+#include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/strings/utf_offset_string_conversions.h"
 #include "build/build_config.h"
@@ -32,7 +33,7 @@
 #endif
 
 class AutocompleteProvider;
-class OmniboxPedal;
+class OmniboxAction;
 class SuggestionAnswer;
 class TemplateURL;
 class TemplateURLService;
@@ -238,7 +239,7 @@ struct AutocompleteMatch {
   // Gets the vector icon identifier for the icon to be shown for this match. If
   // |is_bookmark| is true, returns a bookmark icon rather than what the type
   // would normally determine.  Note that in addition to |type|, the icon chosen
-  // may depend on match contents (e.g. Drive |document_type| or |pedal|).
+  // may depend on match contents (e.g. Drive |document_type| or |action|).
   // The reason |is_bookmark| is passed as a parameter and is not baked into the
   // AutocompleteMatch is likely that 1) this info is not used elsewhere in the
   // Autocomplete machinery except before displaying the match and 2) obtaining
@@ -319,8 +320,8 @@ struct AutocompleteMatch {
   // usually this surfaces a clock icon to the user.
   static bool IsSearchHistoryType(Type type);
 
-  // Returns true if matches with given |type| may be attached with a |pedal|.
-  static bool IsPedalCompatibleType(Type type);
+  // Returns true if matches with given `type` may be attach an `action`.
+  static bool IsActionCompatibleType(Type type);
 
   // Convenience function to check if |type| is one of the suggest types we
   // need to skip for search vs url partitions - url, text or image in the
@@ -517,14 +518,12 @@ struct AutocompleteMatch {
   void UpgradeMatchWithPropertiesFrom(AutocompleteMatch& duplicate_match);
 
   // Tries, in order, to:
-  // - Prefix autocomplete |primary_text|,
-  // - Prefix autocomplete |secondary_text|,
-  // - Non-prefix autocomplete |primary_text|, and
-  // - Non-prefix autocomplete |secondary_text|.
-  // Midword and title autocompletion are only attempted if
-  // |OmniboxFieldTrial::RichAutocompletionAutocompleteTitles()| and
-  // |OmniboxFieldTrial::RichAutocompletionAutocompleteNonPrefix*()| are true
-  // respectively.
+  // - Prefix autocomplete |primary_text|
+  // - Prefix autocomplete |secondary_text|
+  // - Non-prefix autocomplete |primary_text|
+  // - Non-prefix autocomplete |secondary_text|
+  // - Split autocomplete |primary_text|
+  // - Split autocomplete |secondary_text|
   // Returns false if none of the autocompletions were appropriate (or the
   // features were disabled).
   bool TryRichAutocompletion(const std::u16string& primary_text,
@@ -702,9 +701,8 @@ struct AutocompleteMatch {
   // Set in matches originating from keyword results.
   bool from_keyword = false;
 
-  // Set to a matching pedal if appropriate.  The pedal is not owned, and the
-  // owning OmniboxPedalProvider must outlive this.
-  OmniboxPedal* pedal = nullptr;
+  // Set to a matching action if appropriate.
+  scoped_refptr<OmniboxAction> action;
 
   // True if this match is from a previous result.
   bool from_previous = false;

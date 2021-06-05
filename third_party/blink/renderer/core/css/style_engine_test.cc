@@ -116,6 +116,13 @@ class StyleEngineTest : public testing::Test {
     return ListMarker::Get(marker)->TextAlternative(*marker);
   }
 
+  StyleRuleScrollTimeline* FindScrollTimelineRule(AtomicString name) {
+    CSSScrollTimeline* timeline = GetStyleEngine().FindScrollTimeline(name);
+    if (!timeline)
+      return nullptr;
+    return timeline->GetRule();
+  }
+
  private:
   std::unique_ptr<DummyPageHolder> dummy_page_holder_;
 };
@@ -2426,8 +2433,6 @@ TEST_F(StyleEngineTest, ColorSchemeBaseBackgroundChange) {
 }
 
 TEST_F(StyleEngineTest, ColorSchemeOverride) {
-  ScopedCSSColorSchemeUARenderingForTest enable_color_scheme_ua(true);
-
   ColorSchemeHelper color_scheme_helper(GetDocument());
   color_scheme_helper.SetPreferredColorScheme(
       mojom::blink::PreferredColorScheme::kLight);
@@ -3121,12 +3126,12 @@ TEST_F(StyleEngineTest, AtScrollTimelineInUserOrigin) {
   // @scroll-timeline in the user origin:
   InjectSheet("user1", WebDocument::kUserOrigin, R"CSS(
     @scroll-timeline timeline1 {
+      time-range: 10s;
       source: selector(#scroller1);
     }
   )CSS");
   UpdateAllLifecyclePhases();
-  StyleRuleScrollTimeline* rule1 =
-      GetStyleEngine().FindScrollTimelineRule("timeline1");
+  StyleRuleScrollTimeline* rule1 = FindScrollTimelineRule("timeline1");
   ASSERT_TRUE(rule1);
   ASSERT_TRUE(rule1->GetSource());
   EXPECT_EQ("selector(#scroller1)", rule1->GetSource()->CssText());
@@ -3134,12 +3139,12 @@ TEST_F(StyleEngineTest, AtScrollTimelineInUserOrigin) {
   // @scroll-timeline in the author origin (should win over user origin)
   InjectSheet("author", WebDocument::kAuthorOrigin, R"CSS(
     @scroll-timeline timeline1 {
+      time-range: 10s;
       source: selector(#scroller2);
     }
   )CSS");
   UpdateAllLifecyclePhases();
-  StyleRuleScrollTimeline* rule2 =
-      GetStyleEngine().FindScrollTimelineRule("timeline1");
+  StyleRuleScrollTimeline* rule2 = FindScrollTimelineRule("timeline1");
   ASSERT_TRUE(rule2);
   ASSERT_TRUE(rule2->GetSource());
   EXPECT_EQ("selector(#scroller2)", rule2->GetSource()->CssText());
@@ -3147,12 +3152,12 @@ TEST_F(StyleEngineTest, AtScrollTimelineInUserOrigin) {
   // An additional @scroll-timeline in the user origin:
   InjectSheet("user2", WebDocument::kUserOrigin, R"CSS(
     @scroll-timeline timeline2 {
+      time-range: 10s;
       source: selector(#scroller3);
     }
   )CSS");
   UpdateAllLifecyclePhases();
-  StyleRuleScrollTimeline* rule3 =
-      GetStyleEngine().FindScrollTimelineRule("timeline2");
+  StyleRuleScrollTimeline* rule3 = FindScrollTimelineRule("timeline2");
   ASSERT_TRUE(rule3);
   ASSERT_TRUE(rule3->GetSource());
   EXPECT_EQ("selector(#scroller3)", rule3->GetSource()->CssText());
@@ -3361,7 +3366,7 @@ TEST_F(StyleEngineTest, UpdateStyleAndLayoutTreeForContainer) {
   GetDocument().body()->setInnerHTML(R"HTML(
     <style>
       .container {
-        contain: layout size;
+        contain: layout size style;
       }
     </style>
     <div id="container1" class="container">
@@ -3420,7 +3425,7 @@ TEST_F(StyleEngineTest, ContainerQueriesContainmentNotApplying) {
   GetDocument().body()->setInnerHTML(R"HTML(
     <style>
       .container {
-        contain: layout size;
+        contain: layout size style;
       }
     </style>
     <div id="container" class="container">
@@ -3469,7 +3474,7 @@ TEST_F(StyleEngineTest, ContainerQueriesContainmentNotApplying) {
 TEST_F(StyleEngineTest, PseudoElementContainerQueryRecalc) {
   GetDocument().body()->setInnerHTML(R"HTML(
     <style>
-      #container { contain: layout size }
+      #container { contain: layout size style }
       #container::before { content: " " }
       span::before { content: " " }
     </style>
@@ -3502,7 +3507,7 @@ TEST_F(StyleEngineTest, PseudoElementContainerQueryRecalc) {
 
 TEST_F(StyleEngineTest, MarkStyleDirtyFromContainerRecalc) {
   GetDocument().body()->setInnerHTML(R"HTML(
-    <div id="container" style="contain: layout size">
+    <div id="container" style="contain: layout size style">
       <input id="input" type="text" class="affected">
     </div>
   )HTML");
@@ -3701,63 +3706,6 @@ TEST_F(StyleEngineTest, TargetTextUseCount) {
   ClearUseCounter(WebFeature::kCSSSelectorTargetText);
 }
 
-// https://crbug.com/1172679
-TEST_F(StyleEngineTest, CounterContentNameCase) {
-  // Reproducible only with legacy counter styles
-  ScopedCSSAtRuleCounterStyleForTest disabled_scope(false);
-
-  GetDocument().body()->setInnerHTML(R"HTML(
-    <style>
-      body { counter-reset: a; }
-      #target::before {
-        counter-increment: a;
-        content: counter(a, Hiragana);
-      }
-    </style>
-    <p id="target"></p>
-  )HTML");
-
-  // Shouldn't crash
-  UpdateAllLifecyclePhases();
-
-  PseudoElement* before =
-      GetDocument().getElementById("target")->GetPseudoElement(kPseudoIdBefore);
-  LayoutCounter* counter =
-      To<LayoutCounter>(before->GetLayoutObject()->SlowFirstChild());
-
-  // Hiragana "A"
-  EXPECT_EQ(String(u"\u3042"), counter->GetText());
-}
-
-// https://crbug.com/1182969
-TEST_F(StyleEngineTest, CountersShouldNotCauseListMarkerUpdates) {
-  // Reproducible only when @counter-style rules are disabled
-  ScopedCSSAtRuleCounterStyleForTest disabled_scope(false);
-
-  GetDocument().body()->setInnerHTML(R"HTML(
-    <style>
-      body { counter-reset: a; }
-      p::before {
-        counter-increment: a;
-        content: counter(a);
-      }
-    </style>
-    <ol><li id="target"></li></ol>
-  )HTML");
-
-  // Shouldn't crash
-  UpdateAllLifecyclePhases();
-
-  LayoutObject* list_item =
-      GetDocument().getElementById("target")->GetLayoutObject();
-  LayoutObject* marker = ListMarker::MarkerFromListItem(list_item);
-
-  GetDocument().body()->appendChild(GetDocument().CreateElementForBinding("p"));
-  GetDocument().UpdateStyleAndLayoutTree();
-
-  EXPECT_FALSE(marker->NeedsLayout());
-}
-
 TEST_F(StyleEngineTest, NonDirtyStyleRecalcRoot) {
   GetDocument().body()->setInnerHTML(R"HTML(
     <div id="host">
@@ -3782,8 +3730,6 @@ TEST_F(StyleEngineTest, NonDirtyStyleRecalcRoot) {
 }
 
 TEST_F(StyleEngineTest, AtCounterStyleUseCounter) {
-  ScopedCSSAtRuleCounterStyleForTest scope(true);
-
   GetDocument().View()->UpdateAllLifecyclePhasesForTest();
   EXPECT_FALSE(IsUseCounted(WebFeature::kCSSAtRuleCounterStyle));
 
@@ -3793,7 +3739,6 @@ TEST_F(StyleEngineTest, AtCounterStyleUseCounter) {
 }
 
 TEST_F(StyleEngineTest, CounterStyleDisabledInShadowDOM) {
-  ScopedCSSAtRuleCounterStyleForTest counter_style_enabled(true);
   ScopedCSSAtRuleCounterStyleInShadowDOMForTest
       counter_style_in_shadow_dom_disabled(false);
 
@@ -3832,6 +3777,52 @@ TEST_F(StyleEngineTest, CounterStyleDisabledInShadowDOM) {
   LayoutObject* shadow_bar =
       shadow_root.getElementById("bar")->firstChild()->GetLayoutObject();
   EXPECT_EQ("1. ", GetListMarkerText(shadow_bar));
+}
+
+TEST_F(StyleEngineTest, SystemFontsObeyDefaultFontSize) {
+  // <input> get assigned "font: -webkit-small-control" in the UA sheet.
+  Element* body = GetDocument().body();
+  body->setInnerHTML("<input>");
+  Element* input = GetDocument().QuerySelector("input");
+
+  // Test the standard font sizes that can be chosen in chrome://settings/
+  for (int fontSize : {9, 12, 16, 20, 24}) {
+    GetDocument().GetSettings()->SetDefaultFontSize(fontSize);
+    UpdateAllLifecyclePhases();
+    EXPECT_EQ(fontSize, body->GetComputedStyle()->FontSize());
+    EXPECT_EQ(fontSize - 3, input->GetComputedStyle()->FontSize());
+  }
+
+  // Now test degenerate cases
+  GetDocument().GetSettings()->SetDefaultFontSize(-1);
+  UpdateAllLifecyclePhases();
+  EXPECT_EQ(1, body->GetComputedStyle()->FontSize());
+  EXPECT_EQ(1, input->GetComputedStyle()->FontSize());
+
+  GetDocument().GetSettings()->SetDefaultFontSize(0);
+  UpdateAllLifecyclePhases();
+  EXPECT_EQ(1, body->GetComputedStyle()->FontSize());
+  EXPECT_EQ(13, input->GetComputedStyle()->FontSize());
+
+  GetDocument().GetSettings()->SetDefaultFontSize(1);
+  UpdateAllLifecyclePhases();
+  EXPECT_EQ(1, body->GetComputedStyle()->FontSize());
+  EXPECT_EQ(1, input->GetComputedStyle()->FontSize());
+
+  GetDocument().GetSettings()->SetDefaultFontSize(2);
+  UpdateAllLifecyclePhases();
+  EXPECT_EQ(2, body->GetComputedStyle()->FontSize());
+  EXPECT_EQ(2, input->GetComputedStyle()->FontSize());
+
+  GetDocument().GetSettings()->SetDefaultFontSize(3);
+  UpdateAllLifecyclePhases();
+  EXPECT_EQ(3, body->GetComputedStyle()->FontSize());
+  EXPECT_EQ(0, input->GetComputedStyle()->FontSize());
+
+  GetDocument().GetSettings()->SetDefaultFontSize(12345);
+  UpdateAllLifecyclePhases();
+  EXPECT_EQ(10000, body->GetComputedStyle()->FontSize());
+  EXPECT_EQ(10000, input->GetComputedStyle()->FontSize());
 }
 
 }  // namespace blink

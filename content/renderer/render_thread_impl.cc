@@ -236,20 +236,26 @@ static_assert(
     "critical level not align");
 
 void* CreateHistogram(const char* name, int min, int max, size_t buckets) {
-  if (min <= 0)
-    min = 1;
-  std::string histogram_name;
-  RenderThreadImpl* render_thread_impl = RenderThreadImpl::current();
-  if (render_thread_impl) {  // Can be null in tests.
-    histogram_name = render_thread_impl->histogram_customizer()
-                         ->ConvertToCustomHistogramName(name);
-  } else {
-    histogram_name = std::string(name);
+  // Each histogram has an implicit '0' bucket (for underflow), so we can always
+  // bump the minimum to 1.
+  DCHECK_LE(0, min);
+  min = std::max(1, min);
+
+  // For boolean histograms, always include an overflow bucket [2, infinity).
+  if (max == 1 && buckets == 2) {
+    max = 2;
+    buckets = 3;
   }
-  base::HistogramBase* histogram =
-      base::Histogram::FactoryGet(histogram_name, min, max, buckets,
-                                  base::Histogram::kUmaTargetedHistogramFlag);
-  return histogram;
+
+  RenderThreadImpl* render_thread_impl = RenderThreadImpl::current();
+  // render_thread_impl can be null in tests.
+  std::string histogram_name = render_thread_impl
+                                   ? render_thread_impl->histogram_customizer()
+                                         ->ConvertToCustomHistogramName(name)
+                                   : std::string{name};
+  return base::Histogram::FactoryGet(
+      histogram_name, min, max, buckets,
+      base::Histogram::kUmaTargetedHistogramFlag);
 }
 
 void AddHistogramSample(void* hist, int sample) {
@@ -258,35 +264,35 @@ void AddHistogramSample(void* hist, int sample) {
 }
 
 void AddCrashKey(v8::CrashKeyId id, const std::string& value) {
-  namespace bd = base::debug;
+  using base::debug::AllocateCrashKeyString;
+  using base::debug::CrashKeySize;
+  using base::debug::SetCrashKeyString;
+
   switch (id) {
     case v8::CrashKeyId::kIsolateAddress:
-      static bd::CrashKeyString* isolate_address = bd::AllocateCrashKeyString(
-          "v8_isolate_address", bd::CrashKeySize::Size32);
-      bd::SetCrashKeyString(isolate_address, value);
+      static auto* const isolate_address =
+          AllocateCrashKeyString("v8_isolate_address", CrashKeySize::Size32);
+      SetCrashKeyString(isolate_address, value);
       break;
     case v8::CrashKeyId::kReadonlySpaceFirstPageAddress:
-      static bd::CrashKeyString* ro_space_firstpage_address =
-          bd::AllocateCrashKeyString("v8_ro_space_firstpage_address",
-                                     bd::CrashKeySize::Size32);
-      bd::SetCrashKeyString(ro_space_firstpage_address, value);
+      static auto* const ro_space_firstpage_address = AllocateCrashKeyString(
+          "v8_ro_space_firstpage_address", CrashKeySize::Size32);
+      SetCrashKeyString(ro_space_firstpage_address, value);
       break;
     case v8::CrashKeyId::kMapSpaceFirstPageAddress:
-      static bd::CrashKeyString* map_space_firstpage_address =
-          bd::AllocateCrashKeyString("v8_map_space_firstpage_address",
-                                     bd::CrashKeySize::Size32);
-      bd::SetCrashKeyString(map_space_firstpage_address, value);
+      static auto* const map_space_firstpage_address = AllocateCrashKeyString(
+          "v8_map_space_firstpage_address", CrashKeySize::Size32);
+      SetCrashKeyString(map_space_firstpage_address, value);
       break;
     case v8::CrashKeyId::kCodeSpaceFirstPageAddress:
-      static bd::CrashKeyString* code_space_firstpage_address =
-          bd::AllocateCrashKeyString("v8_code_space_firstpage_address",
-                                     bd::CrashKeySize::Size32);
-      bd::SetCrashKeyString(code_space_firstpage_address, value);
+      static auto* const code_space_firstpage_address = AllocateCrashKeyString(
+          "v8_code_space_firstpage_address", CrashKeySize::Size32);
+      SetCrashKeyString(code_space_firstpage_address, value);
       break;
     case v8::CrashKeyId::kDumpType:
-      static bd::CrashKeyString* dump_type =
-          bd::AllocateCrashKeyString("dump-type", bd::CrashKeySize::Size32);
-      bd::SetCrashKeyString(dump_type, value);
+      static auto* const dump_type =
+          AllocateCrashKeyString("dump-type", CrashKeySize::Size32);
+      SetCrashKeyString(dump_type, value);
       break;
     default:
       // Doing nothing for new keys is a valid option. Having this case allows
@@ -625,9 +631,9 @@ void RenderThreadImpl::Init() {
 // but the system default is true.
 #if defined(OS_MAC)
   is_elastic_overscroll_enabled_ = true;
-#elif defined(OS_WIN)
+#elif defined(OS_WIN) || defined(OS_ANDROID)
   is_elastic_overscroll_enabled_ =
-      base::FeatureList::IsEnabled(features::kElasticOverscrollWin);
+      base::FeatureList::IsEnabled(features::kElasticOverscroll);
 #else
   is_elastic_overscroll_enabled_ = false;
 #endif
@@ -948,6 +954,7 @@ void RenderThreadImpl::RegisterSchemes() {
   WebSecurityPolicy::RegisterURLSchemeAsDisplayIsolated(chrome_scheme);
   WebSecurityPolicy::RegisterURLSchemeAsNotAllowingJavascriptURLs(
       chrome_scheme);
+  WebSecurityPolicy::RegisterURLSchemeAsWebUI(chrome_scheme);
 
   // chrome-untrusted:
   WebString chrome_untrusted_scheme(
@@ -1166,7 +1173,14 @@ RenderThreadImpl::SharedMainThreadContextProvider() {
 
   bool support_locking = false;
   bool support_raster_interface = true;
+
+  // Only support OOPR on this context if the general feature is enabled in
+  // addition to OOPR for canvas. Otherwise this context will raster canvas
+  // through Skia's GrContext.
   bool support_oop_rasterization =
+      gpu_channel_host->gpu_feature_info()
+              .status_values[gpu::GPU_FEATURE_TYPE_OOP_RASTERIZATION] ==
+          gpu::kGpuFeatureStatusEnabled &&
       base::FeatureList::IsEnabled(features::kCanvasOopRasterization);
   bool support_gles2_interface = false;
   bool support_grcontext = !support_oop_rasterization;
@@ -1238,11 +1252,6 @@ void RenderThreadImpl::OnAssociatedInterfaceRequest(
     mojo::ScopedInterfaceEndpointHandle handle) {
   if (!associated_interfaces_.TryBindInterface(name, &handle))
     ChildThreadImpl::OnAssociatedInterfaceRequest(name, std::move(handle));
-}
-
-scoped_refptr<base::SingleThreadTaskRunner>
-RenderThreadImpl::GetIOTaskRunner() {
-  return ChildProcess::current()->io_task_runner();
 }
 
 bool RenderThreadImpl::IsLcdTextEnabled() {

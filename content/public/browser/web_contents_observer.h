@@ -18,7 +18,6 @@
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/reload_type.h"
 #include "content/public/browser/visibility.h"
-#include "ipc/ipc_listener.h"
 #include "mojo/public/cpp/system/message_pipe.h"
 #include "services/network/public/mojom/fetch_api.mojom-forward.h"
 #include "services/service_manager/public/cpp/bind_source_info.h"
@@ -77,7 +76,7 @@ struct Referrer;
 //
 // TODO(creis, jochen): Hide the fact that there are several RenderViewHosts
 // from the WebContentsObserver API. http://crbug.com/173325
-class CONTENT_EXPORT WebContentsObserver : public IPC::Listener {
+class CONTENT_EXPORT WebContentsObserver {
  public:
   // Frames and Views ----------------------------------------------------------
 
@@ -91,7 +90,7 @@ class CONTENT_EXPORT WebContentsObserver : public IPC::Listener {
   // listen for when RenderFrame objects are created.
   virtual void RenderFrameDeleted(RenderFrameHost* render_frame_host) {}
 
-  // This method is invoked whenever one of the current frames of a WebContents
+  // This method is invoked whenever one of the frames of a WebContents
   // swaps its RenderFrameHost with another one; for example because that frame
   // navigated and the new content is in a different process. The
   // RenderFrameHost that has been replaced is in |old_host|, which can be
@@ -99,8 +98,10 @@ class CONTENT_EXPORT WebContentsObserver : public IPC::Listener {
   // created and no old RenderFrameHost exists.
   //
   // This method, in combination with |FrameDeleted|, is appropriate for
-  // observers wishing to track the set of current RenderFrameHosts -- i.e.,
-  // those hosts that would be visited by calling WebContents::ForEachFrame().
+  // observers wishing to track the set of RenderFrameHosts that are current in
+  // their frame tree. Note that being current in a frame tree is separate from
+  // the lifecycle state of the RenderFrameHosts. Consider using
+  // |RenderFrameHostStateChanged|.
   virtual void RenderFrameHostChanged(RenderFrameHost* old_host,
                                       RenderFrameHost* new_host) {}
 
@@ -701,13 +702,6 @@ class CONTENT_EXPORT WebContentsObserver : public IPC::Listener {
   virtual void OnServiceWorkerAccessed(NavigationHandle* navigation_handle,
                                        const GURL& scope,
                                        AllowServiceWorkerResult allowed) {}
-  // IPC::Listener implementation.
-  // DEPRECATED: Use (i.e. override) the other overload instead:
-  //     virtual bool OnMessageReceived(const IPC::Message& message,
-  //                                    RenderFrameHost* render_frame_host);
-  // TODO(https://crbug.com/758026): Delete this overload when possible.
-  bool OnMessageReceived(const IPC::Message& message) override;
-
   WebContents* web_contents() const;
 
  protected:
@@ -720,7 +714,7 @@ class CONTENT_EXPORT WebContentsObserver : public IPC::Listener {
   // observing.
   WebContentsObserver();
 
-  ~WebContentsObserver() override;
+  virtual ~WebContentsObserver();
 
   // Start observing a different WebContents; used with the default constructor.
   void Observe(WebContents* web_contents);

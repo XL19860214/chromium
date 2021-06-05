@@ -30,9 +30,7 @@
     <iron-pages attr-for-selected="id"
         selected="[[selectedESimPageName_]]">
       <setup-loading-page id="profileLoadingPage"
-          delegate="[[delegate]]"
-          loading-message="[[i18n('eSimProfileDetectMessage')]]"
-          state="[[getLoadingPageState_(hasHadActiveCellularNetwork_)]]">
+          loading-message="[[getLoadingMessage_(hasHadActiveCellularNetwork_)]]">
       </setup-loading-page>
       <profile-discovery-list-page id="profileDiscoveryPage"
           pending-profiles="[[pendingProfiles_]]"
@@ -44,8 +42,9 @@
           show-error="{{showError_}}"
           show-busy="[[shouldShowSubpageBusy_(state_)]]">
       </activation-code-page>
-      <activation-verification-page id="activationVerificationPage">
-      </activation-verification-page>
+      <setup-loading-page id="activationVerificationPage"
+          loading-message="[[i18n('verifyingActivationCode')]]">
+      </setup-loading-page>
       <confirmation-code-page id="confirmationCodePage"
           confirmation-code="{{confirmationCode_}}"
           profile="[[selectedProfile_]]"

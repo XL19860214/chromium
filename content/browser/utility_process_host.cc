@@ -11,10 +11,10 @@
 #include "base/bind.h"
 #include "base/callback_helpers.h"
 #include "base/command_line.h"
+#include "base/cxx17_backports.h"
 #include "base/files/file_path.h"
 #include "base/i18n/base_i18n_switches.h"
 #include "base/sequenced_task_runner.h"
-#include "base/stl_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/chromeos_buildflags.h"
 #include "components/network_session_configurator/common/network_switches.h"
@@ -256,6 +256,7 @@ bool UtilityProcessHost::StartProcess() {
       switches::kForceUIDirection,
       switches::kIgnoreCertificateErrors,
       switches::kLoggingLevel,
+      switches::kOverrideUseSoftwareGLForHeadless,
       switches::kOverrideUseSoftwareGLForTests,
       switches::kOverrideEnabledCdmInterfaceVersion,
       switches::kProxyServer,

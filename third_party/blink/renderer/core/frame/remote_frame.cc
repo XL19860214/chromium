@@ -509,11 +509,6 @@ mojom::blink::RemoteFrameHost& RemoteFrame::GetRemoteFrameHostRemote() {
   return *remote_frame_host_remote_.get();
 }
 
-AssociatedInterfaceProvider* RemoteFrame::GetRemoteAssociatedInterfaces() {
-  DCHECK(Client());
-  return Client()->GetRemoteAssociatedInterfaces();
-}
-
 RemoteFrameClient* RemoteFrame::Client() const {
   return static_cast<RemoteFrameClient*>(Frame::Client());
 }
@@ -623,9 +618,12 @@ void RemoteFrame::SetReplicatedOrigin(
   }
 }
 
-void RemoteFrame::SetReplicatedAdFrameType(
-    mojom::blink::AdFrameType ad_frame_type) {
-  ad_frame_type_ = ad_frame_type;
+bool RemoteFrame::IsAdSubframe() const {
+  return is_ad_subframe_;
+}
+
+void RemoteFrame::SetReplicatedIsAdSubframe(bool is_ad_subframe) {
+  is_ad_subframe_ = is_ad_subframe;
 }
 
 void RemoteFrame::SetReplicatedName(const String& name,
@@ -882,13 +880,18 @@ void RemoteFrame::UpdateTextAutosizerPageInfo(
   TextAutosizer::UpdatePageInfoInAllFrames(root_frame);
 }
 
-void RemoteFrame::WasAttachedAsRemoteMainFrame() {
-  interface_registry_->AddAssociatedInterface(WTF::BindRepeating(
-      &RemoteFrame::BindToMainFrameReceiver, WrapWeakPersistent(this)));
+void RemoteFrame::WasAttachedAsRemoteMainFrame(
+    mojo::PendingAssociatedReceiver<mojom::blink::RemoteMainFrame> main_frame) {
+  main_frame_receiver_.Bind(std::move(main_frame), task_runner_);
 }
 
 const viz::LocalSurfaceId& RemoteFrame::GetLocalSurfaceId() const {
   return parent_local_surface_id_allocator_->GetCurrentLocalSurfaceId();
+}
+
+void RemoteFrame::SetCcLayerForTesting(scoped_refptr<cc::Layer> layer,
+                                       bool is_surface_layer) {
+  SetCcLayer(layer, is_surface_layer);
 }
 
 viz::FrameSinkId RemoteFrame::GetFrameSinkId() {
@@ -1132,13 +1135,6 @@ void RemoteFrame::BindToReceiver(
     mojo::PendingAssociatedReceiver<mojom::blink::RemoteFrame> receiver) {
   DCHECK(frame);
   frame->receiver_.Bind(std::move(receiver), frame->task_runner_);
-}
-
-void RemoteFrame::BindToMainFrameReceiver(
-    RemoteFrame* frame,
-    mojo::PendingAssociatedReceiver<mojom::blink::RemoteMainFrame> receiver) {
-  DCHECK(frame);
-  frame->main_frame_receiver_.Bind(std::move(receiver), frame->task_runner_);
 }
 
 }  // namespace blink

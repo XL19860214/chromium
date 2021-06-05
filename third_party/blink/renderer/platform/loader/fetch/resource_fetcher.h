@@ -38,6 +38,7 @@
 #include "third_party/blink/public/platform/web_url_loader.h"
 #include "third_party/blink/renderer/platform/heap/persistent.h"
 #include "third_party/blink/renderer/platform/loader/fetch/fetch_parameters.h"
+#include "third_party/blink/renderer/platform/loader/fetch/loader_freeze_mode.h"
 #include "third_party/blink/renderer/platform/loader/fetch/preload_key.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_load_priority.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_load_scheduler.h"
@@ -225,7 +226,11 @@ class PLATFORM_EXPORT ResourceFetcher
 
   MHTMLArchive* Archive() const { return archive_.Get(); }
 
-  void SetDefersLoading(WebURLLoader::DeferType);
+  // Set the deferring state of each loader owned by this ResourceFetcher. This
+  // method must be called when the page freezing state changes.
+  // TODO(yhirano): Rename this to a more easily recognizable name.
+  void SetDefersLoading(LoaderFreezeMode);
+
   void StopFetching();
 
   bool ShouldDeferImageLoad(const KURL&) const;
@@ -334,7 +339,7 @@ class PLATFORM_EXPORT ResourceFetcher
       ResourceType,
       const ResourceRequestHead&,
       ResourcePriority::VisibilityStatus,
-      FetchParameters::DeferOption = FetchParameters::kNoDefer,
+      FetchParameters::DeferOption = FetchParameters::DeferOption::kNoDefer,
       FetchParameters::SpeculativePreloadType =
           FetchParameters::SpeculativePreloadType::kNotSpeculative,
       bool is_link_preload = false);

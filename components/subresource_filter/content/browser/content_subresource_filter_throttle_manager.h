@@ -13,7 +13,6 @@
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/scoped_observation.h"
-#include "base/stl_util.h"
 #include "base/supports_user_data.h"
 #include "components/safe_browsing/core/db/database_manager.h"
 #include "components/subresource_filter/content/browser/subframe_navigation_filtering_throttle.h"
@@ -223,8 +222,14 @@ class ContentSubresourceFilterThrottleManager
   VerifiedRuleset::Handle* EnsureRulesetHandle();
   void DestroyRulesetHandleIfNoLongerUsed();
 
+  // Prefer the NavigationHandle version where possible as there are better
+  // guard-rails for deriving the correct frame in edge cases.
+  blink::FrameAdEvidence& EnsureFrameAdEvidence(
+      content::NavigationHandle* navigation_handle);
   blink::FrameAdEvidence& EnsureFrameAdEvidence(
       content::RenderFrameHost* render_frame_host);
+  blink::FrameAdEvidence& EnsureFrameAdEvidence(int frame_tree_node_id,
+                                                int parent_frame_tree_node_id);
 
   mojom::ActivationState ActivationStateForNextCommittedLoad(
       content::NavigationHandle* navigation_handle);
@@ -263,6 +268,11 @@ class ContentSubresourceFilterThrottleManager
       const mojom::ActivationLevel& activation_level,
       bool did_inherit_opener_activation);
 
+  void RecordExperimentalUmaHistogramsForNavigation(
+      content::NavigationHandle* navigation_handle,
+      content::RenderFrameHost* frame_host,
+      bool passed_through_ready_to_commit);
+
   // Sets whether the frame is considered an ad subframe. If the value has
   // changed, we also update the replication state and inform observers.
   void SetIsAdSubframe(content::RenderFrameHost* render_frame_host,
@@ -285,6 +295,10 @@ class ContentSubresourceFilterThrottleManager
   // by navigation id.
   std::map<int64_t, ActivationStateComputingNavigationThrottle*>
       ongoing_activation_throttles_;
+
+  // The set of navigations that have passed through ReadyToCommitNavigation,
+  // but haven't yet passed through DidFinishNavigation. Keyed by navigation id.
+  base::flat_set<int64_t> ready_to_commit_navigations_;
 
   // Set of frames that have been identified as ads, identified by FrameTreeNode
   // ID. A RenderFrameHost is an ad subframe iff the FrameAdEvidence

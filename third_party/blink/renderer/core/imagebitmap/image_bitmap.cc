@@ -300,56 +300,6 @@ scoped_refptr<StaticBitmapImage> FlipImageVertically(
   return resource_provider->Snapshot(input->CurrentFrameOrientation());
 }
 
-scoped_refptr<StaticBitmapImage> GetImageWithAlphaDisposition(
-    scoped_refptr<StaticBitmapImage>&& image,
-    AlphaDisposition alpha_disposition) {
-  DCHECK(alpha_disposition != kDontChangeAlpha);
-  if (alpha_disposition == kDontChangeAlpha)
-    return std::move(image);
-  SkAlphaType alpha_type = (alpha_disposition == kPremultiplyAlpha)
-                               ? kPremul_SkAlphaType
-                               : kUnpremul_SkAlphaType;
-  PaintImage paint_image = image->PaintImageForCurrentFrame();
-  if (!paint_image)
-    return nullptr;
-  if (paint_image.GetAlphaType() == alpha_type)
-    return std::move(image);
-
-  SkImageInfo info = GetSkImageInfo(image.get()).makeAlphaType(alpha_type);
-  // To premul, draw the unpremul image on a surface to avoid GPU read back if
-  // image is texture backed.
-  if (alpha_type == kPremul_SkAlphaType) {
-    auto resource_provider = CreateProvider(
-        image->IsTextureBacked() ? image->ContextProviderWrapper() : nullptr,
-        info, image, true /* fallback_to_software */);
-    if (!resource_provider)
-      return nullptr;
-
-    cc::PaintFlags paint;
-    paint.setBlendMode(SkBlendMode::kSrc);
-    resource_provider->Canvas()->drawImage(image->PaintImageForCurrentFrame(),
-                                           0, 0, SkSamplingOptions(), &paint);
-    return resource_provider->Snapshot(image->CurrentFrameOrientation());
-  }
-
-  // To unpremul, read back the pixels.
-
-  if (paint_image.GetSkImageInfo().isEmpty())
-    return nullptr;
-
-  sk_sp<SkData> dst_pixels = TryAllocateSkData(info.computeMinByteSize());
-  if (!dst_pixels)
-    return nullptr;
-
-  uint8_t* writable_pixels = static_cast<uint8_t*>(dst_pixels->writable_data());
-  size_t image_row_bytes = static_cast<size_t>(info.minRowBytes64());
-  bool read_successful =
-      paint_image.readPixels(info, writable_pixels, image_row_bytes, 0, 0);
-  DCHECK(read_successful);
-  return StaticBitmapImage::Create(std::move(dst_pixels), info,
-                                   image->CurrentFrameOrientation());
-}
-
 scoped_refptr<StaticBitmapImage> ScaleImage(
     scoped_refptr<StaticBitmapImage>&& image,
     const ImageBitmap::ParsedOptions& parsed_options) {
@@ -365,8 +315,9 @@ scoped_refptr<StaticBitmapImage> ScaleImage(
         CreateProvider(image->ContextProviderWrapper(), image_info, image,
                        false /* fallback_to_software */);
     if (resource_provider) {
-      SkSamplingOptions sampling(parsed_options.resize_quality,
-                                 SkSamplingOptions::kMedium_asMipmapLinear);
+      SkSamplingOptions sampling =
+          cc::PaintFlags::FilterQualityToSkSamplingOptions(
+              parsed_options.resize_quality);
       cc::PaintFlags paint;
       paint.setBlendMode(SkBlendMode::kSrc);
       resource_provider->Canvas()->drawImageRect(
@@ -394,10 +345,9 @@ scoped_refptr<StaticBitmapImage> ScaleImage(
   auto sk_image = image->PaintImageForCurrentFrame().GetSwSkImage();
   if (!sk_image)
     return nullptr;
-  sk_image->scalePixels(
-      resized_pixmap,
-      SkSamplingOptions(parsed_options.resize_quality,
-                        SkSamplingOptions::kMedium_asMipmapLinear));
+  sk_image->scalePixels(resized_pixmap,
+                        cc::PaintFlags::FilterQualityToSkSamplingOptions(
+                            parsed_options.resize_quality));
   // Tag the resized Pixmap with the correct color space.
   resized_pixmap.setColorSpace(GetSkImageInfo(image).refColorSpace());
 
@@ -1076,15 +1026,16 @@ ScriptPromise ImageBitmap::CreateImageBitmap(ScriptState* script_state,
 
 scoped_refptr<Image> ImageBitmap::GetSourceImageForCanvas(
     SourceImageStatus* status,
-    const FloatSize&) {
+    const FloatSize&,
+    const AlphaDisposition alpha_disposition) {
   *status = kNormalSourceImageStatus;
   if (!image_)
     return nullptr;
-  if (image_->IsPremultiplied())
-    return image_;
-  // Skia does not support drawing unpremul SkImage on SkCanvas.
-  // Premultiply and return.
-  return GetImageWithAlphaDisposition(std::move(image_), kPremultiplyAlpha);
+
+  scoped_refptr<StaticBitmapImage> image = image_;
+
+  // If the alpha_disposition is already correct, this is a no-op.
+  return GetImageWithAlphaDisposition(std::move(image), alpha_disposition);
 }
 
 FloatSize ImageBitmap::ElementSize(

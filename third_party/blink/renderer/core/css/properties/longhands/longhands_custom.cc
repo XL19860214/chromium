@@ -1885,19 +1885,19 @@ const CSSValue* Contain::CSSValueFromComputedStyleInternal(
     return CSSIdentifierValue::Create(CSSValueID::kContent);
 
   CSSValueList* list = CSSValueList::CreateSpaceSeparated();
-  if (style.ContainsSize()) {
+  if ((style.Contain() & kContainsSize) == kContainsSize) {
     list->Append(*CSSIdentifierValue::Create(CSSValueID::kSize));
   } else {
-    if (style.ContainsInlineSize())
+    if (style.Contain() & kContainsInlineSize)
       list->Append(*CSSIdentifierValue::Create(CSSValueID::kInlineSize));
-    else if (style.ContainsBlockSize())
+    else if (style.Contain() & kContainsBlockSize)
       list->Append(*CSSIdentifierValue::Create(CSSValueID::kBlockSize));
   }
-  if (style.ContainsLayout())
+  if (style.Contain() & kContainsLayout)
     list->Append(*CSSIdentifierValue::Create(CSSValueID::kLayout));
-  if (style.ContainsStyle())
+  if (style.Contain() & kContainsStyle)
     list->Append(*CSSIdentifierValue::Create(CSSValueID::kStyle));
-  if (style.ContainsPaint())
+  if (style.Contain() & kContainsPaint)
     list->Append(*CSSIdentifierValue::Create(CSSValueID::kPaint));
   DCHECK(list->length());
   return list;
@@ -1936,6 +1936,43 @@ const CSSValue* ContainIntrinsicSize::CSSValueFromComputedStyleInternal(
       ComputedStyleUtils::ZoomAdjustedPixelValueForLength(
           style.ContainIntrinsicSize().Height(), style),
       CSSValuePair::kDropIdenticalValues);
+}
+
+const CSSValue* ContainerName::ParseSingleValue(
+    CSSParserTokenRange& range,
+    const CSSParserContext& context,
+    const CSSParserLocalContext&) const {
+  return css_parsing_utils::ConsumeContainerName(range, context);
+}
+
+const CSSValue* ContainerName::CSSValueFromComputedStyleInternal(
+    const ComputedStyle& style,
+    const LayoutObject* layout_object,
+    bool allow_visited_style) const {
+  if (style.ContainerName().IsNull())
+    return CSSIdentifierValue::Create(CSSValueID::kNone);
+  return MakeGarbageCollected<CSSCustomIdentValue>(style.ContainerName());
+}
+
+const CSSValue* ContainerType::ParseSingleValue(
+    CSSParserTokenRange& range,
+    const CSSParserContext& context,
+    const CSSParserLocalContext&) const {
+  return css_parsing_utils::ConsumeContainerType(range);
+}
+
+const CSSValue* ContainerType::CSSValueFromComputedStyleInternal(
+    const ComputedStyle& style,
+    const LayoutObject* layout_object,
+    bool allow_visited_style) const {
+  if (style.ContainerType() == kContainerTypeNone)
+    return CSSIdentifierValue::Create(CSSValueID::kNone);
+  CSSValueList* list = CSSValueList::CreateSpaceSeparated();
+  if (style.ContainerType() & kContainerTypeInlineSize)
+    list->Append(*CSSIdentifierValue::Create(CSSValueID::kInlineSize));
+  if (style.ContainerType() & kContainerTypeBlockSize)
+    list->Append(*CSSIdentifierValue::Create(CSSValueID::kBlockSize));
+  return list;
 }
 
 namespace {
@@ -1980,24 +2017,14 @@ CSSValue* ConsumeCounterContent(CSSParserTokenRange args,
 
   CSSCustomIdentValue* list_style = nullptr;
   if (css_parsing_utils::ConsumeCommaIncludingWhitespace(args)) {
-    if (!RuntimeEnabledFeatures::CSSAtRuleCounterStyleEnabled()) {
-      CSSValueID id = args.Peek().Id();
-      if ((id != CSSValueID::kNone &&
-           (id < CSSValueID::kDisc || id > CSSValueID::kKatakanaIroha)))
-        return nullptr;
-      list_style = MakeGarbageCollected<CSSCustomIdentValue>(
-          AtomicString(getValueName(id)));
+    // Note: CSS3 spec doesn't allow 'none' but CSS2.1 allows it. We currently
+    // allow it for backward compatibility.
+    // See https://github.com/w3c/csswg-drafts/issues/5795 for details.
+    if (args.Peek().Id() == CSSValueID::kNone) {
+      list_style = MakeGarbageCollected<CSSCustomIdentValue>("none");
       args.ConsumeIncludingWhitespace();
     } else {
-      // Note: CSS3 spec doesn't allow 'none' but CSS2.1 allows it. We currently
-      // allow it for backward compatibility.
-      // See https://github.com/w3c/csswg-drafts/issues/5795 for details.
-      if (args.Peek().Id() == CSSValueID::kNone) {
-        list_style = MakeGarbageCollected<CSSCustomIdentValue>("none");
-        args.ConsumeIncludingWhitespace();
-      } else {
-        list_style = css_parsing_utils::ConsumeCounterStyleName(args, context);
-      }
+      list_style = css_parsing_utils::ConsumeCounterStyleName(args, context);
     }
   } else {
     list_style = MakeGarbageCollected<CSSCustomIdentValue>("decimal");
@@ -4259,19 +4286,9 @@ const CSSValue* ListStyleType::ParseSingleValue(
   if (auto* none = css_parsing_utils::ConsumeIdent<CSSValueID::kNone>(range))
     return none;
 
-  if (!RuntimeEnabledFeatures::CSSAtRuleCounterStyleEnabled()) {
-    if (auto* ident = css_parsing_utils::ConsumeIdent(range)) {
-      CSSValueID value_id = ident->GetValueID();
-      if (value_id < CSSValueID::kDisc || value_id > CSSValueID::kKatakanaIroha)
-        return nullptr;
-      return MakeGarbageCollected<CSSCustomIdentValue>(
-          AtomicString(getValueName(value_id)));
-    }
-  } else {
-    if (auto* counter_style_name =
-            css_parsing_utils::ConsumeCounterStyleName(range, context))
-      return counter_style_name;
-  }
+  if (auto* counter_style_name =
+          css_parsing_utils::ConsumeCounterStyleName(range, context))
+    return counter_style_name;
 
   return css_parsing_utils::ConsumeString(range);
 }
@@ -4911,6 +4928,19 @@ const CSSValue* AccentColor::ParseSingleValue(
   return css_parsing_utils::ConsumeColor(range, context);
 }
 
+const CSSValue* AccentColor::CSSValueFromComputedStyleInternal(
+    const ComputedStyle& style,
+    const LayoutObject*,
+    bool allow_visited_style) const {
+  StyleAutoColor auto_color = style.AccentColor();
+  if (auto_color.IsAutoColor()) {
+    return CSSIdentifierValue::Create(CSSValueID::kAuto);
+  }
+
+  return ComputedStyleUtils::ValueForStyleAutoColor(
+      style, style.AccentColor(), CSSValuePhase::kComputedValue);
+}
+
 void AccentColor::ApplyInitial(StyleResolverState& state) const {
   state.Style()->SetAccentColor(StyleAutoColor::AutoColor());
 }
@@ -5344,20 +5374,18 @@ const CSSValue* Perspective::ParseSingleValue(
   if (range.Peek().Id() == CSSValueID::kNone)
     return css_parsing_utils::ConsumeIdent(range);
   CSSPrimitiveValue* parsed_value =
-      css_parsing_utils::ConsumeLength(range, context, kValueRangeAll);
+      css_parsing_utils::ConsumeLength(range, context, kValueRangeNonNegative);
   bool use_legacy_parsing = localContext.UseAliasParsing();
   if (!parsed_value && use_legacy_parsing) {
     double perspective;
-    if (!css_parsing_utils::ConsumeNumberRaw(range, context, perspective))
+    if (!css_parsing_utils::ConsumeNumberRaw(range, context, perspective) ||
+        perspective < 0.0)
       return nullptr;
     context.Count(WebFeature::kUnitlessPerspectiveInPerspectiveProperty);
     parsed_value = CSSNumericLiteralValue::Create(
         perspective, CSSPrimitiveValue::UnitType::kPixels);
   }
-  if (parsed_value &&
-      (parsed_value->IsCalculated() || parsed_value->GetDoubleValue() > 0))
-    return parsed_value;
-  return nullptr;
+  return parsed_value;
 }
 
 const CSSValue* Perspective::CSSValueFromComputedStyleInternal(

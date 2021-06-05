@@ -7,6 +7,7 @@
 
 #include "base/callback.h"
 #include "content/browser/renderer_host/commit_deferring_condition.h"
+#include "content/public/browser/web_contents_observer.h"
 
 namespace content {
 
@@ -53,7 +54,7 @@ class MockCommitDeferringCondition : public CommitDeferringCondition {
   MockCommitDeferringCondition(bool is_ready_to_commit,
                                WillCommitCallback on_will_commit_navigation);
   ~MockCommitDeferringCondition() override;
-  bool WillCommitNavigation(base::OnceClosure resume) override;
+  Result WillCommitNavigation(base::OnceClosure resume) override;
 
   base::WeakPtr<MockCommitDeferringCondition> AsWeakPtr();
 
@@ -62,6 +63,20 @@ class MockCommitDeferringCondition : public CommitDeferringCondition {
   WillCommitCallback on_will_commit_navigation_;
 
   base::WeakPtrFactory<MockCommitDeferringCondition> weak_factory_{this};
+};
+
+// This class will montior navigations in the given WebContents and register
+// the given CommitDeferringCondition into any starting navigation.
+class MockCommitDeferringConditionInstaller : public WebContentsObserver {
+ public:
+  MockCommitDeferringConditionInstaller(
+      WebContents* web_contents,
+      std::unique_ptr<MockCommitDeferringCondition> condition);
+  ~MockCommitDeferringConditionInstaller() override;
+
+  void DidStartNavigation(NavigationHandle* handle) override;
+
+  std::unique_ptr<MockCommitDeferringCondition> condition_;
 };
 
 }  // namespace content

@@ -8,7 +8,9 @@
 
 #include "ash/constants/ash_features.h"
 #include "base/bind.h"
+#include "base/metrics/histogram_functions.h"
 #include "base/system/sys_info.h"
+#include "base/time/time.h"
 #include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/chromeos/device_sync/device_sync_client_factory.h"
 #include "chrome/browser/chromeos/multidevice_setup/multidevice_setup_client_factory.h"
@@ -18,6 +20,7 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/browser_window.h"
+#include "chrome/browser/ui/web_applications/app_browser_controller.h"
 #include "chrome/browser/ui/web_applications/system_web_app_ui_utils.h"
 #include "chromeos/components/eche_app_ui/eche_app_manager.h"
 #include "chromeos/components/eche_app_ui/eche_uid_provider.h"
@@ -49,14 +52,29 @@ void CloseEcheApp(Profile* profile) {
     return;
   }
 }
+// Enumeration of possible interactions with a PhoneHub notification. Keep in
+// sync with corresponding enum in tools/metrics/histograms/enums.xml. These
+// values are persisted to logs. Entries should not be renumbered and numeric
+// values should never be reused.
+enum class NotificationInteraction {
+  kUnknown = 0,
+  kOpenAppStreaming = 1,
+  kMaxValue = kOpenAppStreaming,
+};
 
 void LaunchEcheApp(Profile* profile, int64_t notification_id) {
+  double now_seconds = base::Time::Now().ToDoubleT();
+  int64_t now_ms = static_cast<int64_t>(now_seconds * 1000);
   std::string url = "chrome://eche-app/#notification_id=";
   url.append(base::NumberToString(notification_id));
+  url.append("&timestamp=");
+  url.append(base::NumberToString(now_ms));
   web_app::SystemAppLaunchParams params;
   params.url = GURL(url);
   web_app::LaunchSystemWebAppAsync(profile, web_app::SystemAppType::ECHE,
                                    params);
+  base::UmaHistogramEnumeration("Eche.NotificationClicked",
+                                NotificationInteraction::kOpenAppStreaming);
 }
 
 }  // namespace

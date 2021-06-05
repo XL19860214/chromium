@@ -42,8 +42,7 @@ ui::IMEEngineHandlerInterface* GetEngine() {
 InputMethodChromeOS::InputMethodChromeOS(
     internal::InputMethodDelegate* delegate)
     : InputMethodBase(delegate),
-      typing_session_manager_(
-          TypingSessionManager(base::DefaultClock::GetInstance())) {
+      typing_session_manager_(base::DefaultClock::GetInstance()) {
   ResetContext();
 }
 
@@ -238,6 +237,7 @@ void InputMethodChromeOS::OnCaretBoundsChanged(const TextInputClient* client) {
     chromeos::Bounds bounds;
     bounds.caret = caret_rect;
     bounds.autocorrect = client->GetAutocorrectCharacterBounds();
+    client->GetCompositionCharacterBounds(0, &bounds.composition_text);
     assistive_window->SetBounds(bounds);
   }
 
@@ -428,6 +428,13 @@ bool InputMethodChromeOS::SetAutocorrectRange(const gfx::Range& range) {
   } else {
     return GetTextInputClient()->SetAutocorrectRange(range);
   }
+}
+
+absl::optional<GrammarFragment> InputMethodChromeOS::GetGrammarFragment(
+    const gfx::Range& range) {
+  if (IsTextInputTypeNone())
+    return absl::nullopt;
+  return GetTextInputClient()->GetGrammarFragment(range);
 }
 
 bool InputMethodChromeOS::ClearGrammarFragments(const gfx::Range& range) {
@@ -768,6 +775,26 @@ void InputMethodChromeOS::HidePreeditText() {
     }
     composition_changed_ = false;
   }
+}
+
+bool InputMethodChromeOS::CanComposeInline() const {
+  TextInputClient* client = GetTextInputClient();
+  return client ? client->CanComposeInline() : true;
+}
+
+bool InputMethodChromeOS::GetClientShouldDoLearning() const {
+  TextInputClient* client = GetTextInputClient();
+  return client && client->ShouldDoLearning();
+}
+
+int InputMethodChromeOS::GetTextInputFlags() const {
+  TextInputClient* client = GetTextInputClient();
+  return client ? client->GetTextInputFlags() : 0;
+}
+
+TextInputMode InputMethodChromeOS::GetTextInputMode() const {
+  TextInputClient* client = GetTextInputClient();
+  return client ? client->GetTextInputMode() : TEXT_INPUT_MODE_DEFAULT;
 }
 
 void InputMethodChromeOS::SendKeyEvent(KeyEvent* event) {

@@ -61,6 +61,12 @@ int ConversionStorageDelegateImpl::GetMaxConversionsPerOrigin() const {
   return 1024;
 }
 
+int ConversionStorageDelegateImpl::GetMaxAttributionDestinationsPerEventSource()
+    const {
+  // TODO(apaseltiner): Finalize a value for this.
+  return INT_MAX;
+}
+
 ConversionStorage::Delegate::RateLimitConfig
 ConversionStorageDelegateImpl::GetRateLimits() const {
   // TODO(csharrison): Finalize max_attributions_per_window value.
@@ -68,6 +74,12 @@ ConversionStorageDelegateImpl::GetRateLimits() const {
       .time_window = base::TimeDelta::FromDays(30),
       .max_attributions_per_window = 100,
   };
+}
+
+StorableImpression::AttributionLogic
+ConversionStorageDelegateImpl::SelectAttributionLogic(
+    const StorableImpression& impression) const {
+  return StorableImpression::AttributionLogic::kTruthfully;
 }
 
 base::Time ConversionStorageDelegateImpl::GetReportTimeForConversion(

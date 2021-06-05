@@ -6,6 +6,8 @@ import {html, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/poly
 
 import {MenuSelectorItem, SelectorItem, SelectorProperties} from './navigation_selector.js';
 
+const navigationPageChanged = 'onNavigationPageChanged';
+
 /**
  * @fileoverview
  * 'navigation-view-panel' manages the wiring between a display page and
@@ -54,10 +56,12 @@ export class NavigationViewPanelElement extends PolymerElement {
   /**
    * @param {string} name
    * @param {string} pageIs
+   * @param {string} icon
    * @param {!Array<SelectorItem>} subItems
    */
-  addSelector(name, pageIs, subItems=[]) {
-    let item = /** @type {SelectorItem} */ ({'name': name, 'pageIs': pageIs});
+  addSelector(name, pageIs, icon='', subItems=[]) {
+    let item = /** @type {SelectorItem} */ ({
+        'name': name, 'pageIs': pageIs, 'icon': icon});
     let property = /** @type {SelectorProperties} */ ({
         'isCollapsible': subItems.length,
         'isExpanded': false,
@@ -81,20 +85,14 @@ export class NavigationViewPanelElement extends PolymerElement {
     }
   }
 
-  /**
-   * @param {!SelectorItem} current
-   * @param {?SelectorItem} previous
-   * @private
-   */
-  onSwitchPage_(current, previous) {
+  /** @private */
+  onSwitchPage_() {
     if (!this.selectedItem)
       return;
     const pageComponent = this.getPage_(this.selectedItem);
     this.showPage_(pageComponent);
 
-    const event = {previous: !!previous ? previous.pageIs : '',
-                   current: current.pageIs};
-    this.notifyEvent('onNavigationPageChanged', event);
+    this.notifyEvent(navigationPageChanged);
   }
 
   /**
@@ -107,7 +105,13 @@ export class NavigationViewPanelElement extends PolymerElement {
     Array.from(components).map((c) => {
       const functionCall = c[functionName];
       if (typeof functionCall === "function") {
-        functionCall({detail: params});
+        if (functionName === navigationPageChanged) {
+         const event = {
+            isActive: this.selectedItem.pageIs === c.id};
+          functionCall.call(c, event);
+        } else {
+          functionCall.call(c, params);
+        }
       }
     });
   }

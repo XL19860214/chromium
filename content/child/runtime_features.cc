@@ -130,14 +130,6 @@ void SetRuntimeFeatureDefaultsForPlatform(
   WebRuntimeFeatures::EnableMediaControlsExpandGesture(
       base::FeatureList::IsEnabled(media::kMediaControlsExpandGesture));
 #endif
-
-#if defined(OS_ANDROID)
-  WebRuntimeFeatures::EnableCSSColorSchemeUARendering(
-      // Combining form-controls-refresh and form-controls-dark-mode
-      // to be launched together on Android. Only one about flags
-      // for both features.
-      base::FeatureList::IsEnabled(features::kFormControlsRefresh));
-#endif
 }
 
 enum RuntimeFeatureEnableOptions {
@@ -235,8 +227,6 @@ void SetRuntimeFeaturesFromChromiumFeatures() {
     {wf::EnableClickPointerEvent, features::kClickPointerEvent},
     {wf::EnableCompositeBGColorAnimation, features::kCompositeBGColorAnimation},
     {wf::EnableConsolidatedMovementXY, features::kConsolidatedMovementXY},
-    {wf::EnableConversionMeasurementInfraSupport,
-     features::kConversionMeasurement},
     {wf::EnableCookiesWithoutSameSiteMustBeSecure,
      net::features::kCookiesWithoutSameSiteMustBeSecure},
     {wf::EnableCooperativeScheduling, features::kCooperativeScheduling},
@@ -356,9 +346,12 @@ void SetRuntimeFeaturesFromChromiumFeatures() {
           {"CompositeAfterPaint", blink::features::kCompositeAfterPaint},
           {"ComputePressure", blink::features::kComputePressure,
            kSetOnlyIfOverridden},
-          {"CSSColorSchemeUARendering", features::kCSSColorSchemeUARendering},
           {"DeclarativeShadowDOM", blink::features::kDeclarativeShadowDOM},
           {"DocumentTransition", blink::features::kDocumentTransition},
+          // TODO(crbug.com/649162): Remove DialogFocusNewSpecBehavior after
+          // the feature is in stable with no issues.
+          {"DialogFocusNewSpecBehavior",
+           blink::features::kDialogFocusNewSpecBehavior},
           {"FeaturePolicyForClientHints",
            features::kFeaturePolicyForClientHints},
           {"EditingNG", blink::features::kEditingNG},
@@ -429,7 +422,7 @@ void SetRuntimeFeaturesFromCommandLine(const base::CommandLine& command_line) {
   // SwitchToFeatureMap entry to the initializer list below.
   // Note: command line switches are now discouraged, please consider
   // using base::Feature instead.
-  // https://chromium.googlesource.com/chromium/src/+/refs/heads/master/docs/configuration.md#switches
+  // https://chromium.googlesource.com/chromium/src/+/refs/heads/main/docs/configuration.md#switches
   using wrf = WebRuntimeFeatures;
   const SwitchToFeatureMap switchToFeatureMapping[] = {
       // Stable Features

@@ -187,9 +187,11 @@ class MockUploadClient : public ::testing::NiceMock<UploaderInterface> {
   explicit MockUploadClient(
       LastRecordDigestMap* last_record_digest_map,
       scoped_refptr<base::SequencedTaskRunner> sequenced_task_runner,
+      base::OnceClosure key_generation,
       scoped_refptr<test::Decryptor> decryptor)
       : last_record_digest_map_(last_record_digest_map),
         sequenced_task_runner_(sequenced_task_runner),
+        key_generation_(std::move(key_generation)),
         decryptor_(decryptor) {}
 
   void ProcessRecord(EncryptedRecord encrypted_record,
@@ -266,6 +268,8 @@ class MockUploadClient : public ::testing::NiceMock<UploaderInterface> {
   }
 
   void Completed(Status status) override { UploadComplete(status); }
+
+  void KeyGeneration() { std::move(key_generation_).Run(); }
 
   MOCK_METHOD(void, EncounterSeqId, (Priority, int64_t), (const));
   MOCK_METHOD(bool,
@@ -370,7 +374,11 @@ class MockUploadClient : public ::testing::NiceMock<UploaderInterface> {
     ~SetKeyDelivery() {
       EXPECT_CALL(*client_, UploadRecord(_, _, _)).Times(0);
       EXPECT_CALL(*client_, UploadRecordFailure(_, _, _)).Times(0);
-      EXPECT_CALL(*client_, UploadComplete(Eq(Status::StatusOK()))).Times(1);
+      EXPECT_CALL(*client_, UploadComplete(Eq(Status::StatusOK())))
+          .WillOnce(
+              // Provision the storage with a key.
+              // Key delivery must have been requested above.
+              WithoutArgs(Invoke(client_, &MockUploadClient::KeyGeneration)));
     }
 
    private:
@@ -479,6 +487,7 @@ class MockUploadClient : public ::testing::NiceMock<UploaderInterface> {
   LastRecordDigestMap* const last_record_digest_map_;
   scoped_refptr<base::SequencedTaskRunner> sequenced_task_runner_;
 
+  base::OnceClosure key_generation_;
   const scoped_refptr<test::Decryptor> decryptor_;
 
   Sequence test_encounter_sequence_;
@@ -492,16 +501,13 @@ class StorageTest
     ASSERT_TRUE(location_.CreateUniqueTempDir());
     // Disallow uploads unless other expectation is set (any later EXPECT_CALL
     // will take precedence over this one).
-    EXPECT_CALL(set_mock_uploader_expectations_, Call(_, _, NotNull()))
+    EXPECT_CALL(set_mock_uploader_expectations_, Call(_, NotNull()))
         .WillRepeatedly(WithoutArgs(Invoke([]() {
           return Status(error::UNAVAILABLE, "Upload unavailable at this time");
         })));
-    // Encryption is disabled by default.
-    ASSERT_FALSE(EncryptionModuleInterface::is_enabled());
+    // Encryption is enabled by default.
+    ASSERT_TRUE(EncryptionModuleInterface::is_enabled());
     if (is_encryption_enabled()) {
-      // Enable encryption.
-      scoped_feature_list_.InitFromCommandLine(
-          {EncryptionModuleInterface::kEncryptedReporting}, {});
       // Generate signing key pair.
       test::GenerateSigningKeyPair(signing_private_key_,
                                    signature_verification_public_key_);
@@ -509,8 +515,14 @@ class StorageTest
       auto decryptor_result = test::Decryptor::Create();
       ASSERT_OK(decryptor_result.status()) << decryptor_result.status();
       decryptor_ = std::move(decryptor_result.ValueOrDie());
-      // First creation of Storage would need key delivered.
+      // Prepare the key.
+      signed_encryption_key_ = GenerateAndSignKey();
+      // First record enqueue to Storage would need key delivered.
       expect_to_need_key_ = true;
+    } else {
+      // Disable encryption.
+      scoped_feature_list_.InitFromCommandLine(
+          {}, {EncryptionModuleInterface::kEncryptedReporting});
     }
   }
 
@@ -526,17 +538,6 @@ class StorageTest
   StatusOr<scoped_refptr<Storage>> CreateTestStorage(
       const StorageOptions& options,
       scoped_refptr<EncryptionModuleInterface> encryption_module) {
-    if (expect_to_need_key_) {
-      // Set uploader expectations for any queue; expect no records and need
-      // key. Make sure no uploads happen, and key is requested.
-      EXPECT_CALL(set_mock_uploader_expectations_,
-                  Call(_, /*need_encryption_key=*/Eq(true), NotNull()))
-          .WillOnce(WithArg<2>(Invoke([](MockUploadClient* mock_upload_client) {
-            MockUploadClient::SetKeyDelivery client(mock_upload_client);
-            return Status::StatusOK();
-          })))
-          .RetiresOnSaturation();
-    }
     // Initialize Storage with no key.
     test::TestEvent<StatusOr<scoped_refptr<Storage>>> e;
     Storage::Create(options,
@@ -544,13 +545,19 @@ class StorageTest
                                         base::Unretained(this)),
                     encryption_module, e.cb());
     ASSIGN_OR_RETURN(auto storage, e.result());
-    // Let asynchronous activity finish.
-    task_environment_.RunUntilIdle();
+
     if (expect_to_need_key_) {
-      // Provision the storage with a key.
-      // Key delivery must have been requested above.
-      GenerateAndDeliverKey(storage.get());
+      // Set uploader expectations for any queue; expect no records and need
+      // key. Make sure no uploads happen, and key is requested.
+      EXPECT_CALL(set_mock_uploader_expectations_,
+                  Call(/*need_encryption_key=*/Eq(true), NotNull()))
+          .WillOnce(WithArg<1>(Invoke([](MockUploadClient* mock_upload_client) {
+            MockUploadClient::SetKeyDelivery client(mock_upload_client);
+            return Status::StatusOK();
+          })))
+          .RetiresOnSaturation();
     }
+
     return storage;
   }
 
@@ -610,13 +617,16 @@ class StorageTest
   }
 
   void AsyncStartMockUploader(
-      Priority priority,
       bool need_encryption_key,
       UploaderInterface::UploaderInterfaceResultCb start_uploader_cb) {
     auto uploader = std::make_unique<MockUploadClient>(
-        &last_record_digest_map_, sequenced_task_runner_, decryptor_);
+        &last_record_digest_map_, sequenced_task_runner_,
+        base::BindOnce(&Storage::UpdateEncryptionKey,
+                       base::Unretained(storage_.get()),
+                       signed_encryption_key_),
+        decryptor_);
     const auto status = set_mock_uploader_expectations_.Call(
-        priority, need_encryption_key, uploader.get());
+        need_encryption_key, uploader.get());
     if (!status.ok()) {
       std::move(start_uploader_cb).Run(status);
       return;
@@ -626,7 +636,6 @@ class StorageTest
 
   void AsyncStartMockUploaderFailing(
       size_t failures_count,
-      Priority priority,
       bool need_encryption_key,
       UploaderInterface::UploaderInterfaceResultCb start_uploader_cb) {
     if (key_delivery_failure_count_.fetch_add(1) < failures_count) {
@@ -634,8 +643,7 @@ class StorageTest
           .Run(Status(error::FAILED_PRECONDITION, "Test cannot start upload"));
       return;
     }
-    AsyncStartMockUploader(priority, need_encryption_key,
-                           std::move(start_uploader_cb));
+    AsyncStartMockUploader(need_encryption_key, std::move(start_uploader_cb));
   }
 
   Status WriteString(Priority priority, base::StringPiece data) {
@@ -663,8 +671,8 @@ class StorageTest
     ASSERT_OK(c_result) << c_result;
   }
 
-  void GenerateAndDeliverKey(Storage* storage) {
-    ASSERT_TRUE(decryptor_) << "Decryptor not created";
+  SignedEncryptionInfo GenerateAndSignKey() {
+    DCHECK(decryptor_) << "Decryptor not created";
     // Generate new pair of private key and public value.
     uint8_t private_key[kKeySize];
     Encryptor::PublicKeyId public_key_id;
@@ -676,9 +684,9 @@ class StorageTest
         std::string(reinterpret_cast<const char*>(public_value), kKeySize),
         prepare_key_pair.cb());
     auto prepare_key_result = prepare_key_pair.result();
-    ASSERT_OK(prepare_key_result.status());
+    DCHECK(prepare_key_result.ok());
     public_key_id = prepare_key_result.ValueOrDie();
-    // Deliver public key to storage.
+    // Prepare signed encryption key to be delivered to Storage.
     SignedEncryptionInfo signed_encryption_key;
     signed_encryption_key.set_public_asymmetric_key(
         std::string(reinterpret_cast<const char*>(public_value), kKeySize));
@@ -697,12 +705,12 @@ class StorageTest
     signed_encryption_key.set_signature(
         std::string(reinterpret_cast<const char*>(signature), kSignatureSize));
     // Double check signature.
-    ASSERT_TRUE(VerifySignature(
+    DCHECK(VerifySignature(
         signature_verification_public_key_,
         base::StringPiece(reinterpret_cast<const char*>(value_to_sign),
                           sizeof(value_to_sign)),
         signature));
-    storage->UpdateEncryptionKey(signed_encryption_key);
+    return signed_encryption_key;
   }
 
   bool is_encryption_enabled() const { return ::testing::get<0>(GetParam()); }
@@ -721,6 +729,7 @@ class StorageTest
   base::ScopedTempDir location_;
   scoped_refptr<test::Decryptor> decryptor_;
   scoped_refptr<Storage> storage_;
+  SignedEncryptionInfo signed_encryption_key_;
   bool expect_to_need_key_{false};
   std::atomic<size_t> key_delivery_failure_count_{0};
 
@@ -732,7 +741,7 @@ class StorageTest
       base::ThreadPool::CreateSequencedTaskRunner(base::TaskTraits())};
 
   ::testing::NiceMock<::testing::MockFunction<
-      Status(Priority, bool /*need_encryption_key*/, MockUploadClient*)>>
+      Status(bool /*need_encryption_key*/, MockUploadClient*)>>
       set_mock_uploader_expectations_;
 };
 
@@ -773,12 +782,11 @@ TEST_P(StorageTest, WriteIntoNewStorageAndUpload) {
 
   // Set uploader expectations.
   test::TestCallbackAutoWaiter waiter;
-  EXPECT_CALL(
-      set_mock_uploader_expectations_,
-      Call(Eq(FAST_BATCH), /*need_encryption_key=*/Eq(false), NotNull()))
-      .WillOnce(WithArgs<0, 2>(Invoke(
-          [&waiter](Priority priority, MockUploadClient* mock_upload_client) {
-            MockUploadClient::SetUp(priority, mock_upload_client, &waiter)
+  EXPECT_CALL(set_mock_uploader_expectations_,
+              Call(/*need_encryption_key=*/Eq(false), NotNull()))
+      .WillOnce(
+          WithArgs<1>(Invoke([&waiter](MockUploadClient* mock_upload_client) {
+            MockUploadClient::SetUp(FAST_BATCH, mock_upload_client, &waiter)
                 .Required(0, kData[0])
                 .Required(1, kData[1])
                 .Required(2, kData[2]);
@@ -806,18 +814,17 @@ TEST_P(StorageTest, WriteIntoNewStorageAndUploadWithKeyUpdate) {
   {
     test::TestCallbackAutoWaiter waiter;
     EXPECT_CALL(set_mock_uploader_expectations_,
-                Call(Ne(MANUAL_BATCH), /*need_encryption_key=*/_, NotNull()))
-        .WillRepeatedly(WithArgs<0, 2>(
-            Invoke([](Priority priority, MockUploadClient* mock_upload_client) {
+                Call(/*need_encryption_key=*/_, NotNull()))
+        .WillRepeatedly(
+            WithArgs<1>(Invoke([](MockUploadClient* mock_upload_client) {
               MockUploadClient::SetEmpty client(mock_upload_client);
               return Status::StatusOK();
             })));
-    EXPECT_CALL(
-        set_mock_uploader_expectations_,
-        Call(Eq(MANUAL_BATCH), /*need_encryption_key=*/Eq(false), NotNull()))
-        .WillOnce(WithArgs<0, 2>(Invoke(
-            [&waiter](Priority priority, MockUploadClient* mock_upload_client) {
-              MockUploadClient::SetUp(priority, mock_upload_client, &waiter)
+    EXPECT_CALL(set_mock_uploader_expectations_,
+                Call(/*need_encryption_key=*/Eq(false), NotNull()))
+        .WillOnce(
+            WithArgs<1>(Invoke([&waiter](MockUploadClient* mock_upload_client) {
+              MockUploadClient::SetUp(MANUAL_BATCH, mock_upload_client, &waiter)
                   .Required(0, kData[0])
                   .Required(1, kData[1])
                   .Required(2, kData[2]);
@@ -839,12 +846,11 @@ TEST_P(StorageTest, WriteIntoNewStorageAndUploadWithKeyUpdate) {
 
   // Set uploader expectations with encryption key request.
   test::TestCallbackAutoWaiter waiter;
-  EXPECT_CALL(
-      set_mock_uploader_expectations_,
-      Call(Eq(MANUAL_BATCH), /*need_encryption_key=*/Eq(true), NotNull()))
-      .WillOnce(WithArgs<0, 2>(Invoke(
-          [&waiter](Priority priority, MockUploadClient* mock_upload_client) {
-            MockUploadClient::SetUp(priority, mock_upload_client, &waiter)
+  EXPECT_CALL(set_mock_uploader_expectations_,
+              Call(/*need_encryption_key=*/Eq(true), NotNull()))
+      .WillOnce(
+          WithArgs<1>(Invoke([&waiter](MockUploadClient* mock_upload_client) {
+            MockUploadClient::SetUp(MANUAL_BATCH, mock_upload_client, &waiter)
                 .Required(0, kData[0])
                 .Required(1, kData[1])
                 .Required(2, kData[2])
@@ -874,12 +880,11 @@ TEST_P(StorageTest, WriteIntoNewStorageReopenWriteMoreAndUpload) {
 
   // Set uploader expectations.
   test::TestCallbackAutoWaiter waiter;
-  EXPECT_CALL(
-      set_mock_uploader_expectations_,
-      Call(Eq(FAST_BATCH), /*need_encryption_key=*/Eq(false), NotNull()))
-      .WillOnce(WithArgs<0, 2>(Invoke(
-          [&waiter](Priority priority, MockUploadClient* mock_upload_client) {
-            MockUploadClient::SetUp(priority, mock_upload_client, &waiter)
+  EXPECT_CALL(set_mock_uploader_expectations_,
+              Call(/*need_encryption_key=*/Eq(false), NotNull()))
+      .WillOnce(
+          WithArgs<1>(Invoke([&waiter](MockUploadClient* mock_upload_client) {
+            MockUploadClient::SetUp(FAST_BATCH, mock_upload_client, &waiter)
                 .Required(0, kData[0])
                 .Required(1, kData[1])
                 .Required(2, kData[2])
@@ -902,12 +907,11 @@ TEST_P(StorageTest, WriteIntoNewStorageAndFlush) {
 
   // Set uploader expectations.
   test::TestCallbackAutoWaiter waiter;
-  EXPECT_CALL(
-      set_mock_uploader_expectations_,
-      Call(Eq(MANUAL_BATCH), /*need_encryption_key=*/Eq(false), NotNull()))
-      .WillOnce(WithArgs<0, 2>(Invoke(
-          [&waiter](Priority priority, MockUploadClient* mock_upload_client) {
-            MockUploadClient::SetUp(priority, mock_upload_client, &waiter)
+  EXPECT_CALL(set_mock_uploader_expectations_,
+              Call(/*need_encryption_key=*/Eq(false), NotNull()))
+      .WillOnce(
+          WithArgs<1>(Invoke([&waiter](MockUploadClient* mock_upload_client) {
+            MockUploadClient::SetUp(MANUAL_BATCH, mock_upload_client, &waiter)
                 .Required(0, kData[0])
                 .Required(1, kData[1])
                 .Required(2, kData[2]);
@@ -934,12 +938,11 @@ TEST_P(StorageTest, WriteIntoNewStorageReopenWriteMoreAndFlush) {
 
   // Set uploader expectations.
   test::TestCallbackAutoWaiter waiter;
-  EXPECT_CALL(
-      set_mock_uploader_expectations_,
-      Call(Eq(MANUAL_BATCH), /*need_encryption_key=*/Eq(false), NotNull()))
-      .WillOnce(WithArgs<0, 2>(Invoke(
-          [&waiter](Priority priority, MockUploadClient* mock_upload_client) {
-            MockUploadClient::SetUp(priority, mock_upload_client, &waiter)
+  EXPECT_CALL(set_mock_uploader_expectations_,
+              Call(/*need_encryption_key=*/Eq(false), NotNull()))
+      .WillOnce(
+          WithArgs<1>(Invoke([&waiter](MockUploadClient* mock_upload_client) {
+            MockUploadClient::SetUp(MANUAL_BATCH, mock_upload_client, &waiter)
                 .Required(0, kData[0])
                 .Required(1, kData[1])
                 .Required(2, kData[2])
@@ -964,12 +967,11 @@ TEST_P(StorageTest, WriteAndRepeatedlyUploadWithConfirmations) {
   {
     // Set uploader expectations.
     test::TestCallbackAutoWaiter waiter;
-    EXPECT_CALL(
-        set_mock_uploader_expectations_,
-        Call(Eq(FAST_BATCH), /*need_encryption_key=*/Eq(false), NotNull()))
-        .WillOnce(WithArgs<0, 2>(Invoke(
-            [&waiter](Priority priority, MockUploadClient* mock_upload_client) {
-              MockUploadClient::SetUp(priority, mock_upload_client, &waiter)
+    EXPECT_CALL(set_mock_uploader_expectations_,
+                Call(/*need_encryption_key=*/Eq(false), NotNull()))
+        .WillOnce(
+            WithArgs<1>(Invoke([&waiter](MockUploadClient* mock_upload_client) {
+              MockUploadClient::SetUp(FAST_BATCH, mock_upload_client, &waiter)
                   .Required(0, kData[0])
                   .Required(1, kData[1])
                   .Required(2, kData[2]);
@@ -986,12 +988,11 @@ TEST_P(StorageTest, WriteAndRepeatedlyUploadWithConfirmations) {
   {
     // Set uploader expectations.
     test::TestCallbackAutoWaiter waiter;
-    EXPECT_CALL(
-        set_mock_uploader_expectations_,
-        Call(Eq(FAST_BATCH), /*need_encryption_key=*/Eq(false), NotNull()))
-        .WillOnce(WithArgs<0, 2>(Invoke(
-            [&waiter](Priority priority, MockUploadClient* mock_upload_client) {
-              MockUploadClient::SetUp(priority, mock_upload_client, &waiter)
+    EXPECT_CALL(set_mock_uploader_expectations_,
+                Call(/*need_encryption_key=*/Eq(false), NotNull()))
+        .WillOnce(
+            WithArgs<1>(Invoke([&waiter](MockUploadClient* mock_upload_client) {
+              MockUploadClient::SetUp(FAST_BATCH, mock_upload_client, &waiter)
                   .Required(1, kData[1])
                   .Required(2, kData[2]);
               return Status::StatusOK();
@@ -1006,12 +1007,11 @@ TEST_P(StorageTest, WriteAndRepeatedlyUploadWithConfirmations) {
   {
     test::TestCallbackAutoWaiter waiter;
     // Set uploader expectations.
-    EXPECT_CALL(
-        set_mock_uploader_expectations_,
-        Call(Eq(FAST_BATCH), /*need_encryption_key=*/Eq(false), NotNull()))
-        .WillOnce(WithArgs<0, 2>(Invoke(
-            [&waiter](Priority priority, MockUploadClient* mock_upload_client) {
-              MockUploadClient::SetUp(priority, mock_upload_client, &waiter)
+    EXPECT_CALL(set_mock_uploader_expectations_,
+                Call(/*need_encryption_key=*/Eq(false), NotNull()))
+        .WillOnce(
+            WithArgs<1>(Invoke([&waiter](MockUploadClient* mock_upload_client) {
+              MockUploadClient::SetUp(FAST_BATCH, mock_upload_client, &waiter)
                   .Required(2, kData[2]);
               return Status::StatusOK();
             })))
@@ -1028,12 +1028,11 @@ TEST_P(StorageTest, WriteAndRepeatedlyUploadWithConfirmations) {
   {
     // Set uploader expectations.
     test::TestCallbackAutoWaiter waiter;
-    EXPECT_CALL(
-        set_mock_uploader_expectations_,
-        Call(Eq(FAST_BATCH), /*need_encryption_key=*/Eq(false), NotNull()))
-        .WillOnce(WithArgs<0, 2>(Invoke(
-            [&waiter](Priority priority, MockUploadClient* mock_upload_client) {
-              MockUploadClient::SetUp(priority, mock_upload_client, &waiter)
+    EXPECT_CALL(set_mock_uploader_expectations_,
+                Call(/*need_encryption_key=*/Eq(false), NotNull()))
+        .WillOnce(
+            WithArgs<1>(Invoke([&waiter](MockUploadClient* mock_upload_client) {
+              MockUploadClient::SetUp(FAST_BATCH, mock_upload_client, &waiter)
                   .Required(2, kData[2])
                   .Required(3, kMoreData[0])
                   .Required(4, kMoreData[1])
@@ -1049,12 +1048,11 @@ TEST_P(StorageTest, WriteAndRepeatedlyUploadWithConfirmations) {
   {
     // Set uploader expectations.
     test::TestCallbackAutoWaiter waiter;
-    EXPECT_CALL(
-        set_mock_uploader_expectations_,
-        Call(Eq(FAST_BATCH), /*need_encryption_key=*/Eq(false), NotNull()))
-        .WillOnce(WithArgs<0, 2>(Invoke(
-            [&waiter](Priority priority, MockUploadClient* mock_upload_client) {
-              MockUploadClient::SetUp(priority, mock_upload_client, &waiter)
+    EXPECT_CALL(set_mock_uploader_expectations_,
+                Call(/*need_encryption_key=*/Eq(false), NotNull()))
+        .WillOnce(
+            WithArgs<1>(Invoke([&waiter](MockUploadClient* mock_upload_client) {
+              MockUploadClient::SetUp(FAST_BATCH, mock_upload_client, &waiter)
                   .Required(3, kMoreData[0])
                   .Required(4, kMoreData[1])
                   .Required(5, kMoreData[2]);
@@ -1073,12 +1071,11 @@ TEST_P(StorageTest, WriteAndRepeatedlyImmediateUpload) {
   // records after the current one as |Possible|.
   {
     test::TestCallbackAutoWaiter waiter;
-    EXPECT_CALL(
-        set_mock_uploader_expectations_,
-        Call(Eq(IMMEDIATE), /*need_encryption_key=*/Eq(false), NotNull()))
-        .WillOnce(WithArgs<0, 2>(Invoke(
-            [&waiter](Priority priority, MockUploadClient* mock_upload_client) {
-              MockUploadClient::SetUp(priority, mock_upload_client, &waiter)
+    EXPECT_CALL(set_mock_uploader_expectations_,
+                Call(/*need_encryption_key=*/Eq(false), NotNull()))
+        .WillOnce(
+            WithArgs<1>(Invoke([&waiter](MockUploadClient* mock_upload_client) {
+              MockUploadClient::SetUp(IMMEDIATE, mock_upload_client, &waiter)
                   .Required(0, kData[0]);
               return Status::StatusOK();
             })))
@@ -1089,12 +1086,11 @@ TEST_P(StorageTest, WriteAndRepeatedlyImmediateUpload) {
 
   {
     test::TestCallbackAutoWaiter waiter;
-    EXPECT_CALL(
-        set_mock_uploader_expectations_,
-        Call(Eq(IMMEDIATE), /*need_encryption_key=*/Eq(false), NotNull()))
-        .WillOnce(WithArgs<0, 2>(Invoke(
-            [&waiter](Priority priority, MockUploadClient* mock_upload_client) {
-              MockUploadClient::SetUp(priority, mock_upload_client, &waiter)
+    EXPECT_CALL(set_mock_uploader_expectations_,
+                Call(/*need_encryption_key=*/Eq(false), NotNull()))
+        .WillOnce(
+            WithArgs<1>(Invoke([&waiter](MockUploadClient* mock_upload_client) {
+              MockUploadClient::SetUp(IMMEDIATE, mock_upload_client, &waiter)
                   .Required(0, kData[0])
                   .Required(1, kData[1]);
               return Status::StatusOK();
@@ -1106,12 +1102,11 @@ TEST_P(StorageTest, WriteAndRepeatedlyImmediateUpload) {
 
   {
     test::TestCallbackAutoWaiter waiter;
-    EXPECT_CALL(
-        set_mock_uploader_expectations_,
-        Call(Eq(IMMEDIATE), /*need_encryption_key=*/Eq(false), NotNull()))
-        .WillOnce(WithArgs<0, 2>(Invoke(
-            [&waiter](Priority priority, MockUploadClient* mock_upload_client) {
-              MockUploadClient::SetUp(priority, mock_upload_client, &waiter)
+    EXPECT_CALL(set_mock_uploader_expectations_,
+                Call(/*need_encryption_key=*/Eq(false), NotNull()))
+        .WillOnce(
+            WithArgs<1>(Invoke([&waiter](MockUploadClient* mock_upload_client) {
+              MockUploadClient::SetUp(IMMEDIATE, mock_upload_client, &waiter)
                   .Required(0, kData[0])
                   .Required(1, kData[1])
                   .Required(2, kData[2]);
@@ -1132,12 +1127,11 @@ TEST_P(StorageTest, WriteAndRepeatedlyImmediateUploadWithConfirmations) {
   // |Possible|.
   {
     test::TestCallbackAutoWaiter waiter;
-    EXPECT_CALL(
-        set_mock_uploader_expectations_,
-        Call(Eq(IMMEDIATE), /*need_encryption_key=*/Eq(false), NotNull()))
-        .WillOnce(WithArgs<0, 2>(Invoke(
-            [&waiter](Priority priority, MockUploadClient* mock_upload_client) {
-              MockUploadClient::SetUp(priority, mock_upload_client, &waiter)
+    EXPECT_CALL(set_mock_uploader_expectations_,
+                Call(/*need_encryption_key=*/Eq(false), NotNull()))
+        .WillOnce(
+            WithArgs<1>(Invoke([&waiter](MockUploadClient* mock_upload_client) {
+              MockUploadClient::SetUp(IMMEDIATE, mock_upload_client, &waiter)
                   .Required(0, kData[0]);
               return Status::StatusOK();
             })))
@@ -1147,12 +1141,11 @@ TEST_P(StorageTest, WriteAndRepeatedlyImmediateUploadWithConfirmations) {
 
   {
     test::TestCallbackAutoWaiter waiter;
-    EXPECT_CALL(
-        set_mock_uploader_expectations_,
-        Call(Eq(IMMEDIATE), /*need_encryption_key=*/Eq(false), NotNull()))
-        .WillOnce(WithArgs<0, 2>(Invoke(
-            [&waiter](Priority priority, MockUploadClient* mock_upload_client) {
-              MockUploadClient::SetUp(priority, mock_upload_client, &waiter)
+    EXPECT_CALL(set_mock_uploader_expectations_,
+                Call(/*need_encryption_key=*/Eq(false), NotNull()))
+        .WillOnce(
+            WithArgs<1>(Invoke([&waiter](MockUploadClient* mock_upload_client) {
+              MockUploadClient::SetUp(IMMEDIATE, mock_upload_client, &waiter)
                   .Required(0, kData[0])
                   .Required(1, kData[1]);
               return Status::StatusOK();
@@ -1163,12 +1156,11 @@ TEST_P(StorageTest, WriteAndRepeatedlyImmediateUploadWithConfirmations) {
 
   {
     test::TestCallbackAutoWaiter waiter;
-    EXPECT_CALL(
-        set_mock_uploader_expectations_,
-        Call(Eq(IMMEDIATE), /*need_encryption_key=*/Eq(false), NotNull()))
-        .WillOnce(WithArgs<0, 2>(Invoke(
-            [&waiter](Priority priority, MockUploadClient* mock_upload_client) {
-              MockUploadClient::SetUp(priority, mock_upload_client, &waiter)
+    EXPECT_CALL(set_mock_uploader_expectations_,
+                Call(/*need_encryption_key=*/Eq(false), NotNull()))
+        .WillOnce(
+            WithArgs<1>(Invoke([&waiter](MockUploadClient* mock_upload_client) {
+              MockUploadClient::SetUp(IMMEDIATE, mock_upload_client, &waiter)
                   .Required(0, kData[0])
                   .Required(1, kData[1])
                   .Required(2, kData[2]);
@@ -1187,12 +1179,11 @@ TEST_P(StorageTest, WriteAndRepeatedlyImmediateUploadWithConfirmations) {
   // data after the current one as |Possible|.
   {
     test::TestCallbackAutoWaiter waiter;
-    EXPECT_CALL(
-        set_mock_uploader_expectations_,
-        Call(Eq(IMMEDIATE), /*need_encryption_key=*/Eq(false), NotNull()))
-        .WillOnce(WithArgs<0, 2>(Invoke(
-            [&waiter](Priority priority, MockUploadClient* mock_upload_client) {
-              MockUploadClient::SetUp(priority, mock_upload_client, &waiter)
+    EXPECT_CALL(set_mock_uploader_expectations_,
+                Call(/*need_encryption_key=*/Eq(false), NotNull()))
+        .WillOnce(
+            WithArgs<1>(Invoke([&waiter](MockUploadClient* mock_upload_client) {
+              MockUploadClient::SetUp(IMMEDIATE, mock_upload_client, &waiter)
                   .Required(2, kData[2])
                   .Required(3, kMoreData[0]);
               return Status::StatusOK();
@@ -1203,12 +1194,11 @@ TEST_P(StorageTest, WriteAndRepeatedlyImmediateUploadWithConfirmations) {
 
   {
     test::TestCallbackAutoWaiter waiter;
-    EXPECT_CALL(
-        set_mock_uploader_expectations_,
-        Call(Eq(IMMEDIATE), /*need_encryption_key=*/Eq(false), NotNull()))
-        .WillOnce(WithArgs<0, 2>(Invoke(
-            [&waiter](Priority priority, MockUploadClient* mock_upload_client) {
-              MockUploadClient::SetUp(priority, mock_upload_client, &waiter)
+    EXPECT_CALL(set_mock_uploader_expectations_,
+                Call(/*need_encryption_key=*/Eq(false), NotNull()))
+        .WillOnce(
+            WithArgs<1>(Invoke([&waiter](MockUploadClient* mock_upload_client) {
+              MockUploadClient::SetUp(IMMEDIATE, mock_upload_client, &waiter)
                   .Required(2, kData[2])
                   .Required(3, kMoreData[0])
                   .Required(4, kMoreData[1]);
@@ -1220,12 +1210,11 @@ TEST_P(StorageTest, WriteAndRepeatedlyImmediateUploadWithConfirmations) {
 
   {
     test::TestCallbackAutoWaiter waiter;
-    EXPECT_CALL(
-        set_mock_uploader_expectations_,
-        Call(Eq(IMMEDIATE), /*need_encryption_key=*/Eq(false), NotNull()))
-        .WillOnce(WithArgs<0, 2>(Invoke(
-            [&waiter](Priority priority, MockUploadClient* mock_upload_client) {
-              MockUploadClient::SetUp(priority, mock_upload_client, &waiter)
+    EXPECT_CALL(set_mock_uploader_expectations_,
+                Call(/*need_encryption_key=*/Eq(false), NotNull()))
+        .WillOnce(
+            WithArgs<1>(Invoke([&waiter](MockUploadClient* mock_upload_client) {
+              MockUploadClient::SetUp(IMMEDIATE, mock_upload_client, &waiter)
                   .Required(2, kData[2])
                   .Required(3, kMoreData[0])
                   .Required(4, kMoreData[1])
@@ -1242,12 +1231,11 @@ TEST_P(StorageTest, WriteAndRepeatedlyUploadMultipleQueues) {
 
   {
     test::TestCallbackAutoWaiter waiter;
-    EXPECT_CALL(
-        set_mock_uploader_expectations_,
-        Call(Eq(IMMEDIATE), /*need_encryption_key=*/Eq(false), NotNull()))
-        .WillOnce(WithArgs<0, 2>(Invoke(
-            [&waiter](Priority priority, MockUploadClient* mock_upload_client) {
-              MockUploadClient::SetUp(priority, mock_upload_client, &waiter)
+    EXPECT_CALL(set_mock_uploader_expectations_,
+                Call(/*need_encryption_key=*/Eq(false), NotNull()))
+        .WillOnce(
+            WithArgs<1>(Invoke([&waiter](MockUploadClient* mock_upload_client) {
+              MockUploadClient::SetUp(IMMEDIATE, mock_upload_client, &waiter)
                   .Required(0, kData[0]);
               return Status::StatusOK();
             })))
@@ -1259,12 +1247,11 @@ TEST_P(StorageTest, WriteAndRepeatedlyUploadMultipleQueues) {
 
   {
     test::TestCallbackAutoWaiter waiter;
-    EXPECT_CALL(
-        set_mock_uploader_expectations_,
-        Call(Eq(IMMEDIATE), /*need_encryption_key=*/Eq(false), NotNull()))
-        .WillOnce(WithArgs<0, 2>(Invoke(
-            [&waiter](Priority priority, MockUploadClient* mock_upload_client) {
-              MockUploadClient::SetUp(priority, mock_upload_client, &waiter)
+    EXPECT_CALL(set_mock_uploader_expectations_,
+                Call(/*need_encryption_key=*/Eq(false), NotNull()))
+        .WillOnce(
+            WithArgs<1>(Invoke([&waiter](MockUploadClient* mock_upload_client) {
+              MockUploadClient::SetUp(IMMEDIATE, mock_upload_client, &waiter)
                   .Required(0, kData[0])
                   .Required(1, kData[1]);
               return Status::StatusOK();
@@ -1278,20 +1265,11 @@ TEST_P(StorageTest, WriteAndRepeatedlyUploadMultipleQueues) {
   // Set uploader expectations for FAST_BATCH and SLOW_BATCH.
   {
     test::TestCallbackAutoWaiter waiter;
-    EXPECT_CALL(
-        set_mock_uploader_expectations_,
-        Call(Eq(FAST_BATCH), /*need_encryption_key=*/Eq(false), NotNull()))
-        .WillRepeatedly(WithArgs<0, 2>(
-            Invoke([](Priority priority, MockUploadClient* mock_upload_client) {
-              MockUploadClient::SetEmpty client(mock_upload_client);
-              return Status::StatusOK();
-            })));
-    EXPECT_CALL(
-        set_mock_uploader_expectations_,
-        Call(Eq(SLOW_BATCH), /*need_encryption_key=*/Eq(false), NotNull()))
-        .WillOnce(WithArgs<0, 2>(Invoke(
-            [&waiter](Priority priority, MockUploadClient* mock_upload_client) {
-              MockUploadClient::SetUp(priority, mock_upload_client, &waiter)
+    EXPECT_CALL(set_mock_uploader_expectations_,
+                Call(/*need_encryption_key=*/Eq(false), NotNull()))
+        .WillOnce(
+            WithArgs<1>(Invoke([&waiter](MockUploadClient* mock_upload_client) {
+              MockUploadClient::SetUp(SLOW_BATCH, mock_upload_client, &waiter)
                   .Required(0, kMoreData[0])
                   .Required(1, kMoreData[1]);
               return Status::StatusOK();
@@ -1309,12 +1287,11 @@ TEST_P(StorageTest, WriteAndRepeatedlyUploadMultipleQueues) {
   // Add more data
   {
     test::TestCallbackAutoWaiter waiter;
-    EXPECT_CALL(
-        set_mock_uploader_expectations_,
-        Call(Eq(IMMEDIATE), /*need_encryption_key=*/Eq(false), NotNull()))
-        .WillOnce(WithArgs<0, 2>(Invoke(
-            [&waiter](Priority priority, MockUploadClient* mock_upload_client) {
-              MockUploadClient::SetUp(priority, mock_upload_client, &waiter)
+    EXPECT_CALL(set_mock_uploader_expectations_,
+                Call(/*need_encryption_key=*/Eq(false), NotNull()))
+        .WillOnce(
+            WithArgs<1>(Invoke([&waiter](MockUploadClient* mock_upload_client) {
+              MockUploadClient::SetUp(IMMEDIATE, mock_upload_client, &waiter)
                   .Possible(1, kData[1])
                   .Required(2, kData[2]);
               return Status::StatusOK();
@@ -1327,19 +1304,10 @@ TEST_P(StorageTest, WriteAndRepeatedlyUploadMultipleQueues) {
   // Set uploader expectations for FAST_BATCH and SLOW_BATCH.
   {
     test::TestCallbackAutoWaiter waiter;
-    EXPECT_CALL(
-        set_mock_uploader_expectations_,
-        Call(Eq(FAST_BATCH), /*need_encryption_key=*/Eq(false), NotNull()))
-        .WillRepeatedly(WithArgs<0, 2>(
-            Invoke([](Priority priority, MockUploadClient* mock_upload_client) {
-              MockUploadClient::SetEmpty client(mock_upload_client);
-              return Status::StatusOK();
-            })));
-    EXPECT_CALL(
-        set_mock_uploader_expectations_,
-        Call(Eq(SLOW_BATCH), /*need_encryption_key=*/Eq(false), NotNull()))
-        .WillOnce(WithArgs<0, 2>(Invoke(
-            [&waiter](Priority priority, MockUploadClient* mock_upload_client) {
+    EXPECT_CALL(set_mock_uploader_expectations_,
+                Call(/*need_encryption_key=*/Eq(false), NotNull()))
+        .WillOnce(
+            WithArgs<1>(Invoke([&waiter](MockUploadClient* mock_upload_client) {
               MockUploadClient::SetUp(SLOW_BATCH, mock_upload_client, &waiter)
                   .Required(1, kMoreData[1])
                   .Required(2, kMoreData[2]);
@@ -1360,6 +1328,7 @@ TEST_P(StorageTest, WriteEncryptFailure) {
   test_encryption_module->UpdateAsymmetricKey("DUMMY KEY", 0,
                                               key_update_event.cb());
   ASSERT_OK(key_update_event.result());
+  expect_to_need_key_ = false;
   CreateTestStorageOrDie(BuildTestStorageOptions(), test_encryption_module);
   EXPECT_CALL(*test_encryption_module, EncryptRecordImpl(_, _))
       .WillOnce(WithArg<1>(
@@ -1383,11 +1352,10 @@ TEST_P(StorageTest, ForceConfirm) {
   // Set uploader expectations.
   {
     test::TestCallbackAutoWaiter waiter;
-    EXPECT_CALL(
-        set_mock_uploader_expectations_,
-        Call(Eq(FAST_BATCH), /*need_encryption_key=*/Eq(false), NotNull()))
-        .WillOnce(WithArgs<0, 2>(Invoke(
-            [&waiter](Priority priority, MockUploadClient* mock_upload_client) {
+    EXPECT_CALL(set_mock_uploader_expectations_,
+                Call(/*need_encryption_key=*/Eq(false), NotNull()))
+        .WillOnce(
+            WithArgs<1>(Invoke([&waiter](MockUploadClient* mock_upload_client) {
               MockUploadClient::SetUp(FAST_BATCH, mock_upload_client, &waiter)
                   .Required(0, kData[0])
                   .Required(1, kData[1])
@@ -1404,11 +1372,10 @@ TEST_P(StorageTest, ForceConfirm) {
   // Set uploader expectations.
   {
     test::TestCallbackAutoWaiter waiter;
-    EXPECT_CALL(
-        set_mock_uploader_expectations_,
-        Call(Eq(FAST_BATCH), /*need_encryption_key=*/Eq(false), NotNull()))
-        .WillOnce(WithArgs<0, 2>(Invoke(
-            [&waiter](Priority priority, MockUploadClient* mock_upload_client) {
+    EXPECT_CALL(set_mock_uploader_expectations_,
+                Call(/*need_encryption_key=*/Eq(false), NotNull()))
+        .WillOnce(
+            WithArgs<1>(Invoke([&waiter](MockUploadClient* mock_upload_client) {
               MockUploadClient::SetUp(FAST_BATCH, mock_upload_client, &waiter)
                   .Required(2, kData[2]);
               return Status::StatusOK();
@@ -1423,11 +1390,10 @@ TEST_P(StorageTest, ForceConfirm) {
   // Set uploader expectations: #0 and #1 could be returned as Gaps
   {
     test::TestCallbackAutoWaiter waiter;
-    EXPECT_CALL(
-        set_mock_uploader_expectations_,
-        Call(Eq(FAST_BATCH), /*need_encryption_key=*/Eq(false), NotNull()))
-        .WillOnce(WithArgs<0, 2>(Invoke(
-            [&waiter](Priority priority, MockUploadClient* mock_upload_client) {
+    EXPECT_CALL(set_mock_uploader_expectations_,
+                Call(/*need_encryption_key=*/Eq(false), NotNull()))
+        .WillOnce(
+            WithArgs<1>(Invoke([&waiter](MockUploadClient* mock_upload_client) {
               MockUploadClient::SetUp(FAST_BATCH, mock_upload_client, &waiter)
                   .RequiredSeqId(0)
                   .RequiredSeqId(1)
@@ -1451,11 +1417,10 @@ TEST_P(StorageTest, ForceConfirm) {
   // Set uploader expectations: #0 and #1 could be returned as Gaps
   {
     test::TestCallbackAutoWaiter waiter;
-    EXPECT_CALL(
-        set_mock_uploader_expectations_,
-        Call(Eq(FAST_BATCH), /*need_encryption_key=*/Eq(false), NotNull()))
-        .WillOnce(WithArgs<0, 2>(Invoke(
-            [&waiter](Priority priority, MockUploadClient* mock_upload_client) {
+    EXPECT_CALL(set_mock_uploader_expectations_,
+                Call(/*need_encryption_key=*/Eq(false), NotNull()))
+        .WillOnce(
+            WithArgs<1>(Invoke([&waiter](MockUploadClient* mock_upload_client) {
               MockUploadClient::SetUp(FAST_BATCH, mock_upload_client, &waiter)
                   .RequiredSeqId(1)
                   .RequiredSeqId(2)
@@ -1472,7 +1437,7 @@ TEST_P(StorageTest, ForceConfirm) {
   }
 }
 
-TEST_P(StorageTest, KayDeliveryFailureOnNewStorage) {
+TEST_P(StorageTest, KeyDeliveryFailureOnNewStorage) {
   static constexpr size_t kFailuresCount = 3;
 
   if (!is_encryption_enabled()) {
@@ -1492,9 +1457,8 @@ TEST_P(StorageTest, KayDeliveryFailureOnNewStorage) {
     // Failing attempt to write
     const Status write_result = WriteString(FAST_BATCH, kData[0]);
     EXPECT_FALSE(write_result.ok());
-    EXPECT_THAT(write_result.error_code(), Eq(error::NOT_FOUND));
-    EXPECT_THAT(write_result.message(),
-                HasSubstr("Cannot encrypt record - no key"));
+    EXPECT_THAT(write_result.error_code(), Eq(error::FAILED_PRECONDITION));
+    EXPECT_THAT(write_result.message(), HasSubstr("Test cannot start upload"));
 
     // Forward time to trigger upload
     task_environment_.FastForwardBy(base::TimeDelta::FromSeconds(1));
@@ -1504,8 +1468,8 @@ TEST_P(StorageTest, KayDeliveryFailureOnNewStorage) {
   // Set uploader expectations for any queue; expect no records and need
   // key. Make sure no uploads happen, and key is requested.
   EXPECT_CALL(set_mock_uploader_expectations_,
-              Call(_, /*need_encryption_key=*/Eq(true), NotNull()))
-      .WillOnce(WithArg<2>(Invoke([](MockUploadClient* mock_upload_client) {
+              Call(/*need_encryption_key=*/Eq(true), NotNull()))
+      .WillOnce(WithArg<1>(Invoke([](MockUploadClient* mock_upload_client) {
         MockUploadClient::SetKeyDelivery client(mock_upload_client);
         return Status::StatusOK();
       })))
@@ -1513,13 +1477,6 @@ TEST_P(StorageTest, KayDeliveryFailureOnNewStorage) {
 
   // Forward time to trigger upload
   task_environment_.FastForwardBy(base::TimeDelta::FromSeconds(1));
-
-  // Let asynchronous activity finish.
-  task_environment_.RunUntilIdle();
-
-  // Provision the storage with a key.
-  // Key delivery must have been requested above.
-  GenerateAndDeliverKey(storage_.get());
 
   // Successfully write data
   WriteStringOrDie(FAST_BATCH, kData[0]);
@@ -1529,12 +1486,11 @@ TEST_P(StorageTest, KayDeliveryFailureOnNewStorage) {
   // Set uploader expectations.
   {
     test::TestCallbackAutoWaiter waiter;
-    EXPECT_CALL(
-        set_mock_uploader_expectations_,
-        Call(Eq(FAST_BATCH), /*need_encryption_key=*/Eq(false), NotNull()))
-        .WillOnce(WithArgs<0, 2>(Invoke(
-            [&waiter](Priority priority, MockUploadClient* mock_upload_client) {
-              MockUploadClient::SetUp(priority, mock_upload_client, &waiter)
+    EXPECT_CALL(set_mock_uploader_expectations_,
+                Call(/*need_encryption_key=*/Eq(false), NotNull()))
+        .WillOnce(
+            WithArgs<1>(Invoke([&waiter](MockUploadClient* mock_upload_client) {
+              MockUploadClient::SetUp(FAST_BATCH, mock_upload_client, &waiter)
                   .Required(0, kData[0])
                   .Required(1, kData[1])
                   .Required(2, kData[2]);
@@ -1557,12 +1513,11 @@ TEST_P(StorageTest, KayDeliveryFailureOnNewStorage) {
   // Set uploader expectations.
   {
     test::TestCallbackAutoWaiter waiter;
-    EXPECT_CALL(
-        set_mock_uploader_expectations_,
-        Call(Eq(FAST_BATCH), /*need_encryption_key=*/Eq(false), NotNull()))
-        .WillOnce(WithArgs<0, 2>(Invoke(
-            [&waiter](Priority priority, MockUploadClient* mock_upload_client) {
-              MockUploadClient::SetUp(priority, mock_upload_client, &waiter)
+    EXPECT_CALL(set_mock_uploader_expectations_,
+                Call(/*need_encryption_key=*/Eq(false), NotNull()))
+        .WillOnce(
+            WithArgs<1>(Invoke([&waiter](MockUploadClient* mock_upload_client) {
+              MockUploadClient::SetUp(FAST_BATCH, mock_upload_client, &waiter)
                   .Required(0, kData[0])
                   .Required(1, kData[1])
                   .Required(2, kData[2])

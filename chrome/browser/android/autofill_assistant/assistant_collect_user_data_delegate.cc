@@ -180,69 +180,16 @@ void AssistantCollectUserDataDelegate::OnKeyValueChanged(
       ui_controller_android_utils::ToNativeValue(env, jvalue));
 }
 
-void AssistantCollectUserDataDelegate::OnTextFocusLost(
+void AssistantCollectUserDataDelegate::OnInputTextFocusChanged(
     JNIEnv* env,
-    const base::android::JavaParamRef<jobject>& jcaller) {
-  ui_controller_->OnTextFocusLost();
+    const base::android::JavaParamRef<jobject>& jcaller,
+    jboolean jis_focused) {
+  ui_controller_->OnInputTextFocusChanged(jis_focused);
 }
 
 base::android::ScopedJavaGlobalRef<jobject>
 AssistantCollectUserDataDelegate::GetJavaObject() {
   return java_assistant_collect_user_data_delegate_;
-}
-
-bool AssistantCollectUserDataDelegate::IsContactComplete(
-    JNIEnv* env,
-    const base::android::JavaParamRef<jobject>& jcaller,
-    const base::android::JavaParamRef<jobject>& jcontact_profile) {
-  if (!jcontact_profile) {
-    return ui_controller_->IsContactComplete(nullptr);
-  }
-
-  autofill::AutofillProfile contact;
-  autofill::PersonalDataManagerAndroid::PopulateNativeProfileFromJava(
-      jcontact_profile, env, &contact);
-
-  return ui_controller_->IsContactComplete(&contact);
-}
-
-bool AssistantCollectUserDataDelegate::IsShippingAddressComplete(
-    JNIEnv* env,
-    const base::android::JavaParamRef<jobject>& jcaller,
-    const base::android::JavaParamRef<jobject>& jaddress) {
-  if (!jaddress) {
-    return ui_controller_->IsShippingAddressComplete(nullptr);
-  }
-
-  autofill::AutofillProfile address;
-  autofill::PersonalDataManagerAndroid::PopulateNativeProfileFromJava(
-      jaddress, env, &address);
-
-  return ui_controller_->IsShippingAddressComplete(&address);
-}
-
-bool AssistantCollectUserDataDelegate::IsPaymentInstrumentComplete(
-    JNIEnv* env,
-    const base::android::JavaParamRef<jobject>& jcaller,
-    const base::android::JavaParamRef<jobject>& jcard,
-    const base::android::JavaParamRef<jobject>& jaddress) {
-  if (!jcard) {
-    return ui_controller_->IsPaymentInstrumentComplete(nullptr, nullptr);
-  }
-
-  autofill::CreditCard card;
-  autofill::PersonalDataManagerAndroid::PopulateNativeCreditCardFromJava(
-      jcard, env, &card);
-
-  if (jaddress) {
-    autofill::AutofillProfile address;
-    autofill::PersonalDataManagerAndroid::PopulateNativeProfileFromJava(
-        jaddress, env, &address);
-
-    return ui_controller_->IsPaymentInstrumentComplete(&card, &address);
-  }
-
-  return ui_controller_->IsPaymentInstrumentComplete(&card, nullptr);
 }
 
 }  // namespace autofill_assistant

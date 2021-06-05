@@ -24,7 +24,6 @@
 #include "base/macros.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/sequenced_task_runner.h"
-#include "base/stl_util.h"
 #include "base/trace_event/trace_event.h"
 #include "build/build_config.h"
 #include "gpu/command_buffer/client/shared_image_interface.h"
@@ -32,6 +31,7 @@
 #include "gpu/ipc/common/gpu_memory_buffer_support.h"
 #include "media/base/bind_to_current_loop.h"
 #include "media/base/limits.h"
+#include "media/base/media_switches.h"
 #include "media/base/video_frame.h"
 #include "media/capture/mojom/video_capture_types.mojom-blink.h"
 #include "media/video/gpu_video_accelerator_factories.h"
@@ -48,9 +48,6 @@ constexpr int kMaxFirstFrameLogs = 5;
 
 const base::Feature kTimeoutHangingVideoCaptureStarts{
     "TimeoutHangingVideoCaptureStarts", base::FEATURE_ENABLED_BY_DEFAULT};
-
-const base::Feature kMultiPlaneSharedImageCapture{
-    "MultiPlaneSharedImageCapture", base::FEATURE_DISABLED_BY_DEFAULT};
 
 using VideoFrameBufferHandleType = media::mojom::blink::VideoBufferHandle::Tag;
 
@@ -383,15 +380,26 @@ bool VideoCaptureImpl::VideoFrameBufferPreparer::Initialize() {
                     video_capture_impl_.gpu_factories_
                         ->GpuMemoryBufferManager(),
                     video_capture_impl_.pool_);
+        // Keep one GpuMemoryBuffer for current GpuMemoryHandle alive,
+        // so that any associated structures are kept alive while this buffer id
+        // is still used (e.g. DMA buf handles for linux/CrOS).
         buffer_context_->SetGpuMemoryBuffer(std::move(gmb));
       }
       CHECK(buffer_context_->GetGpuMemoryBuffer());
 
+      auto buffer_handle = buffer_context_->GetGpuMemoryBuffer()->CloneHandle();
+      if (!frame_info_->is_premapped) {
+        // The buffer may have a region associated with it, which is passed
+        // together with the buffer handle when a new buffer is allocated by the
+        // capturer. However, it will contain actual frame data only if the
+        // |is_premapped| flag is signalled for this frame.
+        buffer_handle.region = base::UnsafeSharedMemoryRegion();
+      }
       // Clone the GpuMemoryBuffer and wrap it in a VideoFrame.
       gpu_memory_buffer_ =
           video_capture_impl_.gpu_memory_buffer_support_
               ->CreateGpuMemoryBufferImplFromHandle(
-                  buffer_context_->GetGpuMemoryBuffer()->CloneHandle(),
+                  std::move(buffer_handle),
                   buffer_context_->GetGpuMemoryBuffer()->GetSize(),
                   buffer_context_->GetGpuMemoryBuffer()->GetFormat(),
                   gfx::BufferUsage::SCANOUT_VEA_CPU_READ, base::DoNothing(),
@@ -441,7 +449,7 @@ bool VideoCaptureImpl::VideoFrameBufferPreparer::BindVideoFrameOnMediaThread(
           gpu_memory_buffer_->GetFormat());
 
   std::vector<gfx::BufferPlane> planes;
-  if (base::FeatureList::IsEnabled(kMultiPlaneSharedImageCapture)) {
+  if (base::FeatureList::IsEnabled(media::kMultiPlaneSharedImageVideo)) {
     planes.push_back(gfx::BufferPlane::Y);
     planes.push_back(gfx::BufferPlane::UV);
   } else {

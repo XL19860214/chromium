@@ -25,6 +25,7 @@
 #include "services/network/public/cpp/weak_wrapper_shared_url_loader_factory.h"
 #include "third_party/blink/public/mojom/service_worker/service_worker_object.mojom.h"
 #include "third_party/blink/public/mojom/service_worker/service_worker_registration.mojom.h"
+#include "third_party/blink/public/mojom/service_worker/service_worker_worker_client.mojom.h"
 
 namespace content {
 
@@ -278,8 +279,10 @@ blink::CrossVariantMojoRemote<
     blink::mojom::ServiceWorkerContainerHostInterfaceBase>
 ServiceWorkerProviderContext::CloneRemoteContainerHost() {
   DCHECK(main_thread_task_runner_->RunsTasksInCurrentSequence());
-  if (!container_host_)
-    return mojo::NullRemote();
+  if (!container_host_) {
+    return blink::CrossVariantMojoRemote<
+        blink::mojom::ServiceWorkerContainerHostInterfaceBase>();
+  }
   mojo::PendingRemote<blink::mojom::ServiceWorkerContainerHost>
       remote_container_host;
   container_host_->CloneContainerHost(

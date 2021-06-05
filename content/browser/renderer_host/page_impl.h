@@ -1,0 +1,67 @@
+// Copyright 2021 The Chromium Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
+
+#ifndef CONTENT_BROWSER_RENDERER_HOST_PAGE_IMPL_H_
+#define CONTENT_BROWSER_RENDERER_HOST_PAGE_IMPL_H_
+
+#include <memory>
+#include <vector>
+
+#include "content/public/browser/page.h"
+#include "third_party/blink/public/mojom/favicon/favicon_url.mojom.h"
+
+namespace content {
+
+class RenderFrameHostImpl;
+
+// This implements the Page interface that is exposed to embedders of content,
+// and adds things only visible to content.
+
+// Please refer to content/public/browser/page.h for more details.
+class PageImpl : public Page {
+ public:
+  explicit PageImpl(RenderFrameHostImpl& rfh);
+
+  ~PageImpl() override;
+
+  // Page implementation.
+  const GURL& GetManifestURL() override;
+
+  RenderFrameHostImpl* main_document() { return &main_document_; }
+
+  bool is_on_load_completed() const { return is_on_load_completed_; }
+  void set_is_on_load_completed(bool completed) {
+    is_on_load_completed_ = completed;
+  }
+
+  void update_manifest_url(GURL url) { manifest_url_ = url; }
+
+  const std::vector<blink::mojom::FaviconURLPtr>& favicon_urls() const {
+    return favicon_urls_;
+  }
+  void set_favicon_urls(std::vector<blink::mojom::FaviconURLPtr> favicon_urls) {
+    favicon_urls_ = std::move(favicon_urls);
+  }
+
+ private:
+  // True if we've received a notification that the onload() handler has
+  // run for main frame document.
+  bool is_on_load_completed_ = false;
+
+  // Web application manifest URL (or empty URL if none) for this page.
+  // See https://w3c.github.io/manifest/#web-application-manifest
+  GURL manifest_url_;
+
+  // Candidate favicon URLs. Each page may have a collection and will be
+  // displayed when active (i.e., upon activation for prerendering).
+  std::vector<blink::mojom::FaviconURLPtr> favicon_urls_;
+
+  // This class is owned by the main RenderFrameHostImpl and it's safe to keep a
+  // reference to it.
+  RenderFrameHostImpl& main_document_;
+};
+
+}  // namespace content
+
+#endif  // CONTENT_BROWSER_RENDERER_HOST_PAGE_IMPL_H_

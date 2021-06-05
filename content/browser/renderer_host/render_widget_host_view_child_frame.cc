@@ -131,17 +131,11 @@ void RenderWidgetHostViewChildFrame::SetFrameConnector(
     SetParentFrameSinkId(parent_view->GetFrameSinkId());
   }
 
-  // Initialize a display struct as needed, to cache the scale factor.
   // TODO(crbug.com/1182855): Use the parent_view's entire display::DisplayList.
-  if (display_list_.displays().empty()) {
-    display_list_ = display::DisplayList(
-        {display::Display(display::kDefaultDisplayId)},
-        display::kDefaultDisplayId, display::kDefaultDisplayId);
-  }
-  display::Display current_display = *display_list_.GetCurrentDisplayIterator();
-  current_display.set_device_scale_factor(
+  display::Display display = display_list_.GetCurrentDisplay();
+  display.set_device_scale_factor(
       frame_connector_->screen_info().device_scale_factor);
-  display_list_.UpdateDisplay(current_display);
+  display_list_.UpdateDisplay(display);
 
   auto* root_view = frame_connector_->GetRootRenderWidgetHostView();
   if (root_view) {
@@ -421,6 +415,23 @@ void RenderWidgetHostViewChildFrame::UpdateTooltipUnderCursor(
 
   if (cursor_manager->IsViewUnderCursor(this))
     root_view->UpdateTooltip(tooltip_text);
+}
+
+void RenderWidgetHostViewChildFrame::UpdateTooltipFromKeyboard(
+    const std::u16string& tooltip_text,
+    const gfx::Rect& bounds) {
+  if (!frame_connector_)
+    return;
+
+  auto* root_view = frame_connector_->GetRootRenderWidgetHostView();
+  if (!root_view)
+    return;
+
+  // TODO(bebeaudr): Keyboard-triggered tooltips are not positioned correctly
+  // when set for an element in an OOPIF. See https://crbug.com/1210269.
+  gfx::Rect adjusted_bounds(TransformPointToRootCoordSpace(bounds.origin()),
+                            bounds.size());
+  root_view->UpdateTooltipFromKeyboard(tooltip_text, adjusted_bounds);
 }
 
 RenderWidgetHostViewBase* RenderWidgetHostViewChildFrame::GetParentView() {

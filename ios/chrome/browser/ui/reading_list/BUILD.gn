@@ -77,6 +77,27 @@ source_set("reading_list") {
   configs += [ "//build/config/compiler:enable_arc" ]
 }
 
+source_set("features") {
+  sources = [
+    "reading_list_features.h",
+    "reading_list_features.mm",
+  ]
+  deps = [ "//base" ]
+  configs += [ "//build/config/compiler:enable_arc" ]
+}
+
+source_set("infobar") {
+  sources = [
+    "ios_add_to_reading_list_infobar_delegate.h",
+    "ios_add_to_reading_list_infobar_delegate.mm",
+  ]
+  configs += [ "//build/config/compiler:enable_arc" ]
+  deps = [
+    "//components/infobars/core",
+    "//components/reading_list/core",
+  ]
+}
+
 source_set("reading_list_constants") {
   sources = [
     "reading_list_constants.h",
@@ -113,7 +134,6 @@ source_set("reading_list_ui") {
     ":reading_list_constants",
     "resources:reading_list_empty",
     "resources:reading_list_empty_state",
-    "resources:reading_list_empty_state_new",
     "resources:reading_list_tools_icon",
     "//base",
     "//base:i18n",

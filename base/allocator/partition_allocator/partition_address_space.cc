@@ -4,6 +4,8 @@
 
 #include "base/allocator/partition_allocator/partition_address_space.h"
 
+#include <array>
+
 #include "base/allocator/partition_allocator/address_pool_manager.h"
 #include "base/allocator/partition_allocator/page_allocator.h"
 #include "base/allocator/partition_allocator/page_allocator_internal.h"
@@ -17,6 +19,8 @@ namespace base {
 namespace internal {
 
 #if defined(PA_HAS_64_BITS_POINTERS)
+
+constexpr std::array<size_t, 2> PartitionAddressSpace::kPoolSizes;
 
 uintptr_t PartitionAddressSpace::reserved_base_address_ = 0;
 // Before PartitionAddressSpace::Init(), no allocation are allocated from a
@@ -34,14 +38,19 @@ void PartitionAddressSpace::Init() {
   if (IsInitialized())
     return;
 
-  reserved_base_address_ = reinterpret_cast<uintptr_t>(AllocPages(
-      nullptr, kDesiredAddressSpaceSize, kReservedAddressSpaceAlignment,
-      base::PageInaccessible, PageTag::kPartitionAlloc));
+  GigaCageProperties properties = CalculateGigaCageProperties(kPoolSizes);
+
+  reserved_base_address_ =
+      reinterpret_cast<uintptr_t>(AllocPagesWithAlignOffset(
+          nullptr, properties.size, properties.alignment,
+          properties.alignment_offset, base::PageInaccessible,
+          PageTag::kPartitionAlloc));
   PA_CHECK(reserved_base_address_);
 
   uintptr_t current = reserved_base_address_;
 
   non_brp_pool_base_address_ = current;
+  PA_DCHECK(!(non_brp_pool_base_address_ & (kNonBRPPoolSize - 1)));
   non_brp_pool_ = internal::AddressPoolManager::GetInstance()->Add(
       current, kNonBRPPoolSize);
   PA_DCHECK(non_brp_pool_);
@@ -52,6 +61,7 @@ void PartitionAddressSpace::Init() {
   PA_DCHECK(!IsInNonBRPPool(reinterpret_cast<void*>(current)));
 
   brp_pool_base_address_ = current;
+  PA_DCHECK(!(brp_pool_base_address_ & (kBRPPoolSize - 1)));
   brp_pool_ =
       internal::AddressPoolManager::GetInstance()->Add(current, kBRPPoolSize);
   PA_DCHECK(brp_pool_);
@@ -61,7 +71,7 @@ void PartitionAddressSpace::Init() {
   PA_DCHECK(IsInBRPPool(reinterpret_cast<void*>(current - 1)));
   PA_DCHECK(!IsInBRPPool(reinterpret_cast<void*>(current)));
 
-#if PA_ALLOW_PCSCAN
+#if defined(PA_ALLOW_PCSCAN)
   // Reserve memory for PCScan quarantine card table.
   void* requested_address = reinterpret_cast<void*>(brp_pool_base_address_);
   char* actual_address = internal::AddressPoolManager::GetInstance()->Reserve(
@@ -70,14 +80,31 @@ void PartitionAddressSpace::Init() {
       << "QuarantineCardTable is required to be allocated in the beginning of "
          "the BRPPool";
   SetSystemPagesAccess(actual_address, kSuperPageSize, PageInaccessible);
-#endif
+#endif  // defined(PA_ALLOW_PCSCAN)
 
-  PA_DCHECK(reserved_base_address_ + kDesiredAddressSpaceSize == current);
+  // Allocate the reservation offset table from GigaCage. We arbitrarily
+  // picked the end of the BRP pool, so that it can be easily located.
+  void* requested_reservation_offset_table_address =
+      reinterpret_cast<void*>(brp_pool_base_address_ + kBRPPoolSize -
+                              kReservationOffsetTableSizeInMemory);
+  void* actual_reservation_offset_table_address =
+      internal::AddressPoolManager::GetInstance()->Reserve(
+          brp_pool_, requested_reservation_offset_table_address,
+          kReservationOffsetTableSizeInMemory);
+  PA_CHECK(requested_reservation_offset_table_address ==
+           actual_reservation_offset_table_address)
+      << "Reservation offset table has to be in a predictable location";
+  RecommitSystemPages(actual_reservation_offset_table_address,
+                      kReservationOffsetTableSizeInMemory, PageReadWrite,
+                      PageUpdatePermissions);
+
+  PA_DCHECK(reserved_base_address_ + properties.size == current);
 }
 
 void PartitionAddressSpace::UninitForTesting() {
-  FreePages(reinterpret_cast<void*>(reserved_base_address_),
-            kReservedAddressSpaceAlignment);
+  GigaCageProperties properties = CalculateGigaCageProperties(kPoolSizes);
+
+  FreePages(reinterpret_cast<void*>(reserved_base_address_), properties.size);
   reserved_base_address_ = 0;
   non_brp_pool_base_address_ = kNonBRPPoolOffsetMask;
   brp_pool_base_address_ = kBRPPoolOffsetMask;

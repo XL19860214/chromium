@@ -37,6 +37,7 @@
 #include "third_party/blink/public/mojom/scroll/scroll_into_view_params.mojom-blink.h"
 #include "third_party/blink/renderer/core/accessibility/ax_object_cache.h"
 #include "third_party/blink/renderer/core/animation/element_animations.h"
+#include "third_party/blink/renderer/core/css/resolver/style_adjuster.h"
 #include "third_party/blink/renderer/core/css/resolver/style_resolver.h"
 #include "third_party/blink/renderer/core/css/style_change_reason.h"
 #include "third_party/blink/renderer/core/css/style_engine.h"
@@ -86,6 +87,7 @@
 #include "third_party/blink/renderer/core/layout/layout_theme.h"
 #include "third_party/blink/renderer/core/layout/layout_view.h"
 #include "third_party/blink/renderer/core/layout/ng/custom/layout_ng_custom.h"
+#include "third_party/blink/renderer/core/layout/ng/inline/layout_ng_text_combine.h"
 #include "third_party/blink/renderer/core/layout/ng/layout_ng_block_flow.h"
 #include "third_party/blink/renderer/core/layout/ng/list/layout_ng_list_item.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_block_node.h"
@@ -424,6 +426,31 @@ bool LayoutObject::RequiresAnonymousTableWrappers(
 
 #if DCHECK_IS_ON()
 
+void LayoutObject::AssertFragmentTree(bool display_locked) const {
+  NOT_DESTROYED();
+  for (const LayoutObject* layout_object = this; layout_object;) {
+    // If display-locked, fragments may not be removed from the tree even after
+    // the |LayoutObject| was destroyed, but still they should be consistent.
+    if (!display_locked && layout_object->ChildLayoutBlockedByDisplayLock()) {
+      layout_object->AssertFragmentTree(
+          /* display_locked */ true);
+      layout_object = layout_object->NextInPreOrderAfterChildren(this);
+      continue;
+    }
+
+    // Check the direct children of the fragment. Grand-children and further
+    // descendants will be checked by descendant LayoutObjects.
+    if (const auto* box = DynamicTo<LayoutBox>(layout_object)) {
+      for (const NGPhysicalBoxFragment& fragment : box->PhysicalFragments()) {
+        DCHECK_EQ(box, fragment.OwnerLayoutBox());
+        fragment.AssertFragmentTreeChildren(
+            /* allow_destroyed */ display_locked);
+      }
+    }
+    layout_object = layout_object->NextInPreOrder(this);
+  }
+}
+
 void LayoutObject::AssertClearedPaintInvalidationFlags() const {
   NOT_DESTROYED();
   if (!PaintInvalidationStateIsDirty() || ChildPrePaintBlockedByDisplayLock())
@@ -470,7 +497,38 @@ void LayoutObject::AddChild(LayoutObject* new_child,
       children->InsertChildNode(this, table, before_child);
     }
     table->AddChild(new_child);
+  } else if (LIKELY(new_child->IsHorizontalWritingMode()) ||
+             !new_child->IsText()) {
+    children->InsertChildNode(this, new_child, before_child);
+  } else if (IsA<LayoutNGTextCombine>(*this)) {
+    DCHECK(LayoutNGTextCombine::ShouldBeParentOf(*new_child)) << new_child;
+    new_child->SetStyle(Style());
+    children->InsertChildNode(this, new_child, before_child);
+  } else if (LayoutNGTextCombine::ShouldBeParentOf(*new_child)) {
+    if (before_child) {
+      if (IsA<LayoutNGTextCombine>(before_child)) {
+        DCHECK(!DynamicTo<LayoutNGTextCombine>(before_child->PreviousSibling()))
+            << before_child->PreviousSibling();
+        before_child->AddChild(new_child, before_child->SlowFirstChild());
+      } else if (auto* const previous_sibling = DynamicTo<LayoutNGTextCombine>(
+                     before_child->PreviousSibling())) {
+        previous_sibling->AddChild(new_child);
+      } else {
+        children->InsertChildNode(
+            this,
+            LayoutNGTextCombine::CreateAnonymous(To<LayoutText>(new_child)),
+            before_child);
+      }
+    } else if (auto* const last_child =
+                   DynamicTo<LayoutNGTextCombine>(SlowLastChild())) {
+      last_child->AddChild(new_child);
+    } else {
+      children->AppendChildNode(this, LayoutNGTextCombine::CreateAnonymous(
+                                          To<LayoutText>(new_child)));
+    }
   } else {
+    DCHECK(!new_child->IsHorizontalWritingMode()) << new_child;
+    DCHECK(new_child->IsText()) << new_child;
     children->InsertChildNode(this, new_child, before_child);
   }
 
@@ -1028,17 +1086,6 @@ static inline bool ObjectIsRelayoutBoundary(const LayoutObject* object) {
       (style->HasAutoLeftAndRight() || style->HasAutoTopAndBottom()))
     return false;
 
-  if (UNLIKELY(RuntimeEnabledFeatures::LayoutNGFragmentTraversalEnabled() &&
-               object->IsLayoutNGObject())) {
-    // We need to rebuild the entire NG fragment spine all the way from the root
-    // (or at least the nearest self-painting paint layer), since we traverse
-    // the fragments, and not objects. Fragment painting is initiated at
-    // self-painting layers, but we cannot check if it's a self-painting layer
-    // now, because it may cease to be one during layout (an object with clipped
-    // overflow that no longer has content that requires it to clip).
-    return false;
-  }
-
   if (const auto* layout_box = DynamicTo<LayoutBox>(object)) {
     // In general we can't relayout a flex item independently of its container;
     // not only is the result incorrect due to the override size that's set, it
@@ -1526,8 +1573,10 @@ bool LayoutObject::ComputeIsFixedContainer(const ComputedStyle* style) const {
       return true;
   }
   // https://www.w3.org/TR/css-contain-1/#containment-layout
-  if (ShouldApplyPaintContainment(*style) ||
-      ShouldApplyLayoutContainment(*style))
+  if (IsEligibleForPaintOrLayoutContainment() &&
+      (ShouldApplyPaintContainment(*style) ||
+       ShouldApplyLayoutContainment(*style) ||
+       style->WillChangeProperties().Contains(CSSPropertyID::kContain)))
     return true;
 
   // We intend to change behavior to set containing block based on computed
@@ -1839,13 +1888,6 @@ void LayoutObject::InvalidateDisplayItemClients(
   ObjectPaintInvalidator(*this).InvalidateDisplayItemClient(*this, reason);
 }
 
-bool LayoutObject::CompositedScrollsWithRespectTo(
-    const LayoutBoxModelObject& paint_invalidation_container) const {
-  NOT_DESTROYED();
-  return paint_invalidation_container.UsesCompositedScrolling() &&
-         this != &paint_invalidation_container;
-}
-
 PhysicalRect LayoutObject::AbsoluteSelectionRect() const {
   NOT_DESTROYED();
   PhysicalRect selection_rect = LocalSelectionVisualRect();
@@ -2153,6 +2195,8 @@ const ComputedStyle& LayoutObject::SlowEffectiveStyle(
     case NGStyleVariant::kStandard:
       return StyleRef();
     case NGStyleVariant::kFirstLine:
+      if (IsInline() && IsAtomicInlineLevel())
+        return StyleRef();
       return FirstLineStyleRef();
     case NGStyleVariant::kEllipsis:
       // The ellipsis is styled according to the line style.
@@ -2779,16 +2823,26 @@ void LayoutObject::StyleDidChange(StyleDifference diff,
                                   const ComputedStyle* old_style) {
   NOT_DESTROYED();
   if (HasHiddenBackface()) {
-    bool preserve_3d =
-        (Parent() && Parent()->StyleRef().UsedTransformStyle3D() ==
-                         ETransformStyle3D::kPreserve3d);
-    if (style_->HasTransform() || preserve_3d) {
+    if (Parent() && Parent()->StyleRef().UsedTransformStyle3D() ==
+                        ETransformStyle3D::kPreserve3d) {
       UseCounter::Count(GetDocument(),
                         WebFeature::kHiddenBackfaceWithPossible3D);
-    }
-    if (preserve_3d) {
+      UseCounter::Count(GetDocument(), WebFeature::kHiddenBackfaceWith3D);
       UseCounter::Count(GetDocument(),
                         WebFeature::kHiddenBackfaceWithPreserve3D);
+    } else if (style_->HasTransform()) {
+      UseCounter::Count(GetDocument(),
+                        WebFeature::kHiddenBackfaceWithPossible3D);
+      // For consistency with existing code usage, this uses
+      // Has3DTransformOperation rather than the slightly narrower
+      // HasNonTrivial3DTransformOperation (which is only web-exposed for
+      // compositing decisions on low-end devices).  However, given the
+      // discussion in https://github.com/w3c/csswg-drafts/issues/3305 it's
+      // possible we may want to tie backface-visibility behavior to something
+      // closer to the latter.
+      if (style_->Has3DTransformOperation()) {
+        UseCounter::Count(GetDocument(), WebFeature::kHiddenBackfaceWith3D);
+      }
     }
   }
 
@@ -2944,6 +2998,11 @@ void LayoutObject::PropagateStyleToAnonymousChildren() {
     if (child->IsInFlowPositioned() && child_block_flow &&
         child_block_flow->IsAnonymousBlockContinuation())
       new_style->SetPosition(child->StyleRef().GetPosition());
+
+    if (UNLIKELY(IsA<LayoutNGTextCombine>(child))) {
+      // "text-combine-width-after-style-change.html" reaches here.
+      StyleAdjuster::AdjustStyleForTextCombine(*new_style);
+    }
 
     UpdateAnonymousChildStyle(child, *new_style);
 
@@ -3280,7 +3339,7 @@ void LayoutObject::GetTransformFromContainer(
 
     TransformationMatrix perspective_matrix;
     perspective_matrix.ApplyPerspective(
-        container_object->StyleRef().Perspective());
+        container_object->StyleRef().UsedPerspective());
     perspective_matrix.ApplyTransformOrigin(perspective_origin.X(),
                                             perspective_origin.Y(), 0);
 
@@ -3442,7 +3501,7 @@ PhysicalOffset LayoutObject::OffsetFromScrollableContainer(
   DCHECK(container->IsScrollContainer());
   const auto* box = To<LayoutBox>(container);
   if (!ignore_scroll_offset)
-    return -PhysicalOffset(box->ScrolledContentOffset());
+    return -box->ScrolledContentOffset();
 
   // ScrollOrigin accounts for other writing modes whose content's origin is not
   // at the top-left.

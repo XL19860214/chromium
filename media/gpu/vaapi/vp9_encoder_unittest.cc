@@ -10,9 +10,9 @@
 
 #include "base/callback.h"
 #include "base/callback_helpers.h"
+#include "base/cxx17_backports.h"
 #include "base/logging.h"
 #include "base/numerics/safe_conversions.h"
-#include "base/stl_util.h"
 #include "media/filters/vp9_parser.h"
 #include "media/gpu/vaapi/vp9_rate_control.h"
 #include "media/gpu/vaapi/vp9_temporal_layers.h"
@@ -32,9 +32,9 @@ namespace {
 
 constexpr size_t kDefaultMaxNumRefFrames = kVp9NumRefsPerFrame;
 
-AcceleratedVideoEncoder::Config kDefaultAcceleratedVideoEncoderConfig{
+VaapiVideoEncoderDelegate::Config kDefaultVaapiVideoEncoderDelegateConfig{
     kDefaultMaxNumRefFrames,
-    AcceleratedVideoEncoder::BitrateControl::kConstantBitrate};
+    VaapiVideoEncoderDelegate::BitrateControl::kConstantQuantizationParameter};
 
 VideoEncodeAccelerator::Config kDefaultVideoEncodeAcceleratorConfig(
     PIXEL_FORMAT_I420,
@@ -170,11 +170,12 @@ class MockVP9Accelerator : public VP9Encoder::Accelerator {
  public:
   MockVP9Accelerator() = default;
   ~MockVP9Accelerator() override = default;
-  MOCK_METHOD1(GetPicture,
-               scoped_refptr<VP9Picture>(AcceleratedVideoEncoder::EncodeJob*));
+  MOCK_METHOD1(
+      GetPicture,
+      scoped_refptr<VP9Picture>(VaapiVideoEncoderDelegate::EncodeJob*));
 
   MOCK_METHOD5(SubmitFrameParameters,
-               bool(AcceleratedVideoEncoder::EncodeJob*,
+               bool(VaapiVideoEncoderDelegate::EncodeJob*,
                     const VP9Encoder::EncodeParams&,
                     scoped_refptr<VP9Picture>,
                     const Vp9ReferenceFrameVector&,
@@ -198,7 +199,7 @@ struct VP9EncoderTestParam;
 
 class VP9EncoderTest : public ::testing::TestWithParam<VP9EncoderTestParam> {
  public:
-  using BitrateControl = AcceleratedVideoEncoder::BitrateControl;
+  using BitrateControl = VaapiVideoEncoderDelegate::BitrateControl;
 
   VP9EncoderTest() = default;
   ~VP9EncoderTest() override = default;
@@ -208,7 +209,6 @@ class VP9EncoderTest : public ::testing::TestWithParam<VP9EncoderTestParam> {
  protected:
   void InitializeVP9Encoder(BitrateControl bitrate_control,
                             size_t num_temporal_layers);
-  void EncodeSequence(bool is_keyframe);
   void EncodeConstantQuantizationParameterSequence(
       bool is_keyframe,
       absl::optional<std::array<bool, kVp9NumRefsPerFrame>>
@@ -218,7 +218,7 @@ class VP9EncoderTest : public ::testing::TestWithParam<VP9EncoderTestParam> {
                        size_t num_temporal_layers);
 
  private:
-  std::unique_ptr<AcceleratedVideoEncoder::EncodeJob> CreateEncodeJob(
+  std::unique_ptr<VaapiVideoEncoderDelegate::EncodeJob> CreateEncodeJob(
       bool keyframe);
   void UpdateRatesSequence(const VideoBitrateAllocation& bitrate_allocation,
                            uint32_t framerate,
@@ -236,7 +236,7 @@ void VP9EncoderTest::SetUp() {
   encoder_ = std::make_unique<VP9Encoder>(std::move(mock_accelerator));
 }
 
-std::unique_ptr<AcceleratedVideoEncoder::EncodeJob>
+std::unique_ptr<VaapiVideoEncoderDelegate::EncodeJob>
 VP9EncoderTest::CreateEncodeJob(bool keyframe) {
   auto input_frame = VideoFrame::CreateFrame(
       kDefaultVideoEncodeAcceleratorConfig.input_format,
@@ -245,69 +245,47 @@ VP9EncoderTest::CreateEncodeJob(bool keyframe) {
       kDefaultVideoEncodeAcceleratorConfig.input_visible_size,
       base::TimeDelta());
   LOG_ASSERT(input_frame) << " Failed to create VideoFrame";
-  return std::make_unique<AcceleratedVideoEncoder::EncodeJob>(
+  return std::make_unique<VaapiVideoEncoderDelegate::EncodeJob>(
       input_frame, keyframe, base::DoNothing());
 }
 
 void VP9EncoderTest::InitializeVP9Encoder(BitrateControl bitrate_control,
                                           size_t num_temporal_layers) {
   auto config = kDefaultVideoEncodeAcceleratorConfig;
-  auto ave_config = kDefaultAcceleratedVideoEncoderConfig;
+  auto ave_config = kDefaultVaapiVideoEncoderDelegateConfig;
   ave_config.bitrate_control = bitrate_control;
-  if (bitrate_control == BitrateControl::kConstantQuantizationParameter) {
-    auto rate_ctrl = std::make_unique<MockVP9RateControl>();
-    mock_rate_ctrl_ = rate_ctrl.get();
-    encoder_->set_rate_ctrl_for_testing(std::move(rate_ctrl));
+  ASSERT_EQ(bitrate_control, BitrateControl::kConstantQuantizationParameter);
 
-    VideoBitrateAllocation initial_bitrate_allocation;
-    initial_bitrate_allocation.SetBitrate(
-        0, 0, kDefaultVideoEncodeAcceleratorConfig.initial_bitrate);
-    if (num_temporal_layers > 1u) {
-      VideoEncodeAccelerator::Config::SpatialLayer spatial_layer;
-      spatial_layer.width = config.input_visible_size.width();
-      spatial_layer.height = config.input_visible_size.height();
-      spatial_layer.bitrate_bps = config.initial_bitrate;
-      spatial_layer.framerate = *config.initial_framerate;
-      spatial_layer.max_qp = 30;
-      spatial_layer.num_of_temporal_layers = num_temporal_layers;
-      config.spatial_layers.push_back(spatial_layer);
-    }
+  auto rate_ctrl = std::make_unique<MockVP9RateControl>();
+  mock_rate_ctrl_ = rate_ctrl.get();
+  encoder_->set_rate_ctrl_for_testing(std::move(rate_ctrl));
 
-    EXPECT_CALL(
-        *mock_rate_ctrl_,
-        UpdateRateControl(MatchRtcConfigWithRates(
-            kDefaultVideoEncodeAcceleratorConfig.input_visible_size,
-            GetDefaultVideoBitrateAllocation(num_temporal_layers,
-                                             config.initial_bitrate),
-            VideoEncodeAccelerator::kDefaultFramerate, num_temporal_layers)))
-        .Times(1)
-        .WillOnce(Return());
-  } else {
-    // VP9Encoder doesn't support temporal layer encoding in
-    // BitrateControl::kConstantQuantizationParameter.
-    ASSERT_EQ(num_temporal_layers, 1u);
+  VideoBitrateAllocation initial_bitrate_allocation;
+  initial_bitrate_allocation.SetBitrate(
+      0, 0, kDefaultVideoEncodeAcceleratorConfig.initial_bitrate);
+  if (num_temporal_layers > 1u) {
+    VideoEncodeAccelerator::Config::SpatialLayer spatial_layer;
+    spatial_layer.width = config.input_visible_size.width();
+    spatial_layer.height = config.input_visible_size.height();
+    spatial_layer.bitrate_bps = config.initial_bitrate;
+    spatial_layer.framerate = *config.initial_framerate;
+    spatial_layer.max_qp = 30;
+    spatial_layer.num_of_temporal_layers = num_temporal_layers;
+    config.spatial_layers.push_back(spatial_layer);
   }
+
+  EXPECT_CALL(
+      *mock_rate_ctrl_,
+      UpdateRateControl(MatchRtcConfigWithRates(
+          kDefaultVideoEncodeAcceleratorConfig.input_visible_size,
+          GetDefaultVideoBitrateAllocation(num_temporal_layers,
+                                           config.initial_bitrate),
+          VideoEncodeAccelerator::kDefaultFramerate, num_temporal_layers)))
+      .Times(1)
+      .WillOnce(Return());
 
   EXPECT_TRUE(encoder_->Initialize(config, ave_config));
   EXPECT_EQ(num_temporal_layers > 1u, !!encoder_->temporal_layers_);
-}
-
-void VP9EncoderTest::EncodeSequence(bool is_keyframe) {
-  InSequence seq;
-  auto encode_job = CreateEncodeJob(is_keyframe);
-  scoped_refptr<VP9Picture> picture(new VP9Picture);
-  EXPECT_CALL(*mock_accelerator_, GetPicture(encode_job.get()))
-      .WillOnce(Invoke(
-          [picture](AcceleratedVideoEncoder::EncodeJob*) { return picture; }));
-  const auto& expected_ref_frames_used =
-      is_keyframe ? kRefFramesUsedForKeyFrame : kRefFramesUsedForInterFrame;
-  EXPECT_CALL(*mock_accelerator_,
-              SubmitFrameParameters(
-                  encode_job.get(), _, _, _,
-                  ::testing::ElementsAreArray(expected_ref_frames_used)))
-      .WillOnce(Return(true));
-  EXPECT_TRUE(encoder_->PrepareEncodeJob(encode_job.get()));
-  // TODO(hiroh): Test for encoder_->reference_frames_.
 }
 
 void VP9EncoderTest::EncodeConstantQuantizationParameterSequence(
@@ -319,8 +297,9 @@ void VP9EncoderTest::EncodeConstantQuantizationParameterSequence(
   auto encode_job = CreateEncodeJob(is_keyframe);
   scoped_refptr<VP9Picture> picture(new VP9Picture);
   EXPECT_CALL(*mock_accelerator_, GetPicture(encode_job.get()))
-      .WillOnce(Invoke(
-          [picture](AcceleratedVideoEncoder::EncodeJob*) { return picture; }));
+      .WillOnce(Invoke([picture](VaapiVideoEncoderDelegate::EncodeJob*) {
+        return picture;
+      }));
 
   FRAME_TYPE libvpx_frame_type =
       is_keyframe ? FRAME_TYPE::KEY_FRAME : FRAME_TYPE::INTER_FRAME;
@@ -364,14 +343,12 @@ void VP9EncoderTest::UpdateRatesSequence(
                   bitrate_allocation ||
               encoder_->current_params_.framerate != framerate);
 
-  if (bitrate_control == BitrateControl::kConstantQuantizationParameter) {
-    EXPECT_CALL(*mock_rate_ctrl_,
-                UpdateRateControl(MatchRtcConfigWithRates(
-                    encoder_->visible_size_, bitrate_allocation, framerate,
-                    num_temporal_layers)))
-        .Times(1)
-        .WillOnce(Return());
-  }
+  ASSERT_EQ(bitrate_control, BitrateControl::kConstantQuantizationParameter);
+  EXPECT_CALL(*mock_rate_ctrl_, UpdateRateControl(MatchRtcConfigWithRates(
+                                    encoder_->visible_size_, bitrate_allocation,
+                                    framerate, num_temporal_layers)))
+      .Times(1)
+      .WillOnce(Return());
 
   EXPECT_TRUE(encoder_->UpdateRates(bitrate_allocation, framerate));
   EXPECT_EQ(encoder_->current_params_.bitrate_allocation, bitrate_allocation);
@@ -388,12 +365,11 @@ void VP9EncoderTest::UpdateRatesTest(BitrateControl bitrate_control,
           uint32_t framerate) {
         UpdateRatesSequence(bitrate_allocation, framerate, bitrate_control,
                             num_temporal_layers);
-        if (bitrate_control == BitrateControl::kConstantQuantizationParameter) {
-          EncodeConstantQuantizationParameterSequence(is_keyframe, {},
-                                                      absl::nullopt);
-        } else {
-          EncodeSequence(is_keyframe);
-        }
+        ASSERT_EQ(bitrate_control,
+                  BitrateControl::kConstantQuantizationParameter);
+
+        EncodeConstantQuantizationParameterSequence(is_keyframe, {},
+                                                    absl::nullopt);
       };
 
   const uint32_t kBitrate =
@@ -423,7 +399,6 @@ struct VP9EncoderTestParam {
   VP9EncoderTest::BitrateControl bitrate_control;
   size_t num_temporal_layers;
 } kTestCasesForVP9EncoderTest[] = {
-    {VP9EncoderTest::BitrateControl::kConstantBitrate, 1u},
     {VP9EncoderTest::BitrateControl::kConstantQuantizationParameter, 1u},
     {VP9EncoderTest::BitrateControl::kConstantQuantizationParameter,
      VP9TemporalLayers::kMinSupportedTemporalLayers},
@@ -434,18 +409,6 @@ struct VP9EncoderTestParam {
 TEST_P(VP9EncoderTest, Initialize) {
   InitializeVP9Encoder(GetParam().bitrate_control,
                        GetParam().num_temporal_layers);
-}
-
-TEST_P(VP9EncoderTest, EncodeWithoutSoftwareBitrateControl) {
-  const auto& bitrate_control = GetParam().bitrate_control;
-  if (bitrate_control != BitrateControl::kConstantBitrate)
-    GTEST_SKIP() << "Test only for without software bitrate control";
-
-  const size_t num_temporal_layers = GetParam().num_temporal_layers;
-  InitializeVP9Encoder(bitrate_control, num_temporal_layers);
-
-  EncodeSequence(true);
-  EncodeSequence(false);
 }
 
 TEST_P(VP9EncoderTest, EncodeWithSoftwareBitrateControl) {
@@ -466,20 +429,6 @@ TEST_P(VP9EncoderTest, EncodeWithSoftwareBitrateControl) {
     EncodeConstantQuantizationParameterSequence(is_keyframe, ref_frames_used,
                                                 temporal_layer_id);
   }
-}
-
-TEST_P(VP9EncoderTest, ForceKeyFrameWithoutSoftwareBitrateControl) {
-  const auto& bitrate_control = GetParam().bitrate_control;
-  if (bitrate_control != BitrateControl::kConstantBitrate)
-    GTEST_SKIP() << "Test only for with software bitrate control";
-
-  const size_t num_temporal_layers = GetParam().num_temporal_layers;
-  InitializeVP9Encoder(bitrate_control, num_temporal_layers);
-
-  EncodeSequence(true /* is_keyframe */);
-  EncodeSequence(false /* is_keyframe */);
-  EncodeSequence(true /* is_keyframe */);
-  EncodeSequence(false /* is_keyframe */);
 }
 
 TEST_P(VP9EncoderTest, ForceKeyFrameWithSoftwareBitrateControl) {

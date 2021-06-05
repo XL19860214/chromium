@@ -661,6 +661,10 @@ void NGOutOfFlowLayoutPart::LayoutOOFsInMulticol(
       }
       const NGPhysicalFragment* containing_block_fragment =
           descendant.containing_block.fragment.get();
+      // If the containing block is not set, that means that the inner multicol
+      // was its containing block, and the OOF will be laid out elsewhere.
+      if (!containing_block_fragment)
+        continue;
       LogicalOffset containing_block_offset =
           converter.ToLogical(descendant.containing_block.offset,
                               containing_block_fragment->Size());
@@ -899,7 +903,7 @@ scoped_refptr<const NGLayoutResult> NGOutOfFlowLayoutPart::LayoutOOFNode(
   NGBoxStrut scrollbars_before =
       ComputeScrollbarsForNonAnonymous(node_info.node);
   scoped_refptr<const NGLayoutResult> layout_result =
-      Layout(oof_node_to_layout, fragmentainer_constraint_space);
+      Layout(oof_node_to_layout, offset_info, fragmentainer_constraint_space);
   NGBoxStrut scrollbars_after =
       ComputeScrollbarsForNonAnonymous(node_info.node);
 
@@ -930,9 +934,8 @@ scoped_refptr<const NGLayoutResult> NGOutOfFlowLayoutPart::LayoutOOFNode(
       // so recompute the OffsetInfo.
       offset_info = CalculateOffset(node_info, only_layout,
                                     /* is_first_run */ false);
-
-      layout_result =
-          Layout(oof_node_to_layout, fragmentainer_constraint_space);
+      layout_result = Layout(oof_node_to_layout, offset_info,
+                             fragmentainer_constraint_space);
 
       scrollbars_after = ComputeScrollbarsForNonAnonymous(node_info.node);
       DCHECK(!freeze_horizontal || !freeze_vertical ||
@@ -1033,9 +1036,9 @@ NGOutOfFlowLayoutPart::OffsetInfo NGOutOfFlowLayoutPart::CalculateOffset(
 
 scoped_refptr<const NGLayoutResult> NGOutOfFlowLayoutPart::Layout(
     const NodeToLayout& oof_node_to_layout,
+    const OffsetInfo& offset_info,
     const NGConstraintSpace* fragmentainer_constraint_space) {
   const NodeInfo& node_info = oof_node_to_layout.node_info;
-  const OffsetInfo& offset_info = oof_node_to_layout.offset_info;
   const WritingDirectionMode candidate_writing_direction =
       node_info.node.Style().GetWritingDirection();
   LogicalSize container_content_size_in_candidate_writing_mode =
@@ -1574,7 +1577,7 @@ NGLogicalStaticPosition NGOutOfFlowLayoutPart::ToStaticPositionForLegacy(
   // Legacy expects the static position to include the block contribution from
   // previous columns.
   if (const auto* break_token = container_builder_->PreviousBreakToken())
-    position.offset.block_offset += break_token->ConsumedBlockSize();
+    position.offset.block_offset += break_token->ConsumedBlockSizeForLegacy();
   return position;
 }
 

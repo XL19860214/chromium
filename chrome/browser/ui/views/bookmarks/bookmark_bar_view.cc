@@ -187,11 +187,6 @@ class BookmarkButtonBase : public views::LabelButton {
   }
 
   // LabelButton:
-  void OnThemeChanged() override {
-    LabelButton::OnThemeChanged();
-    ToolbarButton::UpdateFocusRingColor(this, focus_ring());
-  }
-
   std::unique_ptr<LabelButtonBorder> CreateDefaultBorder() const override {
     return CreateBookmarkButtonBorder();
   }
@@ -292,11 +287,6 @@ class BookmarkMenuButtonBase : public MenuButton {
   BookmarkMenuButtonBase& operator=(const BookmarkMenuButtonBase&) = delete;
 
   // MenuButton:
-  void OnThemeChanged() override {
-    MenuButton::OnThemeChanged();
-    ToolbarButton::UpdateFocusRingColor(this, focus_ring());
-  }
-
   std::unique_ptr<LabelButtonBorder> CreateDefaultBorder() const override {
     return CreateBookmarkButtonBorder();
   }
@@ -499,6 +489,9 @@ BookmarkBarView::BookmarkBarView(Browser* browser, BrowserView* browser_view)
   // May be null for tests.
   if (browser_view)
     SetBackground(std::make_unique<TopContainerBackground>(browser_view));
+
+  views::FocusRing::SetBackgroundColorIdForSubtree(
+      this, ThemeProperties::COLOR_TOOLBAR);
 }
 
 BookmarkBarView::~BookmarkBarView() {
@@ -1675,7 +1668,12 @@ bool BookmarkBarView::BookmarkNodeRemovedImpl(BookmarkModel* model,
 
   views::LabelButton* button = bookmark_buttons_[index];
   bookmark_buttons_.erase(bookmark_buttons_.cbegin() + index);
-  delete button;
+  // Set not visible before removing to advance focus if needed. See
+  // crbug.com/1183980. TODO(crbug.com/1189729): remove this workaround if
+  // FocusManager behavior is changed.
+  button->SetVisible(false);
+  RemoveChildViewT(button);
+
   return true;
 }
 

@@ -38,6 +38,7 @@
 <translation id="3227137524299004712">Micròfon</translation>
 <translation id="3240426699337459095">S'ha copiat l'enllaç.</translation>
 <translation id="3259149966178251584">Resolució de la càmera</translation>
+<translation id="3448774564454087943">El vídeo no s'ha desat perquè és massa curt</translation>
 <translation id="3517926952904427380">No es pot fer una foto vertical</translation>
 <translation id="3569311554794739032">Confirmes que vols suprimir <ph name="FILE" />?</translation>
 <translation id="3733597664308256288">Controls de càmera addicionals disponibles. Cerca+fletxa a la dreta per accedir-hi.</translation>
@@ -76,6 +77,7 @@ Si els teus suggeriments fan referència a la qualitat d'imatge o de vídeo, adj
 <translation id="6420689864531458495">(<ph name="ASPECT_RATIO_WIDTH" />:<ph name="ASPECT_RATIO_HEIGHT" /> - <ph name="WIDTH" />x<ph name="HEIGHT" />) <ph name="MEGAPIXEL" /> megapíxels</translation>
 <translation id="6681668084120808868">Fes una foto</translation>
 <translation id="6778482348691154169">No es pot fer la foto</translation>
+<translation id="695140971690006676">Reinicia-ho tot</translation>
 <translation id="6965382102122355670">D'acord</translation>
 <translation id="698156982839284926">3 segons</translation>
 <translation id="712848772518857951">Confirmes que vols suprimir <ph name="COUNT" /> elements?</translation>

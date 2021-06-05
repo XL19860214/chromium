@@ -20,13 +20,16 @@
 #include "ash/strings/grit/ash_strings.h"
 #include "ash/style/ash_color_provider.h"
 #include "ash/style/default_colors.h"
+#include "ash/wm/gestures/wm_fling_handler.h"
 #include "ash/wm/window_cycle/window_cycle_tab_slider.h"
 #include "ash/wm/window_cycle/window_cycle_tab_slider_button.h"
 #include "ash/wm/window_mini_view.h"
 #include "ash/wm/window_preview_view.h"
 #include "ash/wm/window_state.h"
 #include "ash/wm/window_util.h"
+#include "base/bind.h"
 #include "base/metrics/histogram_functions.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/numerics/ranges.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/accessibility/ax_node_data.h"
@@ -35,14 +38,11 @@
 #include "ui/aura/window_targeter.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/compositor/animation_throughput_reporter.h"
-#include "ui/compositor/compositor_animation_observer.h"
 #include "ui/compositor/layer.h"
 #include "ui/compositor/layer_animation_sequence.h"
 #include "ui/compositor/scoped_layer_animation_settings.h"
 #include "ui/display/display.h"
-#include "ui/events/gestures/fling_curve.h"
 #include "ui/gfx/geometry/insets.h"
-#include "ui/views/animation/bounds_animator.h"
 #include "ui/views/background.h"
 #include "ui/views/controls/button/label_button.h"
 #include "ui/views/layout/box_layout.h"
@@ -94,9 +94,6 @@ constexpr int kTabSliderContainerVerticalPaddingDp = 32;
 // The font size of "No recent items" string when there's no window in the
 // window cycle list.
 constexpr int kNoRecentItemsLabelFontSizeDp = 14;
-
-// The amount the cycle list's fling curve's offsets are scaled down.
-constexpr float kFlingScaleDown = 3.f;
 
 // The UMA histogram that logs smoothness of the fade-in animation.
 constexpr char kShowAnimationSmoothness[] =
@@ -272,8 +269,7 @@ class WindowCycleItemView : public WindowMiniView {
 
 // A view that shows a collection of windows the user can tab through.
 class WindowCycleView : public views::WidgetDelegateView,
-                        public ui::ImplicitAnimationObserver,
-                        public ui::CompositorAnimationObserver {
+                        public ui::ImplicitAnimationObserver {
  public:
   WindowCycleView(aura::Window* root_window,
                   const WindowCycleList::WindowList& windows)
@@ -569,7 +565,7 @@ class WindowCycleView : public views::WidgetDelegateView,
     current_window_ = nullptr;
     defer_widget_bounds_update_ = false;
     RemoveAllChildViews(true);
-    EndFling();
+    OnFlingEnd();
   }
 
   void Drag(float delta_x) {
@@ -578,17 +574,23 @@ class WindowCycleView : public views::WidgetDelegateView,
   }
 
   void StartFling(float velocity_x) {
-    fling_velocity_ = gfx::Vector2dF(velocity_x, 0);
-    fling_curve_ = std::make_unique<ui::FlingCurve>(fling_velocity_,
-                                                    base::TimeTicks::Now());
-    layer()->GetCompositor()->AddAnimationObserver(this);
+    fling_handler_ = std::make_unique<WmFlingHandler>(
+        gfx::Vector2dF(velocity_x, 0),
+        GetWidget()->GetNativeWindow()->GetRootWindow(),
+        base::BindRepeating(&WindowCycleView::OnFlingStep,
+                            base::Unretained(this)),
+        base::BindRepeating(&WindowCycleView::OnFlingEnd,
+                            base::Unretained(this)));
   }
 
-  void EndFling() {
-    layer()->GetCompositor()->RemoveAnimationObserver(this);
-    fling_curve_.reset();
-    fling_last_offset_.reset();
+  bool OnFlingStep(float offset) {
+    DCHECK(fling_handler_);
+    horizontal_distance_dragged_ += offset;
+    Layout();
+    return true;
   }
+
+  void OnFlingEnd() { fling_handler_.reset(); }
 
   // views::WidgetDelegateView:
   gfx::Size CalculatePreferredSize() const override {
@@ -603,6 +605,12 @@ class WindowCycleView : public views::WidgetDelegateView,
     if (Shell::Get()
             ->window_cycle_controller()
             ->IsInteractiveAltTabModeAllowed()) {
+      // |mirror_container_| can have window list with width smaller the tab
+      // slider's width. The padding should be 64px from the tab slider.
+      const int min_width =
+          tab_slider_container_->GetPreferredSize().width() +
+          2 * WindowCycleList::kInsideBorderHorizontalPaddingDp;
+      size.set_width(std::max(size.width(), min_width));
       size.Enlarge(0, tab_slider_container_->GetPreferredSize().height() +
                           kTabSliderContainerVerticalPaddingDp);
     }
@@ -665,7 +673,7 @@ class WindowCycleView : public views::WidgetDelegateView,
                              static_cast<float>(minimum_x - x_offset),
                              static_cast<float>(-x_offset));
       if (horizontal_distance_dragged_ != clamped_horizontal_distance_dragged)
-        EndFling();
+        OnFlingEnd();
 
       horizontal_distance_dragged_ = clamped_horizontal_distance_dragged;
       x_offset += horizontal_distance_dragged_;
@@ -790,26 +798,6 @@ class WindowCycleView : public views::WidgetDelegateView,
     }
   }
 
-  // ui::CompositorAnimationObserver:
-  void OnAnimationStep(base::TimeTicks timestamp) override {
-    gfx::Vector2dF offset;
-    bool continue_fling =
-        fling_curve_->ComputeScrollOffset(timestamp, &offset, &fling_velocity_);
-    offset.Scale(1 / kFlingScaleDown);
-    horizontal_distance_dragged_ +=
-        fling_last_offset_ ? offset.x() - fling_last_offset_->x() : offset.x();
-    fling_last_offset_ = absl::make_optional(offset);
-    Layout();
-
-    if (!continue_fling)
-      EndFling();
-  }
-
-  void OnCompositingShuttingDown(ui::Compositor* compositor) override {
-    DCHECK_EQ(compositor, layer()->GetCompositor());
-    EndFling();
-  }
-
  private:
   // Returns a bound of alt-tab content container, which represents the mirror
   // container when there is at least one window and represents no-recent-items
@@ -863,16 +851,9 @@ class WindowCycleView : public views::WidgetDelegateView,
   // window cycle list or when the user switches alt-tab modes.
   float horizontal_distance_dragged_ = 0.f;
 
-  // Velocity of the fling that will gradually decrease during a fling.
-  gfx::Vector2dF fling_velocity_;
-
-  // Gesture curve of the current active fling. nullptr while a fling is not
+  // Fling handler of the current active fling. Nullptr while a fling is not
   // active.
-  std::unique_ptr<ui::FlingCurve> fling_curve_;
-
-  // Store the last computed fling offset during a fling. Used to compare to an
-  // updated offset and offset the |mirror_container_|.
-  absl::optional<gfx::Vector2dF> fling_last_offset_;
+  std::unique_ptr<WmFlingHandler> fling_handler_;
 };
 
 WindowCycleList::WindowCycleList(const WindowList& windows)
@@ -1035,6 +1016,7 @@ bool WindowCycleList::ShouldShowUi() {
            ->IsInteractiveAltTabModeAllowed()) {
     return windows_.size() > 1u;
   }
+
   int total_window_in_all_desks = GetNumberOfWindowsAllDesks();
   return windows_.size() > 1u ||
          (windows_.size() <= 1u &&
@@ -1185,30 +1167,25 @@ void WindowCycleList::SelectWindow(aura::Window* window) {
 }
 
 void WindowCycleList::Scroll(int offset) {
-  const bool is_interactive_alt_tab_mode_allowed =
-      Shell::Get()->window_cycle_controller()->IsInteractiveAltTabModeAllowed();
-  if (windows_.empty() && (!is_interactive_alt_tab_mode_allowed ||
-                           GetNumberOfWindowsAllDesks() == 0))
-    return;
-
-  // When there is only one window, we should give feedback to the user. If
-  // the window is minimized, we should also show it.
-  if (windows_.size() == 1 &&
-      !Shell::Get()->window_cycle_controller()->IsSwitchingMode()) {
-    ::wm::AnimateWindow(windows_[0], ::wm::WINDOW_ANIMATION_TYPE_BOUNCE);
+  if (windows_.size() == 1)
     SelectWindow(windows_[0]);
+
+  if (!ShouldShowUi()) {
+    // When there is only one window, we should give feedback to the user. If
+    // the window is minimized, we should also show it.
+    if (windows_.size() == 1)
+      ::wm::AnimateWindow(windows_[0], ::wm::WINDOW_ANIMATION_TYPE_BOUNCE);
+    return;
   }
 
   DCHECK(static_cast<size_t>(current_index_) < windows_.size());
-
   current_index_ = GetOffsettedWindowIndex(offset);
-  if (ShouldShowUi()) {
-    if (current_index_ > 1)
-      InitWindowCycleView();
 
-    if (cycle_view_)
-      cycle_view_->ScrollToWindow(windows_[current_index_]);
-  }
+  if (current_index_ > 1)
+    InitWindowCycleView();
+
+  if (cycle_view_)
+    cycle_view_->ScrollToWindow(windows_[current_index_]);
 }
 
 int WindowCycleList::GetOffsettedWindowIndex(int offset) const {

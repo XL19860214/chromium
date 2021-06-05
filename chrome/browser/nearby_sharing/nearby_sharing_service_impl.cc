@@ -47,6 +47,7 @@
 #include "chrome/services/sharing/public/cpp/advertisement.h"
 #include "chrome/services/sharing/public/cpp/conversions.h"
 #include "chromeos/services/nearby/public/mojom/nearby_connections_types.mojom.h"
+#include "chromeos/services/nearby/public/mojom/nearby_decoder.mojom.h"
 #include "chromeos/services/nearby/public/mojom/nearby_share_target_types.mojom.h"
 #include "components/prefs/pref_service.h"
 #include "content/public/browser/download_manager.h"
@@ -292,6 +293,7 @@ NearbySharingServiceImpl::NearbySharingServiceImpl(
           profile->GetPath(),
           http_client_factory_.get())),
       settings_(prefs, local_device_data_manager_.get()),
+      feature_usage_metrics_(prefs),
       on_network_changed_delay_timer_(
           FROM_HERE,
           kProcessNetworkChangeTimerDelay,
@@ -302,7 +304,8 @@ NearbySharingServiceImpl::NearbySharingServiceImpl(
   DCHECK(nearby_connections_manager_);
   DCHECK(power_client_);
 
-  RecordNearbyShareEnabledMetric(prefs_);
+  RecordNearbyShareEnabledMetric(
+      feature_usage_metrics_.GetNearbyShareEnabledState());
 
   auto* session_controller = ash::SessionController::Get();
   if (session_controller) {
@@ -1033,7 +1036,8 @@ bool NearbySharingServiceImpl::ShouldRestartNearbyProcess(
       return false;
       break;
     case NearbyProcessShutdownReason::kCrash:
-    case NearbyProcessShutdownReason::kMojoPipeDisconnection:
+    case NearbyProcessShutdownReason::kConnectionsMojoPipeDisconnection:
+    case NearbyProcessShutdownReason::kDecoderMojoPipeDisconnection:
       break;
   }
 
@@ -1142,7 +1146,8 @@ void NearbySharingServiceImpl::FlushMojoForTesting() {
 
 void NearbySharingServiceImpl::OnEnabledChanged(bool enabled) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  RecordNearbyShareEnabledMetric(prefs_);
+  RecordNearbyShareEnabledMetric(
+      feature_usage_metrics_.GetNearbyShareEnabledState());
   base::UmaHistogramBoolean("Nearby.Share.EnabledStateChanged", enabled);
   if (enabled) {
     NS_LOG(VERBOSE) << __func__ << ": Nearby sharing enabled!";
@@ -2732,6 +2737,7 @@ void NearbySharingServiceImpl::OnIncomingTransferUpdate(
 
   if (metadata.is_final_status()) {
     RecordNearbyShareTransferFinalStatusMetric(
+        &feature_usage_metrics_,
         /*is_incoming=*/true, share_target.type, metadata.status(),
         share_target.is_known);
     OnTransferComplete();
@@ -2768,6 +2774,7 @@ void NearbySharingServiceImpl::OnOutgoingTransferUpdate(
   if (metadata.is_final_status()) {
     is_connecting_ = false;
     RecordNearbyShareTransferFinalStatusMetric(
+        &feature_usage_metrics_,
         /*is_incoming=*/false, share_target.type, metadata.status(),
         share_target.is_known);
     OnTransferComplete();

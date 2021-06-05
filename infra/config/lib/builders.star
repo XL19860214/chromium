@@ -91,6 +91,10 @@ os = struct(
     MAC_10_13 = os_enum("Mac-10.13", os_category.MAC),
     MAC_10_14 = os_enum("Mac-10.14", os_category.MAC),
     MAC_10_15 = os_enum("Mac-10.15", os_category.MAC),
+    # Staged switch to Mac 11: we can gradually shift the matching capacity
+    # towards Mac 11 and the builder will continue to run on whatever is
+    # available
+    MAC_10_15_OR_11 = os_enum("Mac-10.15|Mac-11", os_category.MAC),
     MAC_11 = os_enum("Mac-11|Mac-10.16", os_category.MAC),
     MAC_DEFAULT = os_enum("Mac-10.15", os_category.MAC),
     MAC_ANY = os_enum("Mac", os_category.MAC),
@@ -161,12 +165,14 @@ def xcode_enum(version):
 xcode = struct(
     # in use by webrtc mac builders
     x11c29 = xcode_enum("11c29"),
-    # in use by ios-webkit-tot
-    x11e608cwk = xcode_enum("11e608cwk"),
     # (current default for other projects) xc12.0 gm seed
     x12a7209 = xcode_enum("12a7209"),
     # (current default for iOS) xc12.4 gm seed
     x12d4e = xcode_enum("12d4e"),
+    # Xcode 12.5. Requires Mac11+ OS.
+    x12e262 = xcode_enum("12e262"),
+    # in use by ios-webkit-tot
+    x12e262wk = xcode_enum("12e262wk"),
 )
 
 ################################################################################
@@ -587,10 +593,8 @@ def builder(
 
     # TODO(crbug.com/1143122): remove this.
     experiments = experiments or {}
-    if os and os.category == os_category.MAC:
-        experiments["chromium.chromium_tests.use_rbe_cas"] = 50
-    elif os and os.category == os_category.WINDOWS:
-        experiments["chromium.chromium_tests.use_rbe_cas"] = 20
+    if os and os.category in (os_category.MAC, os_category.WINDOWS):
+        experiments["chromium.chromium_tests.use_rbe_cas"] = 100
     kwargs["experiments"] = experiments
 
     configure_kitchen = defaults.get_value("configure_kitchen", configure_kitchen)

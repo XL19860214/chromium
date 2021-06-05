@@ -578,7 +578,7 @@ void AutofillMetricsTest::AddMaskedServerCreditCardWithOffer(
   } else {
     offer_data.expiry = AutofillClock::Now() + base::TimeDelta::FromDays(2);
   }
-  offer_data.merchant_domain = {url};
+  offer_data.merchant_origins = {url};
   offer_data.eligible_instrument_id = {
       masked_server_credit_card.instrument_id()};
   personal_data_->AddAutofillOfferData(offer_data);
@@ -3907,7 +3907,7 @@ TEST_F(AutofillMetricsTest, LogStoredOfferMetrics) {
   AutofillOfferData offer2 = test::GetCardLinkedOfferData2();
   offer2.eligible_instrument_id.emplace_back(999999);
   offer2.eligible_instrument_id.emplace_back(888888);
-  offer2.merchant_domain.emplace_back("www.example3.com");
+  offer2.merchant_origins.emplace_back("https://www.example3.com/");
   offers.push_back(std::make_unique<AutofillOfferData>(offer1));
   offers.push_back(std::make_unique<AutofillOfferData>(offer2));
 
@@ -4173,7 +4173,7 @@ TEST_F(AutofillMetricsTest, CreditCardCheckoutFlowUserActions) {
     external_delegate_->DidAcceptSuggestion(
         u"Test",
         browser_autofill_manager_->MakeFrontendIDForTest(guid, std::string()),
-        0);
+        guid, 0);
     EXPECT_EQ(1,
               user_action_tester.GetActionCount("Autofill_SelectedSuggestion"));
   }
@@ -4193,8 +4193,8 @@ TEST_F(AutofillMetricsTest, CreditCardCheckoutFlowUserActions) {
     base::UserActionTester user_action_tester;
     std::string guid("10000000-0000-0000-0000-000000000001");  // local card
     external_delegate_->OnQuery(0, form, form.fields.front(), gfx::RectF());
-    external_delegate_->DidAcceptSuggestion(std::u16string(),
-                                            POPUP_ITEM_ID_CLEAR_FORM, 0);
+    external_delegate_->DidAcceptSuggestion(
+        std::u16string(), POPUP_ITEM_ID_CLEAR_FORM, std::string(), 0);
     EXPECT_EQ(1, user_action_tester.GetActionCount("Autofill_ClearedForm"));
   }
 
@@ -4216,7 +4216,7 @@ TEST_F(AutofillMetricsTest, CreditCardCheckoutFlowUserActions) {
     external_delegate_->DidAcceptSuggestion(
         u"Test",
         browser_autofill_manager_->MakeFrontendIDForTest(guid, std::string()),
-        0);
+        guid, 0);
     EXPECT_EQ(1,
               user_action_tester.GetActionCount("Autofill_SelectedSuggestion"));
   }
@@ -4394,7 +4394,7 @@ TEST_F(AutofillMetricsTest, ProfileCheckoutFlowUserActions) {
     external_delegate_->DidAcceptSuggestion(
         u"Test",
         browser_autofill_manager_->MakeFrontendIDForTest(std::string(), guid),
-        0);
+        guid, 0);
     EXPECT_EQ(1,
               user_action_tester.GetActionCount("Autofill_SelectedSuggestion"));
   }
@@ -8090,6 +8090,95 @@ TEST_F(AutofillMetricsTest, DaysSinceLastUse_Profile) {
   profile.RecordAndLogUse();
   histogram_tester.ExpectBucketCount("Autofill.DaysSinceLastUse.Profile", 13,
                                      1);
+}
+
+// Test that we log the verification status of name tokens.
+TEST_F(AutofillMetricsTest, LogVerificationStatusesOfNameTokens) {
+  scoped_feature_list_.InitAndEnableFeature(
+      features::kAutofillEnableSupportForMoreStructureInNames);
+
+  base::HistogramTester histogram_tester;
+  AutofillProfile profile;
+  profile.SetRawInfoWithVerificationStatus(
+      NAME_FULL, u"First Last",
+      structured_address::VerificationStatus::kObserved);
+  profile.SetRawInfoWithVerificationStatus(
+      NAME_FIRST, u"First", structured_address::VerificationStatus::kParsed);
+  profile.SetRawInfoWithVerificationStatus(
+      NAME_LAST, u"Last", structured_address::VerificationStatus::kParsed);
+  profile.SetRawInfoWithVerificationStatus(
+      NAME_LAST_SECOND, u"Last",
+      structured_address::VerificationStatus::kParsed);
+
+  AutofillMetrics::LogVerificationStatusOfNameTokensOnProfileUsage(profile);
+
+  std::string base_histo =
+      "Autofill.NameTokenVerificationStatusAtProfileUsage.";
+
+  histogram_tester.ExpectUniqueSample(
+      base_histo + "Full", structured_address::VerificationStatus::kObserved,
+      1);
+  histogram_tester.ExpectUniqueSample(
+      base_histo + "First", structured_address::VerificationStatus::kParsed, 1);
+  histogram_tester.ExpectUniqueSample(
+      base_histo + "Last", structured_address::VerificationStatus::kParsed, 1);
+  histogram_tester.ExpectUniqueSample(
+      base_histo + "SecondLast",
+      structured_address::VerificationStatus::kParsed, 1);
+
+  histogram_tester.ExpectTotalCount(base_histo + "Middle", 0);
+  histogram_tester.ExpectTotalCount(base_histo + "FirstLast", 0);
+
+  histogram_tester.ExpectTotalCount(base_histo + "Any", 4);
+  histogram_tester.ExpectBucketCount(
+      base_histo + "Any", structured_address::VerificationStatus::kObserved, 1);
+  histogram_tester.ExpectBucketCount(
+      base_histo + "Any", structured_address::VerificationStatus::kParsed, 3);
+}
+
+// Test that we log the verification status of address tokens..
+TEST_F(AutofillMetricsTest, LogVerificationStatusesOfAddressTokens) {
+  scoped_feature_list_.InitAndEnableFeature(
+      features::kAutofillEnableSupportForMoreStructureInAddresses);
+
+  base::HistogramTester histogram_tester;
+  AutofillProfile profile;
+  profile.SetRawInfoWithVerificationStatus(
+      ADDRESS_HOME_STREET_ADDRESS, u"123 StreetName",
+      structured_address::VerificationStatus::kFormatted);
+  profile.SetRawInfoWithVerificationStatus(
+      ADDRESS_HOME_HOUSE_NUMBER, u"123",
+      structured_address::VerificationStatus::kObserved);
+  profile.SetRawInfoWithVerificationStatus(
+      ADDRESS_HOME_STREET_NAME, u"StreetName",
+      structured_address::VerificationStatus::kObserved);
+
+  AutofillMetrics::LogVerificationStatusOfAddressTokensOnProfileUsage(profile);
+
+  std::string base_histo =
+      "Autofill.AddressTokenVerificationStatusAtProfileUsage.";
+
+  histogram_tester.ExpectUniqueSample(
+      base_histo + "StreetAddress",
+      structured_address::VerificationStatus::kFormatted, 1);
+  histogram_tester.ExpectUniqueSample(
+      base_histo + "StreetName",
+      structured_address::VerificationStatus::kObserved, 1);
+  histogram_tester.ExpectUniqueSample(
+      base_histo + "HouseNumber",
+      structured_address::VerificationStatus::kObserved, 1);
+
+  histogram_tester.ExpectTotalCount(base_histo + "FloorNumber", 0);
+  histogram_tester.ExpectTotalCount(base_histo + "ApartmentNumber", 0);
+  histogram_tester.ExpectTotalCount(base_histo + "Premise", 0);
+  histogram_tester.ExpectTotalCount(base_histo + "SubPremise", 0);
+
+  histogram_tester.ExpectTotalCount(base_histo + "Any", 3);
+  histogram_tester.ExpectBucketCount(
+      base_histo + "Any", structured_address::VerificationStatus::kFormatted,
+      1);
+  histogram_tester.ExpectBucketCount(
+      base_histo + "Any", structured_address::VerificationStatus::kObserved, 2);
 }
 
 // Verify that we correctly log the submitted form's state.

@@ -19,6 +19,7 @@
 #include "chrome/browser/chromeos/file_manager/app_id.h"
 #include "chrome/browser/chromeos/file_manager/fileapi_util.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/sharesheet/sharesheet_metrics.h"
 #include "chrome/browser/sharesheet/sharesheet_types.h"
 #include "chrome/browser/ui/ash/sharesheet/sharesheet_bubble_view.h"
 #include "chrome/browser/ui/ash/sharesheet/sharesheet_constants.h"
@@ -42,6 +43,7 @@
 #include "ui/views/controls/image_view.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/layout/box_layout.h"
+#include "ui/views/layout/layout_provider.h"
 #include "ui/views/view.h"
 #include "ui/views/view_class_properties.h"
 
@@ -88,8 +90,15 @@ class SharesheetHeaderView::SharesheetImagePreview : public views::View {
  public:
   METADATA_HEADER(SharesheetImagePreview);
   explicit SharesheetImagePreview(size_t file_count) {
+    const int border_radius =
+        views::LayoutProvider::Get()->GetCornerRadiusMetric(
+            views::Emphasis::kMedium);
     SetBackground(views::CreateRoundedRectBackground(
-        SK_ColorWHITE, kImagePreviewCornerRadius));
+        kImagePreviewPlaceholderBackgroundColor, border_radius));
+    SetBorder(views::CreateRoundedRectBorder(
+        /* thickness */ 1, border_radius,
+        GetNativeTheme()->GetSystemColor(
+            ui::NativeTheme::kColorId_UnfocusedBorderColor)));
     SetLayoutManager(std::make_unique<views::BoxLayout>(
         views::BoxLayout::Orientation::kVertical,
         /* inside_border_insets */ gfx::Insets(),
@@ -141,7 +150,11 @@ class SharesheetHeaderView::SharesheetImagePreview : public views::View {
 
   SharesheetImagePreview(const SharesheetImagePreview&) = delete;
   SharesheetImagePreview& operator=(const SharesheetImagePreview&) = delete;
-  ~SharesheetImagePreview() override = default;
+
+  ~SharesheetImagePreview() override {
+    ::sharesheet::SharesheetMetrics::RecordSharesheetImagePreviewPressed(
+        was_pressed_);
+  }
 
   views::ImageView* GetImageViewAt(size_t index) {
     if (index >= image_views_.size()) {
@@ -160,6 +173,17 @@ class SharesheetHeaderView::SharesheetImagePreview : public views::View {
   }
 
  private:
+  // views::View:
+  bool OnMousePressed(const ui::MouseEvent& event) override {
+    was_pressed_ = true;
+    return false;
+  }
+
+  void OnGestureEvent(ui::GestureEvent* event) override {
+    if (event->type() == ui::ET_GESTURE_TAP)
+      was_pressed_ = true;
+  }
+
   void AddRowToImageContainerView() {
     auto* row = AddChildView(std::make_unique<views::View>());
     row->SetLayoutManager(std::make_unique<views::BoxLayout>(
@@ -196,6 +220,10 @@ class SharesheetHeaderView::SharesheetImagePreview : public views::View {
   }
 
   std::vector<views::ImageView*> image_views_;
+
+  // Used for recording UMA to indicate whether or not a user tried to interact
+  // with the image preview.
+  bool was_pressed_ = false;
 };
 
 BEGIN_METADATA(SharesheetHeaderView, SharesheetImagePreview, views::View)
@@ -289,6 +317,9 @@ void SharesheetHeaderView::ShowTextPreview() {
     text_fields.push_back(file_text);
   }
 
+  if (text_fields.size() == 0)
+    return;
+
   int index = 0;
   int max_lines = std::min(text_fields.size(), kTextPreviewMaximumLines);
   for (; index < max_lines - 1; ++index) {
@@ -335,14 +366,6 @@ std::vector<std::u16string> SharesheetHeaderView::ExtractShareText() {
     text_fields.push_back(base::ASCIIToUTF16(title_text));
   }
 
-  if (intent_->drive_share_url.has_value()) {
-    GURL drive_share_url = intent_->drive_share_url.value();
-    if (drive_share_url.is_valid()) {
-      text_fields.push_back(base::ASCIIToUTF16(drive_share_url.spec()));
-      text_icon_ = TextPlaceholderIcon::kLink;
-    }
-  }
-
   if (intent_->share_text.has_value() &&
       !(intent_->share_text.value().empty())) {
     std::string extracted_text = intent_->share_text.value();
@@ -368,8 +391,6 @@ std::vector<std::u16string> SharesheetHeaderView::ExtractShareText() {
     }
   }
 
-  // There will always be at least 1 text field.
-  DCHECK_NE(text_fields.size(), 0);
   return text_fields;
 }
 

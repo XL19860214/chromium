@@ -31,8 +31,8 @@
 #include "chrome/updater/updater_scope.h"
 #include "chrome/updater/updater_version.h"
 #include "chrome/updater/util.h"
-#include "chrome/updater/win/constants.h"
 #include "chrome/updater/win/setup/setup_util.h"
+#include "chrome/updater/win/win_constants.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "url/gurl.h"
@@ -309,7 +309,7 @@ void ExpectInterfacesRegistered() {
     // releases the prefs lock before updater_internal_server tries to acquire
     // it to mode-check.
     Microsoft::WRL::ComPtr<IUnknown> updater_server;
-    EXPECT_HRESULT_SUCCEEDED(::CoCreateInstance(__uuidof(UpdaterClass), nullptr,
+    ASSERT_HRESULT_SUCCEEDED(::CoCreateInstance(__uuidof(UpdaterClass), nullptr,
                                                 CLSCTX_LOCAL_SERVER,
                                                 IID_PPV_ARGS(&updater_server)));
     Microsoft::WRL::ComPtr<IUpdater> updater;

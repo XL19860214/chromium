@@ -148,14 +148,6 @@ X11EventSource* X11EventSource::GetInstance() {
 ////////////////////////////////////////////////////////////////////////////////
 // X11EventSource, public
 
-void X11EventSource::DispatchXEvents() {
-  continue_stream_ = true;
-  do {
-    connection_->Flush();
-    connection_->ReadResponses();
-  } while (connection_->Dispatch() && continue_stream_);
-}
-
 x11::Time X11EventSource::GetCurrentServerTime() {
   DCHECK(connection_);
 
@@ -298,10 +290,6 @@ void X11EventSource::OnEvent(const x11::Event& x11_event) {
 #endif
     DispatchEvent(translated_event.get());
   }
-}
-
-void X11EventSource::StopCurrentEventStream() {
-  continue_stream_ = false;
 }
 
 void X11EventSource::OnDispatcherListChanged() {

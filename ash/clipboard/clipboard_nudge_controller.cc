@@ -11,6 +11,7 @@
 #include "ash/public/cpp/ash_pref_names.h"
 #include "ash/session/session_controller_impl.h"
 #include "ash/shell.h"
+#include "base/bind.h"
 #include "base/logging.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
@@ -173,7 +174,7 @@ void ClipboardNudgeController::MarkNewFeatureBadgeShown() {
   new_feature_last_shown_time_.ResetTime();
 }
 
-void ClipboardNudgeController::MarkScreenshotNotificationNudgeShown() {
+void ClipboardNudgeController::MarkScreenshotNotificationShown() {
   base::UmaHistogramBoolean(kScreenshotNotification_ShowCount, true);
   if (screenshot_notification_last_shown_time_.ShouldLogFeatureOpenTime()) {
     base::UmaHistogramExactLinear(kScreenshotNotification_OpenTime, kMaxSeconds,

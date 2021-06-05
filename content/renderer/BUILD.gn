@@ -76,8 +76,6 @@ target(link_target_type, "renderer") {
     "internal_document_state_data.h",
     "loader/navigation_body_loader.cc",
     "loader/navigation_body_loader.h",
-    "loader/web_worker_fetch_context_impl.cc",
-    "loader/web_worker_fetch_context_impl.h",
     "media/audio_decoder.cc",
     "media/audio_decoder.h",
     "media/batching_media_log.cc",
@@ -383,6 +381,10 @@ target(link_target_type, "renderer") {
         "//media/remoting:remoting_renderer",
       ]
     }
+  }
+
+  if (enable_cast_streaming_renderer) {
+    deps += [ "//media/cast/receiver:cast_streaming_renderer" ]
   }
 
   if (enable_plugins) {

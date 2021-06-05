@@ -30,6 +30,7 @@
 #include "ash/public/cpp/ash_features.h"
 #include "ash/public/cpp/capture_mode_test_api.h"
 #include "ash/root_window_controller.h"
+#include "ash/services/recording/recording_service_test_api.h"
 #include "ash/shell.h"
 #include "ash/system/status_area_widget.h"
 #include "ash/test/ash_test_base.h"
@@ -41,6 +42,7 @@
 #include "ash/wm/tablet_mode/tablet_mode_controller_test_api.h"
 #include "ash/wm/window_state.h"
 #include "ash/wm/window_util.h"
+#include "base/bind.h"
 #include "base/callback_helpers.h"
 #include "base/run_loop.h"
 #include "base/scoped_observation.h"
@@ -1800,27 +1802,31 @@ TEST_F(CaptureModeTest, VideoNotificationThumbnail) {
                                          CaptureModeType::kVideo);
   controller->StartVideoRecordingImmediatelyForTesting();
   EXPECT_TRUE(controller->is_recording_in_progress());
+  CaptureModeTestApi().FlushRecordingServiceForTesting();
 
   auto* test_delegate =
       static_cast<TestCaptureModeDelegate*>(controller->delegate_for_testing());
 
-  // Use a random bitmap as the fake thumbnail.
-  SkBitmap thumbnail;
-  thumbnail.allocN32Pixels(400, 300);
-  EXPECT_FALSE(thumbnail.drawsNothing());
-  test_delegate->SetVideoThumbnail(
-      gfx::ImageSkia::CreateFrom1xBitmap(thumbnail));
+  // Request and wait for a video frame so that the recording service can use it
+  // to create a video thumbnail.
+  test_delegate->RequestAndWaitForVideoFrame();
+  SkBitmap service_thumbnail =
+      gfx::Image(test_delegate->GetVideoThumbnail()).AsBitmap();
+  EXPECT_FALSE(service_thumbnail.drawsNothing());
 
   CaptureNotificationWaiter waiter;
   controller->EndVideoRecording(EndRecordingReason::kStopRecordingButton);
   EXPECT_FALSE(controller->is_recording_in_progress());
   waiter.Wait();
 
+  // Verify that the service's thumbnail is the same image shown in the
+  // notification shown when recording ends.
   const message_center::Notification* notification = GetPreviewNotification();
   EXPECT_TRUE(notification);
   EXPECT_FALSE(notification->image().IsEmpty());
-  const SkBitmap actual_thumbnail = notification->image().AsBitmap();
-  EXPECT_TRUE(gfx::test::AreBitmapsEqual(actual_thumbnail, thumbnail));
+  const SkBitmap notification_thumbnail = notification->image().AsBitmap();
+  EXPECT_TRUE(
+      gfx::test::AreBitmapsEqual(notification_thumbnail, service_thumbnail));
 }
 
 TEST_F(CaptureModeTest, WindowRecordingCaptureId) {
@@ -2087,6 +2093,55 @@ TEST_F(CaptureModeTest, RotateDisplayWhileRecording) {
   EXPECT_EQ(gfx::Size(100, 200), test_delegate->GetCurrentVideoSize());
 }
 
+// Tests that the video frames delivered to the service for recorded windows are
+// valid (i.e. they have the correct size, and suffer from no letterboxing, even
+// when the window gets resized).
+// This is a regression test for https://crbug.com/1214023.
+TEST_F(CaptureModeTest, VerifyWindowRecordingVideoFrames) {
+  auto window = CreateTestWindow(gfx::Rect(100, 50, 200, 200));
+  StartCaptureSession(CaptureModeSource::kWindow, CaptureModeType::kVideo);
+
+  auto* event_generator = GetEventGenerator();
+  event_generator->MoveMouseToCenterOf(window.get());
+  auto* controller = CaptureModeController::Get();
+  controller->StartVideoRecordingImmediatelyForTesting();
+  EXPECT_TRUE(controller->is_recording_in_progress());
+  CaptureModeTestApi test_api;
+  test_api.FlushRecordingServiceForTesting();
+
+  auto verify_video_frame = [&window](const media::VideoFrame& frame,
+                                      const gfx::Rect& content_rect) {
+    // Having the content positioned at (0,0) with a size that matches the
+    // current window's size means that there is no letterboxing.
+    EXPECT_EQ(gfx::Point(), content_rect.origin());
+    const gfx::Size window_size = window->bounds().size();
+    EXPECT_EQ(window_size, content_rect.size());
+    // The video frame contents should match the bounds of the video frame.
+    EXPECT_EQ(frame.visible_rect(), content_rect);
+    EXPECT_EQ(frame.coded_size(), window_size);
+  };
+
+  auto* test_delegate =
+      static_cast<TestCaptureModeDelegate*>(controller->delegate_for_testing());
+  ASSERT_TRUE(test_delegate->recording_service());
+  SCOPED_TRACE("Initial window size");
+  test_delegate->recording_service()->RequestAndWaitForVideoFrame(
+      base::BindLambdaForTesting(verify_video_frame));
+
+  // Even when the window is resized and the throttled size reaches the service,
+  // new video frames should still be valid.
+  window->SetBounds(gfx::Rect(120, 60, 600, 500));
+  auto* recording_watcher = controller->video_recording_watcher_for_testing();
+  recording_watcher->SendThrottledWindowSizeChangedNowForTesting();
+  test_api.FlushRecordingServiceForTesting();
+  SCOPED_TRACE("After window resizing");
+  test_delegate->recording_service()->RequestAndWaitForVideoFrame(
+      base::BindLambdaForTesting(verify_video_frame));
+
+  controller->EndVideoRecording(EndRecordingReason::kStopRecordingButton);
+  EXPECT_FALSE(controller->is_recording_in_progress());
+}
+
 // Tests the behavior of screen recording with the presence of HDCP secure
 // content on the screen in all capture mode sources (fullscreen, region, and
 // window) depending on the test param.
@@ -2101,14 +2156,21 @@ class CaptureModeHdcpTest
   void SetUp() override {
     CaptureModeTest::SetUp();
     window_ = CreateTestWindow(gfx::Rect(200, 200));
-    protection_delegate_ =
-        std::make_unique<OutputProtectionDelegate>(window_.get());
+    // Create a child window with protected content. This simulates the real
+    // behavior of a browser window hosting a page with protected content, where
+    // the window that has a protection mask is the RenderWidgetHostViewAura,
+    // which is a descendant of the BrowserFrame window which can get recorded.
+    protected_content_window_ = CreateTestWindow(gfx::Rect(150, 150));
+    window_->AddChild(protected_content_window_.get());
+    protection_delegate_ = std::make_unique<OutputProtectionDelegate>(
+        protected_content_window_.get());
     CaptureModeController::Get()->SetUserCaptureRegion(gfx::Rect(20, 50),
                                                        /*by_user=*/true);
   }
 
   void TearDown() override {
     protection_delegate_.reset();
+    protected_content_window_.reset();
     window_.reset();
     CaptureModeTest::TearDown();
   }
@@ -2141,6 +2203,7 @@ class CaptureModeHdcpTest
 
  protected:
   std::unique_ptr<aura::Window> window_;
+  std::unique_ptr<aura::Window> protected_content_window_;
   std::unique_ptr<OutputProtectionDelegate> protection_delegate_;
 };
 
@@ -2239,6 +2302,7 @@ TEST_P(CaptureModeHdcpTest, ProtectedWindowInMultiDisplay) {
     window_util::MoveWindowToDisplay(window_.get(),
                                      roots[1]->GetHost()->GetDisplayId());
     ASSERT_EQ(window_->GetRootWindow(), roots[1]);
+    ASSERT_EQ(protected_content_window_->GetRootWindow(), roots[1]);
     EXPECT_FALSE(controller->is_recording_in_progress());
     histogram_tester.ExpectBucketCount(
         kEndRecordingReasonInClamshellHistogramName,

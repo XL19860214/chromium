@@ -274,17 +274,7 @@ void AutocompleteResult::SortAndCull(
 #else
   if (matches_.size() > 2) {
 #endif
-    // Skip over default match.
-    auto next = std::next(matches_.begin());
-    if (AutocompleteMatch::ShouldBeSkippedForGroupBySearchVsUrl(
-            matches_.front().type)) {
-      while (next != matches_.end() &&
-             (AutocompleteMatch::ShouldBeSkippedForGroupBySearchVsUrl(
-                 next->type))) {
-        next = std::next(next);
-      }
-    }
-    GroupSuggestionsBySearchVsURL(next, matches_.end());
+    GroupSuggestionsBySearchVsURL(std::next(matches_.begin()), matches_.end());
   }
 
   // Grouping and Demoting Matches with Headers needs to be done only after
@@ -461,7 +451,8 @@ void AutocompleteResult::AttachPedalsToMatches(
   for (auto& match : matches_) {
     // Skip matches that have already detected their Pedal, and avoid attaching
     // to matches with types that don't mix well with Pedals (e.g. entities).
-    if (match.pedal || !AutocompleteMatch::IsPedalCompatibleType(match.type)) {
+    if (match.action ||
+        !AutocompleteMatch::IsActionCompatibleType(match.type)) {
       continue;
     }
 
@@ -470,7 +461,7 @@ void AutocompleteResult::AttachPedalsToMatches(
     if (pedal) {
       const auto result = pedals_found.insert(pedal);
       if (result.second)
-        match.pedal = pedal;
+        match.action = pedal;
     }
   }
 }
@@ -1058,6 +1049,14 @@ void AutocompleteResult::LimitNumberOfURLsShown(
 // static
 void AutocompleteResult::GroupSuggestionsBySearchVsURL(iterator begin,
                                                        iterator end) {
+  while (begin != end &&
+         AutocompleteMatch::ShouldBeSkippedForGroupBySearchVsUrl(begin->type)) {
+    ++begin;
+  }
+
+  if (begin == end)
+    return;
+
   std::stable_partition(begin, end, [](const AutocompleteMatch& match) {
     return AutocompleteMatch::IsSearchType(match.type);
   });

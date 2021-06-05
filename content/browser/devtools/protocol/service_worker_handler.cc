@@ -33,6 +33,7 @@
 #include "content/public/browser/service_worker_context.h"
 #include "content/public/browser/storage_partition.h"
 #include "content/public/browser/web_contents.h"
+#include "third_party/blink/public/common/storage_key/storage_key.h"
 #include "third_party/blink/public/mojom/push_messaging/push_messaging_status.mojom.h"
 #include "third_party/blink/public/mojom/service_worker/service_worker_object.mojom.h"
 #include "url/gurl.h"
@@ -161,7 +162,7 @@ void DispatchSyncEventOnCoreThread(
     const std::string& tag,
     bool last_chance) {
   context->FindReadyRegistrationForId(
-      registration_id, origin,
+      registration_id, blink::StorageKey(origin),
       base::BindOnce(&DidFindRegistrationForDispatchSyncEventOnCoreThread,
                      sync_context, tag, last_chance));
 }
@@ -173,7 +174,7 @@ void DispatchPeriodicSyncEventOnCoreThread(
     int64_t registration_id,
     const std::string& tag) {
   context->FindReadyRegistrationForId(
-      registration_id, origin,
+      registration_id, blink::StorageKey(origin),
       base::BindOnce(
           &DidFindRegistrationForDispatchPeriodicSyncEventOnCoreThread,
           sync_context, tag));
@@ -259,7 +260,9 @@ Response ServiceWorkerHandler::StartWorker(const std::string& scope_url) {
     return CreateDomainNotEnabledErrorResponse();
   if (!context_)
     return CreateContextErrorResponse();
-  context_->StartActiveServiceWorker(GURL(scope_url), base::DoNothing());
+  context_->StartActiveServiceWorker(
+      GURL(scope_url), blink::StorageKey::CreateFromStringForTesting(scope_url),
+      base::DoNothing());
   return Response::Success();
 }
 
@@ -268,7 +271,9 @@ Response ServiceWorkerHandler::SkipWaiting(const std::string& scope_url) {
     return CreateDomainNotEnabledErrorResponse();
   if (!context_)
     return CreateContextErrorResponse();
-  context_->SkipWaitingWorker(GURL(scope_url));
+  context_->SkipWaitingWorker(
+      GURL(scope_url),
+      blink::StorageKey::CreateFromStringForTesting(scope_url));
   return Response::Success();
 }
 
@@ -306,7 +311,9 @@ Response ServiceWorkerHandler::UpdateRegistration(
     return CreateDomainNotEnabledErrorResponse();
   if (!context_)
     return CreateContextErrorResponse();
-  context_->UpdateRegistration(GURL(scope_url));
+  context_->UpdateRegistration(
+      GURL(scope_url),
+      blink::StorageKey::CreateFromStringForTesting(scope_url));
   return Response::Success();
 }
 

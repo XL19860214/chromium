@@ -4,30 +4,26 @@
 
 #include "chrome/browser/web_applications/web_app_install_task.h"
 
+#include <array>
 #include <memory>
 #include <set>
 #include <utility>
 
-#include "chrome/browser/content_settings/host_content_settings_map_factory.h"
-#include "components/content_settings/core/browser/host_content_settings_map.h"
-#include "components/content_settings/core/common/content_settings.h"
-#include "components/content_settings/core/common/content_settings_pattern.h"
-
 #include "base/bind.h"
 #include "base/callback.h"
-#include "base/files/file_enumerator.h"
 #include "base/files/file_path.h"
 #include "base/run_loop.h"
-#include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/bind.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/chromeos_buildflags.h"
+#include "chrome/browser/content_settings/host_content_settings_map_factory.h"
 #include "chrome/browser/web_applications/components/web_app_constants.h"
 #include "chrome/browser/web_applications/components/web_app_helpers.h"
 #include "chrome/browser/web_applications/components/web_app_icon_generator.h"
+#include "chrome/browser/web_applications/components/web_app_install_utils.h"
 #include "chrome/browser/web_applications/components/web_app_utils.h"
 #include "chrome/browser/web_applications/components/web_application_info.h"
 #include "chrome/browser/web_applications/test/test_data_retriever.h"
@@ -52,6 +48,9 @@
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_profile.h"
 #include "chrome/test/base/testing_profile_manager.h"
+#include "components/content_settings/core/browser/host_content_settings_map.h"
+#include "components/content_settings/core/common/content_settings.h"
+#include "components/content_settings/core/common/content_settings_pattern.h"
 #include "components/webapps/browser/installable/installable_data.h"
 #include "components/webapps/browser/installable/installable_metrics.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -59,6 +58,7 @@
 #include "third_party/blink/public/common/features.h"
 #include "third_party/blink/public/common/manifest/manifest.h"
 #include "third_party/skia/include/core/SkBitmap.h"
+#include "third_party/skia/include/core/SkColor.h"
 #include "url/gurl.h"
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
@@ -658,8 +658,62 @@ TEST_F(WebAppInstallTaskTest, GetIcons_NoIconsProvided) {
 
 TEST_F(WebAppInstallTaskTest, WriteDataToDisk) {
   const GURL url = GURL("https://example.com/path");
-  CreateDefaultDataToRetrieve(url);
-  CreateRendererAppInfo(url, "Name", "Description");
+
+  struct TestIconInfo {
+    IconPurpose purpose;
+    std::string icon_url_name;
+    SkColor color;
+    std::vector<SquareSizePx> sizes_px;
+    std::string dir;
+  };
+
+  const std::array<TestIconInfo, 3> purpose_infos = {
+      TestIconInfo{IconPurpose::ANY,
+                   "any",
+                   SK_ColorGREEN,
+                   {icon_size::k16, icon_size::k512},
+                   "Icons"},
+      TestIconInfo{IconPurpose::MONOCHROME,
+                   "monochrome",
+                   SkColorSetARGB(0x80, 0x00, 0x00, 0x00),
+                   {icon_size::k32, icon_size::k256},
+                   "Icons Monochrome"},
+      TestIconInfo{IconPurpose::MASKABLE,
+                   "maskable",
+                   SK_ColorRED,
+                   {icon_size::k64, icon_size::k96, icon_size::k128},
+                   "Icons Maskable"}};
+
+  static_assert(
+      purpose_infos.size() == static_cast<int>(IconPurpose::kMaxValue) -
+                                  static_cast<int>(IconPurpose::kMinValue) + 1,
+      "All purposes covered");
+
+  // Prepare all the data to be fetched or downloaded.
+  {
+    auto manifest = std::make_unique<blink::Manifest>();
+    manifest->start_url = url;
+    manifest->short_name = u"Manifest Name";
+
+    IconsMap icons_map;
+
+    for (const TestIconInfo& purpose_info : purpose_infos) {
+      for (SquareSizePx s : purpose_info.sizes_px) {
+        std::string size_str = base::NumberToString(s);
+        GURL icon_url =
+            url.Resolve(purpose_info.icon_url_name + size_str + ".png");
+
+        manifest->icons.push_back(
+            CreateSquareImageResource(icon_url, s, {purpose_info.purpose}));
+
+        icons_map[icon_url] = {CreateSquareIcon(s, purpose_info.color)};
+      }
+    }
+
+    data_retriever().SetEmptyRendererWebApplicationInfo();
+    data_retriever().SetManifest(std::move(manifest), /*is_installable=*/true);
+    data_retriever().SetIcons(std::move(icons_map));
+  }
 
   // TestingProfile creates temp directory if TestingProfile::path_ is empty
   // (i.e. if TestingProfile::Builder::SetPath was not called by a test fixture)
@@ -667,13 +721,6 @@ TEST_F(WebAppInstallTaskTest, WriteDataToDisk) {
   const base::FilePath manifest_resources_directory =
       GetManifestResourcesDirectory(web_apps_dir);
   EXPECT_FALSE(file_utils_->DirectoryExists(manifest_resources_directory));
-
-  const SkColor color = SK_ColorGREEN;
-  const int original_icon_size_px = icon_size::k512;
-
-  // Generate one icon as if it was fetched from renderer.
-  AddGeneratedIcon(&data_retriever_->web_app_info().icon_bitmaps.any,
-                   original_icon_size_px, color);
 
   const AppId app_id = InstallWebAppFromManifestWithFallback();
 
@@ -687,41 +734,41 @@ TEST_F(WebAppInstallTaskTest, WriteDataToDisk) {
       manifest_resources_directory.AppendASCII(app_id);
   EXPECT_TRUE(file_utils_->DirectoryExists(app_dir));
 
-  const base::FilePath icons_dir = app_dir.AppendASCII("Icons");
-  EXPECT_TRUE(file_utils_->DirectoryExists(icons_dir));
+  for (const TestIconInfo& purpose_info : purpose_infos) {
+    SCOPED_TRACE(purpose_info.purpose);
 
-  std::set<int> written_sizes_px;
+    const base::FilePath icons_dir = app_dir.AppendASCII(purpose_info.dir);
+    EXPECT_TRUE(file_utils_->DirectoryExists(icons_dir));
 
-  base::FileEnumerator enumerator(icons_dir, true, base::FileEnumerator::FILES);
-  for (base::FilePath path = enumerator.Next(); !path.empty();
-       path = enumerator.Next()) {
-    EXPECT_TRUE(path.MatchesExtension(FILE_PATH_LITERAL(".png")));
+    std::map<SquareSizePx, SkBitmap> pngs =
+        ReadPngsFromDirectory(file_utils_, icons_dir);
 
-    SkBitmap bitmap;
-    EXPECT_TRUE(ReadBitmap(file_utils_, path, &bitmap));
+    // The install does ResizeIconsAndGenerateMissing() only for ANY icons.
+    if (purpose_info.purpose == IconPurpose::ANY) {
+      // Icons are generated for all mandatory sizes in GetIconSizes() in
+      // addition to the input k16 and k512 sizes.
+      EXPECT_EQ(GetIconSizes().size() + 2UL, pngs.size());
+      // Excludes autogenerated sizes.
+      for (SquareSizePx s : GetIconSizes()) {
+        pngs.erase(s);
+      }
+    } else {
+      EXPECT_EQ(purpose_info.sizes_px.size(), pngs.size());
+    }
 
-    EXPECT_EQ(bitmap.width(), bitmap.height());
+    for (SquareSizePx size_px : purpose_info.sizes_px) {
+      SCOPED_TRACE(size_px);
+      ASSERT_TRUE(base::Contains(pngs, size_px));
 
-    const int size_px = bitmap.width();
-    EXPECT_EQ(0UL, written_sizes_px.count(size_px));
+      SkBitmap icon_bitmap = pngs[size_px];
+      EXPECT_EQ(icon_bitmap.width(), icon_bitmap.height());
+      EXPECT_EQ(size_px, icon_bitmap.height());
+      EXPECT_EQ(purpose_info.color, pngs[size_px].getColor(0, 0));
+      pngs.erase(size_px);
+    }
 
-    base::FilePath size_file_name;
-    size_file_name =
-        size_file_name.AppendASCII(base::StringPrintf("%i.png", size_px));
-    EXPECT_EQ(size_file_name, path.BaseName());
-
-    written_sizes_px.insert(size_px);
-
-    EXPECT_EQ(color, bitmap.getColor(0, 0));
+    EXPECT_TRUE(pngs.empty());
   }
-
-  EXPECT_EQ(GetIconSizes().size() + 1UL, written_sizes_px.size());
-
-  for (int size_px : GetIconSizes())
-    written_sizes_px.erase(size_px);
-  written_sizes_px.erase(original_icon_size_px);
-
-  EXPECT_TRUE(written_sizes_px.empty());
 }
 
 TEST_F(WebAppInstallTaskTest, WriteDataToDiskFailed) {
@@ -1227,6 +1274,46 @@ TEST_F(WebAppInstallTaskTest, LoadAndRetrieveWebApplicationInfoWithIcons) {
     task.reset();
     run_loop.Run();
   }
+}
+
+TEST_F(WebAppInstallTaskTest, StorageIsolationFlagSaved) {
+  const GURL manifest_start_url = GURL("https://example.com/start");
+  const AppId app_id = GenerateAppIdFromURL(manifest_start_url);
+
+  auto manifest = std::make_unique<blink::Manifest>();
+  manifest->short_name = u"Short Name from Manifest";
+  manifest->name = u"Name from Manifest";
+  manifest->start_url = GURL("https://example.com/start");
+  manifest->isolated_storage = true;
+
+  auto web_app_info = std::make_unique<WebApplicationInfo>();
+  UpdateWebAppInfoFromManifest(*manifest, manifest_start_url,
+                               web_app_info.get());
+
+  data_retriever_->SetManifest(std::move(manifest), /*is_installable=*/true);
+  data_retriever_->SetRendererWebApplicationInfo(std::move(web_app_info));
+
+  base::RunLoop run_loop;
+  bool callback_called = false;
+
+  install_task_->InstallWebAppFromManifestWithFallback(
+      web_contents(), /*force_shortcut_app=*/false,
+      webapps::WebappInstallSource::MENU_BROWSER_TAB,
+      base::BindOnce(test::TestAcceptDialogCallback),
+      base::BindLambdaForTesting(
+          [&](const AppId& installed_app_id, InstallResultCode code) {
+            EXPECT_EQ(InstallResultCode::kSuccessNewInstall, code);
+            EXPECT_EQ(app_id, installed_app_id);
+            callback_called = true;
+            run_loop.Quit();
+          }));
+  run_loop.Run();
+
+  EXPECT_TRUE(callback_called);
+
+  const WebApp* web_app = registrar().GetAppById(app_id);
+  EXPECT_NE(nullptr, web_app);
+  EXPECT_TRUE(web_app->IsStorageIsolated());
 }
 
 TEST_F(WebAppInstallTaskWithRunOnOsLoginTest,

@@ -209,7 +209,17 @@ CorsURLLoaderFactory::CorsURLLoaderFactory(
       &CorsURLLoaderFactory::DeleteIfNeeded, base::Unretained(this)));
 }
 
-CorsURLLoaderFactory::~CorsURLLoaderFactory() = default;
+CorsURLLoaderFactory::~CorsURLLoaderFactory() {
+  // Delete loaders one at a time, since deleting one loader can cause another
+  // loader waiting on it to fail synchronously, which could result in the other
+  // loader calling DestroyURLLoader().
+  while (!loaders_.empty()) {
+    // No need to call context_->LoaderDestroyed(), since this method is only
+    // called from the NetworkContext's destructor, or when there are no
+    // remaining URLLoaders.
+    loaders_.erase(loaders_.begin());
+  }
+}
 
 void CorsURLLoaderFactory::OnLoaderCreated(
     std::unique_ptr<mojom::URLLoader> loader) {
@@ -426,24 +436,10 @@ bool CorsURLLoaderFactory::IsValidRequest(const ResourceRequest& request,
 
     case InitiatorLockCompatibility::kIncorrectLock:
       // Requests from the renderer need to always specify a correct initiator.
-      NOTREACHED() << "request_initiator_origin_lock_ = "
-                   << request_initiator_origin_lock_.value_or(
-                          url::Origin::Create(GURL("https://no-lock.com")))
-                   << "; request.request_initiator = "
-                   << request.request_initiator.value_or(url::Origin::Create(
-                          GURL("https://no-initiator.com")));
-      if (base::FeatureList::IsEnabled(
-              features::kRequestInitiatorSiteLockEnfocement)) {
-        url::debug::ScopedOriginCrashKey initiator_lock_crash_key(
-            debug::GetRequestInitiatorOriginLockCrashKey(),
-            base::OptionalOrNullptr(request_initiator_origin_lock_));
-        base::debug::ScopedCrashKeyString debug_tag_crash_key(
-            debug::GetFactoryDebugTagCrashKey(), debug_tag_);
-        mojo::ReportBadMessage(
-            "CorsURLLoaderFactory: lock VS initiator mismatch");
-        return false;
-      }
-      break;
+      NOTREACHED();
+      mojo::ReportBadMessage(
+          "CorsURLLoaderFactory: lock VS initiator mismatch");
+      return false;
   }
 
   if (context_ && !GetAllowAnyCorsExemptHeaderForBrowser() &&

@@ -5,9 +5,11 @@
 #ifndef UI_OZONE_PLATFORM_WAYLAND_HOST_WAYLAND_CONNECTION_H_
 #define UI_OZONE_PLATFORM_WAYLAND_HOST_WAYLAND_CONNECTION_H_
 
+#include <time.h>
 #include <memory>
 #include <vector>
 
+#include "base/time/time.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/events/event.h"
 #include "ui/ozone/platform/wayland/common/wayland_object.h"
@@ -30,6 +32,7 @@ class WaylandProxy;
 namespace ui {
 
 class DeviceHotplugEventObserver;
+class OrgKdeKwinIdle;
 class WaylandBufferManagerHost;
 class WaylandCursor;
 class WaylandCursorBufferListener;
@@ -185,6 +188,8 @@ class WaylandConnection {
 
   GtkShell1* gtk_shell1() { return gtk_shell1_.get(); }
 
+  OrgKdeKwinIdle* org_kde_kwin_idle() { return org_kde_kwin_idle_.get(); }
+
   ZwpPrimarySelectionDeviceManager* zwp_primary_selection_device_manager()
       const {
     return zwp_primary_selection_device_manager_.get();
@@ -205,6 +210,17 @@ class WaylandConnection {
 
   // Creates a new wl_surface.
   wl::Object<wl_surface> CreateSurface();
+
+  // base::TimeTicks::Now() in posix uses CLOCK_MONOTONIC, wp_presentation
+  // timestamps are in clk_id sent in wp_presentation.clock_id event. This
+  // converts wp_presentation timestamp to base::TimeTicks.
+  // The approximation relies on presentation timestamp to be close to current
+  // time. The further it is from current time and the bigger the speed
+  // difference between the two clock domains, the bigger the conversion error.
+  // Conversion error due to system load is biased and unbounded.
+  base::TimeTicks ConvertPresentationTime(uint32_t tv_sec_hi,
+                                          uint32_t tv_sec_lo,
+                                          uint32_t tv_nsec);
 
  private:
   friend class WaylandConnectionTestApi;
@@ -239,6 +255,9 @@ class WaylandConnection {
 
   // xdg_wm_base_listener
   static void Ping(void* data, xdg_wm_base* shell, uint32_t serial);
+
+  // xdg_wm_base_listener
+  static void ClockId(void* data, wp_presentation* shell_v6, uint32_t clk_id);
 
   uint32_t compositor_version_ = 0;
   wl::Object<wl_display> display_;
@@ -292,8 +311,14 @@ class WaylandConnection {
 
   std::unique_ptr<GtkShell1> gtk_shell1_;
 
+  // Objects specific to KDE Plasma desktop environment.
+  std::unique_ptr<OrgKdeKwinIdle> org_kde_kwin_idle_;
+
   std::unique_ptr<WaylandDataDragController> data_drag_controller_;
   std::unique_ptr<WaylandWindowDragController> window_drag_controller_;
+
+  // Describes the clock domain that wp_presentation timestamps are in.
+  uint32_t presentation_clk_id_ = CLOCK_MONOTONIC;
 
   // Helper class that lets input emulation access some data of objects
   // that Wayland holds. For example, wl_surface and others. It's only

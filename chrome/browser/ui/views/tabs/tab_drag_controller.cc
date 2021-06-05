@@ -104,8 +104,8 @@ bool IsSnapped(const TabDragContext* context) {
   chromeos::WindowStateType type =
       GetWindowForTabDraggingProperties(context)->GetProperty(
           chromeos::kWindowStateTypeKey);
-  return type == chromeos::WindowStateType::kLeftSnapped ||
-         type == chromeos::WindowStateType::kRightSnapped;
+  return type == chromeos::WindowStateType::kPrimarySnapped ||
+         type == chromeos::WindowStateType::kSecondarySnapped;
 }
 
 // In Chrome OS tablet mode, when dragging a tab/tabs around, the desired
@@ -1329,6 +1329,10 @@ std::unique_ptr<TabDragController> TabDragController::Detach(
 
   attached_context_tabs_closed_tracker_.reset();
 
+  // Detaching may trigger the Widget bounds to change. Such bounds changes
+  // should be ignored as they may lead to reentrancy and bad things happening.
+  widget_observation_.Reset();
+
   attach_index_ = -1;
 
   // When the user detaches we assume they want to reorder.
@@ -1338,7 +1342,7 @@ std::unique_ptr<TabDragController> TabDragController::Detach(
   // reattach ownership is transferred.
   std::unique_ptr<TabDragController> me =
       attached_context_->ReleaseDragController();
-  DCHECK(me.get() == this);
+  DCHECK_EQ(me.get(), this);
 
   if (release_capture == RELEASE_CAPTURE)
     attached_context_->AsView()->GetWidget()->ReleaseCapture();
@@ -1484,6 +1488,12 @@ void TabDragController::RunMoveLoop(const gfx::Vector2d& drag_offset) {
           ? views::Widget::MoveLoopEscapeBehavior::kHide
           : views::Widget::MoveLoopEscapeBehavior::kDontHide;
 
+  // This code isn't set up to handle nested run loops. Nested run loops may
+  // lead to all sorts of interesting crashes, and generally indicate a bug
+  // lower in the stack. This is a CHECK() as there may be security
+  // implications to attempting a nested run loop.
+  CHECK(!in_move_loop_);
+  in_move_loop_ = true;
   views::Widget::MoveLoopResult result = move_loop_widget_->RunMoveLoop(
       drag_offset, move_loop_source, escape_behavior);
   content::NotificationService::current()->Notify(
@@ -1494,10 +1504,8 @@ void TabDragController::RunMoveLoop(const gfx::Vector2d& drag_offset) {
   if (!ref)
     return;
 
-  if (move_loop_widget_ &&
-      widget_observation_.IsObservingSource(move_loop_widget_)) {
-    widget_observation_.Reset();
-  }
+  in_move_loop_ = false;
+  widget_observation_.Reset();
   move_loop_widget_ = nullptr;
 
   if (current_state_ == DragState::kDraggingWindow) {
@@ -2349,6 +2357,8 @@ TabDragController::GetTabGroupForTargetIndex(const std::vector<int>& selected) {
 bool TabDragController::CanAttachTo(gfx::NativeWindow window) {
   if (!window)
     return false;
+  if (window == GetAttachedBrowserWidget()->GetNativeWindow())
+    return true;
 
   BrowserView* other_browser_view =
       BrowserView::GetBrowserViewForNativeWindow(window);

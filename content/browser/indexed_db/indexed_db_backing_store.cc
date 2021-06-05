@@ -63,6 +63,7 @@
 #include "third_party/blink/public/common/blob/blob_utils.h"
 #include "third_party/blink/public/common/indexeddb/indexeddb_key_range.h"
 #include "third_party/blink/public/common/indexeddb/web_idb_types.h"
+#include "third_party/blink/public/common/storage_key/storage_key.h"
 #include "third_party/blink/public/mojom/blob/blob.mojom.h"
 #include "third_party/leveldatabase/env_chromium.h"
 
@@ -707,7 +708,10 @@ leveldb::Status IndexedDBBackingStore::Initialize(bool clean_active_journal) {
     INTERNAL_READ_ERROR(SET_UP_METADATA);
     return s;
   }
-  indexed_db::ReportSchemaVersion(db_schema_version, origin_);
+  indexed_db::ReportSchemaVersion(
+      db_schema_version,
+      // TODO(crbug.com/1210555): Propagate StorageKey up the chain.
+      blink::StorageKey(origin_));
   if (!found) {
     // Initialize new backing store.
     db_schema_version = indexed_db::kLatestKnownSchemaVersion;
@@ -789,7 +793,8 @@ leveldb::Status IndexedDBBackingStore::Initialize(bool clean_active_journal) {
   if (!s.ok()) {
     indexed_db::ReportOpenStatus(
         indexed_db::INDEXED_DB_BACKING_STORE_OPEN_FAILED_METADATA_SETUP,
-        origin_);
+        // TODO(crbug.com/1210555): Propagate StorageKey up the chain.
+        blink::StorageKey(origin_));
     INTERNAL_WRITE_ERROR(SET_UP_METADATA);
     return s;
   }
@@ -800,7 +805,8 @@ leveldb::Status IndexedDBBackingStore::Initialize(bool clean_active_journal) {
       indexed_db::ReportOpenStatus(
           indexed_db::
               INDEXED_DB_BACKING_STORE_OPEN_FAILED_CLEANUP_JOURNAL_ERROR,
-          origin_);
+          // TODO(crbug.com/1210555): Propagate StorageKey up the chain.
+          blink::StorageKey(origin_));
     }
   }
 #if DCHECK_IS_ON()
@@ -1127,8 +1133,9 @@ bool IndexedDBBackingStore::RecordCorruptionInfo(
     const url::Origin& origin,
     const std::string& message) {
   auto filesystem = storage::CreateFilesystemProxy();
-  const base::FilePath info_path =
-      path_base.Append(indexed_db::ComputeCorruptionFileName(origin));
+  const base::FilePath info_path = path_base.Append(
+      // TODO(crbug.com/1210555): Propagate StorageKey up the chain.
+      indexed_db::ComputeCorruptionFileName(blink::StorageKey(origin)));
   if (IsPathTooLong(filesystem.get(), info_path))
     return false;
 
@@ -1159,8 +1166,8 @@ Status IndexedDBBackingStore::DeleteDatabase(
   if (!success)
     return Status::OK();
 
-  // |ORIGIN_NAME| is the first key (0) in the database prefix, so this deletes
-  // the whole database.
+  // `ORIGIN_NAME` is the first key (0) in the database prefix, so this
+  // deletes the whole database.
   const std::string start_key =
       DatabaseMetaDataKey::Encode(id, DatabaseMetaDataKey::ORIGIN_NAME);
   const std::string stop_key =
@@ -3138,7 +3145,10 @@ Status IndexedDBBackingStore::MigrateToV3(LevelDBWriteBatch* write_batch) {
     INTERNAL_CONSISTENCY_ERROR(SET_UP_METADATA);
     return InternalInconsistencyStatus();
   }
-  indexed_db::ReportV2Schema(has_blobs, origin_);
+  indexed_db::ReportV2Schema(
+      has_blobs,
+      // TODO(crbug.com/1210555): Propagate StorageKey up the chain.
+      blink::StorageKey(origin_));
   if (has_blobs) {
     INTERNAL_CONSISTENCY_ERROR(UPGRADING_SCHEMA_CORRUPTED_BLOBS);
     if (origin_.host() != "docs.google.com")

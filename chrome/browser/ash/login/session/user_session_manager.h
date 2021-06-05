@@ -31,8 +31,6 @@
 #include "chrome/browser/ash/login/signin/token_handle_util.h"
 // TODO(https://crbug.com/1164001): move to forward declaration.
 #include "chrome/browser/ash/login/ui/input_events_blocker.h"
-// TODO(https://crbug.com/1164001): move to forward declaration.
-#include "chrome/browser/ash/login/ui/login_display_host.h"
 #include "chrome/browser/ash/net/secure_dns_manager.h"
 #include "chrome/browser/ash/release_notes/release_notes_notification.h"
 // TODO(https://crbug.com/1164001): move to forward declaration.
@@ -67,7 +65,7 @@ class User;
 }  // namespace user_manager
 
 namespace ash {
-
+class LoginDisplayHost;
 class OnboardingUserActivityCounter;
 
 namespace test {
@@ -353,6 +351,10 @@ class UserSessionManager
   // Shows Help App notification if necessary.
   void MaybeShowHelpAppNotification(Profile* profile);
 
+  // Shows Help App discover notification if necessary. Must be called after
+  // MaybeShowHelpAppNotification() which constructs a notification controller.
+  void MaybeShowHelpAppDiscoverNotification(Profile* profile);
+
  protected:
   // Protected for testability reasons.
   UserSessionManager();
@@ -544,6 +546,11 @@ class UserSessionManager
   // Triggers loading of the shill profile for |account_id|. This should only be
   // called for the primary user session.
   void LoadShillProfile(const AccountId& account_id);
+
+  // Get a reference the help app notification controller, creating it if it
+  // doesn't exist.
+  HelpAppNotificationController* GetHelpAppNotificationController(
+      Profile* profile);
 
   UserSessionManagerDelegate* delegate_;
 

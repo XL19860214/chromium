@@ -111,11 +111,6 @@ const base::Feature kCrossOriginOpenerPolicyAccessReporting{
 const base::Feature kCrossOriginOpenerPolicyByDefault{
     "CrossOriginOpenerPolicyByDefault", base::FEATURE_DISABLED_BY_DEFAULT};
 
-// Enables the most recent developments on the crossOriginIsolated property.
-// https://developer.mozilla.org/en-US/docs/Web/API/WindowOrWorkerGlobalScope/crossOriginIsolated
-const base::Feature kCrossOriginIsolated{"CrossOriginIsolated",
-                                         base::FEATURE_ENABLED_BY_DEFAULT};
-
 // Enables or defaults splittup up server (not proxy) entries in the
 // HttpAuthCache.
 const base::Feature kSplitAuthCacheByNetworkIsolationKey{
@@ -151,17 +146,6 @@ const base::FeatureParam<std::string>
 // for investigation on the memory usage, and should not be enabled widely.
 const base::Feature kDisableKeepaliveFetch{"DisableKeepaliveFetch",
                                            base::FEATURE_DISABLED_BY_DEFAULT};
-
-// Controls whether a |request_initiator| that mismatches
-// |request_initiator_origin_lock| leads to 1) failing the HTTP request and 2)
-// calling mojo::ReportBadMessage (on desktop platforms, where NetworkService
-// is hosted outside of the Browser process, this leads to DumpWithoutCrashing
-// and does *not* lead to a renderer kill).
-//
-// See also https://crbug.com/920634
-const base::Feature kRequestInitiatorSiteLockEnfocement = {
-    "RequestInitiatorSiteLockEnfocement",
-    base::FEATURE_ENABLED_BY_DEFAULT};
 
 // Enables preprocessing requests with the Trust Tokens API Fetch flags set,
 // and handling their responses, according to the protocol.

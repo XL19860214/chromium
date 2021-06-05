@@ -63,11 +63,10 @@
 #include "chrome/test/base/ui_test_utils.h"
 #include "components/captive_portal/core/buildflags.h"
 #include "components/embedder_support/switches.h"
+#include "components/feature_engagement/public/feature_list.h"
 #include "components/google/core/common/google_util.h"
 #include "components/os_crypt/os_crypt_mocker.h"
 #include "content/public/browser/devtools_agent_host.h"
-#include "content/public/browser/notification_service.h"
-#include "content/public/browser/notification_types.h"
 #include "content/public/common/content_paths.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/test/browser_test_utils.h"
@@ -255,9 +254,19 @@ void InProcessBrowserTest::Initialize() {
   bundle_swizzler_ = std::make_unique<ScopedBundleSwizzlerMac>();
 #endif
 
+  std::vector<base::Feature> disabled_features;
+
   // Preconnecting can cause non-deterministic test behavior especially with
   // various test fixtures that mock servers.
-  scoped_feature_list_.InitAndDisableFeature(features::kPreconnectToSearch);
+  disabled_features.push_back(features::kPreconnectToSearch);
+
+  // In-product help can conflict with tests' expected window activation and
+  // focus. Individual tests can re-enable IPH.
+  for (const base::Feature* feature : feature_engagement::GetAllFeatures()) {
+    disabled_features.push_back(*feature);
+  }
+
+  scoped_feature_list_.InitWithFeatures({}, disabled_features);
 }
 
 InProcessBrowserTest::~InProcessBrowserTest() = default;
@@ -365,6 +374,9 @@ void InProcessBrowserTest::SetUp() {
   // Disable the notification delay timer used to prevent non system
   // notifications from showing up right after login.
   ash::ShellTestApi::SetUseLoginNotificationDelayForTest(false);
+
+  // Don't show the new shortcuts notification at startup.
+  ash::ShellTestApi::SetShouldShowShortcutNotificationForTest(false);
 
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
@@ -586,11 +598,9 @@ Browser* InProcessBrowserTest::CreateGuestBrowser() {
 #endif  // !defined(OS_ANDROID) && !BUILDFLAG(IS_CHROMEOS_ASH)
 
 void InProcessBrowserTest::AddBlankTabAndShow(Browser* browser) {
-  content::WindowedNotificationObserver observer(
-      content::NOTIFICATION_LOAD_STOP,
-      content::NotificationService::AllSources());
-  chrome::AddSelectedTabWithURL(browser, GURL(url::kAboutBlankURL),
-                                ui::PAGE_TRANSITION_AUTO_TOPLEVEL);
+  content::WebContents* blank_tab = chrome::AddSelectedTabWithURL(
+      browser, GURL(url::kAboutBlankURL), ui::PAGE_TRANSITION_AUTO_TOPLEVEL);
+  content::TestNavigationObserver observer(blank_tab);
   observer.Wait();
 
   browser->window()->Show();

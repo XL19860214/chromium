@@ -57,6 +57,16 @@ DesktopAutomationHandler = class extends BaseAutomationHandler {
     /** @private {string} */
     this.lastAlertText_ = '';
 
+    /**
+     * The last time we handled a live region changed event.
+     * @type {!Date}
+     * @private
+     */
+    this.liveRegionChange_ = new Date();
+
+    /** @private {string}*/
+    this.lastLiveRegionChangeText_ = '';
+
     /** @private {string} */
     this.lastRootUrl_ = '';
 
@@ -84,7 +94,7 @@ DesktopAutomationHandler = class extends BaseAutomationHandler {
 
     this.addListener_(EventType.LOAD_COMPLETE, this.onLoadComplete);
     this.addListener_(EventType.MENU_END, this.onMenuEnd);
-    this.addListener_(EventType.MENU_START, this.onMenuStart);
+    this.addListener_(EventType.MENU_START, this.onEventDefault);
     this.addListener_(EventType.RANGE_VALUE_CHANGED, this.onValueChanged);
     this.addListener_(
         EventType.SCROLL_POSITION_CHANGED, this.onScrollPositionChanged);
@@ -325,12 +335,21 @@ DesktopAutomationHandler = class extends BaseAutomationHandler {
       } else {
         output.withQueueMode(QueueMode.QUEUE);
       }
+      const liveRegionChange = (new Date() - this.liveRegionChange_) <
+          DesktopAutomationHandler.LIVE_REGION_DELAY_MS;
 
       output
           .withRichSpeechAndBraille(
               cursors.Range.fromNode(evt.target), null, evt.type)
-          .withSpeechCategory(TtsCategory.LIVE)
-          .go();
+          .withSpeechCategory(TtsCategory.LIVE);
+      if (liveRegionChange &&
+          output.toString() === this.lastLiveRegionChangeText_) {
+        return;
+      }
+
+      this.liveRegionChange_ = new Date();
+      this.lastLiveRegionChangeText_ = output.toString();
+      output.go();
     }
   }
 
@@ -629,15 +648,6 @@ DesktopAutomationHandler = class extends BaseAutomationHandler {
   }
 
   /**
-   * Provides all feedback once a menu start event fires.
-   * @param {!ChromeVoxEvent} evt
-   */
-  onMenuStart(evt) {
-    ChromeVoxState.instance.markCurrentRange();
-    this.onEventDefault(evt);
-  }
-
-  /**
    * Provides all feedback once a menu end event fires.
    * @param {!ChromeVoxEvent} evt
    */
@@ -804,6 +814,13 @@ DesktopAutomationHandler.MIN_VALUE_CHANGE_DELAY_MS = 50;
  * @const {number}
  */
 DesktopAutomationHandler.MIN_ALERT_DELAY_MS = 50;
+
+/**
+ * Time to wait until processing more live region change events on the same
+ * text content.
+ * @const {number}
+ */
+DesktopAutomationHandler.LIVE_REGION_DELAY_MS = 100;
 
 /**
  * Time to wait before announcing attribute changes that are otherwise too

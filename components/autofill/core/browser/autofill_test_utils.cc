@@ -371,6 +371,18 @@ void CreateTestCreditCardFormData(FormData* form,
   form->fields.push_back(field);
 }
 
+FormData WithoutUnserializedData(FormData form) {
+  form.host_frame = {};
+  for (FormFieldData& field : form.fields)
+    field = WithoutUnserializedData(std::move(field));
+  return form;
+}
+
+FormFieldData WithoutUnserializedData(FormFieldData field) {
+  field.host_frame = {};
+  return field;
+}
+
 inline void check_and_set(
     FormGroup* profile,
     ServerFieldType type,
@@ -634,7 +646,7 @@ AutofillOfferData GetCardLinkedOfferData1() {
   // Sets the expiry to be 45 days later.
   data.expiry = AutofillClock::Now() + base::TimeDelta::FromDays(45);
   data.offer_details_url = GURL("http://www.example1.com");
-  data.merchant_domain.emplace_back("http://www.example1.com");
+  data.merchant_origins.emplace_back("http://www.example1.com");
   data.display_strings.value_prop_text = "Get 5% off your purchase";
   data.display_strings.see_details_text = "See details";
   data.display_strings.usage_instructions_text =
@@ -650,7 +662,7 @@ AutofillOfferData GetCardLinkedOfferData2() {
   // Sets the expiry to be 40 days later.
   data.expiry = AutofillClock::Now() + base::TimeDelta::FromDays(40);
   data.offer_details_url = GURL("http://www.example2.com");
-  data.merchant_domain.emplace_back("http://www.example2.com");
+  data.merchant_origins.emplace_back("http://www.example2.com");
   data.display_strings.value_prop_text = "Get $10 off your purchase";
   data.display_strings.see_details_text = "See details";
   data.display_strings.usage_instructions_text =
@@ -666,7 +678,7 @@ AutofillOfferData GetPromoCodeOfferData() {
   // Sets the expiry to be 35 days later.
   data.expiry = AutofillClock::Now() + base::TimeDelta::FromDays(35);
   data.offer_details_url = GURL("http://www.example.com");
-  data.merchant_domain.emplace_back("http://www.example.com");
+  data.merchant_origins.emplace_back("http://www.example.com");
   data.display_strings.value_prop_text = "5% off on shoes. Up to $50.";
   data.display_strings.see_details_text = "See details";
   data.display_strings.usage_instructions_text =

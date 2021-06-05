@@ -112,6 +112,7 @@ public class PictureInPictureControllerTest {
     @MediumTest
     @CommandLineFlags.Add({"enable-features=Portals"})
     @MinAndroidSdkLevel(Build.VERSION_CODES.O)
+    @FlakyTest(message = "https://crbug.com/1211930")
     public void testExitPipOnPortalActivation() throws Throwable {
         testExitOn(()
                            -> JavaScriptUtils.executeJavaScript(getWebContents(),
@@ -122,6 +123,7 @@ public class PictureInPictureControllerTest {
     @Test
     @MediumTest
     @MinAndroidSdkLevel(Build.VERSION_CODES.O)
+    @FlakyTest(message = "https://crbug.com/1211930")
     public void testExitOnLeaveFullscreen() throws Throwable {
         testExitOn(() -> DOMUtils.exitFullscreen(getWebContents()));
     }
@@ -130,6 +132,7 @@ public class PictureInPictureControllerTest {
     @Test
     @MediumTest
     @MinAndroidSdkLevel(Build.VERSION_CODES.O)
+    @FlakyTest(message = "https://crbug.com/1211930")
     public void testExitOnCloseTab() throws Throwable {
         // We want 2 Tabs so we can close the first without any special behaviour.
         mActivityTestRule.loadUrlInNewTab(mTestServer.getURL(TEST_PATH));
@@ -141,6 +144,7 @@ public class PictureInPictureControllerTest {
     @Test
     @MediumTest
     @MinAndroidSdkLevel(Build.VERSION_CODES.O)
+    @FlakyTest(message = "https://crbug.com/1211930")
     public void testExitOnCrash() throws Throwable {
         testExitOn(() -> WebContentsUtils.simulateRendererKilled(getWebContents(), false));
     }
@@ -149,6 +153,7 @@ public class PictureInPictureControllerTest {
     @Test
     @MediumTest
     @MinAndroidSdkLevel(Build.VERSION_CODES.O)
+    @FlakyTest(message = "https://crbug.com/1211930")
     public void testExitOnNewForegroundTab() throws Throwable {
         testExitOn(new Runnable() {
             @Override
@@ -234,9 +239,18 @@ public class PictureInPictureControllerTest {
     }
 
     private void testExitOn(Runnable runnable) throws Throwable {
+        // Before entering fullscreen, get the (nonzero) size of the video element.
+        final int inline_width = DOMUtils.getNodeBounds(getWebContents(), VIDEO_ID).width();
         enterFullscreen();
         triggerAutoPiP();
         CriteriaHelper.pollUiThread(mActivity::isInPictureInPictureMode);
+
+        // Wait for layout to finish.  We assume this means that the video element is now smaller
+        // than its initial size.  If we don't wait, and if the runnable beats layout, then the
+        // result is hard to predict.  Since we primarily care about exiting pixture-in-picture from
+        // steady-state, make sure we're in steady-state.
+        CriteriaHelper.pollInstrumentationThread(
+                () -> DOMUtils.getNodeBounds(getWebContents(), VIDEO_ID).width() < inline_width);
 
         runnable.run();
 

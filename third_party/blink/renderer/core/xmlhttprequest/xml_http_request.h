@@ -55,8 +55,6 @@
 
 namespace blink {
 
-class
-    DocumentOrBlobOrArrayBufferOrArrayBufferViewOrFormDataOrURLSearchParamsOrUSVString;
 class Blob;
 class BlobDataHandle;
 class DOMArrayBuffer;
@@ -135,14 +133,8 @@ class XMLHttpRequest final : public XMLHttpRequestEventTarget,
             const KURL&,
             bool async,
             ExceptionState&);
-#if defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
   void send(const V8UnionDocumentOrXMLHttpRequestBodyInit* body,
             ExceptionState& exception_state);
-#else   // defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
-  void send(
-      const DocumentOrBlobOrArrayBufferOrArrayBufferViewOrFormDataOrURLSearchParamsOrUSVString&,
-      ExceptionState&);
-#endif  // defined(USE_BLINK_V8_BINDING_NEW_IDL_UNION)
   void abort();
   void Dispose();
   void setRequestHeader(const AtomicString& name,
@@ -196,8 +188,8 @@ class XMLHttpRequest final : public XMLHttpRequestEventTarget,
   void DidDownloadData(uint64_t data_length) override;
   void DidDownloadToBlob(scoped_refptr<BlobDataHandle>) override;
   void DidFinishLoading(uint64_t identifier) override;
-  void DidFail(const ResourceError&) override;
-  void DidFailRedirectCheck() override;
+  void DidFail(uint64_t, const ResourceError&) override;
+  void DidFailRedirectCheck(uint64_t) override;
 
   // BlobLoader notifications.
   void DidFinishLoadingInternal();

@@ -16,6 +16,7 @@
 #include "ash/strings/grit/ash_strings.h"
 #include "ash/style/ash_color_provider.h"
 #include "ash/system/tray/tray_popup_utils.h"
+#include "base/bind.h"
 #include "base/i18n/rtl.h"
 #include "base/stl_util.h"
 #include "components/live_caption/pref_names.h"
@@ -267,8 +268,8 @@ void UnifiedVolumeView::Update(bool by_user) {
   // there will be a small discrepancy between slider's value and volume level
   // on audio side. To avoid the jittering in slider UI, use the slider's
   // current value.
-  if (std::abs(level - slider()->GetValue()) <
-      kAudioSliderIgnoreUpdateThreshold) {
+  if (level != 1.0 && std::abs(level - slider()->GetValue()) <
+                          kAudioSliderIgnoreUpdateThreshold) {
     level = slider()->GetValue();
   }
   // Note: even if the value does not change, we still need to call this

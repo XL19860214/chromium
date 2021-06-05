@@ -21,6 +21,7 @@
 #include "content/public/browser/storage_partition.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_observer.h"
+#include "third_party/blink/public/common/storage_key/storage_key.h"
 #include "url/gurl.h"
 
 namespace content {
@@ -70,7 +71,7 @@ class SelfDeleteInstaller
             browser_context->GetDefaultStoragePartition()
                 ->GetServiceWorkerContext()));
     service_worker_context_->FindReadyRegistrationForScope(
-        scope_,
+        scope_, blink::StorageKey(url::Origin::Create(scope_)),
         base::BindOnce(&SelfDeleteInstaller::OnFindReadyRegistrationForScope,
                        this));
   }

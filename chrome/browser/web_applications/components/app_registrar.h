@@ -14,6 +14,7 @@
 #include "chrome/browser/web_applications/components/web_app_id.h"
 #include "chrome/browser/web_applications/components/web_application_info.h"
 #include "components/services/app_service/public/cpp/file_handler.h"
+#include "components/services/app_service/public/cpp/protocol_handler_info.h"
 #include "components/services/app_service/public/cpp/url_handler_info.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/skia/include/core/SkColor.h"
@@ -25,10 +26,6 @@ struct ShareTarget;
 }
 namespace base {
 class Time;
-}
-// Forward declared to support safe downcast;
-namespace extensions {
-class BookmarkAppRegistrar;
 }
 
 namespace web_app {
@@ -108,6 +105,8 @@ class AppRegistrar {
       const AppId& app_id) const = 0;
   virtual const apps::FileHandlers* GetAppFileHandlers(
       const AppId& app_id) const = 0;
+  virtual const apps::ProtocolHandlers* GetAppProtocolHandlers(
+      const AppId& app_id) const = 0;
   virtual bool IsAppFileHandlerPermissionBlocked(const AppId& app_id) const = 0;
 
   // Returns the start_url with launch_query_params appended to the end if any.
@@ -154,12 +153,13 @@ class AppRegistrar {
   virtual std::vector<IconSizes> GetAppDownloadedShortcutsMenuIconsSizes(
       const AppId& app_id) const = 0;
 
+  virtual bool GetWindowControlsOverlayEnabled(const AppId& app_id) const = 0;
+
   virtual std::vector<AppId> GetAppIds() const = 0;
 
   // Safe downcast.
   virtual WebAppRegistrar* AsWebAppRegistrar() = 0;
   virtual const WebAppRegistrar* AsWebAppRegistrar() const = 0;
-  virtual extensions::BookmarkAppRegistrar* AsBookmarkAppRegistrar();
 
   void SetSubsystems(OsIntegrationManager* os_integration_manager);
 
@@ -231,6 +231,8 @@ class AppRegistrar {
 
   // Notify when OS hooks installation is finished during Web App installation.
   void NotifyWebAppInstalledWithOsHooks(const AppId& app_id);
+  void NotifyWebAppUserDisplayModeChanged(const AppId& app_id,
+                                          DisplayMode user_display_mode);
 
  protected:
   Profile* profile() const { return profile_; }

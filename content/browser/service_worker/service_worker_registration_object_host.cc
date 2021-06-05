@@ -8,7 +8,6 @@
 #include "base/callback_helpers.h"
 #include "base/strings/stringprintf.h"
 #include "base/time/time.h"
-#include "components/services/storage/public/cpp/storage_key.h"
 #include "content/browser/service_worker/service_worker_consts.h"
 #include "content/browser/service_worker/service_worker_container_host.h"
 #include "content/browser/service_worker/service_worker_context_core.h"
@@ -259,10 +258,8 @@ void ServiceWorkerRegistrationObjectHost::Unregister(
               ServiceWorkerConsts::kServiceWorkerUnregisterErrorPrefix))) {
     return;
   }
-  // TODO(crbug.com/1199077): Update this when ServiceWorkerRegistration
-  // implements StorageKey.
   context_->UnregisterServiceWorker(
-      registration_->scope(), storage::StorageKey(registration_->origin()),
+      registration_->scope(), registration_->key(),
       /*is_immediate=*/false,
       base::BindOnce(
           &ServiceWorkerRegistrationObjectHost::UnregistrationComplete,
@@ -288,7 +285,7 @@ void ServiceWorkerRegistrationObjectHost::EnableNavigationPreload(
   }
 
   context_->registry()->UpdateNavigationPreloadEnabled(
-      registration_->id(), storage::StorageKey(registration_->origin()), enable,
+      registration_->id(), registration_->key(), enable,
       base::BindOnce(&ServiceWorkerRegistrationObjectHost::
                          DidUpdateNavigationPreloadEnabled,
                      weak_ptr_factory_.GetWeakPtr(), enable,
@@ -338,7 +335,7 @@ void ServiceWorkerRegistrationObjectHost::SetNavigationPreloadHeader(
   }
 
   context_->registry()->UpdateNavigationPreloadHeader(
-      registration_->id(), storage::StorageKey(registration_->origin()), value,
+      registration_->id(), registration_->key(), value,
       base::BindOnce(&ServiceWorkerRegistrationObjectHost::
                          DidUpdateNavigationPreloadHeader,
                      weak_ptr_factory_.GetWeakPtr(), value,

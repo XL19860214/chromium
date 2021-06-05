@@ -13,7 +13,6 @@ import static androidx.test.espresso.matcher.ViewMatchers.withText;
 
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.is;
-import static org.hamcrest.Matchers.not;
 
 import static org.chromium.chrome.browser.autofill_assistant.AutofillAssistantUiTestUtil.getElementValue;
 import static org.chromium.chrome.browser.autofill_assistant.AutofillAssistantUiTestUtil.startAutofillAssistant;
@@ -36,20 +35,22 @@ import org.chromium.chrome.browser.ChromeTabbedActivity;
 import org.chromium.chrome.browser.autofill_assistant.proto.ActionProto;
 import org.chromium.chrome.browser.autofill_assistant.proto.ChipProto;
 import org.chromium.chrome.browser.autofill_assistant.proto.ChipType;
-import org.chromium.chrome.browser.autofill_assistant.proto.ClickProto;
-import org.chromium.chrome.browser.autofill_assistant.proto.ClickType;
+import org.chromium.chrome.browser.autofill_assistant.proto.ClientIdProto;
 import org.chromium.chrome.browser.autofill_assistant.proto.ElementAreaProto;
 import org.chromium.chrome.browser.autofill_assistant.proto.ElementAreaProto.Rectangle;
 import org.chromium.chrome.browser.autofill_assistant.proto.ElementConditionProto;
 import org.chromium.chrome.browser.autofill_assistant.proto.KeyboardValueFillStrategy;
 import org.chromium.chrome.browser.autofill_assistant.proto.PromptProto;
 import org.chromium.chrome.browser.autofill_assistant.proto.PromptProto.Choice;
+import org.chromium.chrome.browser.autofill_assistant.proto.ScrollIntoViewProto;
 import org.chromium.chrome.browser.autofill_assistant.proto.SelectorProto;
+import org.chromium.chrome.browser.autofill_assistant.proto.SendClickEventProto;
 import org.chromium.chrome.browser.autofill_assistant.proto.SetFormFieldValueProto;
 import org.chromium.chrome.browser.autofill_assistant.proto.SetFormFieldValueProto.KeyPress;
 import org.chromium.chrome.browser.autofill_assistant.proto.ShowCastProto;
 import org.chromium.chrome.browser.autofill_assistant.proto.SupportedScriptProto;
 import org.chromium.chrome.browser.autofill_assistant.proto.SupportedScriptProto.PresentationProto;
+import org.chromium.chrome.browser.autofill_assistant.proto.WaitForDomProto;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
@@ -104,25 +105,34 @@ public class AutofillAssistantKeyboardIntegrationTest {
     @MediumTest
     public void keyboardDoesNotShowOnElementClick() throws Exception {
         SelectorProto element =
-                (SelectorProto) SelectorProto.newBuilder()
+                SelectorProto.newBuilder()
                         .addFilters(
                                 SelectorProto.Filter.newBuilder().setCssSelector("#profile_name"))
                         .build();
+        ClientIdProto clientId = ClientIdProto.newBuilder().setIdentifier("e").build();
 
         ArrayList<ActionProto> list = new ArrayList<>();
-        list.add((ActionProto) ActionProto.newBuilder()
-                         .setClick(ClickProto.newBuilder()
-                                           .setClickType(ClickType.CLICK)
-                                           .setElementToClick(element))
+        list.add(ActionProto.newBuilder()
+                         .setWaitForDom(
+                                 WaitForDomProto.newBuilder().setTimeoutMs(1000).setWaitCondition(
+                                         ElementConditionProto.newBuilder()
+                                                 .setMatch(element)
+                                                 .setClientId(clientId)))
                          .build());
-        list.add((ActionProto) ActionProto.newBuilder()
+        list.add(ActionProto.newBuilder()
+                         .setScrollIntoView(ScrollIntoViewProto.newBuilder().setClientId(clientId))
+                         .build());
+        list.add(ActionProto.newBuilder()
+                         .setSendClickEvent(SendClickEventProto.newBuilder().setClientId(clientId))
+                         .build());
+        list.add(ActionProto.newBuilder()
                          .setPrompt(PromptProto.newBuilder().setMessage("Clicked").addChoices(
                                  Choice.newBuilder().setChip(
                                          ChipProto.newBuilder()
                                                  .setType(ChipType.HIGHLIGHTED_ACTION)
                                                  .setText("Continue"))))
                          .build());
-        list.add((ActionProto) ActionProto.newBuilder()
+        list.add(ActionProto.newBuilder()
                          .setShowCast(ShowCastProto.newBuilder()
                                               .setElementToPresent(element)
                                               .setTouchableElementArea(
@@ -130,14 +140,14 @@ public class AutofillAssistantKeyboardIntegrationTest {
                                                               Rectangle.newBuilder().addElements(
                                                                       element))))
                          .build());
-        list.add((ActionProto) ActionProto.newBuilder()
+        list.add(ActionProto.newBuilder()
                          .setPrompt(PromptProto.newBuilder()
                                             .setMessage("Highlighted")
                                             .addChoices(Choice.newBuilder()))
                          .build());
 
         AutofillAssistantTestScript script = new AutofillAssistantTestScript(
-                (SupportedScriptProto) SupportedScriptProto.newBuilder()
+                SupportedScriptProto.newBuilder()
                         .setPath(TEST_PAGE)
                         .setPresentation(PresentationProto.newBuilder().setAutostart(true).setChip(
                                 ChipProto.newBuilder().setText("Done")))
@@ -244,7 +254,7 @@ public class AutofillAssistantKeyboardIntegrationTest {
     @MediumTest
     public void keyboardDoesNotShowOnElementClickInIFrame() throws Exception {
         SelectorProto element =
-                (SelectorProto) SelectorProto.newBuilder()
+                SelectorProto.newBuilder()
                         .addFilters(SelectorProto.Filter.newBuilder().setCssSelector("#iframe"))
                         .addFilters(SelectorProto.Filter.newBuilder().setNthMatch(
                                 SelectorProto.NthMatchFilter.newBuilder().setIndex(0)))
@@ -252,21 +262,30 @@ public class AutofillAssistantKeyboardIntegrationTest {
                                 SelectorProto.EmptyFilter.getDefaultInstance()))
                         .addFilters(SelectorProto.Filter.newBuilder().setCssSelector("#name"))
                         .build();
+        ClientIdProto clientId = ClientIdProto.newBuilder().setIdentifier("e").build();
 
         ArrayList<ActionProto> list = new ArrayList<>();
-        list.add((ActionProto) ActionProto.newBuilder()
-                         .setClick(ClickProto.newBuilder()
-                                           .setClickType(ClickType.CLICK)
-                                           .setElementToClick(element))
+        list.add(ActionProto.newBuilder()
+                         .setWaitForDom(
+                                 WaitForDomProto.newBuilder().setTimeoutMs(1000).setWaitCondition(
+                                         ElementConditionProto.newBuilder()
+                                                 .setMatch(element)
+                                                 .setClientId(clientId)))
                          .build());
-        list.add((ActionProto) ActionProto.newBuilder()
+        list.add(ActionProto.newBuilder()
+                         .setScrollIntoView(ScrollIntoViewProto.newBuilder().setClientId(clientId))
+                         .build());
+        list.add(ActionProto.newBuilder()
+                         .setSendClickEvent(SendClickEventProto.newBuilder().setClientId(clientId))
+                         .build());
+        list.add(ActionProto.newBuilder()
                          .setPrompt(PromptProto.newBuilder().setMessage("Clicked").addChoices(
                                  Choice.newBuilder().setChip(
                                          ChipProto.newBuilder()
                                                  .setType(ChipType.HIGHLIGHTED_ACTION)
                                                  .setText("Continue"))))
                          .build());
-        list.add((ActionProto) ActionProto.newBuilder()
+        list.add(ActionProto.newBuilder()
                          .setShowCast(ShowCastProto.newBuilder()
                                               .setElementToPresent(element)
                                               .setTouchableElementArea(
@@ -274,14 +293,14 @@ public class AutofillAssistantKeyboardIntegrationTest {
                                                               Rectangle.newBuilder().addElements(
                                                                       element))))
                          .build());
-        list.add((ActionProto) ActionProto.newBuilder()
+        list.add(ActionProto.newBuilder()
                          .setPrompt(PromptProto.newBuilder()
                                             .setMessage("Highlighted")
                                             .addChoices(Choice.newBuilder()))
                          .build());
 
         AutofillAssistantTestScript script = new AutofillAssistantTestScript(
-                (SupportedScriptProto) SupportedScriptProto.newBuilder()
+                SupportedScriptProto.newBuilder()
                         .setPath(TEST_PAGE)
                         .setPresentation(PresentationProto.newBuilder().setAutostart(true).setChip(
                                 ChipProto.newBuilder().setText("Done")))
@@ -301,9 +320,10 @@ public class AutofillAssistantKeyboardIntegrationTest {
         waitUntilKeyboardMatchesCondition(mTestRule, /* isShowing= */ true);
     }
 
+    // When the keyboard is showing to type in the website, nothing should happen to the chips.
     @Test
     @MediumTest
-    public void hideChipsWhileKeyboardShowing() throws Exception {
+    public void doNotHideChipsWhileKeyboardShowingForWebsiteTextInput() throws Exception {
         SelectorProto element =
                 (SelectorProto) SelectorProto.newBuilder()
                         .addFilters(
@@ -352,15 +372,14 @@ public class AutofillAssistantKeyboardIntegrationTest {
 
         tapElement(mTestRule, "profile_name");
         waitUntilKeyboardMatchesCondition(mTestRule, /* isShowing= */ true);
-        waitUntilViewMatchesCondition(withText("Done"), not(isDisplayed()));
-        // Chips of type CANCEL should stay visible.
+        onView(withText("Done")).check(matches(isDisplayed()));
         onView(withText("Cancel")).check(matches(isDisplayed()));
 
         // Clicking on a cancel chip while the keyboard is showing hides the keyboard instead of
         // closing Autofill Assistant.
         onView(withText("Cancel")).perform(click());
         waitUntilKeyboardMatchesCondition(mTestRule, /* isShowing= */ false);
-        waitUntilViewMatchesCondition(withText("Done"), isDisplayed());
+        onView(withText("Done")).check(matches(isDisplayed()));
         onView(withText("Cancel")).check(matches(isDisplayed()));
     }
 }

@@ -23,6 +23,12 @@ const base::Feature kDisablePolicyViolationExtensionsRemotely{
     "DisablePolicyViolationExtensionsRemotely",
     base::FEATURE_DISABLED_BY_DEFAULT};
 
+// Controls whether we disable extensions that are marked as potentially
+// unwanted by the Omaha attribute.
+const base::Feature kDisablePotentiallyUwsExtensionsRemotely{
+    "DisablePotentiallyUwsExtensionsRemotely",
+    base::FEATURE_DISABLED_BY_DEFAULT};
+
 // Controls whether we show an install friction dialog when an Enhanced Safe
 // Browsing user tries to install an extension that is not included in the
 // Safe Browsing CRX allowlist. This feature also controls if we show a warning
@@ -76,5 +82,10 @@ const base::Feature kMv3ExtensionsSupported{"Mv3ExtensionsSupported",
 // Reports Extensions.WebRequest.KeepaliveRequestFinished when enabled.
 const base::Feature kReportKeepaliveUkm{"ReportKeepaliveUkm",
                                         base::FEATURE_ENABLED_BY_DEFAULT};
+
+// Controls whether every extension will require a locked process, preventing
+// process sharing between extensions. See https://crbug.com/1209417.
+const base::Feature kStrictExtensionIsolation{
+    "StrictExtensionIsolation", base::FEATURE_DISABLED_BY_DEFAULT};
 
 }  // namespace extensions_features

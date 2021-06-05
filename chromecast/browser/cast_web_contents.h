@@ -27,6 +27,7 @@ class AssociatedInterfaceProvider;
 }  // namespace blink
 
 namespace content {
+class NavigationHandle;
 class WebContents;
 }  // namespace content
 
@@ -154,6 +155,11 @@ class CastWebContents {
         int render_frame_id,
         service_manager::InterfaceProvider* frame_interfaces,
         blink::AssociatedInterfaceProvider* frame_associated_interfaces) {}
+
+    // Called when the navigation is ready to be committed in the WebContents'
+    // main frame.
+    virtual void MainFrameReadyToCommitNavigation(
+        content::NavigationHandle* navigation_handle) {}
 
     // A navigation has finished in the WebContents' main frame.
     virtual void MainFrameFinishedNavigation() {}
@@ -285,6 +291,12 @@ class CastWebContents {
 
   virtual void AllowWebAndMojoWebUiBindings() = 0;
   virtual void ClearRenderWidgetHostView() = 0;
+
+  // Associates transparent app properties to a given session ID. This data is
+  // used elsewhere in the browser to gate output stream selection. We expose
+  // this API on CastWebContents for the sake of convenience.
+  virtual void SetAppProperties(const std::string& session_id,
+                                bool is_audio_app) = 0;
 
   // ===========================================================================
   // Page Lifetime

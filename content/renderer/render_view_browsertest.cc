@@ -12,12 +12,12 @@
 #include "base/callback.h"
 #include "base/callback_helpers.h"
 #include "base/command_line.h"
+#include "base/cxx17_backports.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
 #include "base/location.h"
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
-#include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
@@ -79,6 +79,7 @@
 #include "third_party/blink/public/common/widget/device_emulation_params.h"
 #include "third_party/blink/public/mojom/frame/frame_owner_properties.mojom.h"
 #include "third_party/blink/public/mojom/frame/frame_replication_state.mojom.h"
+#include "third_party/blink/public/mojom/frame/tree_scope_type.mojom.h"
 #include "third_party/blink/public/mojom/loader/request_context_frame_type.mojom.h"
 #include "third_party/blink/public/platform/modules/service_worker/web_service_worker_network_provider.h"
 #include "third_party/blink/public/platform/scheduler/test/renderer_scheduler_test_support.h"
@@ -275,6 +276,19 @@ mojom::CommitNavigationParamsPtr DummyCommitNavigationParams() {
   return params;
 }
 
+mojom::RemoteMainFrameInterfacesPtr CreateStubRemoteFrameInterfaces() {
+  auto interfaces = mojom::RemoteMainFrameInterfaces::New();
+
+  mojo::AssociatedRemote<blink::mojom::RemoteMainFrame> main_frame;
+  interfaces->main_frame = main_frame.BindNewEndpointAndPassDedicatedReceiver();
+
+  mojo::AssociatedRemote<blink::mojom::RemoteMainFrameHost> main_frame_host;
+  ignore_result(main_frame_host.BindNewEndpointAndPassDedicatedReceiver());
+  interfaces->main_frame_host = main_frame_host.Unbind();
+
+  return interfaces;
+}
+
 }  // namespace
 
 class RenderViewImplTest : public RenderViewTest {
@@ -293,11 +307,11 @@ class RenderViewImplTest : public RenderViewTest {
   RenderViewImpl* view() { return static_cast<RenderViewImpl*>(view_); }
 
   blink::WebFrameWidget* main_frame_widget() {
-    return view()->GetMainRenderFrame()->GetLocalRootWebFrameWidget();
+    return frame()->GetLocalRootWebFrameWidget();
   }
 
   TestRenderFrame* frame() {
-    return static_cast<TestRenderFrame*>(view()->GetMainRenderFrame());
+    return static_cast<TestRenderFrame*>(GetMainRenderFrame());
   }
 
   blink::mojom::FrameWidgetInputHandler* GetFrameWidgetInputHandler() {
@@ -323,14 +337,11 @@ class RenderViewImplTest : public RenderViewTest {
     return render_widget_host_->LastCompositionBounds();
   }
 
-  void ReceiveDisableDeviceEmulation(RenderViewImpl* view) {
-    view->GetWebView()->DisableDeviceEmulation();
-  }
+  void ReceiveDisableDeviceEmulation() { web_view_->DisableDeviceEmulation(); }
 
   void ReceiveEnableDeviceEmulation(
-      RenderViewImpl* view,
       const blink::DeviceEmulationParams& params) {
-    view->GetWebView()->EnableDeviceEmulation(params);
+    web_view_->EnableDeviceEmulation(params);
   }
 
   void GoToOffsetWithParams(int offset,
@@ -338,7 +349,7 @@ class RenderViewImplTest : public RenderViewTest {
                             mojom::CommonNavigationParamsPtr common_params,
                             mojom::CommitNavigationParamsPtr commit_params) {
     EXPECT_TRUE(common_params->transition & ui::PAGE_TRANSITION_FORWARD_BACK);
-    blink::WebView* webview = view()->GetWebView();
+    blink::WebView* webview = web_view_;
     int pending_offset = offset + webview->HistoryBackListCount();
 
     commit_params->page_state = state;
@@ -497,14 +508,12 @@ class RenderViewImplTest : public RenderViewTest {
   }
 
   void EnablePreferredSizeMode() {
-    blink::WebView* webview = view()->GetWebView();
-    webview->EnablePreferredSizeChangedMode();
+    web_view_->EnablePreferredSizeChangedMode();
   }
 
   gfx::Size GetPreferredSize() {
-    blink::WebView* webview = view()->GetWebView();
-    webview->UpdatePreferredSize();
-    return gfx::Size(webview->GetPreferredSizeForTest());
+    web_view_->UpdatePreferredSize();
+    return gfx::Size(web_view_->GetPreferredSizeForTest());
   }
 
   gfx::Size MainWidgetSizeInDIPS() {
@@ -515,9 +524,8 @@ class RenderViewImplTest : public RenderViewTest {
   }
 
   int GetScrollbarWidth() {
-    blink::WebView* webview = view()->GetWebView();
-    return webview->MainFrameWidget()->Size().width() -
-           webview->MainFrame()
+    return web_view_->MainFrameWidget()->Size().width() -
+           web_view_->MainFrame()
                ->ToWebLocalFrame()
                ->VisibleContentRect()
                .width();
@@ -531,7 +539,7 @@ class RenderViewImplBlinkSettingsTest : public RenderViewImplTest {
  public:
   virtual void DoSetUp() { RenderViewImplTest::SetUp(); }
 
-  blink::WebSettings* settings() { return view()->GetWebView()->GetSettings(); }
+  blink::WebSettings* settings() { return web_view_->GetSettings(); }
 
  protected:
   // Blink settings may be specified on the command line, which must
@@ -557,7 +565,7 @@ class RenderViewImplScaleFactorTest : public RenderViewImplTest {
     widget->ApplyVisualProperties(
         MakeVisualPropertiesWithDeviceScaleFactor(dsf));
 
-    ASSERT_EQ(dsf, view()->GetMainRenderFrame()->GetDeviceScaleFactor());
+    ASSERT_EQ(dsf, GetMainRenderFrame()->GetDeviceScaleFactor());
     ASSERT_EQ(dsf, widget->GetOriginalScreenInfo().device_scale_factor);
   }
 
@@ -568,8 +576,7 @@ class RenderViewImplScaleFactorTest : public RenderViewImplTest {
     visual_properties.new_size = gfx::Size(100, 100);
     visual_properties.compositor_viewport_pixel_rect = gfx::Rect(200, 200);
     visual_properties.visible_viewport_size = visual_properties.new_size;
-    visual_properties.auto_resize_enabled =
-        view()->GetWebView()->AutoResizeMode();
+    visual_properties.auto_resize_enabled = web_view_->AutoResizeMode();
     visual_properties.min_size_for_auto_resize = min_size_for_autoresize_;
     visual_properties.max_size_for_auto_resize = max_size_for_autoresize_;
     visual_properties.local_surface_id =
@@ -587,7 +594,7 @@ class RenderViewImplScaleFactorTest : public RenderViewImplTest {
     blink::DeviceEmulationParams params;
     params.view_size = gfx::Size(width, height);
     params.device_scale_factor = dpr;
-    ReceiveEnableDeviceEmulation(view(), params);
+    ReceiveEnableDeviceEmulation(params);
     EXPECT_TRUE(ExecuteJavaScriptAndReturnIntValue(get_width, &emulated_width));
     EXPECT_EQ(width, emulated_width);
     EXPECT_TRUE(
@@ -602,8 +609,7 @@ class RenderViewImplScaleFactorTest : public RenderViewImplTest {
   void EnableAutoResize(const gfx::Size& min_size, const gfx::Size& max_size) {
     min_size_for_autoresize_ = min_size;
     max_size_for_autoresize_ = max_size;
-    blink::WebView* webview = view()->GetWebView();
-    webview->EnableAutoResizeForTesting(min_size, max_size);
+    web_view_->EnableAutoResizeForTesting(min_size, max_size);
   }
 
  private:
@@ -654,7 +660,7 @@ TEST_F(RenderViewImplTest, IsPinchGestureActivePropagatesToProxies) {
   static_cast<mojom::Frame*>(child_frame_1)
       ->Unload(kProxyRoutingId, true,
                ReconstructReplicationStateForTesting(child_frame_1),
-               blink::RemoteFrameToken());
+               blink::RemoteFrameToken(), CreateStubRemoteFrameInterfaces());
   EXPECT_TRUE(root_web_frame->FirstChild()->IsWebRemoteFrame());
   EXPECT_FALSE(root_web_frame->FirstChild()
                    ->ToWebRemoteFrame()
@@ -670,7 +676,7 @@ TEST_F(RenderViewImplTest, IsPinchGestureActivePropagatesToProxies) {
   args.browser_controls_constraint = cc::BrowserControlsState::kHidden;
   args.scroll_gesture_did_end = false;
 
-  view()->GetWebView()->MainFrameWidget()->ApplyViewportChangesForTesting(args);
+  web_view_->MainFrameWidget()->ApplyViewportChangesForTesting(args);
   EXPECT_TRUE(root_web_frame->FirstChild()
                   ->ToWebRemoteFrame()
                   ->GetPendingVisualPropertiesForTesting()
@@ -682,7 +688,7 @@ TEST_F(RenderViewImplTest, IsPinchGestureActivePropagatesToProxies) {
   static_cast<mojom::Frame*>(child_frame_2)
       ->Unload(kProxyRoutingId + 1, true,
                ReconstructReplicationStateForTesting(child_frame_2),
-               blink::RemoteFrameToken());
+               blink::RemoteFrameToken(), CreateStubRemoteFrameInterfaces());
   EXPECT_TRUE(root_web_frame->FirstChild()->NextSibling()->IsWebRemoteFrame());
   // Verify new child has the flag too.
   EXPECT_TRUE(root_web_frame->FirstChild()
@@ -693,7 +699,7 @@ TEST_F(RenderViewImplTest, IsPinchGestureActivePropagatesToProxies) {
 
   // Reset the flag, make sure both children respond.
   args.is_pinch_gesture_active = false;
-  view()->GetWebView()->MainFrameWidget()->ApplyViewportChangesForTesting(args);
+  web_view_->MainFrameWidget()->ApplyViewportChangesForTesting(args);
   EXPECT_FALSE(root_web_frame->FirstChild()
                    ->ToWebRemoteFrame()
                    ->GetPendingVisualPropertiesForTesting()
@@ -707,7 +713,7 @@ TEST_F(RenderViewImplTest, IsPinchGestureActivePropagatesToProxies) {
 
 // Test that we get form state change notifications when input fields change.
 TEST_F(RenderViewImplTest, OnNavStateChanged) {
-  view()->set_send_content_state_immediately(true);
+  frame()->set_send_content_state_immediately(true);
   LoadHTML("<input type=\"text\" id=\"elt_text\"></input>");
 
   // We should NOT have gotten a form state change notification yet.
@@ -902,9 +908,9 @@ TEST_F(RenderViewImplTest, BeginNavigation) {
 }
 
 TEST_F(RenderViewImplTest, BeginNavigationHandlesAllTopLevel) {
-  blink::RendererPreferences prefs = view()->GetRendererPreferences();
+  blink::RendererPreferences prefs = web_view_->GetRendererPreferences();
   prefs.browser_handles_all_top_level_requests = true;
-  view()->GetWebView()->SetRendererPreferences(prefs);
+  web_view_->SetRendererPreferences(prefs);
 
   const blink::WebNavigationType kNavTypes[] = {
       blink::kWebNavigationTypeLinkClicked,
@@ -933,7 +939,7 @@ TEST_F(RenderViewImplTest, BeginNavigationHandlesAllTopLevel) {
 
 TEST_F(RenderViewImplTest, BeginNavigationForWebUI) {
   // Enable bindings to simulate a WebUI view.
-  view()->GetMainRenderFrame()->AllowBindings(BINDINGS_POLICY_WEB_UI);
+  frame()->AllowBindings(BINDINGS_POLICY_WEB_UI);
 
   blink::WebSecurityOrigin requestor_origin =
       blink::WebSecurityOrigin::Create(GURL("http://foo.com"));
@@ -1024,8 +1030,6 @@ TEST_F(RenderViewImplTest, BeginNavigationForWebUI) {
       blink::kWebNavigationPolicyNewForegroundTab;
   render_thread_->sink().ClearMessages();
   RenderFrameImpl::FromWebFrame(new_web_view->MainFrame())
-      ->render_view()
-      ->GetMainRenderFrame()
       ->BeginNavigation(std::move(popup_navigation_info));
   EXPECT_TRUE(frame()->IsURLOpened());
 }
@@ -1051,7 +1055,7 @@ TEST_F(RenderViewImplScaleFactorTest, DeviceEmulationWithOOPIF) {
   static_cast<mojom::Frame*>(child_frame)
       ->Unload(kProxyRoutingId + 1, true,
                ReconstructReplicationStateForTesting(child_frame),
-               blink::RemoteFrameToken());
+               blink::RemoteFrameToken(), CreateStubRemoteFrameInterfaces());
   EXPECT_TRUE(web_frame->FirstChild()->IsWebRemoteFrame());
   RenderFrameProxy* child_proxy = RenderFrameProxy::FromWebFrame(
       web_frame->FirstChild()->ToWebRemoteFrame());
@@ -1059,21 +1063,21 @@ TEST_F(RenderViewImplScaleFactorTest, DeviceEmulationWithOOPIF) {
 
   // Verify that the system device scale factor has propagated into the
   // RenderFrameProxy.
-  EXPECT_EQ(device_scale, view()->GetMainRenderFrame()->GetDeviceScaleFactor());
+  EXPECT_EQ(device_scale, GetMainRenderFrame()->GetDeviceScaleFactor());
   EXPECT_EQ(device_scale,
             main_frame_widget()->GetOriginalScreenInfo().device_scale_factor);
 
   TestEmulatedSizeDprDsf(640, 480, 3.f, device_scale);
 
   // Verify that the RenderFrameProxy device scale factor is still the same.
-  EXPECT_EQ(3.f, view()->GetMainRenderFrame()->GetDeviceScaleFactor());
+  EXPECT_EQ(3.f, GetMainRenderFrame()->GetDeviceScaleFactor());
   EXPECT_EQ(device_scale,
             main_frame_widget()->GetOriginalScreenInfo().device_scale_factor);
 
-  ReceiveDisableDeviceEmulation(view());
+  ReceiveDisableDeviceEmulation();
 
   blink::DeviceEmulationParams params;
-  ReceiveEnableDeviceEmulation(view(), params);
+  ReceiveEnableDeviceEmulation(params);
   // Don't disable here to test that emulation is being shutdown properly.
 }
 
@@ -1093,7 +1097,7 @@ TEST_F(RenderViewImplTest, OriginReplicationForUnload) {
   replication_state->origin = url::Origin::Create(GURL("http://foo.com"));
   static_cast<mojom::Frame*>(child_frame)
       ->Unload(kProxyRoutingId, true, replication_state->Clone(),
-               blink::RemoteFrameToken());
+               blink::RemoteFrameToken(), CreateStubRemoteFrameInterfaces());
 
   // The child frame should now be a WebRemoteFrame.
   EXPECT_TRUE(web_frame->FirstChild()->IsWebRemoteFrame());
@@ -1112,7 +1116,7 @@ TEST_F(RenderViewImplTest, OriginReplicationForUnload) {
           web_frame->FirstChild()->NextSibling()->ToWebLocalFrame()));
   static_cast<mojom::Frame*>(child_frame2)
       ->Unload(kProxyRoutingId + 1, true, std::move(replication_state),
-               blink::RemoteFrameToken());
+               blink::RemoteFrameToken(), CreateStubRemoteFrameInterfaces());
   EXPECT_TRUE(web_frame->FirstChild()->NextSibling()->IsWebRemoteFrame());
   EXPECT_TRUE(
       web_frame->FirstChild()->NextSibling()->GetSecurityOrigin().IsOpaque());
@@ -1126,7 +1130,7 @@ TEST_F(RenderViewImplEnableZoomForDSFTest,
        DeviceScaleCorrectAfterCrossOriginNav) {
   const float device_scale = 3.0f;
   SetDeviceScaleFactor(device_scale);
-  EXPECT_EQ(device_scale, view()->GetMainRenderFrame()->GetDeviceScaleFactor());
+  EXPECT_EQ(device_scale, GetMainRenderFrame()->GetDeviceScaleFactor());
 
   LoadHTML("Hello world!");
 
@@ -1138,10 +1142,10 @@ TEST_F(RenderViewImplEnableZoomForDSFTest,
   // Unload the main frame after which it should become a WebRemoteFrame.
   auto replication_state = ReconstructReplicationStateForTesting(frame());
   // replication_state.origin = url::Origin(GURL("http://foo.com"));
-  static_cast<mojom::Frame*>(frame())->Unload(kProxyRoutingId, true,
-                                              replication_state->Clone(),
-                                              blink::RemoteFrameToken());
-  EXPECT_TRUE(view()->GetWebView()->MainFrame()->IsWebRemoteFrame());
+  static_cast<mojom::Frame*>(frame())->Unload(
+      kProxyRoutingId, true, replication_state->Clone(),
+      blink::RemoteFrameToken(), CreateStubRemoteFrameInterfaces());
+  EXPECT_TRUE(web_view_->MainFrame()->IsWebRemoteFrame());
 
   // Do the remote-to-local transition for the proxy, which is to create a
   // provisional local frame.
@@ -1180,8 +1184,9 @@ TEST_F(RenderViewImplEnableZoomForDSFTest,
       TestRenderFrame::CreateStubFrameReceiver(),
       TestRenderFrame::CreateStubBrowserInterfaceBrokerRemote(),
       kProxyRoutingId, absl::nullopt, MSG_ROUTING_NONE, MSG_ROUTING_NONE,
-      base::UnguessableToken::Create(), std::move(replication_state),
-      std::move(widget_params), blink::mojom::FrameOwnerProperties::New(),
+      base::UnguessableToken::Create(), blink::mojom::TreeScopeType::kDocument,
+      std::move(replication_state), std::move(widget_params),
+      blink::mojom::FrameOwnerProperties::New(),
       /*has_committed_real_load=*/true, CreateStubPolicyContainer());
 
   TestRenderFrame* provisional_frame =
@@ -1198,9 +1203,8 @@ TEST_F(RenderViewImplEnableZoomForDSFTest,
                               DummyCommitNavigationParams());
   base::RunLoop().RunUntilIdle();
 
-  EXPECT_EQ(device_scale, view()->GetMainRenderFrame()->GetDeviceScaleFactor());
-  EXPECT_EQ(device_scale,
-            view()->GetWebView()->ZoomFactorForDeviceScaleFactor());
+  EXPECT_EQ(device_scale, GetMainRenderFrame()->GetDeviceScaleFactor());
+  EXPECT_EQ(device_scale, web_view_->ZoomFactorForDeviceScaleFactor());
 
   double device_pixel_ratio;
   std::u16string get_dpr = u"Number(window.devicePixelRatio)";
@@ -1211,8 +1215,7 @@ TEST_F(RenderViewImplEnableZoomForDSFTest,
   int width;
   std::u16string get_width = u"Number(document.documentElement.clientWidth)";
   EXPECT_TRUE(ExecuteJavaScriptAndReturnIntValue(get_width, &width));
-  EXPECT_EQ(view()->GetWebView()->MainFrameWidget()->Size().width(),
-            width * device_scale);
+  EXPECT_EQ(web_view_->MainFrameWidget()->Size().width(), width * device_scale);
 }
 
 // Test that when a parent detaches a remote child after the provisional
@@ -1229,7 +1232,7 @@ TEST_F(RenderViewImplTest, DetachingProxyAlsoDestroysProvisionalFrame) {
   auto replication_state = ReconstructReplicationStateForTesting(child_frame);
   static_cast<mojom::Frame*>(child_frame)
       ->Unload(kProxyRoutingId, true, replication_state.Clone(),
-               blink::RemoteFrameToken());
+               blink::RemoteFrameToken(), CreateStubRemoteFrameInterfaces());
   EXPECT_TRUE(web_frame->FirstChild()->IsWebRemoteFrame());
 
   // Do the first step of a remote-to-local transition for the child proxy,
@@ -1240,7 +1243,8 @@ TEST_F(RenderViewImplTest, DetachingProxyAlsoDestroysProvisionalFrame) {
       TestRenderFrame::CreateStubFrameReceiver(),
       TestRenderFrame::CreateStubBrowserInterfaceBrokerRemote(),
       kProxyRoutingId, absl::nullopt, frame()->GetRoutingID(), MSG_ROUTING_NONE,
-      base::UnguessableToken::Create(), std::move(replication_state),
+      base::UnguessableToken::Create(), blink::mojom::TreeScopeType::kDocument,
+      std::move(replication_state),
       /*widget_params=*/nullptr, blink::mojom::FrameOwnerProperties::New(),
       /*has_committed_real_load=*/true, CreateStubPolicyContainer());
   {
@@ -1274,13 +1278,12 @@ TEST_F(RenderViewImplEnableZoomForDSFTest,
   LoadHTML("Hello world!");
 
   // Unload the main frame after which it should become a WebRemoteFrame.
-  TestRenderFrame* main_frame =
-      static_cast<TestRenderFrame*>(view()->GetMainRenderFrame());
+  TestRenderFrame* main_frame = frame();
   static_cast<mojom::Frame*>(main_frame)
       ->Unload(kProxyRoutingId, true,
                ReconstructReplicationStateForTesting(main_frame),
-               blink::RemoteFrameToken());
-  EXPECT_TRUE(view()->GetWebView()->MainFrame()->IsWebRemoteFrame());
+               blink::RemoteFrameToken(), CreateStubRemoteFrameInterfaces());
+  EXPECT_TRUE(web_view_->MainFrame()->IsWebRemoteFrame());
 }
 
 class TextInputStateFakeRenderWidgetHost : public FakeRenderWidgetHost {
@@ -2025,7 +2028,7 @@ TEST_F(RenderViewImplTest, ImeComposition) {
       // result.
       const int kMaxOutputCharacters = 128;
       std::u16string output = TestWebFrameContentDumper::DumpWebViewAsText(
-                                  view()->GetWebView(), kMaxOutputCharacters)
+                                  web_view_, kMaxOutputCharacters)
                                   .Utf16();
       EXPECT_EQ(base::WideToUTF16(ime_message->result), output);
     }
@@ -2076,7 +2079,7 @@ TEST_F(RenderViewImplTest, OnSetTextDirection) {
     // expected result.
     const int kMaxOutputCharacters = 16;
     std::u16string output = TestWebFrameContentDumper::DumpWebViewAsText(
-                                view()->GetWebView(), kMaxOutputCharacters)
+                                web_view_, kMaxOutputCharacters)
                                 .Utf16();
     EXPECT_EQ(base::WideToUTF16(test_case.expected_result), output);
   }
@@ -2095,7 +2098,7 @@ TEST_F(RenderViewImplTest, DroppedNavigationStaysInViewSourceMode) {
   frame()->Navigate(std::move(common_params), DummyCommitNavigationParams());
 
   // A cancellation occurred.
-  view()->GetMainRenderFrame()->OnDroppedNavigation();
+  frame()->OnDroppedNavigation();
   // Frame should stay in view-source mode.
   EXPECT_TRUE(web_frame->IsViewSourceModeEnabled());
 }
@@ -2511,7 +2514,7 @@ TEST_F(RenderViewImplTest, NavigateSubframe) {
   // expected result.
   const int kMaxOutputCharacters = 256;
   std::string output = TestWebFrameContentDumper::DumpWebViewAsText(
-                           view()->GetWebView(), kMaxOutputCharacters)
+                           web_view_, kMaxOutputCharacters)
                            .Utf8();
   EXPECT_EQ(output, "hello \n\nworld");
 }
@@ -2519,7 +2522,7 @@ TEST_F(RenderViewImplTest, NavigateSubframe) {
 // This test ensures that a RenderFrame object is created for the top level
 // frame in the RenderView.
 TEST_F(RenderViewImplTest, BasicRenderFrame) {
-  EXPECT_TRUE(view()->GetMainRenderFrame());
+  EXPECT_TRUE(GetMainRenderFrame());
 }
 
 namespace {
@@ -2598,7 +2601,7 @@ class RendererErrorPageTest : public RenderViewImplTest {
   RenderViewImpl* view() { return static_cast<RenderViewImpl*>(view_); }
 
   RenderFrameImpl* frame() {
-    return static_cast<RenderFrameImpl*>(view()->GetMainRenderFrame());
+    return static_cast<RenderFrameImpl*>(GetMainRenderFrame());
   }
 
  private:
@@ -2628,7 +2631,7 @@ TEST_F(RendererErrorPageTest, RegularError) {
   FrameLoadWaiter(main_frame).Wait();
   const int kMaxOutputCharacters = 22;
   EXPECT_EQ("A suffusion of yellow.",
-            TestWebFrameContentDumper::DumpWebViewAsText(view()->GetWebView(),
+            TestWebFrameContentDumper::DumpWebViewAsText(web_view_,
                                                          kMaxOutputCharacters)
                 .Ascii());
 }
@@ -2847,7 +2850,7 @@ TEST_F(RenderViewImplTest, PreferredSizeZoomed) {
 
   main_frame_widget()->SetZoomLevelForTesting(
       blink::PageZoomFactorToZoomLevel(2.0));
-  view_->GetWebView()->MainFrameWidget()->UpdateAllLifecyclePhases(
+  web_view_->MainFrameWidget()->UpdateAllLifecyclePhases(
       blink::DocumentUpdateReason::kTest);
   size = GetPreferredSize();
   EXPECT_EQ(gfx::Size(800 + scrollbar_width, 800), size);
@@ -2878,7 +2881,7 @@ TEST_F(RenderViewImplScaleFactorTest, PreferredSizeWithScaleFactor) {
 // Ensure the RenderViewImpl history list is properly updated when starting a
 // new browser-initiated navigation.
 TEST_F(RenderViewImplTest, HistoryIsProperlyUpdatedOnNavigation) {
-  blink::WebView* webview = view()->GetWebView();
+  blink::WebView* webview = web_view_;
   EXPECT_EQ(0, webview->HistoryBackListCount());
   EXPECT_EQ(0, webview->HistoryBackListCount() +
                    webview->HistoryForwardListCount() + 1);
@@ -2898,7 +2901,7 @@ TEST_F(RenderViewImplTest, HistoryIsProperlyUpdatedOnNavigation) {
 // Ensure the RenderViewImpl history list is properly updated when starting a
 // new history browser-initiated navigation.
 TEST_F(RenderViewImplTest, HistoryIsProperlyUpdatedOnHistoryNavigation) {
-  blink::WebView* webview = view()->GetWebView();
+  blink::WebView* webview = web_view_;
   EXPECT_EQ(0, webview->HistoryBackListCount());
   EXPECT_EQ(0, webview->HistoryBackListCount() +
                    webview->HistoryForwardListCount() + 1);
@@ -2920,7 +2923,7 @@ TEST_F(RenderViewImplTest, HistoryIsProperlyUpdatedOnHistoryNavigation) {
 // Ensure the RenderViewImpl history list is properly updated when starting a
 // new history browser-initiated navigation with should_clear_history_list
 TEST_F(RenderViewImplTest, HistoryIsProperlyUpdatedOnShouldClearHistoryList) {
-  blink::WebView* webview = view()->GetWebView();
+  blink::WebView* webview = web_view_;
   EXPECT_EQ(0, webview->HistoryBackListCount());
   EXPECT_EQ(0, webview->HistoryBackListCount() +
                    webview->HistoryForwardListCount() + 1);
@@ -3001,7 +3004,7 @@ TEST_F(RenderViewImplAddMessageToConsoleTest,
         // Unloads the main frame.
         static_cast<mojom::Frame*>(frame())->Unload(
             1, false, blink::mojom::FrameReplicationState::New(),
-            blink::RemoteFrameToken());
+            blink::RemoteFrameToken(), CreateStubRemoteFrameInterfaces());
 
         was_callback_run = true;
         run_loop.Quit();
@@ -3021,8 +3024,9 @@ class AlertDialogMockLocalFrameHost : public LocalFrameHostInterceptor {
       blink::AssociatedInterfaceProvider* provider)
       : LocalFrameHostInterceptor(provider) {}
 
-  MOCK_METHOD2(RunModalAlertDialog,
+  MOCK_METHOD3(RunModalAlertDialog,
                void(const std::u16string& alert_message,
+                    bool disable_third_party_subframe_suppresion,
                     RunModalAlertDialogCallback callback));
 };
 }  // namespace
@@ -3046,8 +3050,8 @@ TEST_F(RenderViewImplModalDialogTest, ModalDialogs) {
   LoadHTML("<body></body>");
   std::u16string alert_message = u"Please don't crash";
   EXPECT_CALL(*alert_mock_frame_host(),
-              RunModalAlertDialog(alert_message, testing::_))
-      .WillOnce(base::test::RunOnceCallback<1>());
+              RunModalAlertDialog(alert_message, false, testing::_))
+      .WillOnce(base::test::RunOnceCallback<2>());
   frame()->GetWebFrame()->Alert(WebString::FromUTF16(alert_message));
 }
 
@@ -3078,18 +3082,18 @@ TEST_F(RenderViewImplBlinkSettingsTest, DefaultPageScaleSettings) {
       "}"
       "</style>");
 
-  EXPECT_EQ(1.f, view()->GetWebView()->PageScaleFactor());
-  EXPECT_EQ(1.f, view()->GetWebView()->MinimumPageScaleFactor());
+  EXPECT_EQ(1.f, web_view_->PageScaleFactor());
+  EXPECT_EQ(1.f, web_view_->MinimumPageScaleFactor());
 
   blink::web_pref::WebPreferences prefs;
   prefs.shrinks_viewport_contents_to_fit = true;
   prefs.default_minimum_page_scale_factor = 0.1f;
   prefs.default_maximum_page_scale_factor = 5.5f;
-  view()->GetWebView()->SetWebPreferences(prefs);
+  web_view_->SetWebPreferences(prefs);
 
-  EXPECT_EQ(1.f, view()->GetWebView()->PageScaleFactor());
-  EXPECT_EQ(1.f, view()->GetWebView()->MinimumPageScaleFactor());
-  EXPECT_EQ(5.5f, view()->GetWebView()->MaximumPageScaleFactor());
+  EXPECT_EQ(1.f, web_view_->PageScaleFactor());
+  EXPECT_EQ(1.f, web_view_->MinimumPageScaleFactor());
+  EXPECT_EQ(5.5f, web_view_->MaximumPageScaleFactor());
 }
 
 TEST_F(RenderViewImplDisableZoomForDSFTest,
@@ -3121,10 +3125,10 @@ TEST_F(RenderViewImplScaleFactorTest, ScreenMetricsEmulationWithOriginalDSF1) {
     TestEmulatedSizeDprDsf(1005, 1102, 3.f, 1.f);
   }
 
-  ReceiveDisableDeviceEmulation(view());
+  ReceiveDisableDeviceEmulation();
 
   blink::DeviceEmulationParams params;
-  ReceiveEnableDeviceEmulation(view(), params);
+  ReceiveEnableDeviceEmulation(params);
   // Don't disable here to test that emulation is being shutdown properly.
 }
 
@@ -3150,10 +3154,10 @@ TEST_F(RenderViewImplScaleFactorTest, ScreenMetricsEmulationWithOriginalDSF2) {
     TestEmulatedSizeDprDsf(1005, 1102, 3.f, device_scale);
   }
 
-  ReceiveDisableDeviceEmulation(view());
+  ReceiveDisableDeviceEmulation();
 
   blink::DeviceEmulationParams params;
-  ReceiveEnableDeviceEmulation(view(), params);
+  ReceiveEnableDeviceEmulation(params);
   // Don't disable here to test that emulation is being shutdown properly.
 }
 
@@ -3260,13 +3264,13 @@ TEST_F(RenderViewImplScaleFactorTest, AutoResizeWithoutZoomForDSF) {
 TEST_F(RenderViewImplTest, ZoomLevelUpdate) {
   // 0 will use the minimum zoom level, which is the default, nothing will
   // change.
-  EXPECT_FLOAT_EQ(0u, view()->GetWebView()->ZoomLevel());
+  EXPECT_FLOAT_EQ(0u, web_view_->ZoomLevel());
 
   double zoom_level = blink::PageZoomFactorToZoomLevel(0.25);
   // Change the zoom level to 25% and check if the view gets the change.
   main_frame_widget()->SetZoomLevelForTesting(zoom_level);
   // Use EXPECT_FLOAT_EQ here because view()->GetZoomLevel returns a float.
-  EXPECT_FLOAT_EQ(zoom_level, view()->GetWebView()->ZoomLevel());
+  EXPECT_FLOAT_EQ(zoom_level, web_view_->ZoomLevel());
 }
 
 #endif

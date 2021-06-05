@@ -182,6 +182,7 @@
 #include "ui/accessibility/ax_tree_combiner.h"
 #include "ui/base/device_form_factor.h"
 #include "ui/base/dragdrop/mojom/drag_drop_types.mojom.h"
+#include "ui/base/window_open_disposition.h"
 #if defined(USE_AURA)
 #include "ui/aura/window.h"
 #endif
@@ -493,6 +494,24 @@ base::flat_set<WebContentsImpl*>* FullscreenContentsSet(
 bool IsWindowPlacementGranted(RenderFrameHost* host) {
   auto* controller =
       PermissionControllerImpl::FromBrowserContext(host->GetBrowserContext());
+
+  // If the frame's URL is about:blank, its origin may have been inherited.
+  // Unfortunately, many PermissionControllerDelegate implementations of
+  // `GetPermissionStatusForFrame()` use `GetLastCommittedURL()` which does not
+  // consider origin inheritance. In case the URL is about:blank, manually check
+  // the permission status ourselves by deriving a GURL from the Origin.
+  // TODO(crbug.com/698985): Resolve GetLastCommitted[URL|Origin]() usage and
+  // remove this workaround without regressing crbug.com/1210669.
+  if (host->GetLastCommittedURL().IsAboutBlank()) {
+    return controller &&
+           controller->GetPermissionStatus(
+               PermissionType::WINDOW_PLACEMENT,
+               host->GetLastCommittedOrigin().GetURL(),
+               host->GetMainFrame()->GetLastCommittedOrigin().GetURL()) ==
+               blink::mojom::PermissionStatus::GRANTED;
+  }
+
+  // TODO(crbug.com/698985): Resolve GetLastCommitted[URL|Origin]() usage.
   return controller && controller->GetPermissionStatusForFrame(
                            PermissionType::WINDOW_PLACEMENT, host,
                            host->GetLastCommittedURL()) ==
@@ -606,8 +625,8 @@ WebContents* WebContents::FromRenderFrameHost(RenderFrameHost* rfh) {
                         rfh);
   if (!rfh)
     return nullptr;
-  if (!rfh->IsCurrent() && base::FeatureList::IsEnabled(
-                               kCheckWebContentsAccessFromNonCurrentFrame)) {
+  if (!rfh->IsActive() && base::FeatureList::IsEnabled(
+                              kCheckWebContentsAccessFromNonCurrentFrame)) {
     // TODO(crbug.com/1059903): return nullptr here eventually.
     base::debug::DumpWithoutCrashing();
   }
@@ -678,16 +697,17 @@ class WebContentsImpl::WebContentsDestructionObserver
   DISALLOW_COPY_AND_ASSIGN(WebContentsDestructionObserver);
 };
 
-// TODO(sreejakshetty): Make |WebContentsImpl::ColorChooser| per-frame instead
-// of WebContents-owned.
-// WebContentsImpl::ColorChooser ----------------------------------------------
-class WebContentsImpl::ColorChooser : public blink::mojom::ColorChooser {
+// TODO(sreejakshetty): Make |WebContentsImpl::ColorChooserHolder| per-frame
+// instead of WebContents-owned.
+// WebContentsImpl::ColorChooserHolder -----------------------------------------
+class WebContentsImpl::ColorChooserHolder : public blink::mojom::ColorChooser {
  public:
-  ColorChooser(mojo::PendingReceiver<blink::mojom::ColorChooser> receiver,
-               mojo::PendingRemote<blink::mojom::ColorChooserClient> client)
+  ColorChooserHolder(
+      mojo::PendingReceiver<blink::mojom::ColorChooser> receiver,
+      mojo::PendingRemote<blink::mojom::ColorChooserClient> client)
       : receiver_(this, std::move(receiver)), client_(std::move(client)) {}
 
-  ~ColorChooser() override {
+  ~ColorChooserHolder() override {
     if (chooser_)
       chooser_->End();
   }
@@ -702,8 +722,8 @@ class WebContentsImpl::ColorChooser : public blink::mojom::ColorChooser {
   }
 
   void SetSelectedColor(SkColor color) override {
-    OPTIONAL_TRACE_EVENT0("content",
-                          "WebContentsImpl::ColorChooser::SetSelectedColor");
+    OPTIONAL_TRACE_EVENT0(
+        "content", "WebContentsImpl::ColorChooserHolder::SetSelectedColor");
     if (chooser_)
       chooser_->SetSelectedColor(color);
   }
@@ -711,7 +731,7 @@ class WebContentsImpl::ColorChooser : public blink::mojom::ColorChooser {
   void DidChooseColorInColorChooser(SkColor color) {
     OPTIONAL_TRACE_EVENT0(
         "content",
-        "WebContentsImpl::ColorChooser::DidChooseColorInColorChooser");
+        "WebContentsImpl::ColorChooserHolder::DidChooseColorInColorChooser");
     client_->DidChooseColor(color);
   }
 
@@ -925,7 +945,7 @@ WebContentsImpl::WebContentsImpl(BrowserContext* browser_context)
 
   // ConversionHost takes a weak ref on |this|, so it must be created outside of
   // the initializer list.
-  if (base::FeatureList::IsEnabled(features::kConversionMeasurement)) {
+  if (base::FeatureList::IsEnabled(blink::features::kConversionMeasurement)) {
     ConversionHost::CreateForWebContents(this);
   }
 }
@@ -981,7 +1001,7 @@ WebContentsImpl::~WebContentsImpl() {
     dialog_manager_->CancelDialogs(this, /*reset_state=*/true);
   }
 
-  color_chooser_.reset();
+  color_chooser_holder_.reset();
   find_request_manager_.reset();
 
   // Shutdown the primary FrameTree.
@@ -1160,21 +1180,6 @@ RenderFrameHostManager* WebContentsImpl::GetRenderManagerForTesting() {
   return GetRenderManager();
 }
 
-bool WebContentsImpl::OnMessageReceived(RenderViewHostImpl* render_view_host,
-                                        const IPC::Message& message) {
-  OPTIONAL_TRACE_EVENT1("content", "WebContentsImpl::OnMessageReceived",
-                        "render_view_host", render_view_host);
-  for (auto& observer : observers_.observer_list()) {
-    // TODO(nick, creis): https://crbug.com/758026: Replace all uses of this
-    // variant of OnMessageReceived with the version that takes a
-    // RenderFrameHost, and then delete it.
-    if (observer.OnMessageReceived(message))
-      return true;
-  }
-
-  return false;
-}
-
 bool WebContentsImpl::OnMessageReceived(RenderFrameHostImpl* render_frame_host,
                                         const IPC::Message& message) {
   OPTIONAL_TRACE_EVENT1("content", "WebContentsImpl::OnMessageReceived",
@@ -1231,10 +1236,9 @@ void WebContentsImpl::SetDelegate(WebContentsDelegate* delegate) {
   delegate_ = delegate;
   if (delegate_) {
     delegate_->Attach(this);
-    // RenderFrameDevToolsAgentHost should not be told about the main renderer
-    // frame until/unless there is a `delegate_`.
-    if (GetMainFrame()->IsRenderFrameLive())
-      RenderFrameDevToolsAgentHost::WebContentsMainFrameCreated(this);
+    // RenderFrameDevToolsAgentHost should not be told about the WebContents
+    // until there is a `delegate_`.
+    RenderFrameDevToolsAgentHost::AttachToWebContents(this);
   }
 
   // Re-read values from the new delegate and apply them.
@@ -1309,6 +1313,99 @@ int WebContentsImpl::SendToAllFramesIncludingPending(IPC::Message* message) {
   OPTIONAL_TRACE_EVENT0("content",
                         "WebContentsImpl::SentToAllFramesIncludingPending");
   return SendToAllFramesImpl(frame_tree_, /*include_pending=*/true, message);
+}
+
+void WebContentsImpl::ForEachRenderFrameHost(
+    RenderFrameHost::FrameIterationCallback on_frame) {
+  ForEachRenderFrameHost(RenderFrameHostImpl::FrameIterationWrapper(on_frame));
+}
+
+void WebContentsImpl::ForEachRenderFrameHost(
+    RenderFrameHost::FrameIterationAlwaysContinueCallback on_frame) {
+  ForEachRenderFrameHost(RenderFrameHostImpl::FrameIterationWrapper(on_frame));
+}
+
+void WebContentsImpl::ForEachRenderFrameHost(
+    RenderFrameHostImpl::FrameIterationCallbackImpl on_frame) {
+  ForEachRenderFrameHostImpl(on_frame, /* include_speculative */ false);
+}
+
+void WebContentsImpl::ForEachRenderFrameHost(
+    RenderFrameHostImpl::FrameIterationAlwaysContinueCallbackImpl on_frame) {
+  ForEachRenderFrameHost(RenderFrameHostImpl::FrameIterationWrapper(on_frame));
+}
+
+void WebContentsImpl::ForEachRenderFrameHostIncludingSpeculative(
+    RenderFrameHostImpl::FrameIterationCallbackImpl on_frame) {
+  ForEachRenderFrameHostImpl(on_frame, /* include_speculative */ true);
+}
+
+void WebContentsImpl::ForEachRenderFrameHostIncludingSpeculative(
+    RenderFrameHostImpl::FrameIterationAlwaysContinueCallbackImpl on_frame) {
+  ForEachRenderFrameHostIncludingSpeculative(
+      RenderFrameHostImpl::FrameIterationWrapper(on_frame));
+}
+
+void WebContentsImpl::ForEachRenderFrameHostImpl(
+    RenderFrameHostImpl::FrameIterationCallbackImpl on_frame,
+    bool include_speculative) {
+  // Since |RenderFrameHostImpl::ForEachRenderFrameHost| will reach the
+  // RenderFrameHosts descending from a specified root, it is enough to start
+  // iteration from each of the outermost main frames to reach everything in
+  // this WebContents. However, if iteration stops early in
+  // |RenderFrameHostImpl::ForEachRenderFrameHost|, we also need to stop early
+  // by not iterating over additional outermost main frames.
+  bool iteration_stopped = false;
+  RenderFrameHostImpl::FrameIterationCallbackImpl on_frame_with_termination =
+      base::BindRepeating(
+          [](bool& iteration_stopped,
+             RenderFrameHostImpl::FrameIterationCallbackImpl on_frame,
+             RenderFrameHostImpl* rfh) {
+            const auto action = on_frame.Run(rfh);
+            if (action == RenderFrameHost::FrameIterationAction::kStop) {
+              iteration_stopped = true;
+            }
+            return action;
+          },
+          std::ref(iteration_stopped), on_frame);
+
+  for (auto* rfh : GetOutermostMainFrames()) {
+    if (include_speculative) {
+      rfh->ForEachRenderFrameHostIncludingSpeculative(
+          on_frame_with_termination);
+    } else {
+      rfh->ForEachRenderFrameHost(on_frame_with_termination);
+    }
+
+    if (iteration_stopped) {
+      return;
+    }
+  }
+}
+
+std::vector<RenderFrameHostImpl*> WebContentsImpl::GetOutermostMainFrames() {
+  std::vector<RenderFrameHostImpl*> result;
+  result.push_back(GetMainFrame());
+
+  for (const auto& entry : GetController().GetBackForwardCache().GetEntries()) {
+    result.push_back(entry->render_frame_host.get());
+  }
+
+  if (blink::features::IsPrerender2Enabled()) {
+    const std::vector<RenderFrameHostImpl*> prerendered_main_frames =
+        GetPrerenderHostRegistry()->GetPrerenderedMainFrames();
+    result.insert(result.end(), prerendered_main_frames.begin(),
+                  prerendered_main_frames.end());
+  }
+
+  // In the case of inner WebContents, we still allow this method to be called,
+  // but the semantics of the values being returned are "outermost
+  // within this WebContents" as opposed to truly outermost. We would not expect
+  // any other outermost pages besides the primary page in the case of inner
+  // WebContents.
+  DCHECK(!GetOuterWebContents() || (result.size() == 1));
+
+  return result;
 }
 
 void WebContentsImpl::ExecutePageBroadcastMethod(
@@ -2215,6 +2312,7 @@ void WebContentsImpl::AttachInnerWebContents(
   auto* render_frame_host_impl =
       static_cast<RenderFrameHostImpl*>(render_frame_host);
   DCHECK_EQ(this, render_frame_host_impl->delegate()->GetAsWebContents());
+  DCHECK(render_frame_host_impl->GetParent());
 
   // Mark |render_frame_host_impl| as outer delegate frame.
   render_frame_host_impl->SetIsOuterDelegateFrame(true);
@@ -2235,6 +2333,16 @@ void WebContentsImpl::AttachInnerWebContents(
       GetContentClient()->browser()->GetWebContentsViewDelegate(
           inner_web_contents_impl),
       &inner_web_contents_impl->render_view_host_delegate_view_);
+  // On platforms where destroying the WebContents' view does not also destroy
+  // the platform RenderWidgetHostView, we need to destroy it if it exists.
+  // TODO(mcnee): Should all platforms' WebContentsView destroy the platform
+  // RWHV?
+  if (RenderWidgetHostViewBase* prev_rwhv =
+          inner_render_manager->GetRenderWidgetHostView()) {
+    if (!prev_rwhv->IsRenderWidgetHostViewChildFrame()) {
+      prev_rwhv->Destroy();
+    }
+  }
 
   // When the WebContents being initialized has an opener, the  browser side
   // Render{View,Frame}Host must be initialized and the RenderWidgetHostView
@@ -2381,8 +2489,11 @@ void WebContentsImpl::ReattachToOuterWebContentsFrame() {
   auto* render_manager = GetRenderManager();
   auto* parent_frame =
       node_.OuterContentsFrameTreeNode()->current_frame_host()->GetParent();
+  auto* child_rwhv = render_manager->GetRenderWidgetHostView();
+  DCHECK(child_rwhv);
+  DCHECK(child_rwhv->IsRenderWidgetHostViewChildFrame());
   render_manager->SetRWHViewForInnerContents(
-      render_manager->GetRenderWidgetHostView());
+      static_cast<RenderWidgetHostViewChildFrame*>(child_rwhv));
 
   RecursivelyRegisterFrameSinkIds();
 
@@ -2505,8 +2616,7 @@ const blink::web_pref::WebPreferences WebContentsImpl::ComputeWebPreferences() {
 // TODO(dtapuska): Enable barrel button selection drag support on Android.
 // crbug.com/758042
 #if defined(OS_WIN)
-  prefs.barrel_button_for_drag_enabled =
-      base::FeatureList::IsEnabled(features::kDirectManipulationStylus);
+  prefs.barrel_button_for_drag_enabled = true;
 #endif  // defined(OS_WIN)
 
   prefs.enable_scroll_animator =
@@ -4148,7 +4258,7 @@ void WebContentsImpl::RecordAccessibilityEvents(
     event_recorder_->ListenToEvents(*callback);
   } else {
     if (event_recorder_) {
-      event_recorder_->FlushAsyncEvents();
+      event_recorder_->WaitForDoneRecording();
       event_recorder_.reset(nullptr);
     }
   }
@@ -4335,10 +4445,46 @@ WebContents* WebContentsImpl::OpenURL(const OpenURLParams& params) {
     return nullptr;
   }
 
-  WebContents* new_contents = delegate_->OpenURLFromTab(this, params);
-
   RenderFrameHost* source_render_frame_host = RenderFrameHost::FromID(
       params.source_render_process_id, params.source_render_frame_id);
+
+  // Prevent frames that are not active (e.g. a prerendering page) from opening
+  // new windows, tabs, popups, etc.
+  if (params.disposition != WindowOpenDisposition::CURRENT_TAB &&
+      source_render_frame_host && !source_render_frame_host->IsActive()) {
+    return nullptr;
+  }
+
+  if (params.frame_tree_node_id != FrameTreeNode::kFrameTreeNodeInvalidId) {
+    if (auto* frame_tree_node =
+            FrameTreeNode::GloballyFindByID(params.frame_tree_node_id)) {
+      // If a frame tree node ID is specified and it exists, ensure it is for a
+      // node within this WebContents. Note: this WebContents could be hosting
+      // multiple frame trees (e.g. prerendering) so it's not enough to check
+      // against this->frame_tree_.
+      FrameTree* frame_tree = frame_tree_node->frame_tree();
+      CHECK_EQ(frame_tree->controller().GetWebContents(), this);
+
+      if (blink::features::IsPrerender2Enabled()) {
+        // Prerendering is generally hidden from embedders. If the navigation is
+        // targeting a frame in a prerendering frame tree, we shouldn't run that
+        // navigation through the embedder delegate. Instead, we just navigate
+        // directly on the prerendering frame tree.
+        if (frame_tree->type() == FrameTree::Type::kPrerender) {
+          DCHECK_EQ(params.disposition, WindowOpenDisposition::CURRENT_TAB);
+          frame_tree->controller().LoadURLWithParams(
+              NavigationController::LoadURLParams(params));
+          return this;
+        }
+      }
+    } else {
+      // If the node doesn't exist it was probably removed from its frame tree.
+      // In that case, abort since continuing would navigate the root frame.
+      return nullptr;
+    }
+  }
+
+  WebContents* new_contents = delegate_->OpenURLFromTab(this, params);
 
   if (source_render_frame_host && params.source_site_instance) {
     CHECK_EQ(source_render_frame_host->GetSiteInstance(),
@@ -4970,13 +5116,13 @@ void WebContentsImpl::DidChooseColorInColorChooser(SkColor color) {
   OPTIONAL_TRACE_EVENT1("content",
                         "WebContentsImpl::DidChooseColorInColorChooser",
                         "color", color);
-  if (color_chooser_)
-    color_chooser_->DidChooseColorInColorChooser(color);
+  if (color_chooser_holder_)
+    color_chooser_holder_->DidChooseColorInColorChooser(color);
 }
 
 void WebContentsImpl::DidEndColorChooser() {
   OPTIONAL_TRACE_EVENT0("content", "WebContentsImpl::DidEndColorChooser");
-  color_chooser_.reset();
+  color_chooser_holder_.reset();
 }
 
 int WebContentsImpl::DownloadImage(
@@ -6000,19 +6146,25 @@ void WebContentsImpl::OpenColorChooser(
     SkColor color,
     std::vector<blink::mojom::ColorSuggestionPtr> suggestions) {
   OPTIONAL_TRACE_EVENT0("content", "WebContentsImpl::OpenColorChooser");
-  // Create `color_chooser_` before calling OpenColorChooser since
+  // Create `color_chooser_holder_` before calling OpenColorChooser since
   // OpenColorChooser may callback with results.
-  color_chooser_.reset();
-  color_chooser_ = std::make_unique<ColorChooser>(std::move(chooser_receiver),
-                                                  std::move(client));
+  color_chooser_holder_.reset();
+  color_chooser_holder_ = std::make_unique<ColorChooserHolder>(
+      std::move(chooser_receiver), std::move(client));
 
-  content::ColorChooser* new_color_chooser =
+  auto new_color_chooser =
       delegate_ ? delegate_->OpenColorChooser(this, color, suggestions)
                 : nullptr;
-  color_chooser_->SetChooser(base::WrapUnique(new_color_chooser));
-
-  if (!new_color_chooser)
-    color_chooser_.reset();
+  if (color_chooser_holder_ && new_color_chooser) {
+    color_chooser_holder_->SetChooser(std::move(new_color_chooser));
+  } else if (new_color_chooser) {
+    // OpenColorChooser synchronously called back to DidEndColorChooser.
+    DCHECK(!color_chooser_holder_);
+    new_color_chooser->End();
+  } else if (color_chooser_holder_) {
+    DCHECK(!new_color_chooser);
+    color_chooser_holder_.reset();
+  }
 }
 
 #if BUILDFLAG(ENABLE_PLUGINS)
@@ -6086,7 +6238,7 @@ void WebContentsImpl::UpdateFaviconURL(
   // navigation occurs while a page is still loading, the initial page
   // may stop loading and send us updated favicon URLs after the navigation
   // for the new page has committed.
-  if (!source->IsCurrent())
+  if (!source->IsActive())
     return;
 
   observers_.NotifyObservers(&WebContentsObserver::DidUpdateFaviconURL, source,
@@ -6400,15 +6552,6 @@ void WebContentsImpl::RenderFrameCreated(
         view_->Focus();
       }
     }
-
-    // RenderFrameDevToolsAgentHost should not be told about the main renderer
-    // frame until/unless there is a `delegate_`.
-    if (delegate_) {
-      // TODO(crbug.com/1199687): Under MPArch, with multiple frame trees in a
-      // WebContents, this is intended to just notify about the main frame of
-      // the root page.
-      RenderFrameDevToolsAgentHost::WebContentsMainFrameCreated(this);
-    }
   }
 
   {
@@ -6497,6 +6640,7 @@ void WebContentsImpl::RunJavaScriptDialog(
     const std::u16string& message,
     const std::u16string& default_prompt,
     JavaScriptDialogType dialog_type,
+    bool disable_third_party_subframe_suppresion,
     JavaScriptDialogCallback response_callback) {
   OPTIONAL_TRACE_EVENT1("content", "WebContentsImpl::RunJavaScriptDialog",
                         "render_frame_host", render_frame_host);
@@ -6534,7 +6678,8 @@ void WebContentsImpl::RunJavaScriptDialog(
   bool has_handlers = page_handlers.size() || has_non_devtools_handlers;
   bool suppress_this_message = should_suppress || !has_handlers;
 
-  if (GetContentClient()->browser()->SuppressDifferentOriginSubframeJSDialogs(
+  if (!disable_third_party_subframe_suppresion &&
+      GetContentClient()->browser()->SuppressDifferentOriginSubframeJSDialogs(
           GetBrowserContext())) {
     // We can't check for opaque origin cases, default to allowing them to
     // trigger dialogs.
@@ -6640,7 +6785,7 @@ void WebContentsImpl::RunBeforeUnloadConfirm(
   javascript_dialog_dismiss_notifier_ =
       std::make_unique<JavaScriptDialogDismissNotifier>();
 
-  bool should_suppress = !render_frame_host->IsCurrent() ||
+  bool should_suppress = !render_frame_host->IsActive() ||
                          (delegate_ && delegate_->ShouldSuppressDialogs(this));
   bool has_non_devtools_handlers = delegate_ && dialog_manager_;
   bool has_handlers = page_handlers.size() || has_non_devtools_handlers;
@@ -8768,11 +8913,11 @@ void WebContentsImpl::RenderFrameHostStateChanged(
                         });
 
   if (old_state == LifecycleState::kActive && !render_frame_host->GetParent()) {
-    // TODO(sreejakshetty): Remove this reset when ColorChooser becomes
+    // TODO(sreejakshetty): Remove this reset when ColorChooserHolder becomes
     // per-frame.
     // Close the color chooser popup when RenderFrameHost changes state from
     // kActive.
-    color_chooser_.reset();
+    color_chooser_holder_.reset();
   }
 
   observers_.NotifyObservers(&WebContentsObserver::RenderFrameHostStateChanged,

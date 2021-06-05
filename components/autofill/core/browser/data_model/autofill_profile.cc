@@ -11,6 +11,7 @@
 #include <ostream>
 #include <set>
 
+#include "base/cxx17_backports.h"
 #include "base/guid.h"
 #include "base/hash/sha1.h"
 #include "base/i18n/case_conversion.h"
@@ -18,7 +19,6 @@
 #include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/ranges/algorithm.h"
-#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversion_utils.h"
@@ -455,6 +455,13 @@ int AutofillProfile::Compare(const AutofillProfile& profile) const {
   }
 
   for (ServerFieldType type : types) {
+    // If the value is empty, the verification status can be ambiguous because
+    // the value could be either build from its empty child nodes or parsed
+    // from its parent. Therefore, it should not be considered when evaluating
+    // the similarity of two profiles.
+    if (profile.GetRawInfo(type).empty())
+      continue;
+
     if (structured_address::IsLessSignificantVerificationStatus(
             GetVerificationStatus(type), profile.GetVerificationStatus(type))) {
       return -1;
@@ -485,6 +492,13 @@ int AutofillProfile::Compare(const AutofillProfile& profile) const {
     }
 
     for (ServerFieldType type : types) {
+      // If the value is empty, the verification status can be ambiguous because
+      // the value could be either build from its empty child nodes or parsed
+      // from its parent. Therefore, it should not be considered when evaluating
+      // the similarity of two profiles.
+      if (profile.GetRawInfo(type).empty())
+        continue;
+
       if (structured_address::IsLessSignificantVerificationStatus(
               GetVerificationStatus(type),
               profile.GetVerificationStatus(type))) {
@@ -964,6 +978,12 @@ void AutofillProfile::RecordAndLogUse() {
   UMA_HISTOGRAM_COUNTS_1000("Autofill.DaysSinceLastUse.Profile",
                             (AutofillClock::Now() - use_date()).InDays());
   RecordUse();
+  LogVerificationStatuses();
+}
+
+void AutofillProfile::LogVerificationStatuses() {
+  AutofillMetrics::LogVerificationStatusOfNameTokensOnProfileUsage(*this);
+  AutofillMetrics::LogVerificationStatusOfAddressTokensOnProfileUsage(*this);
 }
 
 bool AutofillProfile::HasGreaterFrescocencyThan(

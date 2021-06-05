@@ -12,11 +12,13 @@
 #include "cc/paint/decoded_draw_image.h"
 #include "cc/paint/display_item_list.h"
 #include "cc/paint/image_provider.h"
+#include "cc/paint/paint_flags.h"
 #include "cc/paint/paint_image_builder.h"
 #include "cc/paint/paint_op_reader.h"
 #include "cc/paint/paint_op_writer.h"
 #include "cc/paint/paint_record.h"
 #include "cc/paint/scoped_raster_flags.h"
+#include "cc/paint/skottie_wrapper.h"
 #include "third_party/skia/include/core/SkAnnotation.h"
 #include "third_party/skia/include/core/SkCanvas.h"
 #include "third_party/skia/include/core/SkRegion.h"
@@ -1558,11 +1560,10 @@ void DrawImageOp::RasterWithFlags(const DrawImageOp* op,
     canvas->scale(1.f / scale_adjustment.width(),
                   1.f / scale_adjustment.height());
   }
-  canvas->drawImage(
-      decoded_image.image().get(), op->left, op->top,
-      SkSamplingOptions(decoded_image.filter_quality(),
-                        SkSamplingOptions::kMedium_asMipmapLinear),
-      &paint);
+  canvas->drawImage(decoded_image.image().get(), op->left, op->top,
+                    PaintFlags::FilterQualityToSkSamplingOptions(
+                        decoded_image.filter_quality()),
+                    &paint);
 }
 
 void DrawImageRectOp::RasterWithFlags(const DrawImageRectOp* op,
@@ -1642,11 +1643,10 @@ void DrawImageRectOp::RasterWithFlags(const DrawImageRectOp* op,
   adjusted_src = AdjustSrcRectForScale(adjusted_src, scale_adjustment);
   flags->DrawToSk(canvas, [op, &decoded_image, adjusted_src](SkCanvas* c,
                                                              const SkPaint& p) {
-    c->drawImageRect(
-        decoded_image.image().get(), adjusted_src, op->dst,
-        SkSamplingOptions(decoded_image.filter_quality(),
-                          SkSamplingOptions::kMedium_asMipmapLinear),
-        &p, op->constraint);
+    SkSamplingOptions options = PaintFlags::FilterQualityToSkSamplingOptions(
+        decoded_image.filter_quality());
+    c->drawImageRect(decoded_image.image().get(), adjusted_src, op->dst,
+                     options, &p, op->constraint);
   });
 }
 
@@ -3007,6 +3007,45 @@ sk_sp<PaintOpBuffer> PaintOpBuffer::MakeFromMemory(
   if (!buffer->Deserialize(input, input_size, options))
     return nullptr;
   return buffer;
+}
+
+// static
+SkRect PaintOpBuffer::GetFixedScaleBounds(const SkMatrix& ctm,
+                                          const SkRect& bounds,
+                                          int max_texture_size) {
+  SkSize scale;
+  if (!ctm.decomposeScale(&scale)) {
+    // Decomposition failed, use an approximation.
+    scale.set(SkScalarSqrt(ctm.getScaleX() * ctm.getScaleX() +
+                           ctm.getSkewX() * ctm.getSkewX()),
+              SkScalarSqrt(ctm.getScaleY() * ctm.getScaleY() +
+                           ctm.getSkewY() * ctm.getSkewY()));
+  }
+
+  SkScalar raster_width = bounds.width() * scale.width();
+  SkScalar raster_height = bounds.height() * scale.height();
+  SkScalar tile_area = raster_width * raster_height;
+  // Clamp the tile area to about 4M pixels, and per-dimension max texture size
+  // if it's provided.
+  static const SkScalar kMaxTileArea = 2048 * 2048;
+  SkScalar down_scale = 1.f;
+  if (tile_area > kMaxTileArea) {
+    down_scale = SkScalarSqrt(kMaxTileArea / tile_area);
+  }
+  if (max_texture_size > 0) {
+    // This only updates down_scale if the tile is larger than the texture size
+    // after ensuring its area is less than kMaxTileArea
+    down_scale = std::min(
+        down_scale, max_texture_size / std::max(raster_width, raster_height));
+  }
+
+  if (down_scale < 1.f) {
+    scale.set(down_scale * scale.width(), down_scale * scale.height());
+  }
+  return SkRect::MakeXYWH(
+      bounds.fLeft * scale.width(), bounds.fTop * scale.height(),
+      SkScalarCeilToInt(SkScalarAbs(scale.width() * bounds.width())),
+      SkScalarCeilToInt(SkScalarAbs(scale.height() * bounds.height())));
 }
 
 void PaintOpBuffer::ReallocBuffer(size_t new_size) {

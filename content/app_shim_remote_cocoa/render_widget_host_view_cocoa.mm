@@ -31,6 +31,7 @@
 #include "ui/base/cocoa/remote_accessibility_api.h"
 #import "ui/base/cocoa/touch_bar_util.h"
 #include "ui/base/ui_base_features.h"
+#include "ui/display/display_list.h"
 #include "ui/display/screen.h"
 #include "ui/events/event_utils.h"
 #include "ui/events/keycodes/dom/dom_code.h"
@@ -227,8 +228,6 @@ void ExtractUnderlines(NSAttributedString* string,
     _isStylusEnteringProximity = false;
     _keyboardLockActive = false;
     _textInputType = ui::TEXT_INPUT_TYPE_NONE;
-    _direct_manipulation_enabled =
-        base::FeatureList::IsEnabled(features::kDirectManipulationStylus);
     _has_pen_contact = false;
   }
   return self;
@@ -762,77 +761,49 @@ void ExtractUnderlines(NSAttributedString* string,
   if (type == NSMouseMoved)
     _cursorHidden = NO;
 
-  bool send_touch =
-      _direct_manipulation_enabled &&
-      _pointerType == blink::WebPointerProperties::PointerType::kPen;
+  bool unaccelerated_movement =
+      _mouse_locked && _mouse_lock_unaccelerated_movement;
+  WebMouseEvent event = WebMouseEventBuilder::Build(
+      theEvent, self, _pointerType, unaccelerated_movement);
 
-  // Send touch events when the pen is in contact with the tablet.
-  if (send_touch) {
-    // Because the NSLeftMouseUp event's buttonMask is not
-    // NSEventButtonMaskPenTip, we read |has_pen_contact_| to ensure a
-    // TouchRelease is sent appropriately at the end when the stylus is
-    // no longer in contact with the digitizer.
-    send_touch = _has_pen_contact;
-    if (type == NSLeftMouseDown || type == NSLeftMouseUp ||
-        type == NSLeftMouseDragged) {
-      NSEventButtonMask buttonMask = [theEvent buttonMask];
-      if (buttonMask == NSEventButtonMaskPenTip) {
-        DCHECK(type != NSLeftMouseUp);
-        send_touch = _has_pen_contact = true;
-      } else {
-        _has_pen_contact = false;
-      }
+  if (_mouse_locked &&
+      base::FeatureList::IsEnabled(features::kConsolidatedMovementXY)) {
+    // When mouse is locked, we keep increasing |last_mouse_screen_position|
+    // by movement_x/y so that we can still use PositionInScreen to calculate
+    // movements in blink. We need to keep |last_mouse_screen_position_| from
+    // getting too large because it will lose some precision. So whenever it
+    // exceed the |wrap_around_distance|, we start again from the current
+    // mouse position (locked position), and also send a synthesized event to
+    // update the blink-side status.
+    if (std::abs(_last_mouse_screen_position.x()) > wrap_around_distance ||
+        std::abs(_last_mouse_screen_position.y()) > wrap_around_distance) {
+      NSWindow* window = [self window];
+      NSPoint location = [window mouseLocationOutsideOfEventStream];
+      int window_number = window ? [window windowNumber] : -1;
+      NSEvent* nsevent = [NSEvent mouseEventWithType:NSMouseMoved
+                                            location:location
+                                       modifierFlags:[theEvent modifierFlags]
+                                           timestamp:[theEvent timestamp]
+                                        windowNumber:window_number
+                                             context:nil
+                                         eventNumber:0
+                                          clickCount:[theEvent clickCount]
+                                            pressure:0];
+      WebMouseEvent wrap_around_event =
+          WebMouseEventBuilder::Build(nsevent, self, _pointerType);
+      _last_mouse_screen_position = wrap_around_event.PositionInScreen();
+      wrap_around_event.SetModifiers(
+          event.GetModifiers() |
+          blink::WebInputEvent::Modifiers::kRelativeMotionEvent);
+      _hostHelper->RouteOrProcessMouseEvent(wrap_around_event);
     }
+    event.SetPositionInScreen(
+        _last_mouse_screen_position +
+        gfx::Vector2dF(event.movement_x, event.movement_y));
   }
 
-  if (!send_touch) {
-    bool unaccelerated_movement =
-        _mouse_locked && _mouse_lock_unaccelerated_movement;
-    WebMouseEvent event = WebMouseEventBuilder::Build(
-        theEvent, self, _pointerType, unaccelerated_movement);
-
-    if (_mouse_locked &&
-        base::FeatureList::IsEnabled(features::kConsolidatedMovementXY)) {
-      // When mouse is locked, we keep increasing |last_mouse_screen_position|
-      // by movement_x/y so that we can still use PositionInScreen to calculate
-      // movements in blink. We need to keep |last_mouse_screen_position_| from
-      // getting too large because it will lose some precision. So whenever it
-      // exceed the |wrap_around_distance|, we start again from the current
-      // mouse position (locked position), and also send a synthesized event to
-      // update the blink-side status.
-      if (std::abs(_last_mouse_screen_position.x()) > wrap_around_distance ||
-          std::abs(_last_mouse_screen_position.y()) > wrap_around_distance) {
-        NSWindow* window = [self window];
-        NSPoint location = [window mouseLocationOutsideOfEventStream];
-        int window_number = window ? [window windowNumber] : -1;
-        NSEvent* nsevent = [NSEvent mouseEventWithType:NSMouseMoved
-                                              location:location
-                                         modifierFlags:[theEvent modifierFlags]
-                                             timestamp:[theEvent timestamp]
-                                          windowNumber:window_number
-                                               context:nil
-                                           eventNumber:0
-                                            clickCount:[theEvent clickCount]
-                                              pressure:0];
-        WebMouseEvent wrap_around_event =
-            WebMouseEventBuilder::Build(nsevent, self, _pointerType);
-        _last_mouse_screen_position = wrap_around_event.PositionInScreen();
-        wrap_around_event.SetModifiers(
-            event.GetModifiers() |
-            blink::WebInputEvent::Modifiers::kRelativeMotionEvent);
-        _hostHelper->RouteOrProcessMouseEvent(wrap_around_event);
-      }
-      event.SetPositionInScreen(
-          _last_mouse_screen_position +
-          gfx::Vector2dF(event.movement_x, event.movement_y));
-    }
-
-    _last_mouse_screen_position = event.PositionInScreen();
-    _hostHelper->RouteOrProcessMouseEvent(event);
-  } else {
-    WebTouchEvent event = WebTouchEventBuilder::Build(theEvent, self);
-    _hostHelper->RouteOrProcessTouchEvent(event);
-  }
+  _last_mouse_screen_position = event.PositionInScreen();
+  _hostHelper->RouteOrProcessMouseEvent(event);
 }
 
 - (void)tabletEvent:(NSEvent*)theEvent {
@@ -1391,13 +1362,12 @@ void ExtractUnderlines(NSAttributedString* string,
   if (!enclosingWindow)
     return;
 
-  display::Screen* screen = display::Screen::GetScreen();
   // TODO(ccameron): This will call [enclosingWindow screen], which may return
   // nil. Do that call here to avoid sending bogus display info to the host.
-  display::DisplayList display_list(screen->GetAllDisplays(),
-                                    screen->GetPrimaryDisplay().id(),
-                                    screen->GetDisplayNearestView(self).id());
-  _host->OnDisplaysChanged(display_list);
+  const display::DisplayList new_display_list =
+      display::Screen::GetScreen()->GetDisplayListNearestViewWithFallbacks(
+          self);
+  _host->OnDisplaysChanged(new_display_list);
 }
 
 // This will be called when the NSView's NSWindow moves from one NSScreen to

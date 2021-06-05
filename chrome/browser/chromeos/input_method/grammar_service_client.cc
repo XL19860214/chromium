@@ -19,6 +19,7 @@ namespace {
 using chromeos::machine_learning::mojom::GrammarCheckerQuery;
 using chromeos::machine_learning::mojom::GrammarCheckerResult;
 using chromeos::machine_learning::mojom::GrammarCheckerResultPtr;
+using chromeos::machine_learning::mojom::LoadModelResult;
 
 const uint32_t kMaxQueryLength = 200;
 
@@ -55,21 +56,20 @@ bool IsSentenceEnding(const std::string& text, uint32_t idx) {
 }  // namespace
 
 GrammarServiceClient::GrammarServiceClient() {
+  weak_this_ = weak_factory_.GetWeakPtr();
   chromeos::machine_learning::ServiceConnection::GetInstance()
       ->GetMachineLearningService()
       .LoadGrammarChecker(
           grammar_checker_.BindNewPipeAndPassReceiver(),
-          base::BindOnce(
-              [](bool* grammar_checker_loaded_,
-                 chromeos::machine_learning::mojom::LoadModelResult result) {
-                *grammar_checker_loaded_ =
-                    result ==
-                    chromeos::machine_learning::mojom::LoadModelResult::OK;
-              },
-              &grammar_checker_loaded_));
+          base::BindOnce(&GrammarServiceClient::OnLoadGrammarCheckerDone,
+                         weak_this_));
 }
 
 GrammarServiceClient::~GrammarServiceClient() = default;
+
+void GrammarServiceClient::OnLoadGrammarCheckerDone(LoadModelResult result) {
+  grammar_checker_loaded_ = result == LoadModelResult::OK;
+}
 
 bool GrammarServiceClient::RequestTextCheck(
     Profile* profile,

@@ -27,9 +27,10 @@ class ArcClientAdapterTest : public testing::Test,
   ~ArcClientAdapterTest() override = default;
 
   // ArcClientAdapter::Observer overrides:
-  void ArcInstanceStopped() override {}
+  void ArcInstanceStopped(bool is_system_shutdown) override {}
 
   void SetUp() override {
+    chromeos::DBusThreadManager::Initialize();
     chromeos::DBusThreadManager::GetSetterForTesting()->SetDebugDaemonClient(
         std::make_unique<chromeos::FakeDebugDaemonClient>());
     chromeos::ConciergeClient::InitializeFake(/*fake_cicerone_client=*/nullptr);

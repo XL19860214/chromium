@@ -73,14 +73,6 @@ class WebCursor;
 class WebContentsAccessibility;
 class DelegatedFrameHost;
 
-// The TooltipObserver is used in browser tests only.
-class CONTENT_EXPORT TooltipObserver {
- public:
-  virtual ~TooltipObserver() = default;
-
-  virtual void OnTooltipTextUpdated(const std::u16string& tooltip_text) = 0;
-};
-
 // Basic implementation shared by concrete RenderWidgetHostView subclasses.
 class CONTENT_EXPORT RenderWidgetHostViewBase : public RenderWidgetHostView {
  public:
@@ -462,6 +454,13 @@ class CONTENT_EXPORT RenderWidgetHostViewBase : public RenderWidgetHostView {
   // Updates the tooltip text and displays the requested tooltip on the screen.
   // An empty string will clear a visible tooltip.
   virtual void UpdateTooltip(const std::u16string& tooltip_text) {}
+
+  // Updates the tooltip text and its position and displays the requested
+  // tooltip on the screen. The |bounds| parameter corresponds to the bounds of
+  // the renderer-side element (in widget-relative DIPS) on which the tooltip
+  // should appear to be anchored.
+  virtual void UpdateTooltipFromKeyboard(const std::u16string& tooltip_text,
+                                         const gfx::Rect& bounds) {}
 
   // Transforms |point| to be in the coordinate space of browser compositor's
   // surface. This is in DIP.

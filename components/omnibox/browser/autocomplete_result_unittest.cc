@@ -10,9 +10,9 @@
 #include <string>
 #include <vector>
 
+#include "base/cxx17_backports.h"
 #include "base/metrics/field_trial.h"
 #include "base/metrics/field_trial_params.h"
-#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
@@ -1744,6 +1744,47 @@ TEST_F(AutocompleteResultTest, SortAndCullKeepGroupedSuggestionsLast) {
                       AutocompleteResult::GetMaxMatches());
 }
 
+TEST_F(AutocompleteResultTest,
+       GroupSuggestionsBySearchVsURLHonorsProtectedSuggestions) {
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitWithFeaturesAndParameters(
+      {{omnibox::kUIExperimentMaxAutocompleteMatches,
+        {{OmniboxFieldTrial::kUIMaxAutocompleteMatchesParam, "7"}}}},
+      {/* nothing disabled */});
+  TestData data[] = {
+      {0, 2, 400, true, {}, AutocompleteMatchType::HISTORY_TITLE},
+      {1, 1, 800, false, {}, AutocompleteMatchType::CLIPBOARD_URL},
+      {2, 1, 700, false, {}, AutocompleteMatchType::TILE_NAVSUGGEST},
+      {3, 1, 600, false, {}, AutocompleteMatchType::TILE_SUGGESTION},
+      {4, 1, 1000, false, {}, AutocompleteMatchType::HISTORY_URL},
+      {5, 1, 900, false, {}, AutocompleteMatchType::SEARCH_SUGGEST},
+      {6, 1, 800, false, {}, AutocompleteMatchType::SEARCH_SUGGEST},
+  };
+
+  ACMatches matches;
+  PopulateAutocompleteMatches(data, base::size(data), &matches);
+
+  AutocompleteInput input(u"a", metrics::OmniboxEventProto::OTHER,
+                          TestSchemeClassifier());
+  AutocompleteResult result;
+  result.AppendMatches(input, matches);
+  result.GroupSuggestionsBySearchVsURL(std::next(result.matches_.begin()),
+                                       result.matches_.end());
+
+  TestData expected_data[] = {
+      {0, 2, 400, true, {}, AutocompleteMatchType::HISTORY_TITLE},
+      {1, 1, 800, false, {}, AutocompleteMatchType::CLIPBOARD_URL},
+      {2, 1, 700, false, {}, AutocompleteMatchType::TILE_NAVSUGGEST},
+      {3, 1, 600, false, {}, AutocompleteMatchType::TILE_SUGGESTION},
+      {5, 1, 900, false, {}, AutocompleteMatchType::SEARCH_SUGGEST},
+      {6, 1, 800, false, {}, AutocompleteMatchType::SEARCH_SUGGEST},
+      {4, 1, 1000, false, {}, AutocompleteMatchType::HISTORY_URL},
+  };
+
+  AssertResultMatches(result, expected_data,
+                      AutocompleteResult::GetMaxMatches());
+}
+
 TEST_F(AutocompleteResultTest, SortAndCullMaxURLMatches) {
   base::test::ScopedFeatureList feature_list;
   feature_list.InitWithFeaturesAndParameters(
@@ -1974,10 +2015,10 @@ TEST_F(AutocompleteResultTest, AttachesPedals) {
 
   // Ensure the entity suggestion doesn't get a pedal even though its contents
   // form a concept match.
-  EXPECT_EQ(nullptr, std::prev(std::prev(result.end()))->pedal);
+  EXPECT_EQ(nullptr, std::prev(std::prev(result.end()))->action);
 
   // The same concept-matching contents on a non-entity suggestion gets a pedal.
-  EXPECT_NE(nullptr, std::prev(result.end())->pedal);
+  EXPECT_NE(nullptr, std::prev(result.end())->action);
 }
 
 TEST_F(AutocompleteResultTest, DocumentSuggestionsCanMergeButNotToDefault) {

@@ -3229,6 +3229,21 @@ enum WebFeature {
   kSVGTextHangingFromPath = 3914,
   kClientHintsPrefersColorScheme = 3915,
   kOverscrollBehaviorWillBeFixed = 3916,
+  kControlledWorkerWillBeUncontrolled = 3917,
+  kARIATouchpassthroughAttribute = 3918,
+  kARIAVirtualcontentAttribute = 3919,
+  kAccessibilityTouchPassthroughSet = 3920,
+  kTextFragmentBlockedByForceLoadAtTop = 3921,
+  kUrnDocumentAccessedCookies = 3922,
+  kFontFaceAscentOverride = 3923,
+  kFontFaceDescentOverride = 3924,
+  kFontFaceLineGapOverride = 3925,
+  kFontFaceSizeAdjust = 3926,
+  kHiddenBackfaceWith3D = 3927,
+  kMainFrameNonSecurePrivateAddressSpace = 3928,
+  kCSSSelectorPseudoHas = 3929,
+  kHTMLMediaElementControlsListNoPlaybackRate = 3930,
+  kDocumentTransition = 3931,
 
   // Add new features immediately above this line. Don't change assigned
   // numbers of any item, and don't reuse removed slots.

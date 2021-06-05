@@ -418,6 +418,11 @@ bool FormDataImporter::IsValidLearnableProfile(
            is_zip_invalid);
 }
 
+void FormDataImporter::CacheFetchedVirtualCard(
+    const std::u16string& last_four) {
+  fetched_virtual_cards_.insert(last_four);
+}
+
 bool FormDataImporter::ImportFormData(
     const FormStructure& submitted_form,
     bool profile_autofill_enabled,
@@ -557,6 +562,15 @@ bool FormDataImporter::ImportAddressProfileForSection(
 
   // Go through each |form| field and attempt to constitute a valid profile.
   for (const auto& field : form) {
+    // TODO(crbug/1213301): Remove this. This hack replaces the UNKNOWN_TYPE
+    // (due to autocomplete) of fields of a specific signature with their server
+    // or heuristic type. The changed value is reset below.
+    bool is_autocomplete_workaround =
+        base::FeatureList::IsEnabled(
+            features::kAutofillIgnoreAutocompleteForImport) &&
+        field->GetFieldSignature() == FieldSignature(2281611779) &&
+        field->Type().IsUnknown();
+
     // Reject fields that are not within the specified |section|.
     // If section is empty, use all fields.
     if (field->section != section && !section.empty())
@@ -573,10 +587,17 @@ bool FormDataImporter::ImportAddressProfileForSection(
         !field->is_focusable &&
         !base::FeatureList::IsEnabled(
             features::kAutofillProfileImportFromUnfocusableFields);
-    if (!field->IsFieldFillable() || skip_unfocussable_field || value.empty())
+    if ((!is_autocomplete_workaround && !field->IsFieldFillable()) ||
+        skip_unfocussable_field || value.empty()) {
       continue;
+    }
 
     AutofillType field_type = field->Type();
+    if (is_autocomplete_workaround) {
+      field_type = AutofillType(field->server_type() != NO_SERVER_DATA
+                                    ? field->server_type()
+                                    : field->heuristic_type());
+    }
 
     // Credit card fields are handled by ImportCreditCard().
     if (field_type.group() == FieldTypeGroup::kCreditCard)
@@ -775,6 +796,10 @@ bool FormDataImporter::ImportCreditCard(
     return false;
   }
 
+  // If the imported card is a known virtual card, abort saving.
+  if (fetched_virtual_cards_.contains(candidate_credit_card.LastFourDigits()))
+    return false;
+
   // Can import one valid card per form. Start by treating it as NEW_CARD, but
   // overwrite this type if we discover it is already a local or server card.
   imported_credit_card_record_type_ = ImportedCreditCardRecordType::NEW_CARD;
@@ -903,7 +928,9 @@ CreditCard FormDataImporter::ExtractCreditCardFromForm(
     // month. Attempt to save with the option value. First find the index of the
     // option text in the select options and try the corresponding value.
     if (!saved && server_field_type == CREDIT_CARD_EXP_MONTH) {
-      for (size_t i = 0; i < field->option_contents.size(); ++i) {
+      size_t items_count =
+          std::min(field->option_contents.size(), field->option_values.size());
+      for (size_t i = 0; i < items_count; ++i) {
         if (value == field->option_contents[i]) {
           candidate_credit_card.SetInfo(field_type, field->option_values[i],
                                         app_locale_);

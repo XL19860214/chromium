@@ -172,10 +172,7 @@ bool WriteShortcutsMenuIcons(
     FileUtilsWrapper* utils,
     const base::FilePath& app_manifest_resources_directory,
     const ShortcutsMenuIconBitmaps& shortcuts_menu_icon_bitmaps) {
-  // TODO(crbug.com/1114638): Write monochrome icons too.
-  std::array<IconPurpose, 2> purposes = {IconPurpose::ANY,
-                                         IconPurpose::MASKABLE};
-  for (IconPurpose purpose : purposes) {
+  for (IconPurpose purpose : kIconPurposes) {
     const base::FilePath shortcuts_menu_icons_dir =
         GetAppShortcutsMenuIconsDirectory(app_manifest_resources_directory,
                                           purpose);
@@ -228,10 +225,7 @@ bool WriteDataBlocking(const std::unique_ptr<FileUtilsWrapper>& utils,
     return false;
   }
 
-  // Iterates over each icon purpose.
-  for (int p = static_cast<int>(IconPurpose::kMinValue);
-       p <= static_cast<int>(IconPurpose::kMaxValue); ++p) {
-    auto purpose = static_cast<IconPurpose>(p);
+  for (IconPurpose purpose : kIconPurposes) {
     if (!WriteIcons(utils.get(),
                     GetAppIconsDirectory(app_temp_dir.GetPath(), purpose),
                     icon_bitmaps.GetBitmapsForPurpose(purpose))) {
@@ -488,10 +482,7 @@ ShortcutsMenuIconBitmaps ReadShortcutsMenuIconsBlocking(
   for (const auto& icon_sizes : shortcuts_menu_icons_sizes) {
     IconBitmaps result;
 
-    // TODO(crbug.com/1114638): Read monochrome icons too.
-    std::array<IconPurpose, 2> purposes = {IconPurpose::ANY,
-                                           IconPurpose::MASKABLE};
-    for (IconPurpose purpose : purposes) {
+    for (IconPurpose purpose : kIconPurposes) {
       std::map<SquareSizePx, SkBitmap> bitmaps;
 
       for (SquareSizePx icon_size_px : icon_sizes.GetSizesForPurpose(purpose)) {

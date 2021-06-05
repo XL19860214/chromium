@@ -47,7 +47,9 @@
 #include "storage/browser/quota/quota_override_handle.h"
 #include "storage/browser/quota/quota_temporary_storage_evictor.h"
 #include "storage/browser/quota/usage_tracker.h"
+#include "third_party/blink/public/common/storage_key/storage_key.h"
 #include "third_party/blink/public/mojom/quota/quota_types.mojom-shared.h"
+#include "url/origin.h"
 
 using blink::mojom::StorageType;
 
@@ -80,6 +82,16 @@ int64_t RandomizeByPercent(int64_t value, int percent) {
 int64_t QuotaManagerImpl::kSyncableStorageDefaultHostQuota = 500 * kMBytes;
 
 namespace {
+
+// TODO(crbug.com/1215208): Remove when the QuotaDatabase and QuotaManagerImpl
+// have been migrated to use StorageKey.
+std::set<url::Origin> ToOriginSet(
+    const std::set<blink::StorageKey>& storage_keys) {
+  std::set<url::Origin> origins;
+  for (const blink::StorageKey& key : storage_keys)
+    origins.insert(key.origin());
+  return origins;
+}
 
 bool IsSupportedType(StorageType type) {
   return type == StorageType::kTemporary || type == StorageType::kPersistent ||
@@ -151,34 +163,18 @@ bool DeleteOriginInfoOnDBThread(const url::Origin& origin,
         (now - entry.last_accessed).InDays());
   }
 
-  if (!database->DeleteOriginInfo(origin, type))
-    return false;
-
-  // If the deletion is not due to an eviction, delete the entry in the eviction
-  // table as well due to privacy concerns.
-  if (!is_eviction)
-    return database->DeleteOriginLastEvictionTime(origin, type);
-
-  base::Time last_eviction_time;
-  database->GetOriginLastEvictionTime(origin, type, &last_eviction_time);
-
-  if (last_eviction_time != base::Time()) {
-    UMA_HISTOGRAM_COUNTS_1000(
-        QuotaManagerImpl::kDaysBetweenRepeatedOriginEvictionsHistogram,
-        (now - last_eviction_time).InDays());
-  }
-
-  return database->SetOriginLastEvictionTime(origin, type, now);
+  return database->DeleteOriginInfo(origin, type);
 }
 
-bool BootstrapDatabaseOnDBThread(std::set<url::Origin> origins,
+bool BootstrapDatabaseOnDBThread(std::set<blink::StorageKey> storage_keys,
                                  QuotaDatabase* database) {
   DCHECK(database);
   if (database->IsOriginDatabaseBootstrapped())
     return true;
 
   // Register existing origins with 0 last time access.
-  if (database->RegisterInitialOriginInfo(origins, StorageType::kTemporary)) {
+  if (database->RegisterInitialOriginInfo(ToOriginSet(storage_keys),
+                                          StorageType::kTemporary)) {
     database->SetOriginDatabaseBootstrapped(true);
     return true;
   }
@@ -229,7 +225,6 @@ constexpr int QuotaManagerImpl::kEvictionIntervalInMilliSeconds;
 constexpr int QuotaManagerImpl::kThresholdOfErrorsToBeDenylisted;
 constexpr int QuotaManagerImpl::kThresholdRandomizationPercent;
 constexpr char QuotaManagerImpl::kDatabaseName[];
-constexpr char QuotaManagerImpl::kDaysBetweenRepeatedOriginEvictionsHistogram[];
 constexpr char QuotaManagerImpl::kEvictedOriginAccessedCountHistogram[];
 constexpr char QuotaManagerImpl::kEvictedOriginDaysSinceAccessHistogram[];
 
@@ -1113,7 +1108,8 @@ void QuotaManagerImpl::SetUsageCacheEnabled(QuotaClientType client_id,
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   LazyInitialize();
   DCHECK(GetUsageTracker(type));
-  GetUsageTracker(type)->SetUsageCacheEnabled(client_id, origin, enabled);
+  GetUsageTracker(type)->SetUsageCacheEnabled(
+      client_id, blink::StorageKey(origin), enabled);
 }
 
 void QuotaManagerImpl::DeleteOriginData(const url::Origin& origin,
@@ -1365,11 +1361,12 @@ void QuotaManagerImpl::BootstrapDatabaseForEviction(
     int64_t unlimited_usage) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   // The usage cache should be fully populated now so we can
-  // seed the database with origins we know about.
-  std::set<url::Origin> origins = temporary_usage_tracker_->GetCachedOrigins();
+  // seed the database with storage keys we know about.
+  std::set<blink::StorageKey> storage_keys =
+      temporary_usage_tracker_->GetCachedStorageKeys();
   PostTaskAndReplyWithResultForDBThread(
       FROM_HERE,
-      base::BindOnce(&BootstrapDatabaseOnDBThread, std::move(origins)),
+      base::BindOnce(&BootstrapDatabaseOnDBThread, std::move(storage_keys)),
       base::BindOnce(&QuotaManagerImpl::DidBootstrapDatabase,
                      weak_factory_.GetWeakPtr(),
                      std::move(did_get_origin_callback)));
@@ -1442,7 +1439,7 @@ std::set<url::Origin> QuotaManagerImpl::GetCachedOrigins(StorageType type) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   LazyInitialize();
   DCHECK(GetUsageTracker(type));
-  return GetUsageTracker(type)->GetCachedOrigins();
+  return ToOriginSet(GetUsageTracker(type)->GetCachedStorageKeys());
 }
 
 void QuotaManagerImpl::NotifyStorageAccessed(const url::Origin& origin,
@@ -1474,7 +1471,8 @@ void QuotaManagerImpl::NotifyStorageModified(QuotaClientType client_id,
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   LazyInitialize();
   DCHECK(GetUsageTracker(type));
-  GetUsageTracker(type)->UpdateUsageCache(client_id, origin, delta);
+  GetUsageTracker(type)->UpdateUsageCache(client_id, blink::StorageKey(origin),
+                                          delta);
 
   if (callback)
     std::move(callback).Run();
@@ -1731,8 +1729,8 @@ void QuotaManagerImpl::DidGetPersistentGlobalUsageForHistogram(
 void QuotaManagerImpl::DidDumpBucketTableForHistogram(
     const BucketTableEntries& entries) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  std::map<url::Origin, int64_t> usage_map =
-      GetUsageTracker(StorageType::kTemporary)->GetCachedOriginsUsage();
+  std::map<blink::StorageKey, int64_t> usage_map =
+      GetUsageTracker(StorageType::kTemporary)->GetCachedStorageKeysUsage();
   base::Time now = base::Time::Now();
   for (const auto& info : entries) {
     if (info.type != StorageType::kTemporary)
@@ -1740,7 +1738,7 @@ void QuotaManagerImpl::DidDumpBucketTableForHistogram(
 
     // Ignore stale database entries. If there is no map entry, the origin's
     // data has been deleted.
-    auto it = usage_map.find(info.origin);
+    auto it = usage_map.find(blink::StorageKey(info.origin));
     if (it == usage_map.end() || it->second == 0)
       continue;
 

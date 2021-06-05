@@ -118,6 +118,9 @@ def try_builder(
     experiments.setdefault("chromium.resultdb.result_sink", 100)
     experiments.setdefault("chromium.resultdb.result_sink.junit_tests", 100)
 
+    # Migrate executable to bbagent incrementally.
+    experiments.setdefault("luci.buildbucket.use_bbagent", 10)
+
     merged_resultdb_bigquery_exports = [
         resultdb.export_test_results(
             bq_table = "luci-resultdb.chromium.try_test_results",
@@ -159,6 +162,9 @@ def try_builder(
             kwargs["goma_enable_ats"] = False
         if kwargs["goma_enable_ats"] != False:
             fail("Try Windows builder {} must disable ATS".format(name))
+
+    # TODO(crbug.com/1143122): remove this after migration.
+    experiments["use_rbe_cas"] = 5
 
     # Define the builder first so that any validation of luci.builder arguments
     # (e.g. bucket) occurs before we try to use it
@@ -328,7 +334,7 @@ def chromium_mac_ios_builder(
         name,
         executable = "recipe:chromium_trybot",
         goma_backend = builders.goma.backend.RBE_PROD,
-        os = builders.os.MAC_10_15,
+        os = builders.os.MAC_10_15_OR_11,
         xcode = builders.xcode.x12d4e,
         **kwargs):
     return try_builder(
@@ -358,7 +364,7 @@ def chromium_swangle_linux_builder(*, name, **kwargs):
     return chromium_swangle_builder(
         name = name,
         goma_backend = builders.goma.backend.RBE_PROD,
-        os = builders.os.LINUX_XENIAL_OR_BIONIC_REMOVE,
+        os = builders.os.LINUX_BIONIC_REMOVE,
         **kwargs
     )
 
@@ -460,7 +466,7 @@ def gpu_chromium_android_builder(*, name, **kwargs):
         name = name,
         builder_group = "tryserver.chromium.android",
         goma_backend = builders.goma.backend.RBE_PROD,
-        os = builders.os.LINUX_XENIAL_OR_BIONIC_REMOVE,
+        os = builders.os.LINUX_BIONIC_REMOVE,
         **kwargs
     )
 
@@ -469,7 +475,7 @@ def gpu_chromium_linux_builder(*, name, **kwargs):
         name = name,
         builder_group = "tryserver.chromium.linux",
         goma_backend = builders.goma.backend.RBE_PROD,
-        os = builders.os.LINUX_XENIAL_OR_BIONIC_REMOVE,
+        os = builders.os.LINUX_BIONIC_REMOVE,
         **kwargs
     )
 

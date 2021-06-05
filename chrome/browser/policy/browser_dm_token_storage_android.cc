@@ -6,18 +6,21 @@
 
 #include <string>
 
+#include "base/android/jni_android.h"
+#include "base/android/jni_string.h"
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
+#include "chrome/browser/policy/android/cloud_management_shared_preferences.h"
+#include "chrome/browser/policy/android/jni_headers/CloudManagementAndroidConnection_jni.h"
 #include "components/policy/core/common/policy_pref_names.h"
-#include "components/prefs/pref_service.h"
 
 namespace policy {
 
 namespace {
 
-bool StoreDMTokenInSharedPreferences(const std::string& token,
-                                     const std::string& client_id) {
-  return false;
+bool StoreDmTokenInSharedPreferences(const std::string& dm_token) {
+  android::SaveDmTokenInSharedPreferences(dm_token);
+  return true;
 }
 
 }  // namespace
@@ -28,7 +31,10 @@ BrowserDMTokenStorageAndroid::BrowserDMTokenStorageAndroid()
 BrowserDMTokenStorageAndroid::~BrowserDMTokenStorageAndroid() {}
 
 std::string BrowserDMTokenStorageAndroid::InitClientId() {
-  return std::string();
+  JNIEnv* env = base::android::AttachCurrentThread();
+  return base::android::ConvertJavaStringToUTF8(
+      env, Java_CloudManagementAndroidConnection_getClientId(
+               env, Java_CloudManagementAndroidConnection_getInstance(env)));
 }
 
 std::string BrowserDMTokenStorageAndroid::InitEnrollmentToken() {
@@ -36,7 +42,7 @@ std::string BrowserDMTokenStorageAndroid::InitEnrollmentToken() {
 }
 
 std::string BrowserDMTokenStorageAndroid::InitDMToken() {
-  return std::string();
+  return android::ReadDmTokenFromSharedPreferences();
 }
 
 bool BrowserDMTokenStorageAndroid::InitEnrollmentErrorOption() {
@@ -46,7 +52,7 @@ bool BrowserDMTokenStorageAndroid::InitEnrollmentErrorOption() {
 BrowserDMTokenStorage::StoreTask BrowserDMTokenStorageAndroid::SaveDMTokenTask(
     const std::string& token,
     const std::string& client_id) {
-  return base::BindOnce(&StoreDMTokenInSharedPreferences, token, client_id);
+  return base::BindOnce(&StoreDmTokenInSharedPreferences, token);
 }
 
 scoped_refptr<base::TaskRunner>

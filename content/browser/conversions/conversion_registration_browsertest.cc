@@ -6,11 +6,9 @@
 #include <memory>
 
 #include "base/bind.h"
-#include "base/test/scoped_feature_list.h"
 #include "content/browser/conversions/conversion_host.h"
 #include "content/browser/conversions/conversion_manager_impl.h"
 #include "content/browser/web_contents/web_contents_impl.h"
-#include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
@@ -88,7 +86,6 @@ class ConversionDisabledBrowserTest : public ContentBrowserTest {
  public:
   ConversionDisabledBrowserTest() {
     ConversionManagerImpl::RunInMemoryForTesting();
-    feature_list_.InitAndEnableFeature(features::kConversionMeasurement);
   }
 
   void SetUpOnMainThread() override {
@@ -111,9 +108,6 @@ class ConversionDisabledBrowserTest : public ContentBrowserTest {
   WebContents* web_contents() { return shell()->web_contents(); }
 
   net::EmbeddedTestServer* https_server() { return https_server_.get(); }
-
- protected:
-  base::test::ScopedFeatureList feature_list_;
 
  private:
   std::unique_ptr<net::EmbeddedTestServer> https_server_;
@@ -392,24 +386,28 @@ IN_PROC_BROWSER_TEST_F(
     ConversionRegistrationBrowserTest,
     RegisterWithDifferentUrlTypes_ConversionReceivedOrIgnored) {
   const char kSecureHost[] = "a.test";
-  // TODO(crbug.com/1137113): Should include a test where an insecure request is
-  // blocked from conversion registration if it is made on a secure page. Note
-  // that this can't work for image requests due to image auto-upgrade.
   struct {
     std::string page_host;
     std::string redirect_host;
     bool expected_conversion;
-  } kTestCases[] = {
-      {"localhost" /* page_host */, "localhost" /* redirect_host */,
-       true /* conversion_expected */},
-      {"127.0.0.1" /* page_host */, "127.0.0.1" /* redirect_host */,
-       true /* conversion_expected */},
-      {"insecure.com" /* page_host */, "insecure.com" /* redirect_host */,
-       false /* conversion_expected */},
-      {kSecureHost /* page_host */, kSecureHost /* redirect_host */,
-       true /* conversion_expected */},
-      {"insecure.com" /* page_host */, kSecureHost /* redirect_host */,
-       false /* conversion_expected */}};
+  } kTestCases[] = {{.page_host = "localhost",
+                     .redirect_host = "localhost",
+                     .expected_conversion = true},
+                    {.page_host = "127.0.0.1",
+                     .redirect_host = "127.0.0.1",
+                     .expected_conversion = true},
+                    {.page_host = "insecure.com",
+                     .redirect_host = "insecure.com",
+                     .expected_conversion = false},
+                    {.page_host = kSecureHost,
+                     .redirect_host = kSecureHost,
+                     .expected_conversion = true},
+                    {.page_host = "insecure.com",
+                     .redirect_host = kSecureHost,
+                     .expected_conversion = false},
+                    {.page_host = kSecureHost,
+                     .redirect_host = "insecure.com",
+                     .expected_conversion = false}};
 
   for (const auto& test_case : kTestCases) {
     std::unique_ptr<TestConversionHost> host =
@@ -429,19 +427,13 @@ IN_PROC_BROWSER_TEST_F(
     GURL redirect_url = redirect_server->GetURL(
         test_case.redirect_host,
         "/server-redirect?" + kWellKnownUrl + "?trigger-data=200");
-    ResourceLoadObserver load_observer(shell());
-    EXPECT_TRUE(ExecJs(web_contents(),
-                       JsReplace("createTrackingPixel($1);", redirect_url)));
+    EXPECT_TRUE(ExecJs(
+        web_contents(),
+        JsReplace("window.fetch($1, {mode: 'no-cors'}).catch(console.log);",
+                  redirect_url)));
 
-    // Either wait for a conversion redirect to be received, or wait for the url
-    // to finish loading if we are not expecting a conversions. Because
-    // conversion redirects are blocked, we do not receive completed load
-    // information for them.
-    if (test_case.expected_conversion) {
+    if (test_case.expected_conversion)
       EXPECT_EQ(200UL, host->WaitForNumConversions(1));
-    } else {
-      load_observer.WaitForResourceCompletion(redirect_url);
-    }
 
     // Navigate the page. By the time the navigation finishes, we will have
     // received any conversion mojo messages.

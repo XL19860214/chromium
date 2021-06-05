@@ -7,23 +7,17 @@ package org.chromium.chrome.browser.signin.ui;
 import android.accounts.Account;
 import android.content.Context;
 import android.text.TextUtils;
-import android.view.View;
-
-import androidx.annotation.Nullable;
 
 import com.google.common.base.Optional;
 
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.preferences.Pref;
 import org.chromium.chrome.browser.profiles.Profile;
-import org.chromium.chrome.browser.signin.services.DisplayableProfileData;
 import org.chromium.chrome.browser.signin.services.IdentityServicesProvider;
-import org.chromium.chrome.browser.signin.services.ProfileDataCache;
 import org.chromium.chrome.browser.signin.services.SigninPreferencesManager;
 import org.chromium.components.signin.AccountManagerFacade;
 import org.chromium.components.signin.AccountManagerFacadeProvider;
 import org.chromium.components.signin.AccountUtils;
-import org.chromium.components.signin.base.CoreAccountInfo;
 import org.chromium.components.signin.identitymanager.ConsentLevel;
 import org.chromium.components.signin.metrics.SigninAccessPoint;
 import org.chromium.components.user_prefs.UserPrefs;
@@ -39,9 +33,9 @@ public final class SigninPromoUtil {
     private SigninPromoUtil() {}
 
     /**
-     * Launches the {@link SigninActivity} if it needs to be displayed.
-     * @param context The {@link Context} to launch the {@link SigninActivity}.
-     * @param syncConsentActivityLauncher launcher used to launch the {@link SigninActivity}.
+     * Launches the {@link SyncConsentActivity} if it needs to be displayed.
+     * @param context The {@link Context} to launch the {@link SyncConsentActivity}.
+     * @param syncConsentActivityLauncher launcher used to launch the {@link SyncConsentActivity}.
      * @param currentMajorVersion The current major version of Chrome.
      * @return Whether the signin promo is shown.
      */
@@ -60,13 +54,6 @@ public final class SigninPromoUtil {
             return false;
         }
 
-        final AccountManagerFacade accountManagerFacade =
-                AccountManagerFacadeProvider.getInstance();
-        if (!accountManagerFacade.isCachePopulated()) {
-            // Suppress the promo if the account list isn't available yet.
-            return false;
-        }
-
         final Profile profile = Profile.getLastUsedRegularProfile();
         if (IdentityServicesProvider.get().getIdentityManager(profile).getPrimaryAccountInfo(
                     ConsentLevel.SYNC)
@@ -81,21 +68,22 @@ public final class SigninPromoUtil {
             return false;
         }
 
-        final List<Account> accounts = accountManagerFacade.tryGetGoogleAccounts();
-
-        if (accounts.isEmpty()) {
+        final AccountManagerFacade accountManagerFacade =
+                AccountManagerFacadeProvider.getInstance();
+        Optional<List<Account>> accounts = accountManagerFacade.getGoogleAccounts();
+        if (!accounts.isPresent() || accounts.get().isEmpty()) {
             // Don't show if the account list isn't available yet or there are no accounts in it.
             return false;
         }
 
-        Optional<Boolean> isDefaultAccountSubjectToMinorModeRestrictions =
-                accountManagerFacade.isAccountSubjectToMinorModeRestrictions(accounts.get(0));
+        Optional<Boolean> canDefaultAccountOfferExtendedSyncPromos =
+                accountManagerFacade.canOfferExtendedSyncPromos(accounts.get().get(0));
         if (ChromeFeatureList.isEnabled(ChromeFeatureList.MINOR_MODE_SUPPORT)
-                && isDefaultAccountSubjectToMinorModeRestrictions.or(/* defaultValue= */ false)) {
+                && canDefaultAccountOfferExtendedSyncPromos.or(/* defaultValue= */ false)) {
             return false;
         }
 
-        final List<String> currentAccountNames = AccountUtils.toAccountNames(accounts);
+        final List<String> currentAccountNames = AccountUtils.toAccountNames(accounts.get());
         final Set<String> previousAccountNames = prefManager.getSigninPromoLastAccountNames();
         if (previousAccountNames != null && previousAccountNames.containsAll(currentAccountNames)) {
             // Don't show if no new accounts have been added after the last time promo was shown.
@@ -107,55 +95,5 @@ public final class SigninPromoUtil {
         prefManager.setSigninPromoLastShownVersion(currentMajorVersion);
         prefManager.setSigninPromoLastAccountNames(new HashSet<>(currentAccountNames));
         return true;
-    }
-
-    /**
-     * @param signinPromoController The {@link SigninPromoController} that maintains the view.
-     * @param profileDataCache The {@link ProfileDataCache} that stores profile data.
-     * @param view The {@link PersonalizedSigninPromoView} that should be set up.
-     * @param listener The {@link SigninPromoController.OnDismissListener} to be set to the view.
-     */
-    public static void setupSigninPromoViewFromCache(SigninPromoController signinPromoController,
-            ProfileDataCache profileDataCache, PersonalizedSigninPromoView view,
-            SigninPromoController.OnDismissListener listener) {
-        signinPromoController.setupPromoView(
-                view, getDefaultProfileData(profileDataCache), listener);
-    }
-
-    /**
-     * @param signinPromoController The {@link SigninPromoController} that maintains the view.
-     * @param profileDataCache The {@link ProfileDataCache} that stores profile data.
-     * @param view The {@link PersonalizedSigninPromoView} that should be set up.
-     * @param listener The {@link SigninPromoController.OnDismissListener} to be set to the view.
-     */
-    public static void setupSyncPromoViewFromCache(SigninPromoController signinPromoController,
-            ProfileDataCache profileDataCache, PersonalizedSigninPromoView view,
-            SigninPromoController.OnDismissListener listener) {
-        String signedInAccount = CoreAccountInfo.getEmailFrom(
-                IdentityServicesProvider.get()
-                        .getIdentityManager(Profile.getLastUsedRegularProfile())
-                        .getPrimaryAccountInfo(ConsentLevel.SIGNIN));
-        assert signedInAccount != null : "Sync promo should only be shown for a signed in account";
-        signinPromoController.setupPromoView(
-                view, profileDataCache.getProfileDataOrDefault(signedInAccount), listener);
-
-        view.getPrimaryButton().setText(R.string.sync_promo_turn_on_sync);
-        view.getSecondaryButton().setVisibility(View.GONE);
-    }
-
-    /**
-     * @return The default profile data if the account list is available, otherwise returns null.
-     */
-    private static @Nullable DisplayableProfileData getDefaultProfileData(
-            ProfileDataCache profileDataCache) {
-        final AccountManagerFacade accountManagerFacade =
-                AccountManagerFacadeProvider.getInstance();
-        if (accountManagerFacade.isCachePopulated()) {
-            final List<Account> accounts = accountManagerFacade.tryGetGoogleAccounts();
-            if (accounts.size() > 0) {
-                return profileDataCache.getProfileDataOrDefault(accounts.get(0).name);
-            }
-        }
-        return null;
     }
 }

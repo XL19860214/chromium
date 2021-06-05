@@ -254,6 +254,13 @@ void ExecutionContext::FileSharedArrayBufferCreationIssue() {
   AddInspectorIssue(std::move(issue));
 }
 
+void ExecutionContext::ReportNavigatorUserAgentAccess() {
+  if (has_filed_navigator_user_agent_issue_)
+    return;
+  has_filed_navigator_user_agent_issue_ = true;
+  AuditsIssue::ReportNavigatorUserAgentAccess(this, Url().GetString());
+}
+
 void ExecutionContext::AddConsoleMessageImpl(mojom::ConsoleMessageSource source,
                                              mojom::ConsoleMessageLevel level,
                                              const String& message,
@@ -305,15 +312,15 @@ bool ExecutionContext::IsContextPaused() const {
   return lifecycle_state_ == mojom::blink::FrameLifecycleState::kPaused;
 }
 
-WebURLLoader::DeferType ExecutionContext::DeferType() const {
+LoaderFreezeMode ExecutionContext::GetLoaderFreezeMode() const {
   if (is_in_back_forward_cache_) {
     DCHECK_EQ(lifecycle_state_, mojom::blink::FrameLifecycleState::kFrozen);
-    return WebURLLoader::DeferType::kDeferredWithBackForwardCache;
+    return LoaderFreezeMode::kBufferIncoming;
   } else if (lifecycle_state_ == mojom::blink::FrameLifecycleState::kFrozen ||
              lifecycle_state_ == mojom::blink::FrameLifecycleState::kPaused) {
-    return WebURLLoader::DeferType::kDeferred;
+    return LoaderFreezeMode::kStrict;
   }
-  return WebURLLoader::DeferType::kNotDeferred;
+  return LoaderFreezeMode::kNone;
 }
 
 bool ExecutionContext::IsLoadDeferred() const {

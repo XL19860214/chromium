@@ -7,7 +7,7 @@
 #include <utility>
 
 #include "base/callback_helpers.h"
-#include "base/stl_util.h"
+#include "base/cxx17_backports.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/scoped_feature_list.h"
@@ -270,7 +270,7 @@ TEST_F(OmniboxViewTest, GetStateChanges_DeletedText_RichAutocompletion) {
   base::test::ScopedFeatureList feature_list;
   feature_list.InitAndEnableFeatureWithParameters(
       omnibox::kRichAutocompletion,
-      {{OmniboxFieldTrial::kRichAutocompletionAutocompleteNonPrefixAllParam,
+      {{OmniboxFieldTrial::kRichAutocompletionAutocompleteNonPrefixAll.name,
         "true"}});
 
   // Cases with single selection

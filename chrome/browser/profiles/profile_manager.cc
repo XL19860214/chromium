@@ -70,7 +70,7 @@
 #include "chrome/browser/signin/account_reconcilor_factory.h"
 #include "chrome/browser/signin/identity_manager_factory.h"
 #include "chrome/browser/signin/signin_util.h"
-#include "chrome/browser/sync/profile_sync_service_factory.h"
+#include "chrome/browser/sync/sync_service_factory.h"
 #include "chrome/browser/ui/startup/startup_browser_creator.h"
 #include "chrome/browser/ui/sync/sync_promo_ui.h"
 #include "chrome/browser/unified_consent/unified_consent_service_factory.h"
@@ -131,8 +131,8 @@
 #endif
 
 #if !defined(OS_ANDROID)
-#include "chrome/browser/accessibility/caption_controller.h"
-#include "chrome/browser/accessibility/caption_controller_factory.h"
+#include "chrome/browser/accessibility/live_caption_controller.h"
+#include "chrome/browser/accessibility/live_caption_controller_factory.h"
 #include "chrome/browser/browsing_data/chrome_browsing_data_lifetime_manager.h"
 #include "chrome/browser/browsing_data/chrome_browsing_data_lifetime_manager_factory.h"
 #include "chrome/browser/first_run/first_run.h"
@@ -145,6 +145,7 @@
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "ash/constants/ash_switches.h"
 #include "chrome/browser/ash/account_manager/account_manager_policy_controller_factory.h"
+#include "chrome/browser/ash/arc/policy/arc_policy_util.h"
 #include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/browser_process_platform_part_chromeos.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
@@ -173,6 +174,26 @@ using base::UserMetricsAction;
 using content::BrowserThread;
 
 namespace {
+
+// Used in metrics for NukeProfileFromDisk(). Keep in sync with enums.xml.
+//
+// Entries should not be renumbered and numeric values should never be reused.
+//
+// Note: there are maximum 3 attempts to nuke a profile.
+enum class NukeProfileResult {
+  // Success values. Make sure they are consecutive.
+  kSuccessFirstAttempt = 0,
+  kSuccessSecondAttempt = 1,
+  kSuccessThirdAttempt = 2,
+
+  // Failure values. Make sure they are consecutive.
+  kFailureFirstAttempt = 10,
+  kFailureSecondAttempt = 11,
+  kFailureThirdAttempt = 12,
+  kMaxValue = kFailureThirdAttempt,
+};
+
+const size_t kNukeProfileMaxRetryCount = 3;
 
 // Profile deletion can pass through two stages:
 enum class ProfileDeletionStage {
@@ -281,20 +302,70 @@ void CancelProfileDeletion(const base::FilePath& path) {
 }
 #endif
 
-// Physically remove deleted profile directories from disk.
-void NukeProfileFromDisk(const base::FilePath& profile_path) {
+NukeProfileResult GetNukeProfileResult(size_t retry_count, bool success) {
+  DCHECK_LT(retry_count, kNukeProfileMaxRetryCount);
+  const size_t value =
+      retry_count +
+      static_cast<size_t>(success ? NukeProfileResult::kSuccessFirstAttempt
+                                  : NukeProfileResult::kFailureFirstAttempt);
+  DCHECK_LE(value, static_cast<size_t>(NukeProfileResult::kMaxValue));
+  return static_cast<NukeProfileResult>(value);
+}
+
+// Implementation of NukeProfileFromDisk(), retrying at most |max_retry_count|
+// times on failure. |retry_count| (initially 0) keeps track of the
+// number of attempts so far.
+void NukeProfileFromDiskImpl(const base::FilePath& profile_path,
+                             size_t retry_count,
+                             size_t max_retry_count,
+                             base::OnceClosure done_callback) {
+  // TODO(crbug.com/1191455): Make FileSystemProxy/FileSystemImpl expose its
+  // LockTable, and/or fire events when locks are released. That way we could
+  // wait for all the locks in |profile_path| to be released, rather than having
+  // this retry logic.
+  const base::TimeDelta kRetryDelay = base::TimeDelta::FromSeconds(1);
+
   // Delete both the profile directory and its corresponding cache.
   base::FilePath cache_path;
   chrome::GetUserCacheDirectory(profile_path, &cache_path);
-  base::DeletePathRecursively(profile_path);
-  base::DeletePathRecursively(cache_path);
+
+  bool success = base::DeletePathRecursively(profile_path);
+  success = base::DeletePathRecursively(cache_path) && success;
+
+  base::UmaHistogramEnumeration("Profile.NukeFromDisk.Result",
+                                GetNukeProfileResult(retry_count, success));
+
+  if (!success && retry_count < max_retry_count - 1) {
+    // Failed, try again in |kRetryDelay| seconds.
+    base::ThreadPool::PostDelayedTask(
+        FROM_HERE,
+        {base::MayBlock(), base::TaskPriority::BEST_EFFORT,
+         base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN},
+        base::BindOnce(&NukeProfileFromDiskImpl, profile_path, retry_count + 1,
+                       max_retry_count, std::move(done_callback)),
+        kRetryDelay);
+    return;
+  }
+
+  if (done_callback) {
+    content::GetUIThreadTaskRunner({})->PostTask(FROM_HERE,
+                                                 std::move(done_callback));
+  }
+}
+
+// Physically remove deleted profile directories from disk. Afterwards, calls
+// |done_callback| on the UI thread.
+void NukeProfileFromDisk(const base::FilePath& profile_path,
+                         base::OnceClosure done_callback) {
+  NukeProfileFromDiskImpl(profile_path, /*retry_count=*/0,
+                          kNukeProfileMaxRetryCount, std::move(done_callback));
 }
 
 // Called after a deleted profile was checked and cleaned up.
 void ProfileCleanedUp(base::Value profile_path_value) {
   ListPrefUpdate deleted_profiles(g_browser_process->local_state(),
                                   prefs::kProfilesDeleted);
-  deleted_profiles->Remove(profile_path_value, nullptr);
+  deleted_profiles->EraseListValue(profile_path_value);
 }
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
@@ -325,7 +396,7 @@ size_t GetEnabledAppCount(Profile* profile) {
 // It might get called more than once with different values of
 // |status| but only once the profile is fully initialized will
 // |client_callback| be run.
-void OnProfileLoaded(ProfileManager::ProfileLoadedCallback* client_callback,
+void OnProfileLoaded(ProfileManager::ProfileLoadedCallback& client_callback,
                      bool incognito,
                      Profile* profile,
                      Profile::CreateStatus status) {
@@ -336,11 +407,11 @@ void OnProfileLoaded(ProfileManager::ProfileLoadedCallback* client_callback,
   }
   if (status != Profile::CREATE_STATUS_INITIALIZED) {
     LOG(WARNING) << "Profile not loaded correctly";
-    std::move(*client_callback).Run(nullptr);
+    std::move(client_callback).Run(nullptr);
     return;
   }
   DCHECK(profile);
-  std::move(*client_callback)
+  std::move(client_callback)
       .Run(incognito ? profile->GetPrimaryOTRProfile(/*create_if_needed=*/true)
                      : profile);
 }
@@ -446,11 +517,18 @@ ProfileManager::ProfileManager(const base::FilePath& user_data_dir)
 
 ProfileManager::~ProfileManager() {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
+  for (auto& observer : observers_) {
+    observer.OnProfileManagerDestroying();
+  }
   if (base::FeatureList::IsEnabled(features::kDestroyProfileOnBrowserClose)) {
     // Ideally, all the keepalives should've been cleared already. Report
     // metrics for incorrect usage of ScopedProfileKeepAlive.
     for (const auto& path_and_profile_info : profiles_info_) {
       const ProfileInfo* profile_info = path_and_profile_info.second.get();
+
+      if (profile_info->profile && profile_info->profile->IsSystemProfile())
+        continue;
+
       for (const auto& origin_and_count : profile_info->keep_alives) {
         ProfileKeepAliveOrigin origin = origin_and_count.first;
         int count = origin_and_count.second;
@@ -493,7 +571,8 @@ void ProfileManager::ShutdownSessionServices() {
 void ProfileManager::NukeDeletedProfilesFromDisk() {
   for (const auto& item : ProfilesToDelete()) {
     if (item.second == ProfileDeletionStage::MARKED)
-      NukeProfileFromDisk(item.first);
+      NukeProfileFromDiskImpl(item.first, /*retry_count=*/0,
+                              /*max_retry_count=*/1, base::OnceClosure());
   }
   ProfilesToDelete().clear();
 }
@@ -712,9 +791,7 @@ bool ProfileManager::LoadProfileByPath(const base::FilePath& profile_path,
       base::BindRepeating(&OnProfileLoaded,
                           // OnProfileLoaded may be called multiple times, but
                           // |callback| will be called only once.
-                          base::Owned(std::make_unique<ProfileLoadedCallback>(
-                              std::move(callback))),
-                          incognito));
+                          base::OwnedRef(std::move(callback)), incognito));
   return true;
 }
 
@@ -1094,7 +1171,8 @@ void ProfileManager::CleanUpEphemeralProfiles() {
         FROM_HERE,
         {base::MayBlock(), base::TaskPriority::BEST_EFFORT,
          base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN},
-        base::BindOnce(&NukeProfileFromDisk, profile_path));
+        base::BindOnce(&NukeProfileFromDisk, profile_path,
+                       base::OnceClosure()));
 
     storage.RemoveProfile(profile_path);
   }
@@ -1115,12 +1193,12 @@ void ProfileManager::CleanUpDeletedProfiles() {
       if (base::PathExists(*profile_path)) {
         LOG(WARNING) << "Files of a deleted profile still exist after restart. "
                         "Cleaning up now.";
-        base::ThreadPool::PostTaskAndReply(
+        base::ThreadPool::PostTask(
             FROM_HERE,
             {base::MayBlock(), base::TaskPriority::BEST_EFFORT,
              base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN},
-            base::BindOnce(&NukeProfileFromDisk, *profile_path),
-            base::BindOnce(&ProfileCleanedUp, value.Clone()));
+            base::BindOnce(&NukeProfileFromDisk, *profile_path,
+                           base::BindOnce(&ProfileCleanedUp, value.Clone())));
       } else {
         // Everything is fine, the profile was removed on shutdown.
         content::GetUIThreadTaskRunner({})->PostTask(
@@ -1156,6 +1234,9 @@ void ProfileManager::InitProfileUserPrefs(Profile* profile) {
         (user->GetType() == user_manager::USER_TYPE_CHILD);
     const bool profile_is_child = profile->IsChild();
     const bool profile_is_new = profile->IsNewProfile();
+    const bool profile_is_managed = !profile->IsOffTheRecord() &&
+                                    arc::policy_util::IsAccountManaged(profile);
+
     if (!profile_is_new && profile_is_child != user_is_child) {
       ProfileAttributesEntry* entry =
           storage.GetProfileAttributesWithPath(profile->GetPath());
@@ -1163,23 +1244,38 @@ void ProfileManager::InitProfileUserPrefs(Profile* profile) {
         LOG(WARNING) << "Profile child status has changed.";
         storage.RemoveProfile(profile->GetPath());
       }
-      arc::ArcSupervisionTransition supervisionTransition;
-      if (!profile->GetPrefs()->GetBoolean(arc::prefs::kArcSignedIn)) {
-        // No transition is necessary if user never enabled ARC.
-        supervisionTransition = arc::ArcSupervisionTransition::NO_TRANSITION;
-      } else {
-        // Notify ARC about user type change via prefs if user enabled ARC.
-        supervisionTransition =
-            user_is_child ? arc::ArcSupervisionTransition::REGULAR_TO_CHILD
-                          : arc::ArcSupervisionTransition::CHILD_TO_REGULAR;
-      }
-      profile->GetPrefs()->SetInteger(arc::prefs::kArcSupervisionTransition,
-                                      static_cast<int>(supervisionTransition));
       ash::ChildAccountTypeChangedUserData::GetForProfile(profile)->SetValue(
           true);
     } else {
       ash::ChildAccountTypeChangedUserData::GetForProfile(profile)->SetValue(
           false);
+    }
+
+    // Notify ARC about transition via prefs if needed.
+    if (!profile_is_new) {
+      const bool arc_is_managed =
+          profile->GetPrefs()->GetBoolean(arc::prefs::kArcIsManaged);
+
+      const bool arc_signed_in =
+          profile->GetPrefs()->GetBoolean(arc::prefs::kArcSignedIn);
+
+      arc::ArcSupervisionTransition transition;
+      if (!arc_signed_in) {
+        // No transition is necessary if user never enabled ARC.
+        transition = arc::ArcSupervisionTransition::NO_TRANSITION;
+      } else if (profile_is_child != user_is_child) {
+        transition = user_is_child
+                         ? arc::ArcSupervisionTransition::REGULAR_TO_CHILD
+                         : arc::ArcSupervisionTransition::CHILD_TO_REGULAR;
+      } else if (profile_is_managed && !arc_is_managed) {
+        transition = arc::ArcSupervisionTransition::UNMANAGED_TO_MANAGED;
+      } else {
+        // User state has not changed.
+        transition = arc::ArcSupervisionTransition::NO_TRANSITION;
+      }
+
+      profile->GetPrefs()->SetInteger(arc::prefs::kArcSupervisionTransition,
+                                      static_cast<int>(transition));
     }
 
     if (user_is_child) {
@@ -1532,14 +1628,14 @@ void ProfileManager::DoFinalInitForServices(Profile* profile,
   AccountReconcilorFactory::GetForProfile(profile);
 
   // Initialization needs to happen after the browser context is available
-  // because ProfileSyncService needs the URL context getter.
+  // because SyncService needs the URL context getter.
   UnifiedConsentServiceFactory::GetForProfile(profile);
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   if (!chromeos::ProfileHelper::IsSigninProfile(profile))
-    captions::CaptionControllerFactory::GetForProfile(profile)->Init();
+    captions::LiveCaptionControllerFactory::GetForProfile(profile)->Init();
 #elif !defined(OS_ANDROID)  // !OS_ANDROID && !IS_CHROMEOS_ASH
-  captions::CaptionControllerFactory::GetForProfile(profile)->Init();
+  captions::LiveCaptionControllerFactory::GetForProfile(profile)->Init();
 #endif
 
 #if defined(OS_WIN) && BUILDFLAG(ENABLE_DICE_SUPPORT)
@@ -1680,10 +1776,11 @@ void ProfileManager::RemoveProfile(const base::FilePath& profile_dir) {
   // TODO(crbug.com/1191455): This can also fail if an object is holding a lock
   // to a file in the profile directory. This happens flakily, e.g. with the
   // LevelDB for GCMStore. The locked files don't get deleted properly.
-  base::ThreadPool::PostTask(FROM_HERE,
-                             {base::MayBlock(), base::TaskPriority::BEST_EFFORT,
-                              base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN},
-                             base::BindOnce(&NukeProfileFromDisk, profile_dir));
+  base::ThreadPool::PostTask(
+      FROM_HERE,
+      {base::MayBlock(), base::TaskPriority::BEST_EFFORT,
+       base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN},
+      base::BindOnce(&NukeProfileFromDisk, profile_dir, base::OnceClosure()));
 }
 #endif  // !defined(OS_ANDROID) && !BUILDFLAG(IS_CHROMEOS_ASH)
 
@@ -1798,9 +1895,9 @@ void ProfileManager::OnLoadProfileForProfileDeletion(
       observer.OnProfileMarkedForPermanentDeletion(profile);
 
     // Disable sync for doomed profile.
-    if (ProfileSyncServiceFactory::HasSyncService(profile)) {
+    if (SyncServiceFactory::HasSyncService(profile)) {
       syncer::SyncService* sync_service =
-          ProfileSyncServiceFactory::GetForProfile(profile);
+          SyncServiceFactory::GetForProfile(profile);
       // Ensure data is cleared even if sync was already off.
       sync_service->StopAndClear();
     }
@@ -1838,7 +1935,7 @@ void ProfileManager::OnLoadProfileForProfileDeletion(
         FROM_HERE,
         {base::MayBlock(), base::TaskPriority::BEST_EFFORT,
          base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN},
-        base::BindOnce(&NukeProfileFromDisk, profile_dir));
+        base::BindOnce(&NukeProfileFromDisk, profile_dir, base::OnceClosure()));
   }
 
   storage.RemoveProfile(profile_dir);

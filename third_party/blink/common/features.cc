@@ -26,23 +26,15 @@ const base::Feature kCOLRV1Fonts{"COLRV1Fonts",
 const base::Feature kCSSContainerQueries{"CSSContainerQueries",
                                          base::FEATURE_DISABLED_BY_DEFAULT};
 
+// Controls whether the Conversion Measurement API infrastructure is enabled.
+const base::Feature kConversionMeasurement{"ConversionMeasurement",
+                                           base::FEATURE_ENABLED_BY_DEFAULT};
+
 const base::Feature kGMSCoreEmoji{"GMSCoreEmoji",
                                   base::FEATURE_DISABLED_BY_DEFAULT};
 
-// Whether the HandwritingRecognition API can be enabled. Disabling this feature
-// disables both the origin trial and the mojo interface. Enabling this feature
-// allows the API to be controlled by origin trial (see web runtime feature
-// `HandwritingRecognition`) and finch (see
-// `kHandwritingRecognitionWebPlatformApiFinch`).
-// TODO (crbug.com/1166910): Remove once the HandwritingRecognition API is more
-// widely available (likely M92).
-const base::Feature kHandwritingRecognitionWebPlatformApi{
-    "HandwritingRecognitionWebPlatformApi", base::FEATURE_ENABLED_BY_DEFAULT};
-
-// Whether the HandwritingRecognition API can be enabled. Disabling this feature
-// disables both the origin trial and the mojo interface. Defaults to enabled
-// so the feature can be controlled by finch, even when
-// `kHandwritingRecognitionWebPlatformApi` is set from command-line.
+// Whether the HandwritingRecognition API can be enabled by origin trial.
+// Disabling this feature disables both the origin trial and the mojo interface.
 const base::Feature kHandwritingRecognitionWebPlatformApiFinch{
     "HandwritingRecognitionWebPlatformApiFinch",
     base::FEATURE_ENABLED_BY_DEFAULT};
@@ -175,6 +167,15 @@ const base::Feature kPortalsCrossOrigin{"PortalsCrossOrigin",
 // trials.
 const base::Feature kFencedFrames{"FencedFrames",
                                   base::FEATURE_ENABLED_BY_DEFAULT};
+const base::FeatureParam<FencedFramesImplementationType>::Option
+    fenced_frame_implementation_types[] = {
+        {FencedFramesImplementationType::kShadowDOM, "shadow_dom"},
+        {FencedFramesImplementationType::kMPArch, "mparch"}};
+const base::FeatureParam<FencedFramesImplementationType>
+    kFencedFramesImplementationTypeParam{
+        &kFencedFrames, "implementation_type",
+        FencedFramesImplementationType::kShadowDOM,
+        &fenced_frame_implementation_types};
 
 // Enable the prerender2. https://crbug.com/1126305.
 const base::Feature kPrerender2{"Prerender2",
@@ -806,6 +807,10 @@ const base::Feature kLogUnexpectedIPCPostedToBackForwardCachedDocuments{
     "LogUnexpectedIPCPostedToBackForwardCachedDocuments",
     base::FEATURE_ENABLED_BY_DEFAULT};
 
+// Enables web apps to request isolated storage.
+const base::Feature kWebAppEnableIsolatedStorage{
+    "WebAppEnableIsolatedStorage", base::FEATURE_DISABLED_BY_DEFAULT};
+
 // Enables declarative link capturing in web apps.
 // Explainer:
 // https://github.com/WICG/sw-launch/blob/master/declarative_link_capturing.md
@@ -830,14 +835,8 @@ const base::Feature kWebAppEnableProtocolHandlers{
 // manifests. Also controls whether the parsed field is used in browser. See
 // incubation spec:
 // https://wicg.github.io/manifest-incubations/#note_taking-member
-// TODO(crbug.com/1185678): Enable by default after M92 branches.
 const base::Feature kWebAppNoteTaking{"WebAppNoteTaking",
-                                      base::FEATURE_DISABLED_BY_DEFAULT};
-
-// When enabled NV12 frames on a GPU will be forwarded to libvpx encoders
-// without conversion to I420.
-const base::Feature kWebRtcLibvpxEncodeNV12{"WebRtcLibvpxEncodeNV12",
-                                            base::FEATURE_ENABLED_BY_DEFAULT};
+                                      base::FEATURE_ENABLED_BY_DEFAULT};
 
 // Makes network loading tasks unfreezable so that they can be processed while
 // the page is frozen.
@@ -963,6 +962,13 @@ const base::Feature kFledgeInterestGroupAPI{"FledgeInterestGroupAPI",
 const base::Feature kMinimizeAudioProcessingForUnusedOutput{
     "MinimizeAudioProcessingForUnusedOutput",
     base::FEATURE_DISABLED_BY_DEFAULT};
+
+// When <dialog>s are closed, this focuses the "previously focused" element
+// which had focus when the <dialog> was first opened.
+// TODO(crbug.com/649162): Remove DialogFocusNewSpecBehavior after
+// the feature is in stable with no issues.
+const base::Feature kDialogFocusNewSpecBehavior{
+    "DialogFocusNewSpecBehavior", base::FEATURE_ENABLED_BY_DEFAULT};
 
 }  // namespace features
 }  // namespace blink

@@ -170,12 +170,6 @@ void VP9Encoder::set_rate_ctrl_for_testing(
   rate_ctrl_ = std::move(rate_ctrl);
 }
 
-void VP9Encoder::Reset() {
-  current_params_ = EncodeParams();
-  reference_frames_.Clear();
-  frame_num_ = 0;
-}
-
 VP9Encoder::VP9Encoder(std::unique_ptr<Accelerator> accelerator)
     : accelerator_(std::move(accelerator)) {}
 
@@ -183,8 +177,9 @@ VP9Encoder::~VP9Encoder() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 }
 
-bool VP9Encoder::Initialize(const VideoEncodeAccelerator::Config& config,
-                            const AcceleratedVideoEncoder::Config& ave_config) {
+bool VP9Encoder::Initialize(
+    const VideoEncodeAccelerator::Config& config,
+    const VaapiVideoEncoderDelegate::Config& ave_config) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   if (VideoCodecProfileToVideoCodec(config.output_profile) != kCodecVP9) {
     DVLOGF(1) << "Invalid profile: " << GetProfileName(config.output_profile);
@@ -200,48 +195,44 @@ bool VP9Encoder::Initialize(const VideoEncodeAccelerator::Config& config,
     return false;
   }
 
-  accelerator_->set_bitrate_control(ave_config.bitrate_control);
+  // Even though VP9Encoder might support other bitrate control modes, only
+  // the kConstantQuantizationParameter is used.
+  if (ave_config.bitrate_control != VaapiVideoEncoderDelegate::BitrateControl::
+                                        kConstantQuantizationParameter) {
+    DVLOGF(1) << "Only CQ bitrate control is supported";
+    return false;
+  }
+
   visible_size_ = config.input_visible_size;
-  coded_size_ = gfx::Size(base::bits::Align(visible_size_.width(), 16),
-                          base::bits::Align(visible_size_.height(), 16));
-  Reset();
+  coded_size_ = gfx::Size(base::bits::AlignUp(visible_size_.width(), 16),
+                          base::bits::AlignUp(visible_size_.height(), 16));
+  current_params_ = EncodeParams();
+  reference_frames_.Clear();
+  frame_num_ = 0;
 
   auto initial_bitrate_allocation = GetDefaultVideoBitrateAllocation(config);
-  if (ave_config.bitrate_control ==
-      BitrateControl::kConstantQuantizationParameter) {
-    size_t num_temporal_layers = 1;
-    if (config.HasTemporalLayer()) {
-      num_temporal_layers = config.spatial_layers[0].num_of_temporal_layers;
-      if (num_temporal_layers <
-              VP9TemporalLayers::kMinSupportedTemporalLayers ||
-          num_temporal_layers >
-              VP9TemporalLayers::kMaxSupportedTemporalLayers) {
-        VLOGF(1) << "Unsupported amount of temporal layers: "
-                 << num_temporal_layers;
-        return false;
-      }
-      temporal_layers_ =
-          std::make_unique<VP9TemporalLayers>(num_temporal_layers);
-    }
-    current_params_.max_qp = kMaxQPForSoftwareRateCtrl;
 
-    // |rate_ctrl_| might be injected for tests.
-    if (!rate_ctrl_) {
-      rate_ctrl_ = VP9RateControl::Create(CreateRateControlConfig(
-          visible_size_, current_params_, initial_bitrate_allocation,
-          num_temporal_layers));
-    }
-    if (!rate_ctrl_)
-      return false;
-  } else {
-    if (config.HasTemporalLayer()) {
-      DVLOGF(1) << "Temporal layer encoding works only when in "
-                << "kConstantQuantizationParameter";
+  size_t num_temporal_layers = 1;
+  if (config.HasTemporalLayer()) {
+    num_temporal_layers = config.spatial_layers[0].num_of_temporal_layers;
+    if (num_temporal_layers < VP9TemporalLayers::kMinSupportedTemporalLayers ||
+        num_temporal_layers > VP9TemporalLayers::kMaxSupportedTemporalLayers) {
+      VLOGF(1) << "Unsupported amount of temporal layers: "
+               << num_temporal_layers;
       return false;
     }
-    DCHECK(!rate_ctrl_) << "|rate_ctrl_| should only be configured when in "
-                           "kConstantQuantizationParameter";
+    temporal_layers_ = std::make_unique<VP9TemporalLayers>(num_temporal_layers);
   }
+  current_params_.max_qp = kMaxQPForSoftwareRateCtrl;
+
+  // |rate_ctrl_| might be injected for tests.
+  if (!rate_ctrl_) {
+    rate_ctrl_ = VP9RateControl::Create(CreateRateControlConfig(
+        visible_size_, current_params_, initial_bitrate_allocation,
+        num_temporal_layers));
+  }
+  if (!rate_ctrl_)
+    return false;
 
   return UpdateRates(initial_bitrate_allocation,
                      config.initial_framerate.value_or(
@@ -293,7 +284,7 @@ bool VP9Encoder::PrepareEncodeJob(EncodeJob* encode_job) {
 BitstreamBufferMetadata VP9Encoder::GetMetadata(EncodeJob* encode_job,
                                                 size_t payload_size) {
   auto metadata =
-      AcceleratedVideoEncoder::GetMetadata(encode_job, payload_size);
+      VaapiVideoEncoderDelegate::GetMetadata(encode_job, payload_size);
   auto picture = accelerator_->GetPicture(encode_job);
   DCHECK(picture);
   metadata.vp9 = picture->metadata_for_encoding;
@@ -301,9 +292,7 @@ BitstreamBufferMetadata VP9Encoder::GetMetadata(EncodeJob* encode_job,
 }
 
 void VP9Encoder::BitrateControlUpdate(uint64_t encoded_chunk_size_bytes) {
-  if (accelerator_->bitrate_control() !=
-          BitrateControl::kConstantQuantizationParameter ||
-      !rate_ctrl_) {
+  if (!rate_ctrl_) {
     DLOG(ERROR) << __func__ << "() is called when no bitrate controller exists";
     return;
   }

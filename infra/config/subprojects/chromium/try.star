@@ -515,6 +515,10 @@ try_.chromium_android_builder(
 )
 
 try_.chromium_android_builder(
+    name = "android-weblayer-10-x86-rel-tests",
+)
+
+try_.chromium_android_builder(
     name = "android-weblayer-marshmallow-x86-rel-tests",
 )
 
@@ -666,64 +670,64 @@ try_.chromium_android_builder(
 
 try_.chromium_angle_builder(
     name = "android_angle_deqp_rel_ng",
-    os = os.LINUX_XENIAL_OR_BIONIC_REMOVE,
+    os = os.LINUX_BIONIC_REMOVE,
 )
 
 try_.chromium_angle_builder(
     name = "android_angle_rel_ng",
-    os = os.LINUX_XENIAL_OR_BIONIC_REMOVE,
+    os = os.LINUX_BIONIC_REMOVE,
 )
 
 try_.chromium_angle_builder(
     name = "android_angle_vk32_deqp_rel_ng",
-    os = os.LINUX_XENIAL_OR_BIONIC_REMOVE,
+    os = os.LINUX_BIONIC_REMOVE,
 )
 
 try_.chromium_angle_builder(
     name = "android_angle_vk32_rel_ng",
-    os = os.LINUX_XENIAL_OR_BIONIC_REMOVE,
+    os = os.LINUX_BIONIC_REMOVE,
 )
 
 try_.chromium_angle_builder(
     name = "android_angle_vk64_deqp_rel_ng",
-    os = os.LINUX_XENIAL_OR_BIONIC_REMOVE,
+    os = os.LINUX_BIONIC_REMOVE,
 )
 
 try_.chromium_angle_builder(
     name = "android_angle_vk64_rel_ng",
-    os = os.LINUX_XENIAL_OR_BIONIC_REMOVE,
+    os = os.LINUX_BIONIC_REMOVE,
 )
 
 try_.chromium_angle_builder(
     name = "fuchsia-angle-rel",
-    os = os.LINUX_XENIAL_OR_BIONIC_REMOVE,
+    os = os.LINUX_BIONIC_REMOVE,
 )
 
 try_.chromium_angle_builder(
     name = "fuchsia-angle-try",
-    os = os.LINUX_XENIAL_OR_BIONIC_REMOVE,
+    os = os.LINUX_BIONIC_REMOVE,
     executable = "recipe:angle_chromium_trybot",
 )
 
 try_.chromium_angle_builder(
     name = "linux-angle-rel",
-    os = os.LINUX_XENIAL_OR_BIONIC_REMOVE,
+    os = os.LINUX_BIONIC_REMOVE,
 )
 
 try_.chromium_angle_builder(
     name = "linux-angle-chromium-try",
-    os = os.LINUX_XENIAL_OR_BIONIC_REMOVE,
+    os = os.LINUX_BIONIC_REMOVE,
     executable = "recipe:angle_chromium_trybot",
 )
 
 try_.chromium_angle_builder(
     name = "linux_angle_deqp_rel_ng",
-    os = os.LINUX_XENIAL_OR_BIONIC_REMOVE,
+    os = os.LINUX_BIONIC_REMOVE,
 )
 
 try_.chromium_angle_builder(
     name = "linux-angle-try",
-    os = os.LINUX_XENIAL_OR_BIONIC_REMOVE,
+    os = os.LINUX_BIONIC_REMOVE,
     executable = "recipe:angle_chromium_trybot",
 )
 
@@ -894,7 +898,7 @@ try_.chromium_dawn_builder(
     name = "dawn-linux-x64-deps-rel",
     branch_selector = branches.STANDARD_MILESTONE,
     main_list_view = "try",
-    os = os.LINUX_XENIAL_OR_BIONIC_REMOVE,
+    os = os.LINUX_BIONIC_REMOVE,
     tryjob = try_.job(
         location_regexp = [
             ".+/[+]/gpu/.+",
@@ -976,7 +980,7 @@ try_.chromium_dawn_builder(
 
 try_.chromium_dawn_builder(
     name = "linux-dawn-rel",
-    os = os.LINUX_XENIAL_OR_BIONIC_REMOVE,
+    os = os.LINUX_BIONIC_REMOVE,
 )
 
 try_.chromium_dawn_builder(
@@ -1095,6 +1099,10 @@ try_.chromium_linux_builder(
 )
 
 try_.chromium_linux_builder(
+    name = "fuchsia-fyi-arm64-femu",
+)
+
+try_.chromium_linux_builder(
     name = "fuchsia-fyi-arm64-rel",
 )
 
@@ -1140,6 +1148,11 @@ try_.chromium_linux_builder(
 
 try_.chromium_linux_builder(
     name = "linux-1mbu-compile-fyi-rel",
+    builderless = False,
+    goma_jobs = goma.jobs.J150,
+    tryjob = try_.job(
+        experiment_percentage = 10,
+    ),
     properties = {
         "bot_update_experiments": [
             "no_sync",
@@ -1279,21 +1292,32 @@ try_.chromium_linux_builder(
 try_.chromium_linux_builder(
     name = "linux-rel-orchestrator",
     branch_selector = branches.STANDARD_MILESTONE,
-    builderless = True,
+    builderless = False,
+    cores = 4,
     executable = "recipe:chromium/orchestrator",
     main_list_view = "try",
     use_clang_coverage = True,
+    properties = {
+        "compilator": "linux-rel-compilator",
+    },
     service_account = "chromium-mini-orchestrator@chops-service-accounts.iam.gserviceaccount.com",
 )
 
 try_.chromium_linux_builder(
     name = "linux-rel-compilator",
     branch_selector = branches.STANDARD_MILESTONE,
-    builderless = True,
+    builderless = False,
+    cores = 16,
     executable = "recipe:chromium/compilator",
     goma_jobs = goma.jobs.J150,
     main_list_view = "try",
     use_clang_coverage = True,
+    properties = {
+        "orchestrator": {
+            "builder_name": "linux-rel-orchestrator",
+            "builder_group": "tryserver.chromium.linux",
+        },
+    },
 )
 
 try_.chromium_linux_builder(
@@ -1479,8 +1503,7 @@ try_.chromium_linux_builder(
             ".+/[+]/third_party/blink/renderer/core/svg/.+",
             ".+/[+]/third_party/blink/renderer/platform/fonts/shaping/.+",
             ".+/[+]/third_party/blink/renderer/platform/graphics/.+",
-            ".+/[+]/third_party/blink/web_tests/FlagExpectations/disable-layout-ng",
-            ".+/[+]/third_party/blink/web_tests/flag-specific/disable-layout-ng/.+",
+            ".+/[+]/third_party/blink/web_tests/.+",
         ],
     ),
 )
@@ -1697,11 +1720,13 @@ try_.chromium_mac_ios_builder(
 
 try_.chromium_mac_ios_builder(
     name = "ios14-beta-simulator",
+    os = os.MAC_11,
 )
 
 try_.chromium_mac_ios_builder(
     name = "ios14-sdk-simulator",
-    xcode = xcode.x12d4e,
+    os = os.MAC_11,
+    xcode = xcode.x12e262,
 )
 
 try_.chromium_updater_mac_builder(
@@ -1870,10 +1895,6 @@ try_.cipd_3pp_builder(
     os = os.LINUX_XENIAL_OR_BIONIC_SWITCH_TO_DEFAULT,
     builderless = False,
     properties = {
-        # TODO(hypan): Remove these two properties after chromium_3pp is
-        # migrated to a recipe module (crrev.com/c/2870555)
-        "platform": "linux-amd64",
-        "package_prefix": "chromium_3pp",
         "$build/chromium_3pp": {
             "platform": "linux-amd64",
             "package_prefix": "chromium_3pp",
@@ -1901,6 +1922,7 @@ try_.cipd_3pp_builder(
 try_.gpu_chromium_android_builder(
     name = "android_optional_gpu_tests_rel",
     branch_selector = branches.STANDARD_MILESTONE,
+    goma_jobs = goma.jobs.J150,
     main_list_view = "try",
     tryjob = try_.job(
         location_regexp = [

@@ -73,8 +73,18 @@ const base::Feature kBackgroundFetch{"BackgroundFetch",
                                      base::FEATURE_ENABLED_BY_DEFAULT};
 
 // Enable using the BackForwardCache.
+// BackForwardCache is enabled only on Android for the moment, as some
+// desktop-specific features (including extensions) are not compatible with
+// bfcache yet.
+//
+// Tracking bug for enabling bfcache on desktop: https://crbug.com/1171298.
+#if defined(OS_ANDROID)
+const base::Feature kBackForwardCache{"BackForwardCache",
+                                      base::FEATURE_ENABLED_BY_DEFAULT};
+#else
 const base::Feature kBackForwardCache{"BackForwardCache",
                                       base::FEATURE_DISABLED_BY_DEFAULT};
+#endif
 
 // BackForwardCache is disabled on low memory devices. The threshold is defined
 // via a field trial param: "memory_threshold_for_back_forward_cache_in_mb"
@@ -107,7 +117,7 @@ const base::Feature kBlockCredentialedSubresources{
 //  - https://wicg.github.io/cors-rfc1918/#integration-fetch
 //  - kBlockInsecurePrivateNetworkRequestsForNavigations
 const base::Feature kBlockInsecurePrivateNetworkRequests{
-    "BlockInsecurePrivateNetworkRequests", base::FEATURE_DISABLED_BY_DEFAULT};
+    "BlockInsecurePrivateNetworkRequests", base::FEATURE_ENABLED_BY_DEFAULT};
 
 // When both kBlockInsecurePrivateNetworkRequestsForNavigations and
 // kBlockInsecurePrivateNetworkRequests are enabled, navigations initiated
@@ -172,10 +182,6 @@ extern const base::Feature kCodeCacheDeletionWithoutFilter{
 // When enabled, event.movement is calculated in blink instead of in browser.
 const base::Feature kConsolidatedMovementXY{"ConsolidatedMovementXY",
                                             base::FEATURE_ENABLED_BY_DEFAULT};
-
-// Controls whether the Conversion Measurement API infrastructure is enabled.
-const base::Feature kConversionMeasurement{"ConversionMeasurement",
-                                           base::FEATURE_ENABLED_BY_DEFAULT};
 
 // Enables Blink cooperative scheduling.
 const base::Feature kCooperativeScheduling{"CooperativeScheduling",
@@ -735,6 +741,12 @@ const base::FeatureParam<int>
     kSiteIsolationForCrossOriginOpenerPolicyMaxSitesParam{
         &kSiteIsolationForCrossOriginOpenerPolicy, "stored_sites_max_size",
         100};
+// This feature param controls the period of time for which the stored sites
+// should remain valid. Only used when persistence is also enabled.
+const base::FeatureParam<base::TimeDelta>
+    kSiteIsolationForCrossOriginOpenerPolicyExpirationTimeoutParam{
+        &kSiteIsolationForCrossOriginOpenerPolicy, "expiration_timeout",
+        base::TimeDelta::FromDays(7)};
 
 // Controls whether SpareRenderProcessHostManager tries to always have a warm
 // spare renderer process around for the most recently requested BrowserContext.
@@ -759,7 +771,7 @@ const base::Feature kSubresourceWebBundles{"SubresourceWebBundles",
 // is not same origin with the main frame.
 const base::Feature kSuppressDifferentOriginSubframeJSDialogs{
     "SuppressDifferentOriginSubframeJSDialogs",
-    base::FEATURE_DISABLED_BY_DEFAULT};
+    base::FEATURE_ENABLED_BY_DEFAULT};
 
 // Dispatch touch events to "SyntheticGestureController" for events from
 // Devtool Protocol Input.dispatchTouchEvent to simulate touch events close to
@@ -828,6 +840,11 @@ const base::Feature kVideoPlaybackQuality{"VideoPlaybackQuality",
 const base::Feature kV8VmFuture{"V8VmFuture",
                                 base::FEATURE_DISABLED_BY_DEFAULT};
 
+// Enables DevTools warnings about accesses to private network resources from
+// secure contexts. See also feature `kBlockInsecurePrivateNetworkRequests`.
+const base::Feature kWarnAboutSecurePrivateNetworkRequests{
+    "WarnAboutSecurePrivateNetworkRequests", base::FEATURE_DISABLED_BY_DEFAULT};
+
 // Enable window controls overlays for desktop PWAs
 const base::Feature kWebAppWindowControlsOverlay{
     "WebAppWindowControlsOverlay", base::FEATURE_DISABLED_BY_DEFAULT};
@@ -840,13 +857,14 @@ const base::Feature kWebAssemblyBaseline{"WebAssemblyBaseline",
 const base::Feature kWebAssemblyCodeProtection{
     "WebAssemblyCodeProtection", base::FEATURE_DISABLED_BY_DEFAULT};
 
-#if defined(OS_LINUX) && defined(ARCH_CPU_X86_64)
+#if (defined(OS_LINUX) || defined(OS_CHROMEOS)) && defined(ARCH_CPU_X86_64)
 // Use memory protection keys in userspace (PKU) (if available) to protect code
 // JITed for WebAssembly. Fall back to traditional memory protection if
 // WebAssemblyCodeProtection is also enabled.
 const base::Feature kWebAssemblyCodeProtectionPku{
     "WebAssemblyCodeProtectionPku", base::FEATURE_DISABLED_BY_DEFAULT};
-#endif  // defined(OS_LINUX) && defined(ARCH_CPU_X86_64)
+#endif  // (defined(OS_LINUX) || defined(OS_CHROMEOS)) &&
+        // defined(ARCH_CPU_X86_64)
 
 // Enable WebAssembly lazy compilation (JIT on first call).
 const base::Feature kWebAssemblyLazyCompilation{
@@ -1017,7 +1035,7 @@ const base::Feature kRetryGetVideoCaptureDeviceInfos{
     "RetryGetVideoCaptureDeviceInfos", base::FEATURE_DISABLED_BY_DEFAULT};
 
 const base::Feature kDesktopCaptureMacV2{"DesktopCaptureMacV2",
-                                         base::FEATURE_DISABLED_BY_DEFAULT};
+                                         base::FEATURE_ENABLED_BY_DEFAULT};
 
 const base::Feature kWindowCaptureMacV2{"WindowCaptureMacV2",
                                         base::FEATURE_ENABLED_BY_DEFAULT};
@@ -1039,6 +1057,16 @@ const base::FeatureParam<bool>
     kWebUIJavaScriptErrorReportsSendToProductionParam{
         &kSendWebUIJavaScriptErrorReports,
         kSendWebUIJavaScriptErrorReportsSendToProductionVariation, true};
+#endif
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+// Controls whether the new subtree capture path is used for window capturing on
+// ChromeOS Ash, instead of the legacy SlowWindowCapturerChromeOS
+// implementation.
+// TODO(crbug.com/1210549): remove once we have determined the new path is
+// stable.
+const base::Feature kAuraWindowSubtreeCapture{"AuraWindowSubtreeCapture",
+                                              base::FEATURE_ENABLED_BY_DEFAULT};
 #endif
 
 #if defined(WEBRTC_USE_PIPEWIRE)

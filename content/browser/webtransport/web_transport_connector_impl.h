@@ -10,6 +10,7 @@
 #include "net/base/network_isolation_key.h"
 #include "services/network/public/mojom/network_context.mojom.h"
 #include "services/network/public/mojom/web_transport.mojom.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/mojom/webtransport/web_transport_connector.mojom.h"
 #include "url/origin.h"
 
@@ -38,10 +39,20 @@ class WebTransportConnectorImpl final
           handshake_client) override;
 
  private:
+  void OnWillCreateWebTransportCompleted(
+      const GURL& url,
+      std::vector<network::mojom::WebTransportCertificateFingerprintPtr>
+          fingerprints,
+      mojo::PendingRemote<network::mojom::WebTransportHandshakeClient>
+          handshake_client,
+      absl::optional<network::mojom::WebTransportErrorPtr> error);
+
   const int process_id_;
   const base::WeakPtr<RenderFrameHostImpl> frame_;
   const url::Origin origin_;
   const net::NetworkIsolationKey network_isolation_key_;
+
+  base::WeakPtrFactory<WebTransportConnectorImpl> weak_factory_{this};
 };
 
 }  // namespace content

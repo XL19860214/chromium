@@ -18,6 +18,7 @@
 #include "content/public/browser/browser_thread.h"
 #include "content/public/common/content_features.h"
 #include "third_party/blink/public/common/service_worker/service_worker_status_code.h"
+#include "third_party/blink/public/common/storage_key/storage_key.h"
 #include "third_party/blink/public/mojom/push_messaging/push_messaging_status.mojom.h"
 
 namespace content {
@@ -83,7 +84,7 @@ void FindServiceWorkerRegistration(
   // Try to acquire the registration from storage. If it's already live we'll
   // receive it right away. If not, it will be revived from storage.
   service_worker_context->FindReadyRegistrationForId(
-      service_worker_registration_id, origin,
+      service_worker_registration_id, blink::StorageKey(origin),
       base::BindOnce(&DidFindServiceWorkerRegistration, event_type,
                      std::move(devtools_context), std::move(callback)));
 }
@@ -178,7 +179,7 @@ void PushMessagingRouter::DeliverMessageToWorker(
     if (payload)
       event_metadata["Payload"] = *payload;
     devtools_context->LogBackgroundServiceEventOnCoreThread(
-        service_worker->registration_id(), service_worker->origin(),
+        service_worker->registration_id(), service_worker->key().origin(),
         DevToolsBackgroundService::kPushMessaging, "Push event dispatched",
         message_id, event_metadata);
   }
@@ -244,7 +245,7 @@ void PushMessagingRouter::DeliverMessageEnd(
       push_event_status !=
           blink::mojom::PushEventStatus::SERVICE_WORKER_ERROR) {
     devtools_context->LogBackgroundServiceEventOnCoreThread(
-        service_worker->registration_id(), service_worker->origin(),
+        service_worker->registration_id(), service_worker->key().origin(),
         DevToolsBackgroundService::kPushMessaging, "Push event completed",
         message_id, {{"Status", status_description}});
   }

@@ -91,6 +91,8 @@ static_library("browser") {
     "autofill_regexes.h",
     "autofill_subject.cc",
     "autofill_subject.h",
+    "autofill_suggestion_generator.cc",
+    "autofill_suggestion_generator.h",
     "autofill_type.cc",
     "autofill_type.h",
     "browser_autofill_manager.cc",
@@ -353,6 +355,8 @@ static_library("browser") {
 
   if (is_ios) {
     sources += [
+      "autofill_save_update_address_profile_delegate_ios.cc",
+      "autofill_save_update_address_profile_delegate_ios.h",
       "keyboard_accessory_metrics_logger.h",
       "keyboard_accessory_metrics_logger.mm",
     ]
@@ -360,8 +364,6 @@ static_library("browser") {
 
   if (is_ios || is_android) {
     sources += [
-      "autofill_save_update_address_profile_delegate_ios.cc",
-      "autofill_save_update_address_profile_delegate_ios.h",
       "payments/autofill_credit_card_filling_infobar_delegate_mobile.cc",
       "payments/autofill_credit_card_filling_infobar_delegate_mobile.h",
       "payments/autofill_offer_notification_infobar_delegate_mobile.cc",
@@ -415,6 +417,7 @@ static_library("browser") {
     "//base:i18n",
     "//build:branding_buildflags",
     "//build:chromeos_buildflags",
+    "//components/feature_engagement",
     "//components/google/core/common",
     "//components/history/core/browser",
     "//components/infobars/core",
@@ -558,6 +561,7 @@ static_library("test_support") {
     "//base/test:test_support",
     "//components/autofill/core/browser",
     "//components/autofill/core/common",
+    "//components/feature_engagement",
     "//components/leveldb_proto",
     "//components/os_crypt",
     "//components/os_crypt:test_support",
@@ -666,6 +670,7 @@ source_set("unit_tests") {
     "autofill_profile_validator_unittest.cc",
     "autofill_regexes_unittest.cc",
     "autofill_subject_unittest.cc",
+    "autofill_suggestion_generator_unittest.cc",
     "autofill_type_unittest.cc",
     "browser_autofill_manager_unittest.cc",
     "data_model/address_unittest.cc",
@@ -749,9 +754,13 @@ source_set("unit_tests") {
     sources += [ "autofill_ie_toolbar_import_win_unittest.cc" ]
   }
 
+  if (is_ios) {
+    sources +=
+        [ "autofill_save_update_address_profile_delegate_ios_unittest.cc" ]
+  }
+
   if (is_ios || is_android) {
     sources += [
-      "autofill_save_update_address_profile_delegate_ios_unittest.cc",
       "ui/mobile_label_formatter_unittest.cc",
       "ui/payments/card_expiration_date_fix_flow_controller_impl_unittest.cc",
       "ui/payments/card_name_fix_flow_controller_impl_unittest.cc",
@@ -789,6 +798,7 @@ source_set("unit_tests") {
     "//base/test:test_support",
     "//build:chromeos_buildflags",
     "//components/autofill/core/common",
+    "//components/feature_engagement",
     "//components/leveldb_proto",
     "//components/os_crypt",
     "//components/os_crypt:test_support",

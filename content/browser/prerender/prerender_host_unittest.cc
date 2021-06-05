@@ -118,7 +118,8 @@ TEST_F(PrerenderHostTest, DontActivate) {
   // Start the prerendering navigation, but don't activate it.
   const int prerender_frame_tree_node_id =
       registry->CreateAndStartHost(std::move(attributes), *initiator_rfh);
-  registry->AbandonHost(prerender_frame_tree_node_id);
+  registry->AbandonHost(prerender_frame_tree_node_id,
+                        PrerenderHost::FinalStatus::kDestroyed);
   ExpectFinalStatus(PrerenderHost::FinalStatus::kDestroyed);
 }
 
@@ -142,11 +143,15 @@ TEST_F(PrerenderHostTest, MainFrameNavigationForReservedHost) {
       registry->FindNonReservedHostById(prerender_ftn_id);
   CommitPrerenderNavigation(*prerender_host);
 
-  // Reserve the host.
-  FrameTreeNode* initiator_ftn = FrameTreeNode::From(initiator_rfh);
-  int ftn_id =
-      registry->ReserveHostToActivate(kPrerenderingUrl, *initiator_ftn);
-  EXPECT_EQ(ftn_id, prerender_ftn_id);
+  std::unique_ptr<NavigationSimulatorImpl> navigation =
+      NavigationSimulatorImpl::CreateRendererInitiated(kPrerenderingUrl,
+                                                       initiator_rfh);
+  navigation->Start();
+  NavigationRequest* navigation_request =
+      static_cast<NavigationRequest*>(navigation->GetNavigationHandle());
+
+  EXPECT_EQ(navigation_request->prerender_frame_tree_node_id(),
+            prerender_ftn_id);
 
   // Start a cross-origin navigation in the prerendered page. It should not
   // be deferred.
@@ -154,17 +159,14 @@ TEST_F(PrerenderHostTest, MainFrameNavigationForReservedHost) {
   // change this expectation.
   RenderFrameHostImpl* prerender_rfh =
       prerender_host->GetPrerenderedMainFrameHost();
-  auto sim_2 = NavigationSimulatorImpl::CreateRendererInitiated(
+  auto navigation_2 = NavigationSimulatorImpl::CreateRendererInitiated(
       GURL("https://example2.test/"), prerender_rfh);
-  sim_2->Start();
-  EXPECT_FALSE(sim_2->IsDeferred());
-  sim_2->Commit();
+  navigation_2->Start();
+  EXPECT_FALSE(navigation_2->IsDeferred());
+  navigation_2->Commit();
 
   // Activate the prerendered page.
-  auto sim_3 = NavigationSimulatorImpl::CreateBrowserInitiated(
-      kPrerenderingUrl, web_contents.get());
-  sim_3->Start();
-  prerender_host->Activate(*sim_3->GetNavigationHandle());
+  prerender_host->Activate(*navigation->GetNavigationHandle());
   ExpectFinalStatus(PrerenderHost::FinalStatus::kActivated);
 }
 
@@ -189,11 +191,15 @@ TEST_F(PrerenderHostTest, SubframeNavigationForReservedHost) {
       registry->FindNonReservedHostById(prerender_ftn_id);
   CommitPrerenderNavigation(*prerender_host);
 
-  // Reserve the host.
-  FrameTreeNode* initiator_ftn = FrameTreeNode::From(initiator_rfh);
-  int ftn_id =
-      registry->ReserveHostToActivate(kPrerenderingUrl, *initiator_ftn);
-  EXPECT_EQ(ftn_id, prerender_ftn_id);
+  std::unique_ptr<NavigationSimulatorImpl> navigation =
+      NavigationSimulatorImpl::CreateRendererInitiated(kPrerenderingUrl,
+                                                       initiator_rfh);
+  navigation->Start();
+  NavigationRequest* navigation_request =
+      static_cast<NavigationRequest*>(navigation->GetNavigationHandle());
+
+  EXPECT_EQ(navigation_request->prerender_frame_tree_node_id(),
+            prerender_ftn_id);
 
   // Start a cross-origin subframe navigation in the prerendered page. It
   // should be deferred.
@@ -209,16 +215,64 @@ TEST_F(PrerenderHostTest, SubframeNavigationForReservedHost) {
   EXPECT_TRUE(subframe_nav_sim->IsDeferred());
 
   // Activate the prerendered page.
-  std::unique_ptr<NavigationSimulatorImpl> sim_2 =
-      NavigationSimulatorImpl::CreateBrowserInitiated(kPrerenderingUrl,
-                                                      web_contents.get());
-  sim_2->Start();
-  prerender_host->Activate(*sim_2->GetNavigationHandle());
+  prerender_host->Activate(*navigation->GetNavigationHandle());
   ExpectFinalStatus(PrerenderHost::FinalStatus::kActivated);
 
   // The subframe navigation should no longer be deferred.
   subframe_nav_sim->Wait();
   EXPECT_FALSE(subframe_nav_sim->IsDeferred());
+}
+
+// Tests that an activation can successfully commit after the prerendering page
+// has updated its PageState.
+TEST_F(PrerenderHostTest, ActivationAfterPageStateUpdate) {
+  std::unique_ptr<TestWebContents> web_contents =
+      CreateWebContents(GURL("https://example.com/"));
+  RenderFrameHostImpl* initiator_rfh = web_contents->GetMainFrame();
+  PrerenderHostRegistry* registry = web_contents->GetPrerenderHostRegistry();
+
+  // Start prerendering a page.
+  const GURL kPrerenderingUrl("https://example.com/next");
+  auto attributes = blink::mojom::PrerenderAttributes::New();
+  attributes->url = kPrerenderingUrl;
+  const int prerender_frame_tree_node_id =
+      registry->CreateAndStartHost(std::move(attributes), *initiator_rfh);
+  PrerenderHost* prerender_host =
+      registry->FindNonReservedHostById(prerender_frame_tree_node_id);
+  CommitPrerenderNavigation(*prerender_host);
+
+  FrameTreeNode* prerender_root_ftn =
+      FrameTreeNode::GloballyFindByID(prerender_frame_tree_node_id);
+  RenderFrameHostImpl* prerender_rfh = prerender_root_ftn->current_frame_host();
+  NavigationEntryImpl* prerender_nav_entry =
+      prerender_root_ftn->frame_tree()->controller().GetLastCommittedEntry();
+  FrameNavigationEntry* prerender_root_fne =
+      prerender_nav_entry->GetFrameEntry(prerender_root_ftn);
+
+  blink::PageState page_state =
+      blink::PageState::CreateForTestingWithSequenceNumbers(
+          GURL("about:blank"), prerender_root_fne->item_sequence_number(),
+          prerender_root_fne->document_sequence_number());
+
+  // Update PageState for prerender RFH, causing it to become different from
+  // the one stored in RFH's last commit params.
+  static_cast<mojom::FrameHost*>(prerender_rfh)->UpdateState(page_state);
+
+  // Perform a navigation in the primary frame tree which activates the
+  // prerendered page. The main expectation is that this navigation commits
+  // successfully and doesn't hit any DCHECKs.
+  NavigationSimulatorImpl::NavigateAndCommitFromBrowser(web_contents.get(),
+                                                        kPrerenderingUrl);
+  ExpectFinalStatus(PrerenderHost::FinalStatus::kActivated);
+
+  // Ensure that the the page_state was preserved.
+  EXPECT_EQ(web_contents->GetMainFrame(), prerender_rfh);
+  NavigationEntryImpl* activated_nav_entry =
+      web_contents->GetController().GetLastCommittedEntry();
+  EXPECT_EQ(
+      page_state,
+      activated_nav_entry->GetFrameEntry(web_contents->GetFrameTree()->root())
+          ->page_state());
 }
 
 }  // namespace

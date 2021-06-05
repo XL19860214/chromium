@@ -8,6 +8,7 @@
 #include <cmath>
 #include <limits>
 
+#include "base/containers/contains.h"
 #include "build/build_config.h"
 #include "cc/base/math_util.h"
 #include "components/viz/common/quads/aggregated_render_pass_draw_quad.h"
@@ -154,7 +155,6 @@ bool OverlayCandidate::FromDrawQuad(
   candidate->requires_overlay = OverlayCandidate::RequiresOverlay(quad);
   candidate->overlay_damage_index =
       sqs->overlay_damage_index.value_or(kInvalidDamageIndex);
-  candidate->assume_damaged = !sqs->no_damage;
 
   switch (quad->material) {
     case DrawQuad::Material::kTextureContent:

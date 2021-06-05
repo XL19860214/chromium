@@ -29,6 +29,10 @@ const CGFloat kIdentityControlMaxWidth = 327;
 // Scrim displayed above the view when the UI is disabled.
 @property(nonatomic, strong) ActivityOverlayView* overlay;
 
+// The string to be displayed in the "Cotinue" button to personalize it. Usually
+// the given name, or the email address if no given name.
+@property(nonatomic, copy) NSString* personalizedButtonPrompt;
+
 @end
 
 @implementation SigninScreenViewController
@@ -38,6 +42,9 @@ const CGFloat kIdentityControlMaxWidth = 327;
 
 - (void)viewDidLoad {
   self.bannerImage = [UIImage imageNamed:@"signin_screen_banner"];
+  self.isTallBanner = NO;
+  self.scrollToEndMandatory = YES;
+
   self.titleText = l10n_util::GetNSString(IDS_IOS_FIRST_RUN_SIGNIN_TITLE);
   self.subtitleText = l10n_util::GetNSString(IDS_IOS_FIRST_RUN_SIGNIN_SUBTITLE);
   if (!self.primaryActionString) {
@@ -66,8 +73,6 @@ const CGFloat kIdentityControlMaxWidth = 327;
         constraintLessThanOrEqualToAnchor:self.specificContentView
                                               .bottomAnchor],
   ]];
-
-  // TODO(crbug.com/1189836): Add the identity control to the wrapper view.
 
   // Call super after setting up the strings and others, as required per super
   // class.
@@ -106,14 +111,13 @@ const CGFloat kIdentityControlMaxWidth = 327;
 #pragma mark - SignInScreenConsumer
 
 - (void)setUserImage:(UIImage*)userImage {
-  if (userImage) {
-    [self.identityControl setIdentityAvatar:userImage];
-  } else {
-    // TODO(crbug.com/1189836): Update with default avatar.
-  }
+  [self.identityControl setIdentityAvatar:userImage];
 }
 
-- (void)setSelectedIdentityUserName:(NSString*)userName email:(NSString*)email {
+- (void)setSelectedIdentityUserName:(NSString*)userName
+                              email:(NSString*)email
+                          givenName:(NSString*)givenName {
+  self.personalizedButtonPrompt = givenName ? givenName : email;
   [self updateUIForIdentityAvailable:YES];
   [self.identityControl setIdentityName:userName email:email];
 }
@@ -154,10 +158,9 @@ const CGFloat kIdentityControlMaxWidth = 327;
 - (void)updateUIForIdentityAvailable:(BOOL)identityAvailable {
   self.identityControl.hidden = !identityAvailable;
   if (identityAvailable) {
-    // TODO(crbug.com/1189836): Use the real name.
     self.primaryActionString = l10n_util::GetNSStringF(
         IDS_IOS_FIRST_RUN_SIGNIN_CONTINUE_AS,
-        base::SysNSStringToUTF16(@"Account Name (Test)"));
+        base::SysNSStringToUTF16(self.personalizedButtonPrompt));
     ;
   } else {
     self.primaryActionString =

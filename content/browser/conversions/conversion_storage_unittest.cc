@@ -15,7 +15,6 @@
 #include "base/callback_helpers.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
-#include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
 #include "base/test/simple_test_clock.h"
 #include "content/browser/conversions/conversion_report.h"
@@ -66,7 +65,7 @@ class ConversionStorageTest : public testing::Test {
                             /*conversion_time=*/clock_.Now(),
                             /*report_time=*/clock_.Now() +
                                 base::TimeDelta::FromMilliseconds(kReportTime),
-                            absl::nullopt /* conversion_id */);
+                            /*conversion_id=*/absl::nullopt);
     return report;
   }
 
@@ -107,12 +106,12 @@ TEST_F(ConversionStorageTest,
   // Test all public methods on ConversionStorage.
   EXPECT_NO_FATAL_FAILURE(
       storage->StoreImpression(ImpressionBuilder(clock()->Now()).Build()));
-  EXPECT_EQ(0,
-            storage->MaybeCreateAndStoreConversionReports(DefaultConversion()));
+  EXPECT_FALSE(
+      storage->MaybeCreateAndStoreConversionReport(DefaultConversion()));
   EXPECT_TRUE(storage->GetConversionsToReport(clock()->Now()).empty());
   EXPECT_TRUE(storage->GetActiveImpressions().empty());
   EXPECT_EQ(0, storage->DeleteExpiredImpressions());
-  EXPECT_EQ(0, storage->DeleteConversion(0UL));
+  EXPECT_EQ(0, storage->DeleteConversion(0));
   EXPECT_NO_FATAL_FAILURE(storage->ClearData(
       base::Time::Min(), base::Time::Max(), base::NullCallback()));
 }
@@ -125,37 +124,27 @@ TEST_F(ConversionStorageTest, ImpressionStoredAndRetrieved_ValuesIdentical) {
   EXPECT_EQ(1u, stored_impressions.size());
 
   // Verify that each field was stored as expected.
-  EXPECT_EQ(impression.impression_data(),
-            stored_impressions[0].impression_data());
-  EXPECT_EQ(impression.impression_origin(),
-            stored_impressions[0].impression_origin());
-  EXPECT_EQ(impression.conversion_origin(),
-            stored_impressions[0].conversion_origin());
-  EXPECT_EQ(impression.reporting_origin(),
-            stored_impressions[0].reporting_origin());
-  EXPECT_EQ(impression.impression_time(),
-            stored_impressions[0].impression_time());
-  EXPECT_EQ(impression.expiry_time(), stored_impressions[0].expiry_time());
+  EXPECT_TRUE(ImpressionsEqual(impression, stored_impressions[0]));
 }
 
 TEST_F(ConversionStorageTest,
        GetWithNoMatchingImpressions_NoImpressionsReturned) {
-  EXPECT_EQ(
-      0, storage()->MaybeCreateAndStoreConversionReports(DefaultConversion()));
+  EXPECT_FALSE(
+      storage()->MaybeCreateAndStoreConversionReport(DefaultConversion()));
   EXPECT_TRUE(storage()->GetConversionsToReport(clock()->Now()).empty());
 }
 
 TEST_F(ConversionStorageTest, GetWithMatchingImpression_ImpressionReturned) {
   storage()->StoreImpression(ImpressionBuilder(clock()->Now()).Build());
-  EXPECT_EQ(
-      1, storage()->MaybeCreateAndStoreConversionReports(DefaultConversion()));
+  EXPECT_TRUE(
+      storage()->MaybeCreateAndStoreConversionReport(DefaultConversion()));
 }
 
 TEST_F(ConversionStorageTest, MultipleImpressionsForConversion_OneConverts) {
   storage()->StoreImpression(ImpressionBuilder(clock()->Now()).Build());
   storage()->StoreImpression(ImpressionBuilder(clock()->Now()).Build());
-  EXPECT_EQ(
-      1, storage()->MaybeCreateAndStoreConversionReports(DefaultConversion()));
+  EXPECT_TRUE(
+      storage()->MaybeCreateAndStoreConversionReport(DefaultConversion()));
 }
 
 TEST_F(ConversionStorageTest,
@@ -165,9 +154,26 @@ TEST_F(ConversionStorageTest,
           .SetConversionOrigin(url::Origin::Create(GURL("https://sub.a.test")))
           .Build();
   storage()->StoreImpression(impression);
-  StorableConversion conversion("1", net::SchemefulSite(GURL("https://a.test")),
-                                impression.reporting_origin());
-  EXPECT_EQ(1, storage()->MaybeCreateAndStoreConversionReports(conversion));
+  StorableConversion conversion(1, net::SchemefulSite(GURL("https://a.test")),
+                                impression.reporting_origin(),
+                                /*event_source_trigger_data=*/0);
+  EXPECT_TRUE(storage()->MaybeCreateAndStoreConversionReport(conversion));
+}
+
+TEST_F(ConversionStorageTest, EventSourceImpressionsForConversion_Converts) {
+  storage()->StoreImpression(
+      ImpressionBuilder(clock()->Now())
+          .SetSourceType(StorableImpression::SourceType::kEvent)
+          .Build());
+  EXPECT_TRUE(storage()->MaybeCreateAndStoreConversionReport(
+      DefaultConversion(/*event_source_trigger_data=*/456)));
+
+  clock()->Advance(base::TimeDelta::FromMilliseconds(kReportTime));
+
+  std::vector<ConversionReport> actual_reports =
+      storage()->GetConversionsToReport(clock()->Now());
+  EXPECT_EQ(1u, actual_reports.size());
+  EXPECT_EQ(456u, actual_reports[0].conversion_data);
 }
 
 TEST_F(ConversionStorageTest, ImpressionExpired_NoConversionsStored) {
@@ -177,8 +183,8 @@ TEST_F(ConversionStorageTest, ImpressionExpired_NoConversionsStored) {
           .Build());
   clock()->Advance(base::TimeDelta::FromMilliseconds(2));
 
-  EXPECT_EQ(
-      0, storage()->MaybeCreateAndStoreConversionReports(DefaultConversion()));
+  EXPECT_FALSE(
+      storage()->MaybeCreateAndStoreConversionReport(DefaultConversion()));
 }
 
 TEST_F(ConversionStorageTest, ImpressionExpired_ConversionsStoredPrior) {
@@ -189,13 +195,13 @@ TEST_F(ConversionStorageTest, ImpressionExpired_ConversionsStoredPrior) {
 
   clock()->Advance(base::TimeDelta::FromMilliseconds(3));
 
-  EXPECT_EQ(
-      1, storage()->MaybeCreateAndStoreConversionReports(DefaultConversion()));
+  EXPECT_TRUE(
+      storage()->MaybeCreateAndStoreConversionReport(DefaultConversion()));
 
   clock()->Advance(base::TimeDelta::FromMilliseconds(5));
 
-  EXPECT_EQ(
-      0, storage()->MaybeCreateAndStoreConversionReports(DefaultConversion()));
+  EXPECT_FALSE(
+      storage()->MaybeCreateAndStoreConversionReport(DefaultConversion()));
 }
 
 TEST_F(ConversionStorageTest, ImpressionNotExpired_NotDeleted) {
@@ -220,13 +226,13 @@ TEST_F(ConversionStorageTest,
   storage()->StoreImpression(ImpressionBuilder(clock()->Now()).Build());
 
   for (int i = 0; i < kMaxConversions; i++) {
-    EXPECT_EQ(1, storage()->MaybeCreateAndStoreConversionReports(
-                     DefaultConversion()));
+    EXPECT_TRUE(
+        storage()->MaybeCreateAndStoreConversionReport(DefaultConversion()));
   }
 
   // No additional conversion reports should be created.
-  EXPECT_EQ(
-      0, storage()->MaybeCreateAndStoreConversionReports(DefaultConversion()));
+  EXPECT_FALSE(
+      storage()->MaybeCreateAndStoreConversionReport(DefaultConversion()));
 }
 
 TEST_F(ConversionStorageTest, OneConversion_OneReportScheduled) {
@@ -234,7 +240,7 @@ TEST_F(ConversionStorageTest, OneConversion_OneReportScheduled) {
   auto conversion = DefaultConversion();
 
   storage()->StoreImpression(impression);
-  EXPECT_EQ(1, storage()->MaybeCreateAndStoreConversionReports(conversion));
+  EXPECT_TRUE(storage()->MaybeCreateAndStoreConversionReport(conversion));
 
   ConversionReport expected_report = GetExpectedReport(impression, conversion);
 
@@ -252,8 +258,8 @@ TEST_F(ConversionStorageTest,
                             url::Origin::Create(GURL("https://different.test")))
                         .Build();
   storage()->StoreImpression(impression);
-  EXPECT_EQ(
-      0, storage()->MaybeCreateAndStoreConversionReports(DefaultConversion()));
+  EXPECT_FALSE(
+      storage()->MaybeCreateAndStoreConversionReport(DefaultConversion()));
 
   clock()->Advance(base::TimeDelta::FromMilliseconds(kReportTime));
 
@@ -267,8 +273,8 @@ TEST_F(ConversionStorageTest,
                             url::Origin::Create(GURL("https://different.test")))
                         .Build();
   storage()->StoreImpression(impression);
-  EXPECT_EQ(
-      0, storage()->MaybeCreateAndStoreConversionReports(DefaultConversion()));
+  EXPECT_FALSE(
+      storage()->MaybeCreateAndStoreConversionReport(DefaultConversion()));
 
   clock()->Advance(base::TimeDelta::FromMilliseconds(kReportTime));
 
@@ -281,8 +287,8 @@ TEST_F(ConversionStorageTest,
       ImpressionBuilder(clock()->Now())
           .SetExpiry(base::TimeDelta::FromMilliseconds(3))
           .Build());
-  EXPECT_EQ(
-      1, storage()->MaybeCreateAndStoreConversionReports(DefaultConversion()));
+  EXPECT_TRUE(
+      storage()->MaybeCreateAndStoreConversionReport(DefaultConversion()));
 
   clock()->Advance(base::TimeDelta::FromMilliseconds(3));
   EXPECT_EQ(0, storage()->DeleteExpiredImpressions());
@@ -299,8 +305,8 @@ TEST_F(ConversionStorageTest, TwoImpressionsOneExpired_OneDeleted) {
           .Build());
 
   clock()->Advance(base::TimeDelta::FromMilliseconds(3));
-  EXPECT_EQ(
-      1, storage()->MaybeCreateAndStoreConversionReports(DefaultConversion()));
+  EXPECT_TRUE(
+      storage()->MaybeCreateAndStoreConversionReport(DefaultConversion()));
   EXPECT_EQ(1, storage()->DeleteExpiredImpressions());
 }
 
@@ -309,8 +315,8 @@ TEST_F(ConversionStorageTest, ExpiredImpressionWithSentConversion_Deleted) {
       ImpressionBuilder(clock()->Now())
           .SetExpiry(base::TimeDelta::FromMilliseconds(3))
           .Build());
-  EXPECT_EQ(
-      1, storage()->MaybeCreateAndStoreConversionReports(DefaultConversion()));
+  EXPECT_TRUE(
+      storage()->MaybeCreateAndStoreConversionReport(DefaultConversion()));
 
   clock()->Advance(base::TimeDelta::FromMilliseconds(3));
   EXPECT_EQ(0, storage()->DeleteExpiredImpressions());
@@ -329,8 +335,8 @@ TEST_F(ConversionStorageTest, ExpiredImpressionWithSentConversion_Deleted) {
 
 TEST_F(ConversionStorageTest, ConversionReportDeleted_RemovedFromStorage) {
   storage()->StoreImpression(ImpressionBuilder(clock()->Now()).Build());
-  EXPECT_EQ(
-      1, storage()->MaybeCreateAndStoreConversionReports(DefaultConversion()));
+  EXPECT_TRUE(
+      storage()->MaybeCreateAndStoreConversionReport(DefaultConversion()));
 
   clock()->Advance(base::TimeDelta::FromMilliseconds(kReportTime));
 
@@ -352,14 +358,14 @@ TEST_F(ConversionStorageTest,
   }
 
   for (int i = 0; i < kMaxConversions; i++) {
-    EXPECT_EQ(1, storage()->MaybeCreateAndStoreConversionReports(
-                     DefaultConversion()));
+    EXPECT_TRUE(
+        storage()->MaybeCreateAndStoreConversionReport(DefaultConversion()));
   }
 
   // No additional conversion reports should be created for any of the
   // impressions.
-  EXPECT_EQ(
-      0, storage()->MaybeCreateAndStoreConversionReports(DefaultConversion()));
+  EXPECT_FALSE(
+      storage()->MaybeCreateAndStoreConversionReport(DefaultConversion()));
 }
 
 TEST_F(ConversionStorageTest,
@@ -375,8 +381,8 @@ TEST_F(ConversionStorageTest,
   // The first impression should be active because even though
   // <reporting_origin, conversion_origin> matches, it has not converted yet.
   EXPECT_EQ(2u, storage()->GetActiveImpressions().size());
-  EXPECT_EQ(
-      1, storage()->MaybeCreateAndStoreConversionReports(DefaultConversion()));
+  EXPECT_TRUE(
+      storage()->MaybeCreateAndStoreConversionReport(DefaultConversion()));
   EXPECT_EQ(1u, storage()->GetActiveImpressions().size());
 }
 
@@ -387,9 +393,9 @@ TEST_F(ConversionStorageTest,
 TEST_F(ConversionStorageTest,
        NewImpressionForConvertedImpression_MarkedInactive) {
   storage()->StoreImpression(
-      ImpressionBuilder(clock()->Now()).SetData("0").Build());
-  EXPECT_EQ(
-      1, storage()->MaybeCreateAndStoreConversionReports(DefaultConversion()));
+      ImpressionBuilder(clock()->Now()).SetData(0).Build());
+  EXPECT_TRUE(
+      storage()->MaybeCreateAndStoreConversionReport(DefaultConversion()));
 
   clock()->Advance(base::TimeDelta::FromMilliseconds(kReportTime));
 
@@ -397,13 +403,12 @@ TEST_F(ConversionStorageTest,
   DeleteConversionReports(storage()->GetConversionsToReport(clock()->Now()));
 
   // Store a new impression that should mark the first inactive.
-  auto new_impression =
-      ImpressionBuilder(clock()->Now()).SetData("1000").Build();
+  auto new_impression = ImpressionBuilder(clock()->Now()).SetData(1000).Build();
   storage()->StoreImpression(new_impression);
 
   // Only the new impression should convert.
   auto conversion = DefaultConversion();
-  EXPECT_EQ(1, storage()->MaybeCreateAndStoreConversionReports(conversion));
+  EXPECT_TRUE(storage()->MaybeCreateAndStoreConversionReport(conversion));
   ConversionReport expected_report =
       GetExpectedReport(new_impression, conversion);
 
@@ -420,8 +425,8 @@ TEST_F(ConversionStorageTest,
   storage()->StoreImpression(first_impression);
 
   auto conversion = DefaultConversion();
-  EXPECT_EQ(
-      1, storage()->MaybeCreateAndStoreConversionReports(DefaultConversion()));
+  EXPECT_TRUE(
+      storage()->MaybeCreateAndStoreConversionReport(DefaultConversion()));
 
   // With the mock delegate, conversions are reported relative to impression
   // time not conversion time. This report will match both the first and second
@@ -442,7 +447,7 @@ TEST_F(ConversionStorageTest,
   storage()->StoreImpression(new_impression);
 
   // The first impression should still be active and able to convert.
-  EXPECT_EQ(1, storage()->MaybeCreateAndStoreConversionReports(conversion));
+  EXPECT_TRUE(storage()->MaybeCreateAndStoreConversionReport(conversion));
 
   // Verify it was the first impression that converted.
   EXPECT_TRUE(ReportsEqual({expected_report},
@@ -464,13 +469,12 @@ TEST_F(
   clock()->Advance(base::TimeDelta::FromMilliseconds(3));
 
   // Make a conversion with different impression data.
-  auto third_impression =
-      ImpressionBuilder(clock()->Now()).SetData("10").Build();
+  auto third_impression = ImpressionBuilder(clock()->Now()).SetData(10).Build();
   storage()->StoreImpression(third_impression);
 
   ConversionReport third_expected_conversion =
       GetExpectedReport(third_impression, conversion);
-  EXPECT_EQ(1, storage()->MaybeCreateAndStoreConversionReports(conversion));
+  EXPECT_TRUE(storage()->MaybeCreateAndStoreConversionReport(conversion));
 
   clock()->Advance(base::TimeDelta::FromMilliseconds(kReportTime));
 
@@ -493,8 +497,8 @@ TEST_F(ConversionStorageTest,
   clock()->Advance(base::TimeDelta::FromMilliseconds(3));
   storage()->StoreImpression(ImpressionBuilder(clock()->Now()).Build());
 
-  EXPECT_EQ(
-      1, storage()->MaybeCreateAndStoreConversionReports(DefaultConversion()));
+  EXPECT_TRUE(
+      storage()->MaybeCreateAndStoreConversionReport(DefaultConversion()));
 
   // Advance to the first impression's report time and verify only its report is
   // available.
@@ -510,8 +514,8 @@ TEST_F(ConversionStorageTest,
 
 TEST_F(ConversionStorageTest, GetConversionsToReportMultipleTimes_SameResult) {
   storage()->StoreImpression(ImpressionBuilder(clock()->Now()).Build());
-  EXPECT_EQ(
-      1, storage()->MaybeCreateAndStoreConversionReports(DefaultConversion()));
+  EXPECT_TRUE(
+      storage()->MaybeCreateAndStoreConversionReport(DefaultConversion()));
   clock()->Advance(base::TimeDelta::FromMilliseconds(kReportTime));
 
   std::vector<ConversionReport> first_call_reports =
@@ -530,19 +534,19 @@ TEST_F(ConversionStorageTest, MaxImpressionsPerOrigin) {
   storage()->StoreImpression(ImpressionBuilder(clock()->Now()).Build());
   storage()->StoreImpression(ImpressionBuilder(clock()->Now()).Build());
   storage()->StoreImpression(ImpressionBuilder(clock()->Now()).Build());
-  EXPECT_EQ(
-      1, storage()->MaybeCreateAndStoreConversionReports(DefaultConversion()));
+  EXPECT_TRUE(
+      storage()->MaybeCreateAndStoreConversionReport(DefaultConversion()));
 }
 
 TEST_F(ConversionStorageTest, MaxConversionsPerOrigin) {
   delegate()->set_max_conversions_per_origin(1);
   storage()->StoreImpression(ImpressionBuilder(clock()->Now()).Build());
   storage()->StoreImpression(ImpressionBuilder(clock()->Now()).Build());
-  EXPECT_EQ(
-      1, storage()->MaybeCreateAndStoreConversionReports(DefaultConversion()));
+  EXPECT_TRUE(
+      storage()->MaybeCreateAndStoreConversionReport(DefaultConversion()));
   // Verify that MaxConversionsPerOrigin is enforced.
-  EXPECT_EQ(
-      0, storage()->MaybeCreateAndStoreConversionReports(DefaultConversion()));
+  EXPECT_FALSE(
+      storage()->MaybeCreateAndStoreConversionReport(DefaultConversion()));
 }
 
 TEST_F(ConversionStorageTest, ClearDataWithNoMatch_NoDelete) {
@@ -551,8 +555,8 @@ TEST_F(ConversionStorageTest, ClearDataWithNoMatch_NoDelete) {
   storage()->StoreImpression(impression);
   storage()->ClearData(
       now, now, GetMatcher(url::Origin::Create(GURL("https://no-match.com"))));
-  EXPECT_EQ(
-      1, storage()->MaybeCreateAndStoreConversionReports(DefaultConversion()));
+  EXPECT_TRUE(
+      storage()->MaybeCreateAndStoreConversionReport(DefaultConversion()));
 }
 
 TEST_F(ConversionStorageTest, ClearDataOutsideRange_NoDelete) {
@@ -563,8 +567,8 @@ TEST_F(ConversionStorageTest, ClearDataOutsideRange_NoDelete) {
   storage()->ClearData(now + base::TimeDelta::FromMinutes(10),
                        now + base::TimeDelta::FromMinutes(20),
                        GetMatcher(impression.impression_origin()));
-  EXPECT_EQ(
-      1, storage()->MaybeCreateAndStoreConversionReports(DefaultConversion()));
+  EXPECT_TRUE(
+      storage()->MaybeCreateAndStoreConversionReport(DefaultConversion()));
 }
 
 TEST_F(ConversionStorageTest, ClearDataImpression) {
@@ -575,8 +579,8 @@ TEST_F(ConversionStorageTest, ClearDataImpression) {
     storage()->StoreImpression(impression);
     storage()->ClearData(now, now + base::TimeDelta::FromMinutes(20),
                          GetMatcher(impression.conversion_origin()));
-    EXPECT_EQ(0, storage()->MaybeCreateAndStoreConversionReports(
-                     DefaultConversion()));
+    EXPECT_FALSE(
+        storage()->MaybeCreateAndStoreConversionReport(DefaultConversion()));
   }
 }
 
@@ -586,7 +590,7 @@ TEST_F(ConversionStorageTest, ClearDataImpressionConversion) {
   auto conversion = DefaultConversion();
 
   storage()->StoreImpression(impression);
-  EXPECT_EQ(1, storage()->MaybeCreateAndStoreConversionReports(conversion));
+  EXPECT_TRUE(storage()->MaybeCreateAndStoreConversionReport(conversion));
 
   storage()->ClearData(now - base::TimeDelta::FromMinutes(20),
                        now + base::TimeDelta::FromMinutes(20),
@@ -615,15 +619,17 @@ TEST_F(ConversionStorageTest, ClearDataNullFilter) {
   for (int i = 0; i < 5; i++) {
     auto origin =
         url::Origin::Create(GURL(base::StringPrintf("https://%d.com/", i)));
-    StorableConversion conversion("1", net::SchemefulSite(origin), origin);
-    EXPECT_EQ(1, storage()->MaybeCreateAndStoreConversionReports(conversion));
+    StorableConversion conversion(1, net::SchemefulSite(origin), origin,
+                                  /*event_source_trigger_data=*/0);
+    EXPECT_TRUE(storage()->MaybeCreateAndStoreConversionReport(conversion));
   }
   clock()->Advance(base::TimeDelta::FromDays(1));
   for (int i = 5; i < 10; i++) {
     auto origin =
         url::Origin::Create(GURL(base::StringPrintf("https://%d.com/", i)));
-    StorableConversion conversion("1", net::SchemefulSite(origin), origin);
-    EXPECT_EQ(1, storage()->MaybeCreateAndStoreConversionReports(conversion));
+    StorableConversion conversion(1, net::SchemefulSite(origin), origin,
+                                  /*event_source_trigger_data=*/0);
+    EXPECT_TRUE(storage()->MaybeCreateAndStoreConversionReport(conversion));
   }
 
   auto null_filter = base::RepeatingCallback<bool(const url::Origin&)>();
@@ -639,7 +645,7 @@ TEST_F(ConversionStorageTest, ClearDataWithImpressionOutsideRange) {
 
   storage()->StoreImpression(impression);
 
-  EXPECT_EQ(1, storage()->MaybeCreateAndStoreConversionReports(conversion));
+  EXPECT_TRUE(storage()->MaybeCreateAndStoreConversionReport(conversion));
   storage()->ClearData(clock()->Now(), clock()->Now(),
                        GetMatcher(impression.impression_origin()));
   EXPECT_TRUE(storage()->GetConversionsToReport(base::Time::Max()).empty());
@@ -660,7 +666,7 @@ TEST_F(ConversionStorageTest, ClearDataRangeBetweenEvents) {
 
   clock()->Advance(base::TimeDelta::FromDays(1));
 
-  EXPECT_EQ(1, storage()->MaybeCreateAndStoreConversionReports(conversion));
+  EXPECT_TRUE(storage()->MaybeCreateAndStoreConversionReport(conversion));
 
   storage()->ClearData(start + base::TimeDelta::FromMinutes(1),
                        start + base::TimeDelta::FromMinutes(10),
@@ -689,8 +695,8 @@ TEST_F(ConversionStorageTest, ClearDataWithMultiTouch) {
   storage()->StoreImpression(impression2);
   storage()->StoreImpression(impression3);
 
-  EXPECT_EQ(
-      1, storage()->MaybeCreateAndStoreConversionReports(DefaultConversion()));
+  EXPECT_TRUE(
+      storage()->MaybeCreateAndStoreConversionReport(DefaultConversion()));
 
   // Only the first impression should overlap with this time range, but all the
   // impressions should share the origin.
@@ -710,11 +716,11 @@ TEST_F(ConversionStorageTest, DeleteAll) {
     clock()->Advance(base::TimeDelta::FromDays(1));
   }
 
-  EXPECT_EQ(
-      1, storage()->MaybeCreateAndStoreConversionReports(DefaultConversion()));
+  EXPECT_TRUE(
+      storage()->MaybeCreateAndStoreConversionReport(DefaultConversion()));
   clock()->Advance(base::TimeDelta::FromDays(1));
-  EXPECT_EQ(
-      1, storage()->MaybeCreateAndStoreConversionReports(DefaultConversion()));
+  EXPECT_TRUE(
+      storage()->MaybeCreateAndStoreConversionReport(DefaultConversion()));
 
   auto null_filter = base::RepeatingCallback<bool(const url::Origin&)>();
   storage()->ClearData(base::Time::Min(), base::Time::Max(), null_filter);
@@ -735,11 +741,11 @@ TEST_F(ConversionStorageTest, DeleteAllNullDeleteBegin) {
     clock()->Advance(base::TimeDelta::FromDays(1));
   }
 
-  EXPECT_EQ(
-      1, storage()->MaybeCreateAndStoreConversionReports(DefaultConversion()));
+  EXPECT_TRUE(
+      storage()->MaybeCreateAndStoreConversionReport(DefaultConversion()));
   clock()->Advance(base::TimeDelta::FromDays(1));
-  EXPECT_EQ(
-      1, storage()->MaybeCreateAndStoreConversionReports(DefaultConversion()));
+  EXPECT_TRUE(
+      storage()->MaybeCreateAndStoreConversionReport(DefaultConversion()));
 
   auto null_filter = base::RepeatingCallback<bool(const url::Origin&)>();
   storage()->ClearData(base::Time(), base::Time::Max(), null_filter);
@@ -758,15 +764,278 @@ TEST_F(ConversionStorageTest, MaxAttributionReportsBetweenSites) {
   auto conversion = DefaultConversion();
 
   storage()->StoreImpression(ImpressionBuilder(clock()->Now()).Build());
-  EXPECT_EQ(1, storage()->MaybeCreateAndStoreConversionReports(conversion));
-  EXPECT_EQ(1, storage()->MaybeCreateAndStoreConversionReports(conversion));
-  EXPECT_EQ(0, storage()->MaybeCreateAndStoreConversionReports(conversion));
+  EXPECT_TRUE(storage()->MaybeCreateAndStoreConversionReport(conversion));
+  EXPECT_TRUE(storage()->MaybeCreateAndStoreConversionReport(conversion));
+  EXPECT_FALSE(storage()->MaybeCreateAndStoreConversionReport(conversion));
 
   ConversionReport expected_report = GetExpectedReport(impression, conversion);
 
   std::vector<ConversionReport> actual_reports =
       storage()->GetConversionsToReport(base::Time::Max());
   EXPECT_TRUE(ReportsEqual({expected_report, expected_report}, actual_reports));
+}
+
+TEST_F(ConversionStorageTest,
+       MaxAttributionReportsBetweenSites_RespectsSourceType) {
+  delegate()->set_rate_limits({
+      .time_window = base::TimeDelta::Max(),
+      .max_attributions_per_window = 1,
+  });
+
+  storage()->StoreImpression(
+      ImpressionBuilder(clock()->Now())
+          .SetSourceType(StorableImpression::SourceType::kNavigation)
+          .Build());
+  EXPECT_TRUE(
+      storage()->MaybeCreateAndStoreConversionReport(DefaultConversion()));
+
+  storage()->StoreImpression(
+      ImpressionBuilder(clock()->Now())
+          .SetSourceType(StorableImpression::SourceType::kEvent)
+          .Build());
+  // This would fail if the source types had a combined limit or the incorrect
+  // source type were stored.
+  EXPECT_TRUE(
+      storage()->MaybeCreateAndStoreConversionReport(DefaultConversion()));
+
+  storage()->StoreImpression(
+      ImpressionBuilder(clock()->Now())
+          .SetSourceType(StorableImpression::SourceType::kEvent)
+          .Build());
+  EXPECT_FALSE(
+      storage()->MaybeCreateAndStoreConversionReport(DefaultConversion()));
+
+  storage()->StoreImpression(
+      ImpressionBuilder(clock()->Now())
+          .SetSourceType(StorableImpression::SourceType::kNavigation)
+          .Build());
+  EXPECT_FALSE(
+      storage()->MaybeCreateAndStoreConversionReport(DefaultConversion()));
+}
+
+TEST_F(ConversionStorageTest, NeverAttributeImpression_ReportNotStored) {
+  delegate()->set_attribution_logic(
+      StorableImpression::AttributionLogic::kNever);
+  delegate()->set_max_conversions_per_impression(1);
+  storage()->StoreImpression(ImpressionBuilder(clock()->Now()).Build());
+
+  const auto conversion = DefaultConversion();
+  EXPECT_FALSE(storage()->MaybeCreateAndStoreConversionReport(conversion));
+  EXPECT_TRUE(storage()->GetActiveImpressions().empty());
+
+  clock()->Advance(base::TimeDelta::FromMilliseconds(kReportTime));
+
+  std::vector<ConversionReport> actual_reports =
+      storage()->GetConversionsToReport(clock()->Now());
+  EXPECT_TRUE(ReportsEqual({}, actual_reports));
+}
+
+TEST_F(ConversionStorageTest, NeverAttributeImpression_RateLimitsNotChanged) {
+  delegate()->set_rate_limits({
+      .time_window = base::TimeDelta::Max(),
+      .max_attributions_per_window = 1,
+  });
+
+  delegate()->set_attribution_logic(
+      StorableImpression::AttributionLogic::kNever);
+  storage()->StoreImpression(
+      ImpressionBuilder(clock()->Now()).SetData(5).Build());
+
+  const auto conversion = DefaultConversion();
+  EXPECT_FALSE(storage()->MaybeCreateAndStoreConversionReport(conversion));
+
+  delegate()->set_attribution_logic(
+      StorableImpression::AttributionLogic::kTruthfully);
+  const auto impression = ImpressionBuilder(clock()->Now()).SetData(7).Build();
+  storage()->StoreImpression(impression);
+  EXPECT_TRUE(storage()->MaybeCreateAndStoreConversionReport(conversion));
+
+  storage()->StoreImpression(
+      ImpressionBuilder(clock()->Now()).SetData(9).Build());
+  EXPECT_FALSE(storage()->MaybeCreateAndStoreConversionReport(conversion));
+
+  const ConversionReport expected_report =
+      GetExpectedReport(impression, conversion);
+
+  clock()->Advance(base::TimeDelta::FromMilliseconds(kReportTime));
+
+  std::vector<ConversionReport> actual_reports =
+      storage()->GetConversionsToReport(clock()->Now());
+  EXPECT_TRUE(ReportsEqual({expected_report}, actual_reports));
+}
+
+TEST_F(ConversionStorageTest,
+       NeverAndTruthfullyAttributeImpressions_ReportNotStored) {
+  delegate()->set_attribution_logic(
+      StorableImpression::AttributionLogic::kTruthfully);
+  storage()->StoreImpression(ImpressionBuilder(clock()->Now()).Build());
+
+  clock()->Advance(base::TimeDelta::FromMilliseconds(1));
+
+  delegate()->set_attribution_logic(
+      StorableImpression::AttributionLogic::kNever);
+  storage()->StoreImpression(ImpressionBuilder(clock()->Now()).Build());
+
+  const auto conversion = DefaultConversion();
+  EXPECT_FALSE(storage()->MaybeCreateAndStoreConversionReport(conversion));
+  EXPECT_FALSE(storage()->MaybeCreateAndStoreConversionReport(conversion));
+
+  clock()->Advance(base::TimeDelta::FromMilliseconds(kReportTime));
+
+  std::vector<ConversionReport> actual_reports =
+      storage()->GetConversionsToReport(clock()->Now());
+  EXPECT_TRUE(ReportsEqual({}, actual_reports));
+}
+
+TEST_F(ConversionStorageTest,
+       MaxAttributionDestinationsPerSource_AlreadyStored) {
+  const auto impression =
+      ImpressionBuilder(clock()->Now())
+          .SetSourceType(StorableImpression::SourceType::kEvent)
+          .Build();
+
+  // Setting this doesn't affect the test behavior, but makes it clear that the
+  // test passes without depending on the default value of |INT_MAX|.
+  delegate()->set_max_attribution_destinations_per_event_source(1);
+  storage()->StoreImpression(impression);
+  storage()->StoreImpression(impression);
+
+  // The second impression's |conversion_destination| matches the first's, so it
+  // doesn't add to the number of distinct values for the |impression_site|,
+  // and both impressions should be stored.
+  EXPECT_EQ(2u, storage()->GetActiveImpressions().size());
+}
+
+TEST_F(
+    ConversionStorageTest,
+    MaxAttributionDestinationsPerSource_DifferentImpressionSitesAreIndependent) {
+  // Setting this doesn't affect the test behavior, but makes it clear that the
+  // test passes without depending on the default value of |INT_MAX|.
+  delegate()->set_max_attribution_destinations_per_event_source(1);
+  storage()->StoreImpression(
+      ImpressionBuilder(clock()->Now())
+          .SetImpressionOrigin(url::Origin::Create(GURL("https://a.example")))
+          .SetConversionOrigin(url::Origin::Create(GURL("https://c.example")))
+          .SetSourceType(StorableImpression::SourceType::kEvent)
+          .Build());
+  storage()->StoreImpression(
+      ImpressionBuilder(clock()->Now())
+          .SetImpressionOrigin(url::Origin::Create(GURL("https://b.example")))
+          .SetConversionOrigin(url::Origin::Create(GURL("https://d.example")))
+          .SetSourceType(StorableImpression::SourceType::kEvent)
+          .Build());
+
+  // The two impressions together have 2 distinct |conversion_destination|
+  // values, but they are independent because they vary by |impression_site|, so
+  // both should be stored.
+  EXPECT_EQ(2u, storage()->GetActiveImpressions().size());
+}
+
+TEST_F(ConversionStorageTest,
+       MaxAttributionDestinationsPerSource_IrrelevantForNavigationSources) {
+  // Setting this doesn't affect the test behavior, but makes it clear that the
+  // test passes without depending on the default value of |INT_MAX|.
+  delegate()->set_max_attribution_destinations_per_event_source(1);
+  storage()->StoreImpression(
+      ImpressionBuilder(clock()->Now())
+          .SetConversionOrigin(url::Origin::Create(GURL("https://a.example/")))
+          .Build());
+  storage()->StoreImpression(
+      ImpressionBuilder(clock()->Now())
+          .SetConversionOrigin(url::Origin::Create(GURL("https://b.example")))
+          .Build());
+
+  // Both impressions should be stored because they are navigation source.
+  EXPECT_EQ(2u, storage()->GetActiveImpressions().size());
+}
+
+TEST_F(
+    ConversionStorageTest,
+    MaxAttributionDestinationsPerSource_InsufficientCapacityDeletesOldImpressions) {
+  // Verifies that active sources are removed in order, and that the destination
+  // limit handles multiple active impressions for the same destination when
+  // deleting.
+
+  struct {
+    std::string impression_origin;
+    std::string conversion_origin;
+    int max;
+  } kImpressions[] = {
+      {"https://foo.test.example", "https://a.example", INT_MAX},
+      {"https://bar.test.example", "https://b.example", INT_MAX},
+      {"https://xyz.test.example", "https://a.example", INT_MAX},
+      {"https://ghi.test.example", "https://b.example", INT_MAX},
+      {"https://qrs.test.example", "https://c.example", 2},
+  };
+
+  for (const auto& impression : kImpressions) {
+    delegate()->set_max_attribution_destinations_per_event_source(
+        impression.max);
+    storage()->StoreImpression(
+        ImpressionBuilder(clock()->Now())
+            .SetImpressionOrigin(
+                url::Origin::Create(GURL(impression.impression_origin)))
+            .SetConversionOrigin(
+                url::Origin::Create(GURL(impression.conversion_origin)))
+            .SetSourceType(StorableImpression::SourceType::kEvent)
+            .Build());
+    clock()->Advance(base::TimeDelta::FromMilliseconds(1));
+  }
+
+  std::vector<StorableImpression> stored_impressions =
+      storage()->GetActiveImpressions();
+  EXPECT_EQ(2u, stored_impressions.size());
+
+  EXPECT_EQ(url::Origin::Create(GURL("https://ghi.test.example")),
+            stored_impressions[0].impression_origin());
+  EXPECT_EQ(url::Origin::Create(GURL("https://qrs.test.example")),
+            stored_impressions[1].impression_origin());
+}
+
+TEST_F(ConversionStorageTest,
+       MaxAttributionDestinationsPerSource_IgnoresInactiveImpressions) {
+  delegate()->set_max_conversions_per_impression(1);
+  delegate()->set_max_attribution_destinations_per_event_source(INT_MAX);
+
+  storage()->StoreImpression(
+      ImpressionBuilder(clock()->Now())
+          .SetSourceType(StorableImpression::SourceType::kEvent)
+          .Build());
+  EXPECT_EQ(1u, storage()->GetActiveImpressions().size());
+
+  storage()->MaybeCreateAndStoreConversionReport(DefaultConversion());
+  EXPECT_EQ(0u, storage()->GetActiveImpressions().size());
+
+  clock()->Advance(base::TimeDelta::FromMilliseconds(1));
+  storage()->StoreImpression(
+      ImpressionBuilder(clock()->Now())
+          .SetConversionOrigin(url::Origin::Create(GURL("https://a.example")))
+          .SetSourceType(StorableImpression::SourceType::kEvent)
+          .Build());
+  EXPECT_EQ(1u, storage()->GetActiveImpressions().size());
+
+  delegate()->set_max_attribution_destinations_per_event_source(1);
+  clock()->Advance(base::TimeDelta::FromMilliseconds(1));
+  storage()->StoreImpression(
+      ImpressionBuilder(clock()->Now())
+          .SetConversionOrigin(url::Origin::Create(GURL("https://b.example")))
+          .SetSourceType(StorableImpression::SourceType::kEvent)
+          .Build());
+
+  // The earliest active impression should be deleted to make room for this new
+  // one.
+  std::vector<StorableImpression> stored_impressions =
+      storage()->GetActiveImpressions();
+  EXPECT_EQ(1u, stored_impressions.size());
+  EXPECT_EQ(url::Origin::Create(GURL("https://b.example")),
+            stored_impressions[0].conversion_origin());
+
+  // Both the inactive impression and the new one for b.example should be
+  // retained; a.example is the only one that should have been deleted. The
+  // presence of 1 conversion to report implies that the inactive impression
+  // remains in the DB.
+  clock()->Advance(base::TimeDelta::FromMilliseconds(kReportTime));
+  EXPECT_EQ(1u, storage()->GetConversionsToReport(clock()->Now()).size());
 }
 
 }  // namespace content

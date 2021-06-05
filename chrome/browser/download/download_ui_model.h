@@ -11,6 +11,7 @@
 
 #include "base/files/file_path.h"
 #include "base/macros.h"
+#include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
 #include "base/sequenced_task_runner.h"
 #include "build/build_config.h"
@@ -48,6 +49,8 @@ class DownloadUIModel {
 
   void AddObserver(Observer* observer);
   void RemoveObserver(Observer* observer);
+
+  base::WeakPtr<DownloadUIModel> GetWeakPtr();
 
   // Does this download have a MIME type (either explicit or inferred from its
   // extension) suggesting that it is a supported image type?
@@ -279,6 +282,10 @@ class DownloadUIModel {
   // Returns the URL represented by this download.
   virtual GURL GetURL() const;
 
+  // Returns whether the download request was initiated in response to a user
+  // gesture.
+  virtual bool HasUserGesture() const;
+
   // Returns the most recent failure reason for this download. Returns
   // |FailState::NO_FAILURE| if there is no previous failure reason.
   virtual offline_items_collection::FailState GetLastFailState() const;
@@ -325,6 +332,8 @@ class DownloadUIModel {
  private:
   // Returns a string indicating the status of an in-progress download.
   std::u16string GetInProgressStatusString() const;
+
+  base::WeakPtrFactory<DownloadUIModel> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(DownloadUIModel);
 };

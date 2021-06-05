@@ -34,7 +34,6 @@
 #include "content/renderer/accessibility/render_accessibility_manager.h"
 #include "content/renderer/render_frame_impl.h"
 #include "content/renderer/render_frame_proxy.h"
-#include "content/renderer/render_view_impl.h"
 #include "services/image_annotation/public/mojom/image_annotation.mojom.h"
 #include "services/metrics/public/cpp/mojo_ukm_recorder.h"
 #include "services/metrics/public/cpp/ukm_builders.h"
@@ -83,10 +82,9 @@ void SetAccessibilityCrashKey(ui::AXMode mode) {
   // least one renderer in the same process had that flag.
   // Examples of when multiple renderers could share the same process:
   // 1) Android, 2) When many tabs are open.
-  static auto* ax_mode_crash_key = base::debug::AllocateCrashKeyString(
+  static auto* const ax_mode_crash_key = base::debug::AllocateCrashKeyString(
       "ax_mode", base::debug::CrashKeySize::Size64);
-  if (ax_mode_crash_key)
-    base::debug::SetCrashKeyString(ax_mode_crash_key, mode.ToString());
+  base::debug::SetCrashKeyString(ax_mode_crash_key, mode.ToString());
 }
 
 }  // namespace
@@ -111,7 +109,7 @@ RenderAccessibilityImpl::RenderAccessibilityImpl(
   content::RenderThread::Get()->BindHostReceiver(
       recorder.InitWithNewPipeAndPassReceiver());
   ukm_recorder_ = std::make_unique<ukm::MojoUkmRecorder>(std::move(recorder));
-  WebView* web_view = render_frame_->GetRenderView()->GetWebView();
+  WebView* web_view = render_frame_->GetWebView();
   WebSettings* settings = web_view->GetSettings();
 
   SetAccessibilityCrashKey(mode);
@@ -157,7 +155,7 @@ RenderAccessibilityImpl::RenderAccessibilityImpl(
 
   const WebDocument& document = GetMainDocument();
   if (!document.IsNull()) {
-    ax_context_ = std::make_unique<WebAXContext>(document);
+    ax_context_ = std::make_unique<WebAXContext>(document, mode);
     StartOrStopLabelingImages(ui::AXMode(), mode);
 
     // It's possible that the webview has already loaded a webpage without
@@ -177,7 +175,8 @@ RenderAccessibilityImpl::~RenderAccessibilityImpl() = default;
 void RenderAccessibilityImpl::DidCreateNewDocument() {
   const WebDocument& document = GetMainDocument();
   if (!document.IsNull())
-    ax_context_ = std::make_unique<WebAXContext>(document);
+    ax_context_ =
+        std::make_unique<WebAXContext>(document, GetAccessibilityMode());
 }
 
 void RenderAccessibilityImpl::DidCommitProvisionalLoad(
@@ -217,19 +216,16 @@ void RenderAccessibilityImpl::AccessibilityModeChanged(const ui::AXMode& mode) {
 #if !defined(OS_ANDROID)
   // Inline text boxes can be enabled globally on all except Android.
   // On Android they can be requested for just a specific node.
-  RenderView* render_view = render_frame_->GetRenderView();
-  if (render_view) {
-    WebView* web_view = render_view->GetWebView();
-    if (web_view) {
-      WebSettings* settings = web_view->GetSettings();
-      if (settings) {
-        if (mode.has_mode(ui::AXMode::kInlineTextBoxes)) {
-          settings->SetInlineTextBoxAccessibilityEnabled(true);
-          tree_source_->GetRoot().MaybeUpdateLayoutAndCheckValidity();
-          tree_source_->GetRoot().LoadInlineTextBoxes();
-        } else {
-          settings->SetInlineTextBoxAccessibilityEnabled(false);
-        }
+  WebView* web_view = render_frame_->GetWebView();
+  if (web_view) {
+    WebSettings* settings = web_view->GetSettings();
+    if (settings) {
+      if (mode.has_mode(ui::AXMode::kInlineTextBoxes)) {
+        settings->SetInlineTextBoxAccessibilityEnabled(true);
+        tree_source_->GetRoot().MaybeUpdateLayoutAndCheckValidity();
+        tree_source_->GetRoot().LoadInlineTextBoxes();
+      } else {
+        settings->SetInlineTextBoxAccessibilityEnabled(false);
       }
     }
   }
@@ -309,7 +305,7 @@ void RenderAccessibilityImpl::HitTest(
     // The following transformation of the input point is naive, but works
     // fairly well. It will fail with CSS transforms that rotate or shear.
     // https://crbug.com/981959.
-    WebView* web_view = render_frame_->GetRenderView()->GetWebView();
+    WebView* web_view = render_frame_->GetWebView();
     gfx::PointF viewport_offset = web_view->VisualViewportOffset();
     transformed_point +=
         gfx::Vector2d(viewport_offset.x(), viewport_offset.y()) -
@@ -421,6 +417,10 @@ void RenderAccessibilityImpl::PerformAction(const ui::AXActionData& data) {
     case ax::mojom::Action::kShowTooltip:
     case ax::mojom::Action::kHideTooltip:
     case ax::mojom::Action::kInternalInvalidateTree:
+    case ax::mojom::Action::kResumeMedia:
+    case ax::mojom::Action::kStartDuckingMedia:
+    case ax::mojom::Action::kStopDuckingMedia:
+    case ax::mojom::Action::kSuspendMedia:
       break;
   }
 }
@@ -1378,8 +1378,7 @@ void RenderAccessibilityImpl::AddImageAnnotationDebuggingAttributes(
 }
 
 blink::WebDocument RenderAccessibilityImpl::GetPopupDocument() {
-  blink::WebPagePopup* popup =
-      render_frame_->GetRenderView()->GetWebView()->GetPagePopup();
+  blink::WebPagePopup* popup = render_frame_->GetWebView()->GetPagePopup();
   if (popup)
     return popup->GetDocument();
   return WebDocument();

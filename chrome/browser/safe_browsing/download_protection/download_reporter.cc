@@ -19,8 +19,10 @@
 #include "components/download/public/common/download_danger_type.h"
 #include "components/download/public/common/download_item.h"
 #include "components/download/public/common/simple_download_manager_coordinator.h"
+#include "components/safe_browsing/core/browser/download/download_stats.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/download_item_utils.h"
+#include "url/url_constants.h"
 
 namespace safe_browsing {
 
@@ -32,7 +34,9 @@ bool DangerTypeIsDangerous(download::DownloadDangerType danger_type) {
           danger_type == download::DOWNLOAD_DANGER_TYPE_DANGEROUS_CONTENT ||
           danger_type == download::DOWNLOAD_DANGER_TYPE_UNCOMMON_CONTENT ||
           danger_type == download::DOWNLOAD_DANGER_TYPE_DANGEROUS_HOST ||
-          danger_type == download::DOWNLOAD_DANGER_TYPE_POTENTIALLY_UNWANTED);
+          danger_type == download::DOWNLOAD_DANGER_TYPE_POTENTIALLY_UNWANTED ||
+          danger_type ==
+              download::DOWNLOAD_DANGER_TYPE_DANGEROUS_ACCOUNT_COMPROMISE);
 }
 
 void MaybeReportDangerousDownloadWarning(download::DownloadItem* download) {
@@ -172,6 +176,10 @@ void DownloadReporter::OnDownloadUpdated(download::DownloadItem* download) {
       current_danger_type == download::DOWNLOAD_DANGER_TYPE_USER_VALIDATED) {
     AddBypassEventToPref(download);
     ReportDangerousDownloadWarningBypassed(download, old_danger_type);
+    RecordDangerousDownloadWarningBypassed(
+        old_danger_type, download->GetTargetFilePath(),
+        download->GetURL().SchemeIs(url::kHttpsScheme),
+        download->HasUserGesture());
   }
 
   if (old_danger_type ==

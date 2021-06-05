@@ -24,7 +24,6 @@ Eis alguns exemplos do que pode experimentar para começar.</translation>
 <translation id="1148499908455722006">Abrir a caixa de diálogo de informações de <ph name="USER_NAME" /></translation>
 <translation id="1153356358378277386">Dispositivos sincronizados</translation>
 <translation id="1165712434476988950">É necessário reiniciar o dispositivo para aplicar a atualização.</translation>
-<translation id="1170240434488307589">O som do botão do microfone do dispositivo está desativado.</translation>
 <translation id="1175572348579024023">Deslocar</translation>
 <translation id="1178581264944972037">Pausa</translation>
 <translation id="1181037720776840403">Remover</translation>
@@ -41,6 +40,7 @@ Eis alguns exemplos do que pode experimentar para começar.</translation>
 <translation id="1247372569136754018">Microfone (interno)</translation>
 <translation id="1252999807265626933">A carregar a partir de <ph name="POWER_SOURCE" /></translation>
 <translation id="1255033239764210633">Como está o tempo?</translation>
+<translation id="1266097335951928626">Iniciar câmara para selfies</translation>
 <translation id="1267032506238418139">Alteração do atalho</translation>
 <translation id="1269405891096105529">Periférico não suportado no Modo convidado</translation>
 <translation id="1270290102613614947">Teclado no ecrã desativado</translation>
@@ -82,8 +82,10 @@ Eis alguns exemplos do que pode experimentar para começar.</translation>
 <translation id="15373452373711364">Cursor do rato grande</translation>
 <translation id="1546492247443594934">Secretária 2</translation>
 <translation id="1550523713251050646">Clicar para obter mais opções</translation>
+<translation id="1555130319947370107">Azul</translation>
 <translation id="1570871743947603115">Ativar/desativar Bluetooth. <ph name="STATE_TEXT" /></translation>
 <translation id="1589090746204042747">Aceda a toda a sua atividade nesta sessão.</translation>
+<translation id="159255010947577753">Marcador</translation>
 <translation id="1611993646327628135">Ativado</translation>
 <translation id="1615402009686901181">A política do administrador desativa a captura de ecrã quando existe conteúdo confidencial visível.</translation>
 <translation id="1632985212731562677">O acesso por comutador pode ser desativado em Definições &gt; Acessibilidade.</translation>
@@ -135,18 +137,23 @@ Eis alguns exemplos do que pode experimentar para começar.</translation>
 <translation id="2016340657076538683">Escrever uma mensagem</translation>
 <translation id="2018630726571919839">Conta-me uma anedota</translation>
 <translation id="2021864487439853900">Clicar para desbloquear</translation>
+<translation id="2047639699071423250">Adicionar ideia-chave</translation>
 <translation id="2049240716062114887">O nome do espaço de trabalho foi alterado para <ph name="DESK_NAME" />.</translation>
 <translation id="2050339315714019657">Vertical</translation>
+<translation id="2066708475850724665">Parar lupa</translation>
 <translation id="2067602449040652523">Brilho do teclado</translation>
 <translation id="2078034614700056995">Deslize rapidamente para a direita com quatro dedos para mudar para o espaço de trabalho seguinte.</translation>
 <translation id="2079504693865562705">Ocultar apps na prateleira</translation>
+<translation id="2079545284768500474">Anular</translation>
 <translation id="2083190527011054446">Boa noite, <ph name="GIVEN_NAME" />,</translation>
 <translation id="209965399369889474">Não está ligado à rede.</translation>
 <translation id="2108303511227308752">O atalho de teclado Alt + retrocesso foi alterado. Para utilizar a tecla Eliminar, prima a tecla <ph name="LAUNCHER_KEY_NAME" /> + retrocesso.</translation>
+<translation id="211328683600082144">ATIVAR O MICROFONE</translation>
 <translation id="2126242104232412123">Novo espaço de trabalho</translation>
 <translation id="2127372758936585790">Carregador de baixo consumo</translation>
 <translation id="2132302418721800944">Gravar ecrã inteiro</translation>
 <translation id="2135456203358955318">Lupa ancorada</translation>
+<translation id="2146800439053023141">Ativar/desativar a localização da barra</translation>
 <translation id="2158971754079422508"><ph name="DESC_TEXT" />: tente novamente</translation>
 <translation id="2167870087604746126">+ V</translation>
 <translation id="2170530631236737939">Deslize rapidamente para baixo com três dedos para sair da Vista geral.</translation>
@@ -210,6 +217,7 @@ Eis alguns exemplos do que pode experimentar para começar.</translation>
 <translation id="2704781753052663061">Estabelecer ligação a outras redes Wi-Fi</translation>
 <translation id="2705001408393684014">Ative/desative o microfone. <ph name="STATE_TEXT" /></translation>
 <translation id="2706462751667573066">Para cima</translation>
+<translation id="2713444072780614174">Branco</translation>
 <translation id="2718395828230677721">Luz noturna</translation>
 <translation id="2726420622004325180">O seu telemóvel tem de ter dados móveis para fornecer uma zona Wi-Fi.</translation>
 <translation id="2727175239389218057">Responder</translation>
@@ -237,6 +245,7 @@ Eis alguns exemplos do que pode experimentar para começar.</translation>
 <translation id="2963773877003373896">mod3</translation>
 <translation id="2970920913501714344">Instalar aplicações, extensões e temas</translation>
 <translation id="2977598380246111477">Número seguinte</translation>
+<translation id="2992327365391326550">O botão do microfone do dispositivo está desativado.</translation>
 <translation id="2995447421581609334">Mostrar dispositivos de transmissão.</translation>
 <translation id="2996462380875591307">Lupa ancorada ativada. Prima Ctrl + Pesquisa + D novamente para a desativar.</translation>
 <translation id="3000461861112256445">Áudio mono</translation>
@@ -247,6 +256,7 @@ Eis alguns exemplos do que pode experimentar para começar.</translation>
 <translation id="3038571455154067151">Para iniciar sessão, introduza o código de acesso parental do Family Link</translation>
 <translation id="3039939407102840004">A bateria da caneta stylus está a <ph name="PERCENTAGE" /> por cento.</translation>
 <translation id="3045488863354895414">Boa tarde,</translation>
+<translation id="3051189971848907985">A mudar o nome do perfil. Aguarde alguns minutos.</translation>
 <translation id="3055162170959710888">Utilizou este dispositivo durante <ph name="USED_TIME" /> hoje.</translation>
 <translation id="3077734595579995578">shift</translation>
 <translation id="3081696990447829002">Expandir menu</translation>
@@ -270,6 +280,7 @@ Eis alguns exemplos do que pode experimentar para começar.</translation>
 <translation id="3207953481422525583">Definições do utilizador</translation>
 <translation id="3217205077783620295">O volume está ativado, premir o botão irá desativar o áudio.</translation>
 <translation id="3226991577105957773">E mais <ph name="COUNT" /></translation>
+<translation id="324366796737464147">Supressão de ruído</translation>
 <translation id="3249513730522716925">A janela <ph name="WINDOW_TITLE" /> foi movida do espaço de trabalho <ph name="ACTIVE_DESK" /> para o espaço de trabalho <ph name="TARGET_DESK" /></translation>
 <translation id="3255483164551725916">O que podes fazer?</translation>
 <translation id="3269597722229482060">Clicar com o botão direito do rato</translation>
@@ -280,7 +291,6 @@ Eis alguns exemplos do que pode experimentar para começar.</translation>
 <translation id="3308453408813785101"><ph name="USER_EMAIL_ADDRESS" /> pode iniciar sessão mais tarde.</translation>
 <translation id="3321628682574733415">Código parental incorreto</translation>
 <translation id="332587331255250389">Substitua a bateria</translation>
-<translation id="3333741161915951567">Reinício do modem. Aguarde 30 segundos antes de tentar novamente.</translation>
 <translation id="3341303451326249809">Captura de ecrã efetuada</translation>
 <translation id="334252345105450327">Tira uma captura de ecrã</translation>
 <translation id="3351879221545518001">Está a transmitir atualmente o ecrã.</translation>
@@ -288,6 +298,7 @@ Eis alguns exemplos do que pode experimentar para começar.</translation>
 <translation id="3368922792935385530">Ligado</translation>
 <translation id="3371140690572404006">Dispositivo USB-C (porta frontal do lado direito)</translation>
 <translation id="3375634426936648815">Ligado</translation>
+<translation id="3378442621503952303">A estabelecer ligação ao perfil. Aguarde alguns minutos.</translation>
 <translation id="3386978599540877378">a lupa em ecrã inteiro</translation>
 <translation id="3400357268283240774">Definições adicionais</translation>
 <translation id="3410336247007142655">Mostre as definições do tema escuro.</translation>
@@ -325,6 +336,7 @@ Eis alguns exemplos do que pode experimentar para começar.</translation>
 <translation id="3638400994746983214">Ative/desative o ecrã de privacidade. <ph name="STATE_TEXT" />.</translation>
 <translation id="366222428570480733">Utilizador gerido por <ph name="USER_EMAIL_ADDRESS" /></translation>
 <translation id="3665889125180354336">Gravar microfone</translation>
+<translation id="3680908746918359504">Limpar todos os marcadores</translation>
 <translation id="36813544980941320">As redes Wi-Fi serão partilhadas entre o seu telemóvel e o dispositivo <ph name="DEVICE_NAME" />.</translation>
 <translation id="3702809606464356667">Ao mostrar as janelas do espaço de trabalho atual, prima a tecla da seta para cima para mostrar janelas de todos os espaços de trabalho</translation>
 <translation id="3702846122927433391">População da Nigéria</translation>
@@ -343,6 +355,7 @@ Eis alguns exemplos do que pode experimentar para começar.</translation>
 <translation id="380165613292957338">Olá, como posso ajudar?</translation>
 <translation id="3826099427150913765">Mudar para palavra-passe</translation>
 <translation id="383058930331066723">O modo de Poupança de bateria está ativado.</translation>
+<translation id="3835880383832568924">Para ver as atualizações, abra a app Atalhos</translation>
 <translation id="383629559565718788">Mostrar definições do teclado</translation>
 <translation id="3846214748874656680">Sair do modo de ecrã inteiro</translation>
 <translation id="3846575436967432996">Não existem informações de rede disponíveis</translation>
@@ -370,12 +383,12 @@ Eis alguns exemplos do que pode experimentar para começar.</translation>
 <translation id="4021716437419160885">Deslocar para baixo</translation>
 <translation id="4028481283645788203">É necessária uma palavra-passe para uma maior segurança.</translation>
 <translation id="4032485810211612751"><ph name="HOURS" />:<ph name="MINUTES" />:<ph name="SECONDS" /></translation>
-<translation id="403337028234783023">O atalho de teclado <ph name="LAUNCHER_KEY_NAME" /> + número foi alterado. Para utilizar teclas F, prima a tecla <ph name="LAUNCHER_KEY_NAME" /> + uma tecla na linha superior.</translation>
 <translation id="4042660782729322247">Está a partilhar o seu ecrã</translation>
 <translation id="4057003836560082631">Separador do navegador <ph name="INDEX" /> de <ph name="TOTAL_COUNT" />. <ph name="SITE_TITLE" />, <ph name="SITE_URL" /></translation>
 <translation id="4065525899979931964">{NUM_APPS,plural, =1{Desa. p/ 1 ap.}other{Desa. p/ # ap.}}</translation>
 <translation id="4066027111132117168">Ativado, <ph name="REMAINING_TIME" /></translation>
 <translation id="4072264167173457037">Sinal médio</translation>
+<translation id="4095366824370681039">Caneta de tinta</translation>
 <translation id="4112140312785995938">Procurar para trás</translation>
 <translation id="4114315158543974537">Ative o Centro do telemóvel</translation>
 <translation id="412298498316631026">janela</translation>
@@ -444,12 +457,15 @@ Eis alguns exemplos do que pode experimentar para começar.</translation>
 <translation id="4570957409596482333">Botão Selecionar para falar</translation>
 <translation id="4577274620589681794">Acabou o tempo · <ph name="LABEL" /></translation>
 <translation id="4577990005084629481">Mostrar pré-visualizações</translation>
+<translation id="4578196883126898996">O seu microfone está desativado. Ative o botão do microfone do seu dispositivo.</translation>
 <translation id="4578906031062871102">Menu de definições aberto</translation>
 <translation id="4581047786858252841">O microfone está ativado</translation>
 <translation id="4585337515783392668">Parar a transmissão para um recetor desconhecido</translation>
+<translation id="4586483766170476230">Parar câmara para selfies</translation>
 <translation id="4587299710837179226">O microfone está desativado</translation>
 <translation id="4596144739579517758">O tema escuro está desativado.</translation>
 <translation id="4611292653554630842">Iniciar sessão</translation>
+<translation id="4614295562446151104">Expandir ferramentas de marcador</translation>
 <translation id="4623167406982293031">Validar conta</translation>
 <translation id="4628757576491864469">Dispositivos</translation>
 <translation id="4642092649622328492">Criar uma captura de ecrã parcial</translation>
@@ -460,6 +476,7 @@ Eis alguns exemplos do que pode experimentar para começar.</translation>
 <translation id="4705716602320768426">Envie comentários</translation>
 <translation id="4731797938093519117">Acesso parental</translation>
 <translation id="4734965478015604180">Horizontal</translation>
+<translation id="4735498845456076464">O atalho de teclado <ph name="LAUNCHER_KEY_NAME" /> + número foi alterado. Para utilizar teclas de função, prima a tecla <ph name="LAUNCHER_KEY_NAME" /> + uma tecla na linha superior.</translation>
 <translation id="4744944742468440486">Informações relacionadas com a sua seleção</translation>
 <translation id="4759238208242260848">Transferências</translation>
 <translation id="4774338217796918551">Volte amanhã à(s) <ph name="COME_BACK_TIME" />.</translation>
@@ -506,6 +523,8 @@ Eis alguns exemplos do que pode experimentar para começar.</translation>
 <translation id="5035236842988137213">O dispositivo <ph name="DEVICE_NAME" /> estabeleceu ligação a um novo telemóvel.</translation>
 <translation id="5035389544768382859">Confirme a configuração do ecrã</translation>
 <translation id="504465286040788597">Parágrafo anterior</translation>
+<translation id="5071064518267176975">Uma app pretende utilizar o microfone</translation>
+<translation id="5075554201838155866">Iniciar legendas</translation>
 <translation id="5078796286268621944">PIN incorreto</translation>
 <translation id="5083553833479578423">Desbloqueie mais funcionalidades do Assistente.</translation>
 <translation id="5136175204352732067">Teclado diferente ligado</translation>
@@ -582,6 +601,7 @@ Eis alguns exemplos do que pode experimentar para começar.</translation>
 <translation id="5805809050170488595">Clicar para ativar <ph name="NETWORK_NAME" /></translation>
 <translation id="5820394555380036790">SO Chromium</translation>
 <translation id="5825969630400862129">Definições de dispositivos associados</translation>
+<translation id="583281660410589416">Desconhecido</translation>
 <translation id="5837036133683224804">Parar o <ph name="ROUTE_TITLE" /> no recetor <ph name="RECEIVER_NAME" /></translation>
 <translation id="5860033963881614850">Desativado</translation>
 <translation id="5860491529813859533">Ativar</translation>
@@ -675,6 +695,7 @@ Eis alguns exemplos do que pode experimentar para começar.</translation>
 <translation id="6612802754306526077">Modo de gravação de ecrã selecionado</translation>
 <translation id="6614169507485700968">O ecrã de privacidade está ligado</translation>
 <translation id="6627638273713273709">Pesquisar+Shift+K</translation>
+<translation id="6629480180092995136"><ph name="APP_NAME" /> pretende utilizar o microfone</translation>
 <translation id="6637729079642709226">Altere a hora</translation>
 <translation id="6641720045729354415">Ative/desative as Legendas instantâneas. <ph name="STATE_TEXT" /></translation>
 <translation id="6650072551060208490"><ph name="ORIGIN_NAME" /> pretende confirmar a sua identidade</translation>
@@ -713,6 +734,7 @@ Eis alguns exemplos do que pode experimentar para começar.</translation>
 <translation id="6896758677409633944">Copiar</translation>
 <translation id="6910714959251846841">Para efetuar esta atualização, é necessário efetuar o Powerwash do dispositivo. Saiba mais sobre a mais recente atualização do <ph name="SYSTEM_APP_NAME" />.</translation>
 <translation id="6919251195245069855">Não foi possível reconhecer o seu cartão inteligente. Tente novamente.</translation>
+<translation id="6921188888306725546">Os atalhos de teclado foram melhorados</translation>
 <translation id="6945221475159498467">Selecionar</translation>
 <translation id="6961121602502368900">A funcionalidade Silenciar telemóvel não está disponível no perfil de trabalho.</translation>
 <translation id="6961840794482373852">O atalho de teclado Alt + seta para cima foi alterado. Para utilizar a tecla Página para cima, prima a tecla <ph name="LAUNCHER_KEY_NAME" /> + seta para cima.</translation>
@@ -728,6 +750,7 @@ Eis alguns exemplos do que pode experimentar para começar.</translation>
 <translation id="7029814467594812963">Sair da sessão</translation>
 <translation id="703425375924687388"><ph name="QUERY_NAME" />, Assistente Google</translation>
 <translation id="7042322267639375032">Reduzir área de estado</translation>
+<translation id="7045595904618419789">Iniciar lupa</translation>
 <translation id="7055910611768509537">A caneta stylus não é utilizada há mais de uma semana</translation>
 <translation id="7066646422045619941">Esta rede foi desativada pelo gestor.</translation>
 <translation id="7067196344162293536">Rotação automática</translation>
@@ -748,6 +771,7 @@ Eis alguns exemplos do que pode experimentar para começar.</translation>
 <translation id="7256634071279256947">Microfone posterior</translation>
 <translation id="726276584504105859">Arraste para aqui para utilizar o ecrã dividido</translation>
 <translation id="7262906531272962081">Criar lembrete</translation>
+<translation id="7279434993080105272">Cor de marcador <ph name="COLOR_PARAMETER" /></translation>
 <translation id="7302889331339392448">As Legendas instantâneas estão desativadas.</translation>
 <translation id="7303365578352795231">A responder noutro dispositivo…</translation>
 <translation id="7305884605064981971">EDGE</translation>
@@ -777,6 +801,7 @@ Eis alguns exemplos do que pode experimentar para começar.</translation>
 <translation id="7466449121337984263">Toque no sensor.</translation>
 <translation id="7477793887173910789">Controle a sua música, vídeos e muito mais.</translation>
 <translation id="7483025031359818980">Área de seleção definida para ecrã inteiro</translation>
+<translation id="7486227320194954040">Reduzir ferramentas de marcador</translation>
 <translation id="7497767806359279797">Escolher idioma e teclado</translation>
 <translation id="7509246181739783082">Valide a sua identidade</translation>
 <translation id="7513622367902644023">Modo de captura de ecrã selecionado</translation>
@@ -787,6 +812,7 @@ Eis alguns exemplos do que pode experimentar para começar.</translation>
 <translation id="7561982940498449837">Fechar menu</translation>
 <translation id="7564874036684306347">A movimentação de janelas para outro ambiente de trabalho pode provocar um comportamento inesperado. É possível dividir as notificações, as janelas e as caixas de diálogo subsequentes entre ambientes de trabalho.</translation>
 <translation id="7569509451529460200">O braille e o ChromeVox estão ativados</translation>
+<translation id="7569983096843329377">Preto</translation>
 <translation id="7579778809502851308">Captura de ecrã</translation>
 <translation id="7590883480672980941">Definições de introdução</translation>
 <translation id="7593891976182323525">Pesquisar ou Shift</translation>
@@ -794,6 +820,7 @@ Eis alguns exemplos do que pode experimentar para começar.</translation>
 <translation id="7607002721634913082">Em pausa</translation>
 <translation id="7618774594543487847">Neutro</translation>
 <translation id="7624117708979618027"><ph name="TEMPERATURE_F" /> °F</translation>
+<translation id="7631906263969450674">Caneta de feltro</translation>
 <translation id="7633755430369750696">Mostre as definições da funcionalidade Partilhar na proximidade.</translation>
 <translation id="7641938616688887143">Gravar</translation>
 <translation id="7642647758716480637">Abrir as definições da rede <ph name="NETWORK_NAME" />, <ph name="CONNECTION_STATUS" /></translation>
@@ -809,6 +836,7 @@ Eis alguns exemplos do que pode experimentar para começar.</translation>
 <translation id="7724603315864178912">Cortar</translation>
 <translation id="7745560842763881396">Mostrar apps na prateleira</translation>
 <translation id="7749443890790263709">Atingiu o número máximo de espaços de trabalho.</translation>
+<translation id="7749640678855296659">O seu microfone está atualmente desativado</translation>
 <translation id="776344839111254542">Clique para ver os detalhes da atualização</translation>
 <translation id="7780159184141939021">Rodar ecrã</translation>
 <translation id="7796353162336583443">Toque no botão da caneta stylus na prateleira para tirar uma nota, criar uma captura de ecrã ou utilizar o Assistente Google, o ponteiro de laser ou a lupa.</translation>
@@ -856,6 +884,7 @@ Eis alguns exemplos do que pode experimentar para começar.</translation>
 <translation id="8113423164597455979">Ativado, todas as aplicações</translation>
 <translation id="8129620843620772246"><ph name="TEMPERATURE_C" /> °C</translation>
 <translation id="8131740175452115882">Confirmar</translation>
+<translation id="8132487352815776550">Parar legendas</translation>
 <translation id="8132793192354020517">Ligado a <ph name="NAME" /></translation>
 <translation id="813913629614996137">A inicializar...</translation>
 <translation id="8142441511840089262">Clicar duas vezes</translation>
@@ -912,6 +941,7 @@ Eis alguns exemplos do que pode experimentar para começar.</translation>
 <translation id="8631727435199967028">Definições de acessibilidade</translation>
 <translation id="8637598503828012618"><ph name="CONNECTION_STATUS" />, intensidade do sinal: <ph name="SIGNAL_STRENGTH" />, gerida pelo administrador</translation>
 <translation id="8639760480004882931"><ph name="PERCENTAGE" /> restante</translation>
+<translation id="8641805545866562088">A atualizar a lista de perfis. Aguarde alguns minutos.</translation>
 <translation id="8646417893960517480">Temporizador de <ph name="TOTAL_TIME" /></translation>
 <translation id="8647931990447795414">Para adicionar uma pessoa, introduza o código de acesso parental do Family Link</translation>
 <translation id="8649101189709089199">Selecionar para falar</translation>
@@ -939,6 +969,7 @@ Eis alguns exemplos do que pode experimentar para começar.</translation>
 <translation id="8788027118671217603"><ph name="STATE_TEXT" />. <ph name="ENTERPRISE_TEXT" /></translation>
 <translation id="8814190375133053267">Wi-Fi</translation>
 <translation id="881757059229893486">Definições dos métodos de introdução</translation>
+<translation id="8818320199597151042">A remover o perfil. Aguarde alguns minutos.</translation>
 <translation id="8825863694328519386">Deslize rapidamente a partir da esquerda para retroceder.</translation>
 <translation id="8828714802988429505">90°</translation>
 <translation id="8841375032071747811">Botão Anterior</translation>
@@ -984,6 +1015,7 @@ Eis alguns exemplos do que pode experimentar para começar.</translation>
 <translation id="9091626656156419976">Ecrã <ph name="DISPLAY_NAME" /> removido</translation>
 <translation id="9098969848082897657">Silenciar telemóvel</translation>
 <translation id="9099154003160514616">Atualização do Lacros disponível</translation>
+<translation id="9100887602489003640">A adicionar o perfil. Aguarde alguns minutos.</translation>
 <translation id="9105450214093926548">Não é possível iniciar a sessão de um segundo utilizador enquanto o navegador Lacros estiver em execução. Em alternativa, utilize um segundo perfil de navegador no Lacros ou feche o Lacros e tente novamente.</translation>
 <translation id="9133335900048457298">Não é possível gravar conteúdo protegido</translation>
 <translation id="9151726767154816831">Reiniciar e efetuar um Powerwash para atualizar</translation>

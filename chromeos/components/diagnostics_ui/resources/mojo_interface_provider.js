@@ -4,7 +4,7 @@
 
 import {assert} from 'chrome://resources/js/assert.m.js';
 
-import {NetworkHealthProviderInterface, PowerRoutineResult, RoutineType, StandardRoutineResult, SystemDataProvider, SystemDataProviderInterface, SystemInfo, SystemRoutineController, SystemRoutineControllerInterface} from './diagnostics_types.js';
+import {InputDataProviderInterface, NetworkHealthProvider, NetworkHealthProviderInterface, PowerRoutineResult, RoutineType, StandardRoutineResult, SystemDataProvider, SystemDataProviderInterface, SystemInfo, SystemRoutineController, SystemRoutineControllerInterface} from './diagnostics_types.js';
 import {fakeAllNetworksAvailable, fakeBatteryChargeStatus, fakeBatteryHealth, fakeBatteryInfo, fakeCellularNetwork, fakeCpuUsage, fakeEthernetNetwork, fakeMemoryUsage, fakePowerRoutineResults, fakeRoutineResults, fakeSystemInfo, fakeWifiNetwork} from './fake_data.js';
 import {FakeNetworkHealthProvider} from './fake_network_health_provider.js';
 import {FakeSystemDataProvider} from './fake_system_data_provider.js';
@@ -36,6 +36,11 @@ let systemRoutineController = null;
  * @type {?NetworkHealthProviderInterface}
  */
 let networkHealthProvider = null;
+
+/**
+ * @type {?InputDataProviderInterface}
+ */
+let inputDataProvider = null;
 
 /**
  * @param {!SystemDataProviderInterface} testProvider
@@ -118,7 +123,7 @@ export function setNetworkHealthProviderForTesting(testProvider) {
 /**
  * Create a FakeNetworkHealthProvider with reasonable fake data.
  */
-function setupFakeNetworkHealthProvider_() {
+function setupFakeNetworkHealthProvider() {
   const provider = new FakeNetworkHealthProvider();
   // The fake provides a stable state with all networks connected.
   provider.setFakeNetworkGuidInfo([fakeAllNetworksAvailable]);
@@ -134,10 +139,33 @@ function setupFakeNetworkHealthProvider_() {
  */
 export function getNetworkHealthProvider() {
   if (!networkHealthProvider) {
-    // TODO(michaelcheco): Instantiate a real mojo interface here.
-    setupFakeNetworkHealthProvider_();
+    if (useFakeProviders) {
+      setupFakeNetworkHealthProvider();
+    } else {
+      networkHealthProvider = NetworkHealthProvider.getRemote();
+    }
   }
 
   assert(!!networkHealthProvider);
   return networkHealthProvider;
+}
+
+/**
+ * @param {!InputDataProviderInterface} testProvider
+ */
+export function setInputDataProviderForTesting(testProvider) {
+  inputDataProvider = testProvider;
+}
+
+/**
+ * @return {!InputDataProviderInterface}
+ */
+export function getInputDataProvider() {
+  if (!inputDataProvider) {
+    inputDataProvider =
+        chromeos.diagnostics.mojom.InputDataProvider.getRemote();
+  }
+
+  assert(!!inputDataProvider);
+  return inputDataProvider;
 }

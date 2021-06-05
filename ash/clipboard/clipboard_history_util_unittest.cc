@@ -9,7 +9,6 @@
 
 #include "ash/clipboard/clipboard_history_item.h"
 #include "ash/clipboard/test_support/clipboard_history_item_builder.h"
-#include "base/stl_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -19,7 +18,7 @@ namespace ClipboardHistoryUtil {
 namespace {
 
 constexpr std::array<ui::ClipboardInternalFormat, 7> kAllFormats = {
-    ui::ClipboardInternalFormat::kBitmap,
+    ui::ClipboardInternalFormat::kPng,
     ui::ClipboardInternalFormat::kHtml,
     ui::ClipboardInternalFormat::kText,
     ui::ClipboardInternalFormat::kRtf,
@@ -47,7 +46,7 @@ TEST_F(ClipboardHistoryUtilTest, CalculateMainFormat) {
 
   // We will cycle through all formats in prioritized order.
   std::deque<ui::ClipboardInternalFormat> prioritized_formats = {
-      ui::ClipboardInternalFormat::kBitmap,
+      ui::ClipboardInternalFormat::kPng,
       ui::ClipboardInternalFormat::kHtml,
       ui::ClipboardInternalFormat::kText,
       ui::ClipboardInternalFormat::kRtf,

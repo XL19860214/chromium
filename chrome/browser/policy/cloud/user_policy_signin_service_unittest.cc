@@ -183,7 +183,7 @@ class UserPolicySigninServiceTest : public testing::Test {
   virtual void AddProfile() {
     // For this test, the user should not be signed in yet.
     DCHECK(!identity_test_env()->identity_manager()->HasPrimaryAccount(
-        signin::ConsentLevel::kSync));
+        signin::ConsentLevel::kSignin));
 
     // Initializing UserPolicySigninService while the user is not signed in
     // should result in the store being cleared to remove any lingering policy.
@@ -230,7 +230,8 @@ class UserPolicySigninServiceTest : public testing::Test {
     RegisterPolicyClientWithCallback(signin_service);
 
     // Sign in to Chrome.
-    identity_test_env()->SetPrimaryAccount(kTestUser);
+    identity_test_env()->SetPrimaryAccount(kTestUser,
+                                           signin::ConsentLevel::kSync);
 
     // Mimic successful oauth token fetch.
     MakeOAuthTokenFetchSucceed();
@@ -313,7 +314,8 @@ class UserPolicySigninServiceSignedInTest : public UserPolicySigninServiceTest {
     ASSERT_FALSE(manager_->core()->service());
 
     // Set the user as signed in.
-    identity_test_env()->SetPrimaryAccount(kTestUser);
+    identity_test_env()->SetPrimaryAccount(kTestUser,
+                                           signin::ConsentLevel::kSync);
 
     // Let the SigninService know that the profile has been created.
     content::NotificationService::current()->Notify(
@@ -326,7 +328,7 @@ class UserPolicySigninServiceSignedInTest : public UserPolicySigninServiceTest {
 TEST_F(UserPolicySigninServiceTest, InitWhileSignedOut) {
   // Make sure user is not signed in.
   ASSERT_FALSE(identity_test_env()->identity_manager()->HasPrimaryAccount(
-      signin::ConsentLevel::kSync));
+      signin::ConsentLevel::kSignin));
 
   // UserCloudPolicyManager should not be initialized.
   ASSERT_FALSE(manager_->core()->service());
@@ -336,7 +338,7 @@ TEST_F(UserPolicySigninServiceTest, InitWhileSignedOut) {
 TEST_F(UserPolicySigninServiceTest, InitRefreshTokenAvailableBeforeSignin) {
   // Make sure user is not signed in.
   ASSERT_FALSE(identity_test_env()->identity_manager()->HasPrimaryAccount(
-      signin::ConsentLevel::kSync));
+      signin::ConsentLevel::kSignin));
 
   // No oauth access token yet, so client registration should be deferred.
   ASSERT_FALSE(IsRequestActive());
@@ -348,7 +350,8 @@ TEST_F(UserPolicySigninServiceTest, InitRefreshTokenAvailableBeforeSignin) {
   ASSERT_FALSE(IsRequestActive());
 
   // Sign in to Chrome.
-  identity_test_env()->SetPrimaryAccount(kTestUser);
+  identity_test_env()->SetPrimaryAccount(kTestUser,
+                                         signin::ConsentLevel::kSync);
 
   // Complete initialization of the store.
   mock_store_->NotifyStoreLoaded();
@@ -413,7 +416,8 @@ TEST_F(UserPolicySigninServiceTest, SignInAfterInit) {
   ASSERT_FALSE(manager_->core()->service());
 
   // Now sign in the user.
-  identity_test_env()->SetPrimaryAccount(kTestUser);
+  identity_test_env()->SetPrimaryAccount(kTestUser,
+                                         signin::ConsentLevel::kSync);
 
   // Complete initialization of the store.
   mock_store_->NotifyStoreLoaded();
@@ -435,7 +439,8 @@ TEST_F(UserPolicySigninServiceTest, SignInWithNonEnterpriseUser) {
   ASSERT_FALSE(manager_->core()->service());
 
   // Now sign in a non-enterprise user (blacklisted gmail.com domain).
-  identity_test_env()->SetPrimaryAccount("non_enterprise_user@gmail.com");
+  identity_test_env()->SetPrimaryAccount("non_enterprise_user@gmail.com",
+                                         signin::ConsentLevel::kSync);
 
   // Complete initialization of the store.
   mock_store_->NotifyStoreLoaded();
@@ -455,7 +460,8 @@ TEST_F(UserPolicySigninServiceTest, UnregisteredClient) {
   ASSERT_FALSE(manager_->core()->service());
 
   // Now sign in the user.
-  identity_test_env()->SetPrimaryAccount(kTestUser);
+  identity_test_env()->SetPrimaryAccount(kTestUser,
+                                         signin::ConsentLevel::kSync);
 
   // Make oauth token available.
   identity_test_env()->SetRefreshTokenForPrimaryAccount();
@@ -481,7 +487,8 @@ TEST_F(UserPolicySigninServiceTest, RegisteredClient) {
   ASSERT_FALSE(manager_->core()->service());
 
   // Now sign in the user.
-  identity_test_env()->SetPrimaryAccount(kTestUser);
+  identity_test_env()->SetPrimaryAccount(kTestUser,
+                                         signin::ConsentLevel::kSync);
 
   // Make oauth token available.
   identity_test_env()->SetRefreshTokenForPrimaryAccount();

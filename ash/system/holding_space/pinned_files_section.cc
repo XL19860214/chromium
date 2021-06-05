@@ -4,6 +4,8 @@
 
 #include "ash/system/holding_space/pinned_files_section.h"
 
+#include "ash/bubble/bubble_utils.h"
+#include "ash/bubble/simple_grid_layout.h"
 #include "ash/public/cpp/holding_space/holding_space_client.h"
 #include "ash/public/cpp/holding_space/holding_space_constants.h"
 #include "ash/public/cpp/holding_space/holding_space_controller.h"
@@ -16,9 +18,7 @@
 #include "ash/strings/grit/ash_strings.h"
 #include "ash/style/ash_color_provider.h"
 #include "ash/system/holding_space/holding_space_item_chip_view.h"
-#include "ash/system/holding_space/holding_space_item_chips_container.h"
-#include "ash/system/holding_space/holding_space_item_view_delegate.h"
-#include "ash/system/holding_space/holding_space_util.h"
+#include "ash/system/holding_space/holding_space_view_delegate.h"
 #include "base/bind.h"
 #include "base/callback_helpers.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -42,6 +42,8 @@ constexpr int kFilesAppChipHeight = 32;
 constexpr int kFilesAppChipIconSize = 20;
 constexpr gfx::Insets kFilesAppChipInsets(0, 8, 0, 16);
 constexpr int kPlaceholderChildSpacing = 16;
+constexpr int kNumberOfChipsPerRow = 2;
+constexpr int kChipSpacing = 8;
 
 // FilesAppChip ----------------------------------------------------------------
 
@@ -113,7 +115,7 @@ class FilesAppChip : public views::Button {
 
     // Label.
     auto* label = AddChildView(
-        holding_space_util::CreateLabel(holding_space_util::LabelStyle::kChip));
+        bubble_utils::CreateLabel(bubble_utils::LabelStyle::kChip));
     label->SetText(l10n_util::GetStringUTF16(
         IDS_ASH_HOLDING_SPACE_PINNED_FILES_APP_CHIP_TEXT));
     layout->SetFlexForView(label, 1);
@@ -124,7 +126,7 @@ class FilesAppChip : public views::Button {
 
 // PinnedFilesSection ----------------------------------------------------------
 
-PinnedFilesSection::PinnedFilesSection(HoldingSpaceItemViewDelegate* delegate)
+PinnedFilesSection::PinnedFilesSection(HoldingSpaceViewDelegate* delegate)
     : HoldingSpaceItemViewsSection(delegate,
                                    /*supported_types=*/
                                    {HoldingSpaceItem::Type::kPinnedFile},
@@ -154,8 +156,8 @@ gfx::Size PinnedFilesSection::GetMinimumSize() const {
 }
 
 std::unique_ptr<views::View> PinnedFilesSection::CreateHeader() {
-  auto header = holding_space_util::CreateLabel(
-      holding_space_util::LabelStyle::kHeader,
+  auto header = bubble_utils::CreateLabel(
+      bubble_utils::LabelStyle::kHeader,
       l10n_util::GetStringUTF16(IDS_ASH_HOLDING_SPACE_PINNED_TITLE));
   header->SetHorizontalAlignment(gfx::HorizontalAlignment::ALIGN_LEFT);
   header->SetPaintToLayer();
@@ -164,7 +166,11 @@ std::unique_ptr<views::View> PinnedFilesSection::CreateHeader() {
 }
 
 std::unique_ptr<views::View> PinnedFilesSection::CreateContainer() {
-  return std::make_unique<HoldingSpaceItemChipsContainer>();
+  auto container = std::make_unique<views::View>();
+  container->SetLayoutManager(std::make_unique<SimpleGridLayout>(
+      kNumberOfChipsPerRow, /*column_spacing=*/kChipSpacing,
+      /*row_spacing=*/kChipSpacing));
+  return container;
 }
 
 std::unique_ptr<HoldingSpaceItemView> PinnedFilesSection::CreateView(
@@ -193,8 +199,8 @@ std::unique_ptr<views::View> PinnedFilesSection::CreatePlaceholder() {
       views::BoxLayout::CrossAxisAlignment::kStart);
 
   // Prompt.
-  auto* prompt = placeholder->AddChildView(holding_space_util::CreateLabel(
-      holding_space_util::LabelStyle::kBody,
+  auto* prompt = placeholder->AddChildView(bubble_utils::CreateLabel(
+      bubble_utils::LabelStyle::kBody,
       l10n_util::GetStringUTF16(IDS_ASH_HOLDING_SPACE_PINNED_EMPTY_PROMPT)));
   prompt->SetHorizontalAlignment(gfx::HorizontalAlignment::ALIGN_LEFT);
   prompt->SetMultiLine(true);

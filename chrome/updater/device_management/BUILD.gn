@@ -16,8 +16,6 @@ source_set("device_management") {
     "dm_client.h",
     "dm_message.cc",
     "dm_message.h",
-    "dm_policy_manager.cc",
-    "dm_policy_manager.h",
     "dm_response_validator.cc",
     "dm_response_validator.h",
     "dm_storage.cc",
@@ -42,14 +40,9 @@ source_set("device_management") {
 
   if (is_mac) {
     sources += [ "dm_storage_mac.mm" ]
-    deps += [ "//chrome/updater/mac:network_fetcher_sources" ]
   }
   if (is_win) {
     sources += [ "dm_storage_win.cc" ]
-    deps += [
-      "//chrome/updater:lib",
-      "//chrome/updater/win:constants",
-    ]
   }
 }
 
@@ -61,7 +54,6 @@ source_set("unittest") {
     "dm_message_unittest.cc",
     "dm_policy_builder_for_testing.cc",
     "dm_policy_builder_for_testing.h",
-    "dm_policy_manager_unittest.cc",
     "dm_response_validator_unittest.cc",
     "dm_storage_unittest.cc",
   ]
@@ -78,12 +70,4 @@ source_set("unittest") {
     "//testing/gtest",
     "//url",
   ]
-
-  if (is_mac) {
-    deps += [ "//chrome/updater/mac:network_fetcher_sources" ]
-  }
-
-  if (is_win) {
-    deps += [ "//chrome/updater:lib" ]
-  }
 }

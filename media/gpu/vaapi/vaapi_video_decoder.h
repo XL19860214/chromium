@@ -10,7 +10,6 @@
 
 #include <map>
 #include <memory>
-#include <string>
 #include <utility>
 
 #include "base/containers/mru_cache.h"
@@ -26,6 +25,7 @@
 #include "media/base/cdm_context.h"
 #include "media/base/status.h"
 #include "media/base/supported_video_decoder_config.h"
+#include "media/base/video_aspect_ratio.h"
 #include "media/base/video_codecs.h"
 #include "media/base/video_frame_layout.h"
 #include "media/gpu/chromeos/video_decoder_pipeline.h"
@@ -35,6 +35,7 @@
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/size.h"
 #include "ui/gfx/gpu_memory_buffer.h"
+#include "ui/gfx/hdr_metadata.h"
 
 namespace media {
 
@@ -167,13 +168,13 @@ class VaapiVideoDecoder : public DecoderInterface,
   // request a reset. (Used in protected decoding).
   WaitingCB waiting_cb_;
 
-  // The video stream's profile.
+  // Bitstream information, written during Initialize().
   VideoCodecProfile profile_ = VIDEO_CODEC_PROFILE_UNKNOWN;
-  // Color space of the video frame.
   VideoColorSpace color_space_;
+  absl::optional<gfx::HDRMetadata> hdr_metadata_;
 
-  // Ratio of natural size to |visible_rect_| of the output frames.
-  double pixel_aspect_ratio_ = 0.0;
+  // Aspect ratio from the config.
+  VideoAspectRatio aspect_ratio_;
 
   // Video frame pool used to allocate and recycle video frames.
   DmabufVideoFramePool* frame_pool_ = nullptr;

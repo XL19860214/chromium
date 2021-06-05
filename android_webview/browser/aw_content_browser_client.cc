@@ -47,7 +47,6 @@
 #include "base/files/scoped_file.h"
 #include "base/memory/ptr_util.h"
 #include "base/path_service.h"
-#include "base/stl_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/thread_pool/thread_pool_instance.h"
 #include "build/build_config.h"
@@ -835,8 +834,7 @@ void AwContentBrowserClient::RegisterNonNetworkSubresourceURLLoaderFactories(
         url::kFileScheme,
         content::CreateFileURLLoaderFactory(
             aw_browser_context->GetPath(),
-            content::BrowserContext::GetSharedCorsOriginAccessList(
-                aw_browser_context)));
+            aw_browser_context->GetSharedCorsOriginAccessList()));
   }
 }
 

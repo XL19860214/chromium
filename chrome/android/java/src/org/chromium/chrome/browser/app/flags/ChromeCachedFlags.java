@@ -15,6 +15,7 @@ import org.chromium.chrome.browser.flags.CachedFieldTrialParameter;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.lens.LensFeature;
 import org.chromium.chrome.browser.merchant_viewer.MerchantViewerConfig;
+import org.chromium.chrome.browser.notifications.chime.ChimeFeatures;
 import org.chromium.chrome.browser.page_annotations.PageAnnotationsServiceConfig;
 import org.chromium.chrome.browser.paint_preview.StartupPaintPreviewHelper;
 import org.chromium.chrome.browser.subscriptions.CommerceSubscriptionsServiceConfig;
@@ -73,7 +74,6 @@ public class ChromeCachedFlags {
                 ChromeFeatureList.CCT_INCOGNITO,
                 ChromeFeatureList.CCT_INCOGNITO_AVAILABLE_TO_THIRD_PARTY,
                 ChromeFeatureList.CCT_REMOVE_REMOTE_VIEW_IDS,
-                ChromeFeatureList.CHROME_STARTUP_DELEGATE,
                 ChromeFeatureList.CLIPBOARD_SUGGESTION_CONTENT_HIDDEN,
                 ChromeFeatureList.CLOSE_TAB_SUGGESTIONS,
                 ChromeFeatureList.CRITICAL_PERSISTED_TAB_DATA,
@@ -109,6 +109,7 @@ public class ChromeCachedFlags {
         // clang-format off
         List<CachedFieldTrialParameter> fieldTrialsToCache = Arrays.asList(
                 AdaptiveToolbarFeatures.MODE_PARAM,
+                ChimeFeatures.ALWAYS_REGISTER,
                 ConditionalTabStripUtils.CONDITIONAL_TAB_STRIP_INFOBAR_LIMIT,
                 ConditionalTabStripUtils.CONDITIONAL_TAB_STRIP_INFOBAR_PERIOD,
                 ConditionalTabStripUtils.CONDITIONAL_TAB_STRIP_SESSION_TIME_MS,

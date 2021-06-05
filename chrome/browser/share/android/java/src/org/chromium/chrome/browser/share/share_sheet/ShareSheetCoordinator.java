@@ -21,6 +21,7 @@ import org.chromium.chrome.R;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.lifecycle.ActivityLifecycleDispatcher;
 import org.chromium.chrome.browser.lifecycle.ConfigurationChangedObserver;
+import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.share.ChromeShareExtras;
 import org.chromium.chrome.browser.share.ShareHelper;
 import org.chromium.chrome.browser.share.link_to_text.LinkToTextCoordinator;
@@ -210,6 +211,11 @@ public class ShareSheetCoordinator implements ActivityStateObserver, ChromeOptio
             ShareParams params, ChromeShareExtras chromeShareExtras, long shareStartTime) {
         if (ChromeFeatureList.isEnabled(ChromeFeatureList.PREEMPTIVE_LINK_TO_TEXT_GENERATION)
                 && chromeShareExtras.isUserHighlightedText()) {
+            if (!chromeShareExtras.isReshareHighlightedText()) {
+                LinkToTextMetricsHelper.recordLinkToTextDiagnoseStatus(
+                        LinkToTextMetricsHelper.LinkToTextDiagnoseStatus
+                                .SHOW_SHARINGHUB_FOR_HIGHLIGHT);
+            }
             String tabUrl =
                     mTabProvider.get().isInitialized() ? mTabProvider.get().getUrl().getSpec() : "";
             mLinkToTextCoordinator =
@@ -268,7 +274,11 @@ public class ShareSheetCoordinator implements ActivityStateObserver, ChromeOptio
                                 mLinkGenerationStatusForMetrics);
                     }
                     mBottomSheetController.hideContent(mBottomSheet, true);
-                    ShareHelper.showDefaultShareUi(params, saveLastUsed);
+                    Profile profile = null;
+                    if (mTabProvider.get() != null && mTabProvider.get().getWebContents() != null) {
+                        profile = Profile.fromWebContents(mTabProvider.get().getWebContents());
+                    }
+                    ShareHelper.showDefaultShareUi(params, profile, saveLastUsed);
                 },
                 /*displayNew*/ false);
         models.add(morePropertyModel);

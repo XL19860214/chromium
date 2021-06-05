@@ -101,7 +101,10 @@ LIGHTWEIGHT_TESTERS = [
 ]
 
 # This is an opt-in list for builders which uses dynamic sharding.
-DYNAMIC_SHARDING_TESTERS = ['android-pixel2-perf-fyi', 'linux-perf-calibration']
+DYNAMIC_SHARDING_TESTERS = [
+    'android-pixel2-perf', 'win-10_amd-perf', 'android-pixel2-perf-fyi',
+    'android-pixel2-perf-calibration', 'linux-perf-calibration'
+]
 
 CALIBRATION_BUILDERS = {
     'linux-perf-calibration': {
@@ -120,6 +123,19 @@ CALIBRATION_BUILDERS = {
             'os': 'Ubuntu-18.04',
             'pool': 'chrome.tests.perf',
             'synthetic_product_name': 'PowerEdge R230 (Dell Inc.)'
+        },
+    },
+    'android-pixel2-perf-calibration': {
+        'tests': [{
+            'isolate': 'performance_test_suite',
+        }],
+        'platform': 'android-chrome-64-bundle',
+        'dimension': {
+            'pool': 'chrome.tests.perf',
+            'os': 'Android',
+            'device_type': 'walleye',
+            'device_os': 'OPM1.171019.021',
+            'device_os_flavor': 'google',
         },
     },
 }

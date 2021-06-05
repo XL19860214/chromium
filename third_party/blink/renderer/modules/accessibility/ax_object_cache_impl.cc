@@ -94,6 +94,7 @@
 #include "third_party/blink/renderer/modules/accessibility/ax_virtual_object.h"
 #include "third_party/blink/renderer/modules/permissions/permission_utils.h"
 #include "third_party/blink/renderer/platform/instrumentation/tracing/trace_event.h"
+#include "ui/accessibility/ax_common.h"
 #include "ui/accessibility/ax_enums.mojom-blink.h"
 #include "ui/accessibility/ax_event.h"
 #include "ui/accessibility/ax_role_properties.h"
@@ -125,13 +126,20 @@ Node* GetClosestNodeForLayoutObject(const LayoutObject* layout_object) {
   return node ? node : GetClosestNodeForLayoutObject(layout_object->Parent());
 }
 
-// Return true if display locked, false otherwise.
+// Return true if display locked or inside slot recalc, false otherwise.
 // Also returns false if not a safe time to perform the check.
 bool IsDisplayLocked(const Node* node) {
   if (!node)
     return false;
-  if (node->GetDocument().IsFlatTreeTraversalForbidden())
+  // The NearestLockedExclusiveAncestor() function will attempt to do
+  // a flat tree traversal of ancestors. If we're in a flat tree traversal
+  // forbidden scope, return false. Additionally, flat tree traversal
+  // might call AssignedSlot, so if we're in a slot assignment recalc
+  // forbidden scope, return false.
+  if (node->GetDocument().IsFlatTreeTraversalForbidden() ||
+      node->GetDocument().IsSlotAssignmentRecalcForbidden()) {
     return false;  // Cannot safely perform this check now.
+  }
   return DisplayLockUtilities::NearestLockedExclusiveAncestor(*node);
 }
 
@@ -233,8 +241,8 @@ bool CanIgnoreSpaceNextTo(LayoutObject* layout_object,
   if (!child && elem) {
     // No children of inline element. Check adjacent sibling in same direction.
     Node* adjacent_node =
-        is_after ? FlatTreeTraversal::NextSkippingChildren(*elem)
-                 : FlatTreeTraversal::PreviousAbsoluteSibling(*elem);
+        is_after ? NodeTraversal::NextIncludingPseudoSkippingChildren(*elem)
+                 : NodeTraversal::PreviousAbsoluteSiblingIncludingPseudo(*elem);
     return adjacent_node &&
            CanIgnoreSpaceNextTo(adjacent_node->GetLayoutObject(), is_after,
                                 ++counter);
@@ -246,7 +254,7 @@ bool IsTextRelevantForAccessibility(const LayoutText& layout_text) {
   if (!layout_text.Parent())
     return false;
 
-  Node* node = layout_text.GetNode();
+  const Node* node = layout_text.GetNode();
   DCHECK(node);  // Anonymous text is processed earlier, doesn't reach here.
 
   // Ignore empty text.
@@ -260,12 +268,15 @@ bool IsTextRelevantForAccessibility(const LayoutText& layout_text) {
   // Will now look at sibling nodes. We need the closest element to the
   // whitespace markup-wise, e.g. tag1 in these examples:
   // [whitespace] <tag1><tag2>x</tag2></tag1>
-  // <span>[whitespace]</span> <tag1><tag2>x</tag2></tag1>
-  Node* prev_node = FlatTreeTraversal::PreviousAbsoluteSibling(*node);
+  // <span>[whitespace]</span> <tag1><tag2>x</tag2></tag1>.
+  // Do not use LayoutTreeBuilderTraversal or FlatTreeTraversal as this may need
+  // to be called during slot assignment, when flat tree traversal is forbidden.
+  Node* prev_node =
+      NodeTraversal::PreviousAbsoluteSiblingIncludingPseudo(*node);
   if (!prev_node)
     return false;
 
-  Node* next_node = FlatTreeTraversal::NextSkippingChildren(*node);
+  Node* next_node = NodeTraversal::NextIncludingPseudoSkippingChildren(*node);
   if (!next_node)
     return false;
 
@@ -285,6 +296,12 @@ bool IsTextRelevantForAccessibility(const LayoutText& layout_text) {
 
 bool IsShadowContentRelevantForAccessibility(const Node* node) {
   DCHECK(node->ContainingShadowRoot());
+
+  // Native <img> create extra child nodes to hold alt text.
+  if (node->IsInUserAgentShadowRoot() &&
+      IsA<HTMLImageElement>(node->OwnerShadowHost())) {
+    return false;
+  }
 
   // Don't use non-<option> descendants of an AXMenuList.
   // If the UseAXMenuList flag is on, we use a specialized class AXMenuList
@@ -805,11 +822,23 @@ AXObject* AXObjectCacheImpl::Get(AccessibleNode* accessible_node) {
 }
 
 AXObject* AXObjectCacheImpl::GetAXImageForMap(HTMLMapElement& map) {
-  HTMLElement* first_area = Traversal<HTMLAreaElement>::FirstWithin(map);
-  AXObject* ax_child_area = Get(first_area);
-  if (!ax_child_area)
-    return nullptr;
-  return ax_child_area->CachedParentObject();
+  // Find first child node of <map> that has an AXObject and return it's
+  // parent, which should be a native image.
+  Node* child = LayoutTreeBuilderTraversal::FirstChild(map);
+  while (child) {
+    if (AXObject* ax_child = Get(child)) {
+      if (AXObject* ax_image = ax_child->CachedParentObject()) {
+        DCHECK(!ax_image->IsDetached());
+        DCHECK(IsA<HTMLImageElement>(ax_image->GetNode()))
+            << "Expected image AX parent of <map>'s DOM child, got: "
+            << ax_image->GetNode() << "\n* Map's DOM child was: " << child
+            << "\n* ax_image: " << ax_image->ToString(true, true);
+        return ax_image;
+      }
+    }
+    child = LayoutTreeBuilderTraversal::NextSibling(*child);
+  }
+  return nullptr;
 }
 
 AXObject* AXObjectCacheImpl::CreateFromRenderer(LayoutObject* layout_object) {
@@ -921,8 +950,12 @@ bool AXObjectCacheImpl::IsRelevantPseudoElementDescendant(
     ancestor = ancestor->Parent();
     if (!ancestor)
       return false;
-    if (ancestor->IsPseudoElement())
+    if (ancestor->IsPseudoElement()) {
+      // When an ancestor is exposed using CSS alt text, descendants are pruned.
+      if (AXNodeObject::GetCSSAltText(ancestor->GetNode()))
+        return false;
       return IsRelevantPseudoElement(*ancestor->GetNode());
+    }
     if (!ancestor->IsAnonymous())
       return false;
   }
@@ -1293,6 +1326,7 @@ void AXObjectCacheImpl::Remove(AXObject* object) {
     Remove(object->AXObjectID());
 }
 
+// This is safe to call even if there isn't a current mapping.
 void AXObjectCacheImpl::Remove(AXID ax_id) {
   if (!ax_id)
     return;
@@ -1321,48 +1355,77 @@ void AXObjectCacheImpl::Remove(AXID ax_id) {
   DCHECK_GE(objects_.size(), ids_in_use_.size());
 }
 
+// This is safe to call even if there isn't a current mapping.
 void AXObjectCacheImpl::Remove(AccessibleNode* accessible_node) {
   if (!accessible_node)
     return;
 
-  AXID ax_id = accessible_node_mapping_.at(accessible_node);
-  accessible_node_mapping_.erase(accessible_node);
+  auto iter = accessible_node_mapping_.find(accessible_node);
+  if (iter == accessible_node_mapping_.end())
+    return;
+
+  AXID ax_id = iter->value;
+  accessible_node_mapping_.erase(iter);
 
   Remove(ax_id);
 }
 
+// This is safe to call even if there isn't a current mapping.
 bool AXObjectCacheImpl::Remove(LayoutObject* layout_object) {
   if (!layout_object)
     return false;
 
-  AXID ax_id = layout_object_mapping_.at(layout_object);
-  if (!ax_id)
+  auto iter = layout_object_mapping_.find(layout_object);
+  if (iter == layout_object_mapping_.end())
     return false;
 
-  layout_object_mapping_.erase(layout_object);
+  AXID ax_id = iter->value;
+  DCHECK(ax_id);
+
+  layout_object_mapping_.erase(iter);
   Remove(ax_id);
 
   return true;
 }
 
+// This is safe to call even if there isn't a current mapping.
 void AXObjectCacheImpl::Remove(Node* node) {
   if (!node)
     return;
 
-  // This is all safe even if we didn't have a mapping.
-  AXID ax_id = node_object_mapping_.at(node);
-  node_object_mapping_.erase(node);
+  LayoutObject* layout_object = node->GetLayoutObject();
 
-  if (!Remove(node->GetLayoutObject()))
+  // A layout object will be used whenever it is available and relevant. It's
+  // the preferred backing object, rather than the DOM node.
+  if (Remove(node->GetLayoutObject())) {
+    DCHECK_EQ(node_object_mapping_.find(node), node_object_mapping_.end())
+        << "AXObject cannot be backed by both a layout object and node.";
+    return;
+  }
+
+  auto iter = node_object_mapping_.find(node);
+  if (iter != node_object_mapping_.end()) {
+    DCHECK(!layout_object || layout_object_mapping_.find(layout_object) ==
+                                 layout_object_mapping_.end())
+        << "AXObject cannot be backed by both a layout object and node.";
+    AXID ax_id = iter->value;
+    DCHECK(ax_id);
+    node_object_mapping_.erase(iter);
     Remove(ax_id);
+  }
 }
 
+// This is safe to call even if there isn't a current mapping.
 void AXObjectCacheImpl::Remove(AbstractInlineTextBox* inline_text_box) {
   if (!inline_text_box)
     return;
 
-  AXID ax_id = inline_text_box_object_mapping_.at(inline_text_box);
-  inline_text_box_object_mapping_.erase(inline_text_box);
+  auto iter = inline_text_box_object_mapping_.find(inline_text_box);
+  if (iter == inline_text_box_object_mapping_.end())
+    return;
+
+  AXID ax_id = iter->value;
+  inline_text_box_object_mapping_.erase(iter);
 
   Remove(ax_id);
 }
@@ -1763,41 +1826,6 @@ void AXObjectCacheImpl::UpdateCacheAfterNodeIsAttached(Node* node) {
       &AXObjectCacheImpl::UpdateCacheAfterNodeIsAttachedWithCleanLayout, node);
 }
 
-bool AXObjectCacheImpl::IsStillInTree(AXObject* obj) {
-  // Return an AXObject for the node if the AXObject is still in the tree.
-  // If there is a viable included parent, that means it's still in the tree.
-  // Otherwise, repair missing parent, or prune the object if no viable parent
-  // can be found. For example, through CSS changes, an ancestor became an
-  // image, which is always a leaf; therefore, no descendants are "in the tree".
-
-  if (!obj)
-    return false;
-
-  if (obj->IsMissingParent()) {
-    // Parent is missing. Attempt to repair it with a viable recomputed parent.
-    AXObject* ax_parent = obj->ComputeParent();
-    if (!IsStillInTree(ax_parent)) {
-      // Parent is unrepairable, meaning that this AXObject can no longer be
-      // attached to the tree and is no longer viable. Prune it now.
-      Remove(obj);
-      return false;
-    }
-    obj->SetParent(ax_parent);
-    return true;
-  }
-
-  if (!obj->LastKnownIsIncludedInTreeValue()) {
-    // Current object was not included in the tree, therefore, recursively
-    // keep checking up a level until a viable included parent is found.
-    if (!IsStillInTree(obj->CachedParentObject())) {
-      Remove(obj);
-      return false;
-    }
-  }
-
-  return true;
-}
-
 void AXObjectCacheImpl::UpdateCacheAfterNodeIsAttachedWithCleanLayout(
     Node* node) {
   if (!node || !node->isConnected())
@@ -1975,11 +2003,8 @@ void AXObjectCacheImpl::ChildrenChangedWithCleanLayout(Node* optional_node,
       << "Unclean document at lifecycle " << document->Lifecycle().ToString();
 #endif  // DCHECK_IS_ON()
 
-  if (obj) {
-    if (!IsStillInTree(obj))
-      return;  // Object is no longer in tree, and therefore not viable.
+  if (obj)
     obj->ChildrenChanged();
-  }
 
   if (optional_node)
     relation_cache_->UpdateRelatedTree(optional_node, obj);
@@ -2098,8 +2123,10 @@ void AXObjectCacheImpl::ProcessInvalidatedObjects(Document& document) {
         continue;
       }
 
+#if defined(AX_FAIL_FAST_BUILD)
       bool did_use_layout_object_traversal =
           object->ShouldUseLayoutObjectTraversalForChildren();
+#endif
 
       // Invalidate children on the first available non-detached parent that is
       // included in the tree. Sometimes a cached parent is detached because
@@ -2136,19 +2163,15 @@ void AXObjectCacheImpl::ProcessInvalidatedObjects(Document& document) {
       AXObject* new_object = refresh(object);
       MarkAXObjectDirtyWithCleanLayout(new_object, false);
 
-      // Children might change because child traversal style changed.
-      if (new_object &&
-          new_object->ShouldUseLayoutObjectTraversalForChildren() !=
-              did_use_layout_object_traversal) {
-        // TODO(accessibility) Add test or remove code.
-        SANITIZER_CHECK(false)
-            << "This should no longer be possible, an object only uses layout "
-               "object traversal if it is the descendant of a pseudo element, "
-               "and that never changes: "
-            << new_object->ToString(true, true);
-        DCHECK(!HashTraits<AXID>::IsDeletedValue(ax_id));
-        pending_children_changed_ids.insert(ax_id);
-      }
+#if defined(AX_FAIL_FAST_BUILD)
+      SANITIZER_CHECK(!new_object ||
+                      new_object->ShouldUseLayoutObjectTraversalForChildren() ==
+                          did_use_layout_object_traversal)
+          << "This should no longer be possible, an object only uses layout "
+             "object traversal if it is part of a pseudo element subtree, "
+             "and that never changes: "
+          << new_object->ToString(true, true);
+#endif
     }
     // Update parents' children.
     for (AXID parent_id : pending_children_changed_ids) {
@@ -2998,27 +3021,6 @@ const Element* AXObjectCacheImpl::RootAXEditableElement(const Node* node) {
   }
 
   return result;
-}
-
-AXObject* AXObjectCacheImpl::FirstAccessibleObjectFromNode(const Node* node) {
-  if (!node)
-    return nullptr;
-
-  AXObject* accessible_object = GetOrCreate(node->GetLayoutObject());
-  while (accessible_object &&
-         !accessible_object->AccessibilityIsIncludedInTree()) {
-    node = NodeTraversal::Next(*node);
-
-    while (node && !node->GetLayoutObject())
-      node = NodeTraversal::NextSkippingChildren(*node);
-
-    if (!node)
-      return nullptr;
-
-    accessible_object = GetOrCreate(node->GetLayoutObject());
-  }
-
-  return accessible_object;
 }
 
 bool AXObjectCacheImpl::NodeIsTextControl(const Node* node) {

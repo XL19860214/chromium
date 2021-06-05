@@ -15,37 +15,43 @@
 #include "chrome/services/file_util/public/mojom/zip_file_creator.mojom.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/bindings/remote.h"
+#include "mojo/public/cpp/bindings/self_owned_receiver.h"
 
 // ZipFileCreator creates a ZIP file from a specified list of files and
 // directories under a common parent directory. This is done in a sandboxed
 // utility process to protect the browser process from handling arbitrary
 // input data from untrusted sources.
-// Note that this class deletes itself after calling the ResultCallback
-// specified in the constructor (and should be heap allocated).
 class ZipFileCreator {
  public:
   using ResultCallback = base::OnceCallback<void(bool)>;
 
   // Creates a zip file from the specified list of files and directories.
   ZipFileCreator(ResultCallback callback,
-                 const base::FilePath& src_dir,
-                 const std::vector<base::FilePath>& src_relative_paths,
-                 const base::FilePath& dest_file);
+                 base::FilePath src_dir,
+                 std::vector<base::FilePath> src_relative_paths,
+                 base::FilePath dest_file);
 
-  // Starts creating the zip file.
-  //
-  // The result will be passed to |callback|. After the task is finished
-  // and |callback| is run, ZipFileCreator instance is deleted.
-  void Start(mojo::PendingRemote<chrome::mojom::FileUtilService> service);
-
- private:
   ~ZipFileCreator();
 
+  // Starts creating the ZIP file. The result will be passed to |callback|.
+  void Start(mojo::PendingRemote<chrome::mojom::FileUtilService> service);
+
+  // Stops creating the ZIP file. Calls the |callback| with false.
+  void Stop();
+
+ private:
   // Called after the dest_file |file| is opened on the blocking pool to
-  // create the zip file in it using a sandboxed utility process.
+  // create the ZIP file in it using a sandboxed utility process.
   void CreateZipFile(
       mojo::PendingRemote<chrome::mojom::FileUtilService> service,
       base::File file);
+
+  // Binds the Directory receiver to its implementation.
+  void BindDirectory(
+      mojo::PendingReceiver<filesystem::mojom::Directory> receiver);
+
+  // Closes the Directory implementation.
+  void CloseDirectory();
 
   // Notifies by calling |callback| specified in the constructor the end of the
   // ZIP operation. Deletes this.
@@ -55,16 +61,21 @@ class ZipFileCreator {
   ResultCallback callback_;
 
   // The source directory for input files.
-  base::FilePath src_dir_;
+  const base::FilePath src_dir_;
 
   // The list of source files paths to be included in the zip file.
   // Entries are relative paths under directory |src_dir_|.
-  std::vector<base::FilePath> src_relative_paths_;
+  const std::vector<base::FilePath> src_relative_paths_;
 
+  // The output ZIP file path.
+  const base::FilePath dest_file_;
+
+  // Task runner used by the Directory implementation.
   scoped_refptr<base::SequencedTaskRunner> directory_task_runner_;
 
-  // The output zip file.
-  base::FilePath dest_file_;
+  // Weak ref to the self-owned Directory implementation.
+  using DirectoryRef = mojo::SelfOwnedReceiverRef<filesystem::mojom::Directory>;
+  DirectoryRef src_dir_ref_;
 
   // Remote interfaces to the file util service. Only used from the UI thread.
   mojo::Remote<chrome::mojom::FileUtilService> service_;

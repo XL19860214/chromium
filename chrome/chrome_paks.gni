@@ -139,7 +139,6 @@ template("chrome_extra_paks") {
         "$root_gen_dir/chrome/feedback_resources.pak",
         "$root_gen_dir/chrome/gaia_auth_host_resources.pak",
         "$root_gen_dir/chrome/history_resources.pak",
-        "$root_gen_dir/chrome/media_router_feedback_resources.pak",
         "$root_gen_dir/chrome/memories_resources.pak",
         "$root_gen_dir/chrome/new_tab_page_instant_resources.pak",
         "$root_gen_dir/chrome/new_tab_page_resources.pak",
@@ -163,7 +162,6 @@ template("chrome_extra_paks") {
         "//chrome/browser/resources/feedback_webui:resources",
         "//chrome/browser/resources/gaia_auth_host:resources",
         "//chrome/browser/resources/history:resources",
-        "//chrome/browser/resources/media_router:resources",
         "//chrome/browser/resources/memories:resources",
         "//chrome/browser/resources/new_tab_page:resources",
         "//chrome/browser/resources/new_tab_page_instant:resources",
@@ -176,9 +174,14 @@ template("chrome_extra_paks") {
         "//headless:resources",
       ]
       if (is_chrome_branded) {
-        sources +=
-            [ "$root_gen_dir/chrome/preinstalled_web_apps_resources.pak" ]
-        deps += [ "//chrome/browser/resources:preinstalled_web_apps_resources" ]
+        sources += [
+          "$root_gen_dir/chrome/media_router_feedback_resources.pak",
+          "$root_gen_dir/chrome/preinstalled_web_apps_resources.pak",
+        ]
+        deps += [
+          "//chrome/browser/resources:preinstalled_web_apps_resources",
+          "//chrome/browser/resources/media_router:cast_feedback_ui_resources",
+        ]
       }
     }
     if (is_chromeos_ash) {
@@ -193,6 +196,7 @@ template("chrome_extra_paks") {
         "$root_gen_dir/chrome/emoji_picker_resources.pak",
         "$root_gen_dir/chrome/internet_config_dialog_resources.pak",
         "$root_gen_dir/chrome/internet_detail_dialog_resources.pak",
+        "$root_gen_dir/chrome/launcher_internals_resources.pak",
         "$root_gen_dir/chrome/multidevice_internals_resources.pak",
         "$root_gen_dir/chrome/multidevice_setup_resources.pak",
         "$root_gen_dir/chrome/nearby_internals_resources.pak",
@@ -228,6 +232,7 @@ template("chrome_extra_paks") {
         "//chrome/browser/resources:internet_detail_dialog_resources",
         "//chrome/browser/resources/chromeos:multidevice_setup_resources",
         "//chrome/browser/resources/chromeos/emoji_picker:resources",
+        "//chrome/browser/resources/chromeos/launcher_internals:resources",
         "//chrome/browser/resources/chromeos/login:resources",
         "//chrome/browser/resources/chromeos/multidevice_internals:resources",
         "//chrome/browser/resources/chromeos/network_ui:resources",
@@ -255,14 +260,14 @@ template("chrome_extra_paks") {
 
       if (!is_official_build) {
         sources += [
+          "$root_gen_dir/ash/content/file_manager/resources/file_manager_swa_resources.pak",
           "$root_gen_dir/chromeos/chromeos_demo_mode_app_resources.pak",
-          "$root_gen_dir/chromeos/chromeos_file_manager_resources.pak",
           "$root_gen_dir/chromeos/chromeos_sample_system_web_app_resources.pak",
           "$root_gen_dir/chromeos/chromeos_telemetry_extension_resources.pak",
         ]
         deps += [
+          "//ash/content/file_manager/resources:file_manager_swa_resources",
           "//chromeos/resources:demo_mode_app_resources",
-          "//chromeos/resources:file_manager_resources",
           "//chromeos/resources:sample_system_web_app_resources",
           "//chromeos/resources:telemetry_extension_resources",
         ]

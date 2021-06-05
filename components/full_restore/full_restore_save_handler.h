@@ -94,6 +94,12 @@ class COMPONENT_EXPORT(FULL_RESTORE) FullRestoreSaveHandler
   void AddAppLaunchInfo(const base::FilePath& profile_path,
                         AppLaunchInfoPtr app_launch_info);
 
+  // Modify the window id for `app_id` from `old_window_id` to `new_window_id`.
+  void ModifyWindowId(const base::FilePath& profile_path,
+                      const std::string& app_id,
+                      int32_t old_window_id,
+                      int32_t new_window_id);
+
   // Saves |window_info| to |profile_path| for |app_id| and |window_id|.
   void ModifyWindowInfo(const base::FilePath& profile_path,
                         const std::string& app_id,
@@ -126,6 +132,9 @@ class COMPONENT_EXPORT(FULL_RESTORE) FullRestoreSaveHandler
   int32_t GetArcSessionId();
 
   base::OneShotTimer* GetTimerForTesting() { return &save_timer_; }
+
+  // Since this is a singleton, tests may need to clear it between tests.
+  void ClearForTesting();
 
  private:
   friend class FullRestoreSaveHandlerTestApi;

@@ -7,7 +7,6 @@
 #include "base/format_macros.h"
 #include "base/memory/ptr_util.h"
 #include "base/rand_util.h"
-#include "base/strings/string_number_conversions.h"
 #include "base/time/time.h"
 
 namespace content {
@@ -17,6 +16,10 @@ namespace {
 // Maximum number of allowed conversion metadata values. Higher entropy
 // conversion metadata is stripped to these lower bits.
 const int kMaxAllowedConversionValues = 8;
+
+// Maximum number of allowed event source trigger data values. Higher entropy
+// event source trigger data is stripped to these lower bits.
+const int kMaxAllowedEventSourceTriggerDataValues = 2;
 
 }  // namespace
 
@@ -31,6 +34,20 @@ uint64_t ConversionPolicy::NoiseProvider::GetNoisedConversionData(
   // (kMaxAllowedConversionValues - 1) / kMaxAllowedConversionValues percent of
   // the time.
   return static_cast<uint64_t>(base::RandInt(0, kMaxAllowedConversionValues));
+}
+
+uint64_t ConversionPolicy::NoiseProvider::GetNoisedEventSourceTriggerData(
+    uint64_t event_source_trigger_data) const {
+  // Return |event_source_trigger_data| without any noise 95% of the time.
+  if (base::RandDouble() > .05)
+    return event_source_trigger_data;
+
+  // 5% of the time return a random number in the allowed range. Note that the
+  // value is noised 5% of the time, but only wrong 5 *
+  // (kMaxAllowedEventSourceTriggerDataValues - 1) /
+  // kMaxAllowedEventSourceTriggerDataValues percent of the time.
+  return static_cast<uint64_t>(
+      base::RandInt(0, kMaxAllowedEventSourceTriggerDataValues));
 }
 
 // static
@@ -51,7 +68,7 @@ ConversionPolicy::ConversionPolicy(
 
 ConversionPolicy::~ConversionPolicy() = default;
 
-std::string ConversionPolicy::GetSanitizedConversionData(
+uint64_t ConversionPolicy::GetSanitizedConversionData(
     uint64_t conversion_data) const {
   // Add noise to the conversion when the value is first sanitized from a
   // conversion registration event. This noised data will be used for all
@@ -60,13 +77,28 @@ std::string ConversionPolicy::GetSanitizedConversionData(
     conversion_data = noise_provider_->GetNoisedConversionData(conversion_data);
 
   // Allow at most 3 bits of entropy in conversion data.
-  return base::NumberToString(conversion_data % kMaxAllowedConversionValues);
+  return conversion_data % kMaxAllowedConversionValues;
 }
 
-std::string ConversionPolicy::GetSanitizedImpressionData(
+uint64_t ConversionPolicy::GetSanitizedEventSourceTriggerData(
+    uint64_t event_source_trigger_data) const {
+  // Add noise to the conversion when the value is first sanitized from a
+  // conversion registration event. This noised data will be used for all
+  // associated impressions that convert.
+  if (noise_provider_) {
+    event_source_trigger_data =
+        noise_provider_->GetNoisedEventSourceTriggerData(
+            event_source_trigger_data);
+  }
+
+  // Allow at most 1 bit of entropy in event source trigger data.
+  return event_source_trigger_data % kMaxAllowedEventSourceTriggerDataValues;
+}
+
+uint64_t ConversionPolicy::GetSanitizedImpressionData(
     uint64_t impression_data) const {
   // Impression data is allowed the full 64 bits.
-  return base::NumberToString(impression_data);
+  return impression_data;
 }
 
 base::Time ConversionPolicy::GetExpiryTimeForImpression(

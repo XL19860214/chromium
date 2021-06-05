@@ -8,11 +8,10 @@
 #include "base/mac/foundation_util.h"
 #include "base/metrics/user_metrics.h"
 #include "base/metrics/user_metrics_action.h"
-#include "base/scoped_observer.h"
 #include "base/strings/sys_string_conversions.h"
 #import "components/feature_engagement/public/event_constants.h"
 #import "components/feature_engagement/public/tracker.h"
-#include "components/feed/core/shared_prefs/pref_names.h"
+#include "components/feed/core/v2/public/ios/pref_names.h"
 #include "components/ntp_snippets/content_suggestions_service.h"
 #include "components/ntp_snippets/pref_names.h"
 #include "components/ntp_snippets/remote/remote_suggestions_scheduler.h"
@@ -261,7 +260,7 @@
 
   // Offset to maintain Discover feed scroll position.
   CGFloat offset = 0;
-  if (IsDiscoverFeedEnabled() && ![self isRefactoredFeedVisible]) {
+  if (IsDiscoverFeedEnabled() && !IsRefactoredNTP()) {
     web::NavigationManager* navigationManager =
         self.webState->GetNavigationManager();
     web::NavigationItem* item = navigationManager->GetVisibleItem();
@@ -843,6 +842,7 @@
   [self.contentSuggestionsMediator reloadAllData];
   [self.discoverFeedMetricsRecorder
       recordDiscoverFeedVisibilityChanged:visible];
+  self.suggestionsViewController.feedVisible = [self isFeedVisible];
 }
 
 // YES if the NTP feed is currently visible.

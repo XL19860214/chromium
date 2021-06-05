@@ -7,6 +7,7 @@
 #include "components/autofill/core/browser/data_model/autofill_profile.h"
 #include "components/autofill/core/browser/data_model/autofill_profile_comparator.h"
 #include "components/autofill/core/browser/personal_data_manager.h"
+#include "components/autofill/core/common/autofill_clock.h"
 
 namespace autofill {
 
@@ -46,6 +47,18 @@ ProfileImportProcess::~ProfileImportProcess() = default;
 
 bool ProfileImportProcess::prompt_shown() const {
   return prompt_shown_;
+}
+
+bool ProfileImportProcess::UserDeclined() const {
+  return user_decision_ == UserDecision::kDeclined ||
+         user_decision_ == UserDecision::kEditDeclined ||
+         user_decision_ == UserDecision::kMessageDeclined;
+  ;
+}
+
+bool ProfileImportProcess::UserAccepted() const {
+  return user_decision_ == UserDecision::kAccepted ||
+         user_decision_ == UserDecision::kEditAccepted;
 }
 
 void ProfileImportProcess::DetermineProfileImportType() {
@@ -119,6 +132,7 @@ void ProfileImportProcess::DetermineProfileImportType() {
     }
     // If the profile changed but all settings-visible values are maintained,
     // the profile can be updated silently.
+    merged_profile.set_modification_date(AutofillClock::Now());
     updated_profiles_.emplace_back(merged_profile);
   }
 
@@ -152,6 +166,10 @@ void ProfileImportProcess::DetermineProfileImportType() {
                          ? AutofillProfileImportType::kSilentUpdate
                          : AutofillProfileImportType::kDuplicateImport;
     }
+  }
+
+  if (import_candidate_.has_value()) {
+    import_candidate_->set_modification_date(AutofillClock::Now());
   }
 
   // At this point, all existing profiles are either unchanged, updated and/or
@@ -212,6 +230,22 @@ void ProfileImportProcess::SetUserDecision(
       // If the import candidate is supplied, the 'edited_profile' must be
       // supplied.
       DCHECK(edited_profile.has_value());
+
+      // Make sure the verification status of all settings-visible non-empty
+      // fields in the edited profile are set to kUserVerified.
+      for (auto type : GetUserVisibleTypes()) {
+        std::u16string value = edited_profile->GetRawInfo(type);
+        if (!value.empty() &&
+            edited_profile->GetVerificationStatus(type) ==
+                structured_address::VerificationStatus::kNoStatus) {
+          edited_profile->SetRawInfoWithVerificationStatus(
+              type, value,
+              structured_address::VerificationStatus::kUserVerified);
+        };
+      }
+
+      edited_profile->FinalizeAfterImport();
+      edited_profile->set_modification_date(AutofillClock::Now());
       // The `edited_profile` has to have the same `guid` as the original import
       // candidate.
       DCHECK_EQ(import_candidate_.value().guid(), edited_profile->guid());
@@ -303,19 +337,42 @@ void ProfileImportProcess::CollectMetrics() const {
              import_type_ ==
                  AutofillProfileImportType::kConfirmableMergeAndSilentUpdate) {
     AutofillMetrics::LogProfileUpdateImportDecision(user_decision_);
+
+    if (user_decision_ == UserDecision::kAccepted) {
+      DCHECK(merge_candidate_.has_value() && import_candidate_.has_value());
+
+      const std::vector<ProfileValueDifference> merge_difference =
+          AutofillProfileComparator::GetSettingsVisibleProfileDifference(
+              import_candidate_.value(), merge_candidate_.value(), app_locale_);
+
+      for (const auto& difference : merge_difference) {
+        AutofillMetrics::LogProfileUpdateAffectedType(difference.type);
+      }
+
+      AutofillMetrics::LogUpdateProfileNumberOfAffectedFields(
+          merge_difference.size());
+    }
   }
 
   // If the profile was edited by the user, record a histogram of edited types.
   if (user_decision_ == UserDecision::kEditAccepted) {
-    for (const auto& difference :
-         AutofillProfileComparator::GetSettingsVisibleProfileDifference(
-             import_candidate_.value(), confirmed_import_candidate_.value(),
-             app_locale_)) {
+    const std::vector<ProfileValueDifference> edit_difference =
+        AutofillProfileComparator::GetSettingsVisibleProfileDifference(
+            import_candidate_.value(), confirmed_import_candidate_.value(),
+            app_locale_);
+    for (const auto& difference : edit_difference) {
       if (import_type_ == AutofillProfileImportType::kNewProfile) {
         AutofillMetrics::LogNewProfileEditedType(difference.type);
       } else {
         AutofillMetrics::LogProfileUpdateEditedType(difference.type);
       }
+    }
+    if (import_type_ == AutofillProfileImportType::kNewProfile) {
+      AutofillMetrics::LogNewProfileNumberOfEditedFields(
+          edit_difference.size());
+    } else {
+      AutofillMetrics::LogUpdateProfileNumberOfEditedFields(
+          edit_difference.size());
     }
   }
 }

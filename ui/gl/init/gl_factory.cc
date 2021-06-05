@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "base/command_line.h"
+#include "base/containers/contains.h"
 #include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/trace_event/trace_event.h"
@@ -82,7 +83,9 @@ GLImplementationParts GetRequestedGLImplementation(
   UMA_HISTOGRAM_ENUMERATION("GPU.PreferredGLImplementation", impl.gl);
 
   *fallback_to_software_gl = false;
-  if (cmd->HasSwitch(switches::kOverrideUseSoftwareGLForTests)) {
+  if (cmd->HasSwitch(switches::kOverrideUseSoftwareGLForHeadless)) {
+    impl = GetSoftwareGLForHeadlessImplementation();
+  } else if (cmd->HasSwitch(switches::kOverrideUseSoftwareGLForTests)) {
     impl = GetSoftwareGLForTestsImplementation();
   } else if (cmd->HasSwitch(switches::kUseGL)) {
     if (requested_implementation_gl_name == "any") {

@@ -88,7 +88,6 @@ namespace autofill {
 
 using form_util::ExtractMask;
 using form_util::FindFormAndFieldForFormControlElement;
-using form_util::UnownedFormElementsAndFieldSetsToFormData;
 using mojom::SubmissionSource;
 using ShowAll = PasswordAutofillAgent::ShowAll;
 using GenerationShowing = PasswordAutofillAgent::GenerationShowing;
@@ -617,15 +616,15 @@ bool AutofillAgent::CollectFormlessElements(FormData* output) const {
       form_util::GetUnownedAutofillableFormFieldElements(document.All(),
                                                          &fieldsets);
 
-  if (control_elements.size() > kMaxParseableFields)
-    return false;
+  std::vector<WebElement> iframe_elements =
+      form_util::GetUnownedIframeElements(document);
 
   const ExtractMask extract_mask = static_cast<ExtractMask>(
       form_util::EXTRACT_VALUE | form_util::EXTRACT_OPTIONS);
 
-  return UnownedFormElementsAndFieldSetsToFormData(
-      fieldsets, control_elements, nullptr, document, field_data_manager_.get(),
-      extract_mask, output, nullptr);
+  return form_util::UnownedFormElementsAndFieldSetsToFormData(
+      fieldsets, control_elements, iframe_elements, nullptr, document,
+      field_data_manager_.get(), extract_mask, output, nullptr);
 }
 
 void AutofillAgent::ShowSuggestions(const WebFormControlElement& element,
@@ -790,7 +789,7 @@ void AutofillAgent::QueryAutofillSuggestions(
     // If we didn't find the cached form, at least let autocomplete have a shot
     // at providing suggestions.
     WebFormControlElementToFormField(
-        element, nullptr,
+        form.unique_renderer_id, element, nullptr,
         static_cast<ExtractMask>(form_util::EXTRACT_VALUE |
                                  form_util::EXTRACT_BOUNDS |
                                  GetExtractDatalistMask()),
@@ -959,7 +958,8 @@ void AutofillAgent::SelectWasUpdated(
 void AutofillAgent::FormControlElementClicked(
     const WebFormControlElement& element,
     bool was_focused) {
-  last_clicked_form_control_element_for_testing_ = element;
+  last_clicked_form_control_element_for_testing_ =
+      FieldRendererId(element.UniqueRendererFormControlId());
   last_clicked_form_control_element_was_focused_for_testing_ = was_focused;
   was_last_action_fill_ = false;
 
@@ -1159,7 +1159,7 @@ void AutofillAgent::SendPotentiallySubmittedFormToBrowser() {
 
 void AutofillAgent::ResetLastInteractedElements() {
   last_interacted_form_.Reset();
-  last_clicked_form_control_element_for_testing_.Reset();
+  last_clicked_form_control_element_for_testing_ = {};
   formless_elements_user_edited_.clear();
   provisionally_saved_form_.reset();
 }

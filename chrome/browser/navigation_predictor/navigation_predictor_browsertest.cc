@@ -20,7 +20,6 @@
 #include "chrome/browser/subresource_filter/subresource_filter_browser_test_harness.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
-#include "chrome/common/url_constants.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/search_test_utils.h"
 #include "chrome/test/base/ui_test_utils.h"
@@ -37,6 +36,7 @@
 #include "testing/gmock/include/gmock/gmock.h"
 #include "third_party/blink/public/common/features.h"
 #include "url/gurl.h"
+#include "url/url_constants.h"
 
 namespace {
 
@@ -93,7 +93,7 @@ class NavigationPredictorBrowserTest
     const char* entry_name =
         ukm::builders::NavigationPredictorAnchorElementMetrics::kEntryName;
 
-    if (ukm_recorder_->GetEntriesByName(entry_name).size() < num_links) {
+    while (ukm_recorder_->GetEntriesByName(entry_name).size() < num_links) {
       base::RunLoop run_loop;
       ukm_recorder_->SetOnAddEntryCallback(entry_name, run_loop.QuitClosure());
       run_loop.Run();
@@ -138,12 +138,12 @@ class TestObserver : public NavigationPredictorKeyedService::Observer {
     // Ensure that |wait_loop_| is null implying there is no ongoing wait.
     ASSERT_FALSE(wait_loop_);
 
-    if (count_predictions_ >= expected_notifications_count)
-      return;
-    expected_notifications_count_ = expected_notifications_count;
-    wait_loop_ = std::make_unique<base::RunLoop>();
-    wait_loop_->Run();
-    wait_loop_.reset();
+    while (count_predictions_ < expected_notifications_count) {
+      expected_notifications_count_ = expected_notifications_count;
+      wait_loop_ = std::make_unique<base::RunLoop>();
+      wait_loop_->Run();
+      wait_loop_.reset();
+    }
   }
 
  private:
@@ -296,13 +296,7 @@ IN_PROC_BROWSER_TEST_F(NavigationPredictorBrowserTest, MultipleNavigations) {
 }
 
 // Tests that anchors from iframes are reported.
-// TODO(crbug.com/1208143): Test is flaky.
-#if defined(OS_LINUX) || defined(OS_WIN) || defined(OS_CHROMEOS)
-#define MAYBE_PageWithIframe DISABLED_PageWithIframe
-#else
-#define MAYBE_PageWithIframe PageWithIframe
-#endif
-IN_PROC_BROWSER_TEST_F(NavigationPredictorBrowserTest, MAYBE_PageWithIframe) {
+IN_PROC_BROWSER_TEST_F(NavigationPredictorBrowserTest, PageWithIframe) {
   auto test_ukm_recorder = std::make_unique<ukm::TestAutoSetUkmRecorder>();
   ResetUKM();
 
@@ -371,6 +365,30 @@ IN_PROC_BROWSER_TEST_F(NavigationPredictorBrowserTest,
   using AnchorEntry = ukm::builders::NavigationPredictorAnchorElementMetrics;
   entries = test_ukm_recorder->GetEntriesByName(AnchorEntry::kEntryName);
   EXPECT_EQ(4u, entries.size());
+}
+
+// Inject link into the viewport after some time test reporting of
+// NavigationStartToEnteredViewportMs.
+IN_PROC_BROWSER_TEST_F(NavigationPredictorBrowserTest,
+                       NavigationStartToEnteredViewportMs) {
+  auto test_ukm_recorder = std::make_unique<ukm::TestAutoSetUkmRecorder>();
+  ResetUKM();
+
+  ui_test_utils::NavigateToURL(browser(),
+                               GetTestURL("/dynamically_inserted_anchor.html"));
+  WaitLinkEnteredViewport(1);
+
+  using AnchorEntry = ukm::builders::NavigationPredictorAnchorElementMetrics;
+  auto entries = test_ukm_recorder->GetEntriesByName(AnchorEntry::kEntryName);
+  EXPECT_EQ(1u, entries.size());
+  uint64_t time_ms = *test_ukm_recorder->GetEntryMetric(
+      entries[0], AnchorEntry::kNavigationStartToLinkLoggedMsName);
+  EXPECT_LT(0u, time_ms);
+  // To avoid making the test flaky we allow this value to be up to 100s.
+  // This still tests for cases where the unsigned integer overflows or if we
+  // fail to subtract navigation start from the timestamp when the link entered
+  // the viewport.
+  EXPECT_GT(100000u, time_ms);
 }
 
 // Simulate a click at the anchor element.

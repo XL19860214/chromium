@@ -405,6 +405,13 @@ class BuildConfigGenerator extends DefaultTask {
                 sb.append('  # https://crbug.com/989505\n')
                 sb.append('  jar_excluded_patterns = ["META-INF/proguard/*"]\n')
                 break
+            case 'androidx_annotation_annotation_experimental':
+                sb.append("""\
+                |  # https://crbug.com/1213876
+                |  deps =
+                |      [ "//third_party/android_deps:org_jetbrains_kotlin_kotlin_stdlib_java" ]
+                |""".stripMargin())
+                break
             case 'androidx_core_core':
                 sb.append('\n')
                 sb.append('  # Target has AIDL, but we do not support it yet: http://crbug.com/644439\n')
@@ -424,6 +431,7 @@ class BuildConfigGenerator extends DefaultTask {
                 |  ]
                 |
                 |  proguard_configs = ["androidx_fragment.flags"]
+                |  use_classic_desugar = true
                 |
                 |  bytecode_rewriter_target = "//build/android/bytecode:fragment_activity_replacer"
                 |""".stripMargin())
@@ -819,7 +827,7 @@ class BuildConfigGenerator extends DefaultTask {
 
     static String makeOwners() {
         // Make it easier to upgrade existing dependencies without full third_party review.
-        return "file://third_party/android_deps/OWNERS"
+        return "file://third_party/android_deps/OWNERS\n"
     }
 
     static String makeReadme(ChromiumDepGraph.DependencyDescription dependency) {

@@ -258,7 +258,7 @@ reviews. Googlers can read more about this at go/gwsq-gerrit.
 
 <histogram
     name="SubresourceFilter.DocumentLoad.SubframeFilteringDelay.Disallowed2"
-    units="microseconds" expires_after="M92">
+    units="microseconds" expires_after="2022-06-01">
   <owner>alexmt@chromium.org</owner>
   <owner>chrome-ads-histograms@google.com</owner>
   <summary>
@@ -273,7 +273,7 @@ reviews. Googlers can read more about this at go/gwsq-gerrit.
 
 <histogram
     name="SubresourceFilter.DocumentLoad.SubframeFilteringDelay.WouldDisallow"
-    units="microseconds" expires_after="M92">
+    units="microseconds" expires_after="2022-06-01">
   <owner>alexmt@chromium.org</owner>
   <owner>chrome-ads-histograms@google.com</owner>
   <summary>
@@ -283,6 +283,44 @@ reviews. Googlers can read more about this at go/gwsq-gerrit.
 
     This metric uses UMA_HISTOGRAM_CUSTOM_MICROSECONDS_TIMES to acccount for
     clients with low-resolution clocks.
+  </summary>
+</histogram>
+
+<histogram name="SubresourceFilter.Experimental.ReadyToCommitResultsInCommit"
+    enum="Boolean" expires_after="2021-11-14">
+  <owner>alexmt@chromium.org</owner>
+  <owner>johnidel@chromium.org</owner>
+  <owner>chrome-ads-histograms@google.com</owner>
+  <summary>
+    For every navigation observed by the subresource filter that passes through
+    ReadyToCommitNavigation, whether the navigation results in a commit.
+    Recorded when the navigation finishes.
+
+    Excludes top-level frame navigations, same-document navigations, navigations
+    that are not handled by the network stack (e.g. about: URLs) and navigations
+    with no available RenderFrameHost.
+  </summary>
+</histogram>
+
+<histogram
+    name="SubresourceFilter.Experimental.ReadyToCommitResultsInCommit.RestrictedAdFrameNavigation"
+    enum="Boolean" expires_after="2021-11-14">
+  <owner>alexmt@chromium.org</owner>
+  <owner>johnidel@chromium.org</owner>
+  <owner>chrome-ads-histograms@google.com</owner>
+  <summary>
+    For every 'restricted' navigation observed by the subresource filter that
+    passes through ReadyToCommitNavigation and occurs in an ad frame, whether
+    the navigation results in a commit. Recorded when the navigation finishes.
+
+    A restricted navigation is one that is either to a URL matching an allowlist
+    rule on the filter list, or is both to a URL that matches no filter list
+    rule and is same-origin with the top-level frame's URL. Note that, if there
+    is a sequence of restricted navigations, each will be counted individually.
+
+    Excludes top-level frame navigations, same-document navigations, navigations
+    that are not handled by the network stack (e.g. about: URLs) and navigations
+    with no available RenderFrameHost.
   </summary>
 </histogram>
 
@@ -325,7 +363,7 @@ reviews. Googlers can read more about this at go/gwsq-gerrit.
 </histogram>
 
 <histogram name="SubresourceFilter.IndexRuleset.Verify2.WallDuration"
-    units="ms" expires_after="M92">
+    units="ms" expires_after="2022-06-01">
   <owner>alexmt@chromium.org</owner>
   <owner>chrome-ads-histograms@google.com</owner>
   <summary>
@@ -337,7 +375,7 @@ reviews. Googlers can read more about this at go/gwsq-gerrit.
 </histogram>
 
 <histogram name="SubresourceFilter.IndexRuleset.WallDuration" units="ms"
-    expires_after="M92">
+    expires_after="2022-06-01">
   <owner>jkarlin@chromium.org</owner>
   <owner>chrome-ads-histograms@google.com</owner>
   <summary>
@@ -476,7 +514,7 @@ reviews. Googlers can read more about this at go/gwsq-gerrit.
 </histogram>
 
 <histogram name="SubresourceFilter.PageLoad.NumSubresourceLoads.Evaluated"
-    units="resource loads" expires_after="M92">
+    units="resource loads" expires_after="2022-06-01">
   <owner>jkarlin@chromium.org</owner>
   <owner>chrome-ads-histograms@google.com</owner>
   <summary>
@@ -500,7 +538,7 @@ reviews. Googlers can read more about this at go/gwsq-gerrit.
 </histogram>
 
 <histogram name="SubresourceFilter.PageLoad.NumSubresourceLoads.Total"
-    units="resource loads" expires_after="M92">
+    units="resource loads" expires_after="2022-06-01">
   <owner>jkarlin@chromium.org</owner>
   <owner>chrome-ads-histograms@google.com</owner>
   <summary>
@@ -511,7 +549,7 @@ reviews. Googlers can read more about this at go/gwsq-gerrit.
 </histogram>
 
 <histogram name="SubresourceFilter.PageLoad.SafeBrowsingDelay" units="ms"
-    expires_after="M92">
+    expires_after="2022-06-01">
   <owner>alexmt@chromium.org</owner>
   <owner>chrome-ads-histograms@google.com</owner>
   <summary>
@@ -636,7 +674,7 @@ reviews. Googlers can read more about this at go/gwsq-gerrit.
 </histogram>
 
 <histogram name="SubresourceFilter.WriteRuleset.Result"
-    enum="SubresourceFilterWriteRulesetResult" expires_after="M92">
+    enum="SubresourceFilterWriteRulesetResult" expires_after="2022-06-01">
   <owner>alexmt@chromium.org</owner>
   <owner>chrome-ads-histograms@google.com</owner>
   <summary>

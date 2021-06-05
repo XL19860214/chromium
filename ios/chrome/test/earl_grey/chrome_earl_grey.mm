@@ -671,6 +671,10 @@ GREY_STUB_CLASS_IN_APP_MAIN_QUEUE(ChromeEarlGreyAppInterface)
   [ChromeEarlGreyAppInterface clearSyncServerData];
 }
 
+- (void)revokeSyncConsent {
+  [ChromeEarlGreyAppInterface revokeSyncConsent];
+}
+
 - (void)clearSyncFirstSetupComplete {
   [ChromeEarlGreyAppInterface clearSyncFirstSetupComplete];
 }
@@ -1146,10 +1150,6 @@ GREY_STUB_CLASS_IN_APP_MAIN_QUEUE(ChromeEarlGreyAppInterface)
 
 - (BOOL)isMobileModeByDefault {
   return [ChromeEarlGreyAppInterface isMobileModeByDefault];
-}
-
-- (BOOL)isIllustratedEmptyStatesEnabled {
-  return [ChromeEarlGreyAppInterface isIllustratedEmptyStatesEnabled];
 }
 
 - (BOOL)isNativeContextMenusEnabled {

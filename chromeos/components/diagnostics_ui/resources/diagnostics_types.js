@@ -10,6 +10,8 @@
 import 'chrome://resources/mojo/mojo/public/js/mojo_bindings_lite.js';
 import 'chrome://resources/mojo/mojo/public/mojom/base/big_buffer.mojom-lite.js';
 import 'chrome://resources/mojo/mojo/public/mojom/base/string16.mojom-lite.js';
+import './input_data_provider.mojom-lite.js';
+import './network_health_provider.mojom-lite.js'
 import './system_data_provider.mojom-lite.js';
 import './system_routine_controller.mojom-lite.js';
 
@@ -262,121 +264,153 @@ export let SystemRoutineControllerInterface =
     chromeos.diagnostics.mojom.SystemRoutineControllerInterface;
 
 /**
- * TODO(michaelcheco): Add Cellular properties.
- * @typedef {!Object}
+ * Type alias for NetworkListObserver.
+ * @typedef {chromeos.diagnostics.mojom.NetworkListObserverRemote}
  */
-export let CellularStateProperties;
+export let NetworkListObserverRemote =
+    chromeos.diagnostics.mojom.NetworkListObserverRemote;
 
 /**
- * TODO(michaelcheco): Add Ethernet properties.
- * @typedef {!Object}
+ * Type alias for NetworkStateObserver.
+ * @typedef {chromeos.diagnostics.mojom.NetworkStateObserverRemote}
  */
-export let EthernetStateProperties;
+export let NetworkStateObserverRemote =
+    chromeos.diagnostics.mojom.NetworkStateObserverRemote;
 
 /**
- * @typedef {{
- *   signalStrength: number,
- *   frequency: number,
- *   ssid: string,
- *   bssid: string,
- * }}
+ * Type alias for Network.
+ * @typedef {chromeos.diagnostics.mojom.Network}
  */
-export let WiFiStateProperties;
+export let Network = chromeos.diagnostics.mojom.Network;
 
 /**
- * @typedef {{
- *   ipAddress: ?string,
- *   nameServers: ?Array<string>,
- *   subnetMask: ?string,
- *   gateway: ?string,
- * }}
+ * Type alias for NetworkHealthProvider.
+ * @typedef {chromeos.diagnostics.mojom.NetworkHealthProvider}
  */
-export let IPConfigProperties;
+export let NetworkHealthProvider =
+    chromeos.diagnostics.mojom.NetworkHealthProvider;
 
 /**
- * @typedef {(
- * !CellularStateProperties|!EthernetStateProperties|!WiFiStateProperties)}
+ * Type alias for NetworkHealthProviderInterface.
+ * @typedef {chromeos.diagnostics.mojom.NetworkHealthProviderInterface}
  */
-export let NetworkProperties;
+export let NetworkHealthProviderInterface =
+    chromeos.diagnostics.mojom.NetworkHealthProviderInterface;
 
 /**
- * @typedef {{
- *   state: number,
- *   type: number,
- *   networkProperties: !NetworkProperties,
- *   guid: string,
- *   name: string,
- *   macAddress: string,
- *   ipConfigProperties: ?IPConfigProperties,
- * }}
+ * Type alias for NetworkState.
+ * @typedef {chromeos.diagnostics.mojom.NetworkState}
  */
-export let Network;
+export let NetworkState = chromeos.diagnostics.mojom.NetworkState;
+
+/**
+ * Type alias for NetworkType
+ * @typedef {chromeos.diagnostics.mojom.NetworkType}
+ */
+export let NetworkType = chromeos.diagnostics.mojom.NetworkType;
+
+/**
+ * Type alias for NetworkListObserverReceiver.
+ * @typedef {chromeos.diagnostics.mojom.NetworkListObserverReceiver}
+ */
+export let NetworkListObserverReceiver =
+    chromeos.diagnostics.mojom.NetworkListObserverReceiver;
+
+/**
+ * Type alias for NetworkListObserverInterface.
+ * @typedef {chromeos.diagnostics.mojom.NetworkListObserverInterface}
+ */
+export let NetworkListObserverInterface =
+    chromeos.diagnostics.mojom.NetworkListObserverInterface;
+
+/**
+ * Type alias for NetworkStateObserverInterface.
+ * @typedef {chromeos.diagnostics.mojom.NetworkStateObserverInterface}
+ */
+export let NetworkStateObserverInterface =
+    chromeos.diagnostics.mojom.NetworkStateObserverInterface;
+
+/**
+ * Type alias for NetworkStateObserverReceiver.
+ * @typedef {chromeos.diagnostics.mojom.NetworkStateObserverReceiver}
+ */
+export let NetworkStateObserverReceiver =
+    chromeos.diagnostics.mojom.NetworkStateObserverReceiver;
 
 /**
  * @typedef {{
  *   networkGuids: !Array<string>,
- *   activeGuid: ?string,
+ *   activeGuid: string,
  * }}
  */
 export let NetworkGuidInfo;
 
 /**
- * Type alias for NetworkListObserver.
- * @typedef {{
- *   onNetworkListChanged: !function(!NetworkGuidInfo)
- * }}
+ * Type alias for ConnectionType.
+ * @typedef {chromeos.diagnostics.mojom.ConnectionType}
  */
-export let NetworkListObserver;
+export let ConnectionType =
+    chromeos.diagnostics.mojom.ConnectionType;
 
 /**
- * Type alias for NetworkStateObserver.
- * @typedef {{
- *   onNetworkStateChanged: !function(!Network)
- * }}
+ * Type alias for KeyboardInfo.
+ * @typedef {chromeos.diagnostics.mojom.KeyboardInfo}
  */
-export let NetworkStateObserver;
+export let KeyboardInfo =
+    chromeos.diagnostics.mojom.KeyboardInfo;
 
 /**
- * Type of NetworkHealthProviderInterface.ObserveNetworkListFunction function.
- * @typedef {!function(!NetworkListObserver): !Promise}
+ * Type alias for TouchDeviceType.
+ * @typedef {chromeos.diagnostics.mojom.TouchDeviceType}
  */
-export let ObserveNetworkListFunction;
+export let TouchDeviceType =
+    chromeos.diagnostics.mojom.TouchDeviceType;
 
 /**
- * Type of NetworkHealthProviderInterface.ObserveNetworkFunction function.
- * @typedef {!function(!NetworkStateObserver, !string): !Promise}
+ * Type alias for TouchDeviceInfo.
+ * @typedef {chromeos.diagnostics.mojom.TouchDeviceInfo}
  */
-export let ObserveNetworkFunction;
+export let TouchDeviceInfo =
+    chromeos.diagnostics.mojom.TouchDeviceInfo;
 
 /**
- * Type alias for the NetworkHealthProviderInterface.
- * TODO(michaelcheco): Replace with a real mojo type when implemented.
- * @typedef {{
- *   observeNetworkList: !ObserveNetworkListFunction,
- *   observeNetwork: !ObserveNetworkFunction,
- * }}
+ * Type alias for ConnectedDevicesObserver.
+ * @typedef {chromeos.diagnostics.mojom.ConnectedDevicesObserver}
  */
-export let NetworkHealthProviderInterface;
+export let ConnectedDevicesObserver = chromeos.diagnostics.mojom.CpuUsageObserver;
 
 /**
- * @enum {number}
+ * Type alias for ConnectedDevicesObserverRemote.
+ * @typedef {chromeos.diagnostics.mojom.ConnectedDevicesObserverRemote}
  */
-export let NetworkState = {
-  kUninitialized: 0,
-  kDisabled: 1,
-  kProhibited: 2,
-  kNotConnected: 3,
-  kConnecting: 4,
-  kPortal: 5,
-  kConnected: 6,
-  kOnline: 7,
-};
+export let ConnectedDevicesObserverRemote =
+    chromeos.diagnostics.mojom.ConnectedDevicesObserverRemote;
 
 /**
- * @enum {number}
+ * Type alias for ConnectedDevicesObserverInterface.
+ * @typedef {chromeos.diagnostics.mojom.ConnectedDevicesObserverInterface}
  */
-export let NetworkType = {
-  kCellular: 0,
-  kEthernet: 1,
-  kWiFi: 2,
-};
+export let ConnectedDevicesObserverInterface =
+    chromeos.diagnostics.mojom.ConnectedDevicesObserverInterface;
+
+/**
+ * Type alias for ConnectedDevicesObserverReceiver.
+ * @typedef {chromeos.diagnostics.mojom.ConnectedDevicesObserverReceiver}
+ */
+export let ConnectedDevicesObserverReceiver =
+    chromeos.diagnostics.mojom.ConnectedDevicesObserverReceiver;
+
+
+/**
+ * Type alias for the the response from InputDataProvider.GetConnectedDevices.
+ * @typedef {{keyboards: !Array<!KeyboardInfo>,
+ *            touchDevices: !Array<!TouchDeviceInfo>}}
+ */
+export let GetConnectedDevicesResponse;
+
+/**
+ * Type alias for InputDataProviderInterface.
+ * @typedef {chromeos.diagnostics.mojom.InputDataProviderInterface}
+ */
+export let InputDataProviderInterface =
+    chromeos.diagnostics.mojom.InputDataProviderInterface;

@@ -1,18 +1,20 @@
 <style>
   :host {
+    --emoji-picker-search-margins: 14px;
     display: flex;
     flex-direction: column;
     overflow-y: scroll;
-    --emoji-picker-search-margins: 14px;
   }
   cr-search-field {
     --cr-search-field-clear-icon-margin-end: var(--emoji-picker-search-margins);
-    --cr-search-field-clear-icon-size:20px;
+    --cr-search-field-clear-icon-size: 20px;
     --cr-search-field-input-border-bottom: none;
     --cr-search-field-input-padding-bottom: 0;
     --cr-search-field-input-padding-start: 8px;
     --cr-search-field-input-padding-top: 0;
     --cr-search-field-input-width: 100%;
+    --cr-search-field-placeholder-color:
+      rgba(var(--google-grey-900-rgb), .38);
     --cr-search-field-search-icon-display: none;
     --cr-search-field-search-icon-fill: var(--cr-secondary-text-color);
     --cr-search-field-search-icon-inline-display: block;
@@ -51,6 +53,7 @@
   }
 
   emoji-button {
+    --emoji-hover-background: transparent;
     margin-inline-end: 12px;
   }
 
@@ -58,11 +61,13 @@
     color: var(--cr-primary-text-color);
     font-size: 13px;
     line-height: var(--emoji-size);
+    user-select: none;
   }
 
   .sr-only {
     color: transparent;
     position: absolute;
+    user-select: none;
     z-index: -2;
   }
 
@@ -89,8 +94,9 @@
 
   #results {
     flex-grow: 1;
-    margin-inline-end: calc(0px - var(--emoji-picker-side-padding));
+    margin-inline-end: var(--emoji-picker-side-padding);
     overflow-y: scroll;
+    padding-bottom: var(--emoji-picker-bottom-padding);
   }
 </style>
 

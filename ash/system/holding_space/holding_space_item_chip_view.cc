@@ -6,13 +6,14 @@
 
 #include <algorithm>
 
+#include "ash/bubble/bubble_utils.h"
 #include "ash/public/cpp/holding_space/holding_space_constants.h"
 #include "ash/public/cpp/holding_space/holding_space_item.h"
 #include "ash/public/cpp/rounded_image_view.h"
 #include "ash/style/ash_color_provider.h"
 #include "ash/system/holding_space/holding_space_item_view.h"
-#include "ash/system/holding_space/holding_space_item_view_delegate.h"
-#include "ash/system/holding_space/holding_space_util.h"
+#include "ash/system/holding_space/holding_space_view_delegate.h"
+#include "base/bind.h"
 #include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/compositor/layer.h"
 #include "ui/compositor/layer_owner.h"
@@ -36,6 +37,14 @@ constexpr gfx::Insets kLabelMargins(0, 0, 0, /*right=*/2);
 constexpr gfx::Insets kPadding(8, 8, 8, /*right=*/10);
 constexpr int kPreferredHeight = 40;
 constexpr int kPreferredWidth = 160;
+
+// Helpers ---------------------------------------------------------------------
+
+// TODO(crbug.com/1202796): Create ash colors.
+SkColor GetMultiSelectTextColor() {
+  return AshColorProvider::Get()->IsDarkModeEnabled() ? gfx::kGoogleBlue100
+                                                      : gfx::kGoogleBlue800;
+}
 
 // PaintCallbackLabel ----------------------------------------------------------
 
@@ -63,7 +72,7 @@ class PaintCallbackLabel : public views::Label {
 // HoldingSpaceItemChipView ----------------------------------------------------
 
 HoldingSpaceItemChipView::HoldingSpaceItemChipView(
-    HoldingSpaceItemViewDelegate* delegate,
+    HoldingSpaceViewDelegate* delegate,
     const HoldingSpaceItem* item)
     : HoldingSpaceItemView(delegate, item) {
   auto* layout = SetLayoutManager(std::make_unique<views::BoxLayout>(
@@ -115,7 +124,7 @@ HoldingSpaceItemChipView::HoldingSpaceItemChipView(
   label_->SetPaintToLayer();
   label_->layer()->SetFillsBoundsOpaquely(false);
 
-  holding_space_util::ApplyStyle(label_, holding_space_util::LabelStyle::kChip);
+  bubble_utils::ApplyStyle(label_, bubble_utils::LabelStyle::kChip);
 
   // Pin.
   views::View* pin_button_container =
@@ -157,9 +166,8 @@ void HoldingSpaceItemChipView::OnPinVisibilityChanged(bool pin_visible) {
 void HoldingSpaceItemChipView::OnSelectionUiChanged() {
   HoldingSpaceItemView::OnSelectionUiChanged();
 
-  const bool multiselect =
-      delegate()->selection_ui() ==
-      HoldingSpaceItemViewDelegate::SelectionUi::kMultiSelect;
+  const bool multiselect = delegate()->selection_ui() ==
+                           HoldingSpaceViewDelegate::SelectionUi::kMultiSelect;
 
   image_->SetVisible(!selected() || !multiselect);
   UpdateLabel();
@@ -203,14 +211,12 @@ void HoldingSpaceItemChipView::UpdateImage() {
 }
 
 void HoldingSpaceItemChipView::UpdateLabel() {
-  const bool multiselect =
-      delegate()->selection_ui() ==
-      HoldingSpaceItemViewDelegate::SelectionUi::kMultiSelect;
+  const bool multiselect = delegate()->selection_ui() ==
+                           HoldingSpaceViewDelegate::SelectionUi::kMultiSelect;
 
   label_->SetEnabledColor(
       selected() && multiselect
-          ? AshColorProvider::Get()->GetControlsLayerColor(
-                AshColorProvider::ControlsLayerType::kFocusRingColor)
+          ? GetMultiSelectTextColor()
           : AshColorProvider::Get()->GetContentLayerColor(
                 AshColorProvider::ContentLayerType::kTextColorPrimary));
 }

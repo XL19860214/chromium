@@ -13,6 +13,7 @@
 #include "base/callback_helpers.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/trace_event/trace_event.h"
 #include "content/browser/background_fetch/background_fetch_data_manager.h"
 #include "content/browser/background_fetch/background_fetch_data_manager_observer.h"
 #include "content/browser/background_fetch/storage/database_helpers.h"
@@ -23,6 +24,7 @@
 #include "content/common/fetch/fetch_api_request_proto.h"
 #include "third_party/blink/public/common/cache_storage/cache_storage_utils.h"
 #include "third_party/blink/public/common/service_worker/service_worker_status_code.h"
+#include "third_party/blink/public/common/storage_key/storage_key.h"
 #include "third_party/blink/public/mojom/fetch/fetch_api_request.mojom.h"
 
 namespace content {
@@ -49,14 +51,15 @@ class CanCreateRegistrationTask : public DatabaseTask {
   ~CanCreateRegistrationTask() override = default;
 
   void Start() override {
-    service_worker_context()->GetRegistrationsForOrigin(
-        origin_,
-        base::BindOnce(&CanCreateRegistrationTask::DidGetRegistrationsForOrigin,
-                       weak_factory_.GetWeakPtr()));
+    service_worker_context()->GetRegistrationsForStorageKey(
+        blink::StorageKey(origin_),
+        base::BindOnce(
+            &CanCreateRegistrationTask::DidGetRegistrationsForStorageKey,
+            weak_factory_.GetWeakPtr()));
   }
 
  private:
-  void DidGetRegistrationsForOrigin(
+  void DidGetRegistrationsForStorageKey(
       blink::ServiceWorkerStatusCode status,
       const std::vector<scoped_refptr<ServiceWorkerRegistration>>&
           registrations) {
@@ -343,7 +346,7 @@ void CreateMetadataTask::StoreMetadata() {
 
   service_worker_context()->StoreRegistrationUserData(
       registration_id_.service_worker_registration_id(),
-      registration_id_.origin(), entries,
+      blink::StorageKey(registration_id_.origin()), entries,
       base::BindOnce(&CreateMetadataTask::DidStoreMetadata,
                      weak_factory_.GetWeakPtr()));
 }

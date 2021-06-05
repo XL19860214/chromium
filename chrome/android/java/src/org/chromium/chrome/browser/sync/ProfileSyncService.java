@@ -13,7 +13,6 @@ import org.json.JSONException;
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.NativeMethods;
-import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.components.signin.base.CoreAccountInfo;
 import org.chromium.components.signin.base.GoogleServiceAuthError;
 import org.chromium.components.sync.KeyRetrievalTriggerForUMA;
@@ -31,7 +30,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
  *
  * This class mostly makes calls to native and contains a minimum of business logic. It is only
  * usable from the UI thread as the native ProfileSyncService requires its access to be on the
- * UI thread. See components/sync/driver/profile_sync_service.h for more details.
+ * UI thread. See components/sync/driver/sync_service_impl.h for more details.
  */
 public class ProfileSyncService {
 
@@ -118,8 +117,7 @@ public class ProfileSyncService {
         // This may cause us to create ProfileSyncService even if sync has not
         // been set up, but ProfileSyncService won't actually start until
         // credentials are available.
-        mNativeProfileSyncServiceAndroid =
-                ProfileSyncServiceJni.get().init(ProfileSyncService.this);
+        mNativeProfileSyncServiceAndroid = ProfileSyncServiceJni.get().init(this);
     }
 
     /**
@@ -459,6 +457,18 @@ public class ProfileSyncService {
     }
 
     /**
+     * Checks if recoverability of the trusted vault keys is degraded and user action is required,
+     * affecting currently enabled data types.
+     *
+     * @return true if recoverability is degraded.
+     */
+    public boolean isTrustedVaultRecoverabilityDegraded() {
+        assert isEngineInitialized();
+        return ProfileSyncServiceJni.get().isTrustedVaultRecoverabilityDegraded(
+                mNativeProfileSyncServiceAndroid);
+    }
+
+    /**
      * @return Whether setting a custom passphrase is allowed.
      */
     public boolean isCustomPassphraseAllowed() {
@@ -529,23 +539,24 @@ public class ProfileSyncService {
                 mNativeProfileSyncServiceAndroid, keyRetrievalTrigger);
     }
 
+    /** @return Whether the user should be offered to opt in to trusted vault encryption. */
+    public boolean shouldOfferTrustedVaultOptIn() {
+        return ProfileSyncServiceJni.get().shouldOfferTrustedVaultOptIn(
+                mNativeProfileSyncServiceAndroid);
+    }
+
     /**
      * @return Whether sync is enabled to sync urls or open tabs with a non custom passphrase.
      */
     public boolean isSyncingUrlsWithKeystorePassphrase() {
-        if (ChromeFeatureList.isEnabled(ChromeFeatureList.MOBILE_IDENTITY_CONSISTENCY)) {
-            return isEngineInitialized() && getActiveDataTypes().contains(ModelType.TYPED_URLS)
-                    && (getPassphraseType() == PassphraseType.KEYSTORE_PASSPHRASE
-                            || getPassphraseType() == PassphraseType.TRUSTED_VAULT_PASSPHRASE);
-        }
-        return isEngineInitialized() && getPreferredDataTypes().contains(ModelType.TYPED_URLS)
+        return isEngineInitialized() && getActiveDataTypes().contains(ModelType.TYPED_URLS)
                 && (getPassphraseType() == PassphraseType.KEYSTORE_PASSPHRASE
                         || getPassphraseType() == PassphraseType.TRUSTED_VAULT_PASSPHRASE);
     }
 
     @VisibleForTesting
     public long getNativeProfileSyncServiceForTest() {
-        return ProfileSyncServiceJni.get().getProfileSyncServiceForTest(
+        return ProfileSyncServiceJni.get().getSyncServiceImplForTest(
                 mNativeProfileSyncServiceAndroid);
     }
 
@@ -640,6 +651,7 @@ public class ProfileSyncService {
         boolean isTrustedVaultKeyRequired(long nativeProfileSyncServiceAndroid);
         boolean isTrustedVaultKeyRequiredForPreferredDataTypes(
                 long nativeProfileSyncServiceAndroid);
+        boolean isTrustedVaultRecoverabilityDegraded(long nativeProfileSyncServiceAndroid);
         boolean isUsingExplicitPassphrase(long nativeProfileSyncServiceAndroid);
         boolean setDecryptionPassphrase(long nativeProfileSyncServiceAndroid, String passphrase);
         void setEncryptionPassphrase(long nativeProfileSyncServiceAndroid, String passphrase);
@@ -665,10 +677,11 @@ public class ProfileSyncService {
                 long nativeProfileSyncServiceAndroid);
         void markPassphrasePromptMutedForCurrentProductVersion(
                 long nativeProfileSyncServiceAndroid);
-        long getProfileSyncServiceForTest(long nativeProfileSyncServiceAndroid);
+        long getSyncServiceImplForTest(long nativeProfileSyncServiceAndroid);
         long getLastSyncedTimeForTest(long nativeProfileSyncServiceAndroid);
         void getAllNodes(long nativeProfileSyncServiceAndroid, GetAllNodesCallback callback);
         void recordKeyRetrievalTrigger(
                 long nativeProfileSyncServiceAndroid, int keyRetrievalTrigger);
+        boolean shouldOfferTrustedVaultOptIn(long nativeProfileSyncServiceAndroid);
     }
 }

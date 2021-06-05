@@ -64,6 +64,10 @@ class GbmSurfacelessWayland : public gl::SurfacelessEGL,
   bool SupportsOverridePlatformSize() const override;
   bool SupportsViewporter() const override;
   gfx::SurfaceOrigin GetOrigin() const override;
+  bool Resize(const gfx::Size& size,
+              float scale_factor,
+              const gfx::ColorSpace& color_space,
+              bool has_alpha) override;
 
  private:
   FRIEND_TEST_ALL_PREFIXES(WaylandSurfaceFactoryTest,
@@ -77,7 +81,8 @@ class GbmSurfacelessWayland : public gl::SurfacelessEGL,
 
   // WaylandSurfaceGpu overrides:
   void OnSubmission(BufferId buffer_id,
-                    const gfx::SwapResult& swap_result) override;
+                    const gfx::SwapResult& swap_result,
+                    gfx::GpuFenceHandle release_fence) override;
   void OnPresentation(BufferId buffer_id,
                       const gfx::PresentationFeedback& feedback) override;
 
@@ -99,7 +104,9 @@ class GbmSurfacelessWayland : public gl::SurfacelessEGL,
     std::vector<gl::GLSurfaceOverlay> overlays;
     SwapCompletionCallback completion_callback;
     PresentationCallback presentation_callback;
-
+    // Merged release fence fd. This is taken as the union of all release
+    // fences for a particular OnSubmission.
+    base::ScopedFD merged_release_fence_fd;
     bool schedule_planes_succeeded = false;
 
     // Maps |buffer_id| to an OverlayPlane, used for committing overlays and
@@ -136,6 +143,9 @@ class GbmSurfacelessWayland : public gl::SurfacelessEGL,
   bool use_egl_fence_sync_ = true;
 
   bool no_gl_flush_for_tests_ = false;
+
+  // Scale factor of the current surface.
+  int32_t surface_scale_factor_ = 1;
 
   base::WeakPtrFactory<GbmSurfacelessWayland> weak_factory_;
 

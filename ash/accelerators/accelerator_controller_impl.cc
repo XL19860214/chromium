@@ -78,7 +78,6 @@
 #include "ash/wm/overview/overview_session.h"
 #include "ash/wm/screen_pinning_controller.h"
 #include "ash/wm/tablet_mode/tablet_mode_controller.h"
-#include "ash/wm/window_cycle/window_cycle_controller.h"
 #include "ash/wm/window_positioning_utils.h"
 #include "ash/wm/window_state.h"
 #include "ash/wm/window_util.h"
@@ -121,9 +120,13 @@
 namespace ash {
 
 const char kNotifierAccelerator[] = "ash.accelerator-controller";
+const char kStartupNewShortcutNotificationId[] =
+    "accelerator_controller.new_shortcuts_in_release";
 
 const char kTabletCountOfVolumeAdjustType[] = "Tablet.CountOfVolumeAdjustType";
 
+const char kKeyboardShortcutHelpPageUrl[] =
+    "https://support.google.com/chromebook/answer/183101";
 const char kHighContrastToggleAccelNotificationId[] =
     "chrome://settings/accessibility/highcontrast";
 const char kDockedMagnifierToggleAccelNotificationId[] =
@@ -147,6 +150,7 @@ const char kAccelWindowSnap[] = "Ash.Accelerators.WindowSnap";
 namespace {
 
 using base::UserMetricsAction;
+using chromeos::WindowStateType;
 using chromeos::input_method::InputMethodManager;
 using message_center::Notification;
 using message_center::SystemNotificationWarningLevel;
@@ -247,6 +251,86 @@ void ShowDeprecatedAcceleratorNotification(const char* const notification_id,
       std::move(notification));
 }
 
+// Returns the number of times the startup notification has been shown
+// from prefs.
+int GetStartupNotificationPrefCount(PrefService* pref_service) {
+  DCHECK(pref_service);
+  return pref_service->GetInteger(
+      prefs::kImprovedShortcutsNotificationShownCount);
+}
+
+bool ShouldShowStartupNotificationForCurrentUser() {
+  const absl::optional<user_manager::UserType> user_type =
+      Shell::Get()->session_controller()->GetUserType();
+  return user_type &&
+         (*user_type == user_manager::USER_TYPE_REGULAR ||
+          *user_type == user_manager::USER_TYPE_CHILD) &&
+         !Shell::Get()->session_controller()->IsUserFirstLogin();
+}
+
+// Increments the number of times the startup notification has been shown
+// in prefs.
+void IncrementStartupNotificationCount(PrefService* pref_service) {
+  DCHECK(pref_service);
+  int count = GetStartupNotificationPrefCount(pref_service);
+
+  // Increment the pref count.
+  pref_service->SetInteger(prefs::kImprovedShortcutsNotificationShownCount,
+                           count + 1);
+}
+
+// Shows a notification that accelerators/shortcuts have changed in this
+// release.
+// TODO(crbug.com/1179893): Remove this function in M97/M98.
+void NotifyShortcutChangesInRelease(PrefService* pref_service) {
+  DCHECK(::features::IsImprovedKeyboardShortcutsEnabled());
+  DCHECK(pref_service);
+
+  if (GetStartupNotificationPrefCount(pref_service) > 0)
+    return;
+
+  // The notification only has one button, "Learn more".
+  message_center::RichNotificationData rich_data;
+  rich_data.buttons.push_back(
+      message_center::ButtonInfo(l10n_util::GetStringUTF16(
+          IDS_SHORTCUT_CHANGES_IN_RELEASE_NOTIFICATION_LEARN_MORE_BUTTON_TEXT)));
+
+  // When the learn more button is clicked, open the keyboard shortcuts help
+  // page. Otherwise if the body is clicked, open the shortcut viewer app.
+  auto on_click_handler =
+      base::MakeRefCounted<message_center::HandleNotificationClickDelegate>(
+          base::BindRepeating([](absl::optional<int> button_index) {
+            if (Shell::Get()->session_controller()->IsUserSessionBlocked())
+              return;
+
+            if (button_index.has_value()) {
+              DCHECK_EQ(0, button_index.value());
+              NewWindowDelegate::GetInstance()->NewTabWithUrl(
+                  GURL(kKeyboardShortcutHelpPageUrl),
+                  /*from_user_interaction=*/true);
+            } else {
+              NewWindowDelegate::GetInstance()->ShowKeyboardShortcutViewer();
+            }
+          }));
+
+  auto notification = CreateSystemNotification(
+      message_center::NOTIFICATION_TYPE_SIMPLE,
+      kStartupNewShortcutNotificationId,
+      l10n_util::GetStringUTF16(
+          IDS_SHORTCUT_CHANGES_IN_RELEASE_NOTIFICATION_TITLE),
+      l10n_util::GetStringUTF16(
+          IDS_SHORTCUT_CHANGES_IN_RELEASE_NOTIFICATION_BODY),
+      std::u16string(), GURL(),
+      message_center::NotifierId(message_center::NotifierType::SYSTEM_COMPONENT,
+                                 kNotifierAccelerator),
+      rich_data, std::move(on_click_handler), kNotificationKeyboardIcon,
+      message_center::SystemNotificationWarningLevel::NORMAL);
+  message_center::MessageCenter::Get()->AddNotification(
+      std::move(notification));
+
+  IncrementStartupNotificationCount(pref_service);
+}
+
 void ShowToast(std::string id, const std::u16string& text) {
   ToastData toast(id, text, kToastDurationMs, absl::nullopt,
                   /*visible_on_lock_screen=*/true);
@@ -281,20 +365,14 @@ void RecordImeSwitchByModeChangeKey() {
                             ImeSwitchType::kModeChangeKey);
 }
 
-void HandleCycleBackwardMRU(const ui::Accelerator& accelerator) {
+void RecordCycleBackwardMru(const ui::Accelerator& accelerator) {
   if (accelerator.key_code() == ui::VKEY_TAB)
     base::RecordAction(base::UserMetricsAction("Accel_PrevWindow_Tab"));
-
-  Shell::Get()->window_cycle_controller()->HandleCycleWindow(
-      WindowCycleController::WindowCyclingDirection::kBackward);
 }
 
-void HandleCycleForwardMRU(const ui::Accelerator& accelerator) {
+void RecordCycleForwardMru(const ui::Accelerator& accelerator) {
   if (accelerator.key_code() == ui::VKEY_TAB)
     base::RecordAction(base::UserMetricsAction("Accel_NextWindow_Tab"));
-
-  Shell::Get()->window_cycle_controller()->HandleCycleWindow(
-      WindowCycleController::WindowCyclingDirection::kForward);
 }
 
 void HandleActivateDesk(const ui::Accelerator& accelerator,
@@ -972,8 +1050,8 @@ void HandleWindowSnap(AcceleratorAction action) {
   }
 
   const WMEvent event(action == WINDOW_CYCLE_SNAP_LEFT
-                          ? WM_EVENT_CYCLE_SNAP_LEFT
-                          : WM_EVENT_CYCLE_SNAP_RIGHT);
+                          ? WM_EVENT_CYCLE_SNAP_PRIMARY
+                          : WM_EVENT_CYCLE_SNAP_SECONDARY);
   aura::Window* active_window = window_util::GetActiveWindow();
   DCHECK(active_window);
   WindowState::Get(active_window)->OnWMEvent(&event);
@@ -1616,6 +1694,14 @@ bool CanHandleTouchHud() {
   return RootWindowController::ForTargetRootWindow()->touch_hud_debug();
 }
 
+bool CanUnpinWindow() {
+  // WindowStateType::kTrustedPinned does not allow the user to press a key to
+  // exit pinned mode.
+  WindowState* window_state = WindowState::ForActiveWindow();
+  return window_state &&
+         window_state->GetStateType() == WindowStateType::kPinned;
+}
+
 void HandleTouchHudClear() {
   RootWindowController::ForTargetRootWindow()->touch_hud_debug()->Clear();
 }
@@ -1639,6 +1725,8 @@ constexpr const char* AcceleratorControllerImpl::kVolumeButtonSideBottom;
 
 ////////////////////////////////////////////////////////////////////////////////
 // AcceleratorControllerImpl, public:
+
+bool AcceleratorControllerImpl::should_show_shortcut_notification_ = true;
 
 AcceleratorControllerImpl::TestApi::TestApi(
     AcceleratorControllerImpl* controller)
@@ -1678,6 +1766,7 @@ AcceleratorControllerImpl::TestApi::GetConfirmationDialog() {
 void AcceleratorControllerImpl::TestApi::SetSideVolumeButtonFilePath(
     base::FilePath path) {
   controller_->side_volume_button_location_file_path_ = path;
+  controller_->ParseSideVolumeButtonLocationInfo();
 }
 
 void AcceleratorControllerImpl::TestApi::SetSideVolumeButtonLocation(
@@ -1697,6 +1786,9 @@ AcceleratorControllerImpl::AcceleratorControllerImpl()
     // shortcuts. Calling AddObserver will cause InputMethodChanged to be
     // called once even when the method does not change.
     InputMethodManager::Get()->AddObserver(this);
+
+    // Observe session changes.
+    Shell::Get()->session_controller()->AddObserver(this);
   }
 
   Init();
@@ -1713,9 +1805,23 @@ AcceleratorControllerImpl::AcceleratorControllerImpl()
 
 AcceleratorControllerImpl::~AcceleratorControllerImpl() {
   aura::Env::GetInstance()->RemovePreTargetHandler(accelerator_history_.get());
+}
 
+// static
+void AcceleratorControllerImpl::RegisterProfilePrefs(
+    PrefRegistrySimple* registry) {
+  registry->RegisterIntegerPref(prefs::kImprovedShortcutsNotificationShownCount,
+                                0);
+}
+
+void AcceleratorControllerImpl::OnActiveUserPrefServiceChanged(
+    PrefService* pref_service) {
+  DCHECK(pref_service);
   if (::features::IsImprovedKeyboardShortcutsEnabled()) {
-    InputMethodManager::Get()->RemoveObserver(this);
+    if (should_show_shortcut_notification_ &&
+        ShouldShowStartupNotificationForCurrentUser()) {
+      NotifyShortcutChangesInRelease(pref_service);
+    }
   }
 }
 
@@ -1777,7 +1883,7 @@ bool AcceleratorControllerImpl::PerformActionIfEnabled(
 
 bool AcceleratorControllerImpl::OnMenuAccelerator(
     const ui::Accelerator& accelerator) {
-  accelerator_history()->StoreCurrentAccelerator(accelerator);
+  accelerator_history_->StoreCurrentAccelerator(accelerator);
 
   // Menu shouldn't be closed for an invalid accelerator.
   AcceleratorAction* action_ptr = accelerators_.Find(accelerator);
@@ -1803,11 +1909,6 @@ bool AcceleratorControllerImpl::IsReserved(
     const ui::Accelerator& accelerator) const {
   const AcceleratorAction* action_ptr = accelerators_.Find(accelerator);
   return action_ptr && base::Contains(reserved_actions_, *action_ptr);
-}
-
-AcceleratorControllerImpl::AcceleratorProcessingRestriction
-AcceleratorControllerImpl::GetCurrentAcceleratorRestriction() {
-  return GetAcceleratorProcessingRestriction(-1);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -2049,7 +2150,7 @@ bool AcceleratorControllerImpl::CanPerformAction(
     case TOUCH_HUD_MODE_CHANGE:
       return CanHandleTouchHud();
     case UNPIN:
-      return accelerators::CanUnpinWindow();
+      return CanUnpinWindow();
     case WINDOW_CYCLE_SNAP_LEFT:
     case WINDOW_CYCLE_SNAP_RIGHT:
       return CanHandleWindowSnap();
@@ -2157,10 +2258,12 @@ void AcceleratorControllerImpl::PerformAction(
       break;
     }
     case CYCLE_BACKWARD_MRU:
-      HandleCycleBackwardMRU(accelerator);
+      RecordCycleBackwardMru(accelerator);
+      accelerators::CycleBackwardMru();
       break;
     case CYCLE_FORWARD_MRU:
-      HandleCycleForwardMRU(accelerator);
+      RecordCycleForwardMru(accelerator);
+      accelerators::CycleForwardMru();
       break;
     case DESKS_ACTIVATE_DESK_LEFT:
       HandleActivateDesk(accelerator, /*activate_left=*/true);
@@ -2505,6 +2608,14 @@ void AcceleratorControllerImpl::PerformAction(
       HandleTopWindowMinimizeOnBack();
       break;
   }
+
+  // Reset any in progress composition.
+  if (::features::IsImprovedKeyboardShortcutsEnabled()) {
+    auto* input_method =
+        Shell::Get()->window_tree_host_manager()->input_method();
+
+    input_method->CancelComposition(input_method->GetTextInputClient());
+  }
 }
 
 bool AcceleratorControllerImpl::ShouldActionConsumeKeyEvent(
@@ -2610,31 +2721,11 @@ void AcceleratorControllerImpl::MaybeShowConfirmationDialog(
   confirmation_dialog_ = dialog->GetWeakPtr();
 }
 
-void AcceleratorControllerImpl::ParseSideVolumeButtonLocationInfo() {
-  std::string location_info;
-  const base::CommandLine* cl = base::CommandLine::ForCurrentProcess();
-  if (cl->HasSwitch(switches::kAshSideVolumeButtonPosition)) {
-    location_info =
-        cl->GetSwitchValueASCII(switches::kAshSideVolumeButtonPosition);
-  } else if (!base::PathExists(side_volume_button_location_file_path_) ||
-             !base::ReadFileToString(side_volume_button_location_file_path_,
-                                     &location_info) ||
-             location_info.empty()) {
-    return;
+void AcceleratorControllerImpl::Shutdown() {
+  if (::features::IsImprovedKeyboardShortcutsEnabled()) {
+    InputMethodManager::Get()->RemoveObserver(this);
+    Shell::Get()->session_controller()->RemoveObserver(this);
   }
-
-  std::unique_ptr<base::DictionaryValue> info_in_dict =
-      base::DictionaryValue::From(
-          base::JSONReader::ReadDeprecated(location_info));
-  if (!info_in_dict) {
-    LOG(ERROR) << "JSONReader failed reading side volume button location info: "
-               << location_info;
-    return;
-  }
-  info_in_dict->GetString(kVolumeButtonRegion,
-                          &side_volume_button_location_.region);
-  info_in_dict->GetString(kVolumeButtonSide,
-                          &side_volume_button_location_.side);
 }
 
 bool AcceleratorControllerImpl::IsInternalKeyboardOrUncategorizedDevice(
@@ -2700,6 +2791,33 @@ bool AcceleratorControllerImpl::ShouldSwapSideVolumeButtons(
   if (side == kVolumeButtonSideLeft || side == kVolumeButtonSideRight)
     return !IsPrimaryOrientation(screen_orientation);
   return is_landscape_secondary_or_portrait_primary;
+}
+
+void AcceleratorControllerImpl::ParseSideVolumeButtonLocationInfo() {
+  std::string location_info;
+  const base::CommandLine* cl = base::CommandLine::ForCurrentProcess();
+  if (cl->HasSwitch(switches::kAshSideVolumeButtonPosition)) {
+    location_info =
+        cl->GetSwitchValueASCII(switches::kAshSideVolumeButtonPosition);
+  } else if (!base::PathExists(side_volume_button_location_file_path_) ||
+             !base::ReadFileToString(side_volume_button_location_file_path_,
+                                     &location_info) ||
+             location_info.empty()) {
+    return;
+  }
+
+  std::unique_ptr<base::DictionaryValue> info_in_dict =
+      base::DictionaryValue::From(
+          base::JSONReader::ReadDeprecated(location_info));
+  if (!info_in_dict) {
+    LOG(ERROR) << "JSONReader failed reading side volume button location info: "
+               << location_info;
+    return;
+  }
+  info_in_dict->GetString(kVolumeButtonRegion,
+                          &side_volume_button_location_.region);
+  info_in_dict->GetString(kVolumeButtonSide,
+                          &side_volume_button_location_.side);
 }
 
 void AcceleratorControllerImpl::UpdateTabletModeVolumeAdjustHistogram() {

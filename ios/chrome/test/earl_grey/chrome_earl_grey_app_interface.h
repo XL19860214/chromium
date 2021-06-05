@@ -340,6 +340,9 @@
 // Clears fake sync server data if the server is running.
 + (void)clearSyncServerData;
 
+// Removes Sync consent for the primary account.
++ (void)revokeSyncConsent;
+
 // Clears the first sync setup preference.
 + (void)clearSyncFirstSetupComplete;
 
@@ -366,11 +369,11 @@
 // Whether or not the fake sync server has been setup.
 + (BOOL)isFakeSyncServerSetUp;
 
-// Sets up a fake sync server to be used by the ProfileSyncService.
+// Sets up a fake sync server to be used by the SyncServiceImpl.
 + (void)setUpFakeSyncServer;
 
-// Tears down the fake sync server used by the ProfileSyncService and restores
-// the real one.
+// Tears down the fake sync server used by the SyncServiceImpl and restores the
+// real one.
 + (void)tearDownFakeSyncServer;
 
 // Gets the number of entities of the given |type|.
@@ -505,9 +508,6 @@
 // Returns whether the mobile version of the websites are requested by default.
 + (BOOL)isMobileModeByDefault WARN_UNUSED_RESULT;
 
-// Returns whether the illustrated empty states feature is enabled.
-+ (BOOL)isIllustratedEmptyStatesEnabled;
-
 // Returns whether the native context menus feature is enabled or not.
 + (BOOL)isNativeContextMenusEnabled;
 
@@ -594,6 +594,14 @@
 
 // Clear the watcher list, stopping monitoring.
 + (void)stopWatcher;
+
+#pragma mark - Default Browser Promo Utilities
+
+// Clears default browser promo data to restart capping for the promos.
++ (void)clearDefaultBrowserPromoData;
+
+// Copies a chrome:// URL that doesn't require internet connection.
++ (void)copyURLToPasteBoard;
 
 @end
 

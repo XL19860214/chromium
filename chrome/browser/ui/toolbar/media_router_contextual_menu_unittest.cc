@@ -6,6 +6,7 @@
 
 #include "base/bind.h"
 #include "base/macros.h"
+#include "build/branding_buildflags.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/extensions/extension_action_test_util.h"
 #include "chrome/browser/extensions/load_error_reporter.h"
@@ -123,11 +124,15 @@ TEST_F(MediaRouterContextualMenuUnitTest, Basic) {
   // Optimize fullscreen videos (checkbox)
   // -----
   // Report an issue
-  int expected_number_items = 8;
+
+  // Number of menu items, including separators.
+  int expected_number_items = 6;
+#if BUILDFLAG(GOOGLE_CHROME_BRANDING)
+  expected_number_items += 2;
+#endif
 
   MediaRouterContextualMenu menu(browser(), kShownByUser, &observer_);
   std::unique_ptr<ui::SimpleMenuModel> model = menu.CreateMenuModel();
-  // Verify the number of menu items, including separators.
   EXPECT_EQ(model->GetItemCount(), expected_number_items);
 
   for (int i = 0; i < expected_number_items; i++) {
@@ -136,7 +141,8 @@ TEST_F(MediaRouterContextualMenuUnitTest, Basic) {
   }
 
   // Set up an authenticated account.
-  identity_test_env()->SetPrimaryAccount("foo@bar.com");
+  identity_test_env()->SetPrimaryAccount("foo@bar.com",
+                                         signin::ConsentLevel::kSync);
 
   // Run the same checks as before. All existing menu items should be now
   // enabled and visible.
@@ -147,6 +153,7 @@ TEST_F(MediaRouterContextualMenuUnitTest, Basic) {
   }
 }
 
+#if BUILDFLAG(GOOGLE_CHROME_BRANDING)
 // "Report an issue" should be present for normal profiles but not for
 // incognito.
 TEST_F(MediaRouterContextualMenuUnitTest, EnableAndDisableReportIssue) {
@@ -164,6 +171,7 @@ TEST_F(MediaRouterContextualMenuUnitTest, EnableAndDisableReportIssue) {
   EXPECT_EQ(-1, incognito_menu.CreateMenuModel()->GetIndexOfCommandId(
                     IDC_MEDIA_ROUTER_REPORT_ISSUE));
 }
+#endif
 
 TEST_F(MediaRouterContextualMenuUnitTest, ToggleMediaRemotingItem) {
   MediaRouterContextualMenu menu(browser(), kShownByPolicy, &observer_);

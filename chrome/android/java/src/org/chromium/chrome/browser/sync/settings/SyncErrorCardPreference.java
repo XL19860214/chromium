@@ -13,7 +13,6 @@ import androidx.preference.Preference;
 import androidx.preference.PreferenceViewHolder;
 
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.signin.services.IdentityServicesProvider;
 import org.chromium.chrome.browser.signin.services.ProfileDataCache;
@@ -95,11 +94,6 @@ public class SyncErrorCardPreference extends Preference
     }
 
     private void update() {
-        // If feature is not enabled keep the preference at the default hidden state.
-        if (!ChromeFeatureList.isEnabled(ChromeFeatureList.MOBILE_IDENTITY_CONSISTENCY)) {
-            return;
-        }
-
         mSyncError = SyncSettingsUtils.getSyncError();
         boolean suppressSyncSetupIncompleteFromSigninPage =
                 (mSyncError == SyncError.SYNC_SETUP_INCOMPLETE)
@@ -170,24 +164,5 @@ public class SyncErrorCardPreference extends Preference
     @Override
     public void onProfileDataUpdated(String accountEmail) {
         update();
-    }
-
-    private boolean isTrustedVaultError() {
-        switch (mSyncError) {
-            case SyncError.TRUSTED_VAULT_KEY_REQUIRED_FOR_EVERYTHING:
-            case SyncError.TRUSTED_VAULT_KEY_REQUIRED_FOR_PASSWORDS:
-                return true;
-            case SyncError.ANDROID_SYNC_DISABLED:
-            case SyncError.AUTH_ERROR:
-            case SyncError.CLIENT_OUT_OF_DATE:
-            case SyncError.OTHER_ERRORS:
-            case SyncError.PASSPHRASE_REQUIRED:
-            case SyncError.SYNC_SETUP_INCOMPLETE:
-            case SyncError.NO_ERROR:
-                return false;
-            default:
-                assert false : "Unknown sync error";
-                return false;
-        }
     }
 }

@@ -104,6 +104,8 @@ cr.define('app_management', function() {
         permissions: {},
         hideMoreSettings: false,
         hidePinToShelf: false,
+        isPreferredApp: false,
+        windowMode: apps.mojom.WindowMode.kWindow,
       };
 
       if (optConfig) {

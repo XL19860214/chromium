@@ -68,6 +68,7 @@ public class WebFeedFollowIntroController {
     private final Tracker mFeatureEngagementTracker;
     private final WebFeedSnackbarController mWebFeedSnackbarController;
     private final WebFeedFollowIntroView mWebFeedFollowIntroView;
+    private final ObservableSupplier<Tab> mTabSupplier;
 
     private final long mAppearanceThresholdMs;
 
@@ -90,17 +91,17 @@ public class WebFeedFollowIntroController {
      * @param feedLauncher The {@link FeedLauncher} to launch the feed.
      * @param dialogManager {@link ModalDialogManager} for managing the dialog.
      * @param snackbarManager The {@link SnackbarManager} to show snackbars.
-     * @param webFeedBridge The {@link WebFeedBridge} to connect to the Web Feed backend.
      */
     public WebFeedFollowIntroController(Activity activity, AppMenuHandler appMenuHandler,
             ObservableSupplier<Tab> tabSupplier, View menuButtonAnchorView,
             FeedLauncher feedLauncher, ModalDialogManager dialogManager,
-            SnackbarManager snackbarManager, WebFeedBridge webFeedBridge) {
+            SnackbarManager snackbarManager) {
         mActivity = activity;
+        mTabSupplier = tabSupplier;
         mFeatureEngagementTracker =
                 TrackerFactory.getTrackerForProfile(Profile.getLastUsedRegularProfile());
         mWebFeedSnackbarController = new WebFeedSnackbarController(
-                activity, feedLauncher, dialogManager, snackbarManager, webFeedBridge);
+                activity, feedLauncher, dialogManager, snackbarManager);
         mWebFeedFollowIntroView =
                 new WebFeedFollowIntroView(mActivity, appMenuHandler, menuButtonAnchorView);
 
@@ -139,11 +140,11 @@ public class WebFeedFollowIntroController {
 
                 mPageLoadTime = mClock.currentTimeMillis();
 
-                webFeedBridge.getVisitCountsToHost(url,
+                WebFeedBridge.getVisitCountsToHost(url,
                         result
                         -> mMeetsVisitRequirement = result.visits >= numVisitMin
                                 && result.dailyVisits >= dailyVisitMin);
-                webFeedBridge.getWebFeedMetadataForPage(url, result -> {
+                WebFeedBridge.getWebFeedMetadataForPage(tab, url, result -> {
                     // Shouldn't be recommended if there's no metadata or if the ID doesn't exist.
                     if (result == null || result.id == null || result.id.length == 0) {
                         mIsRecommended = false;
@@ -219,8 +220,8 @@ public class WebFeedFollowIntroController {
         }
 
         mWebFeedFollowIntroView.showLoadingUI();
-        WebFeedBridge bridge = new WebFeedBridge();
-        bridge.followFromId(mWebFeedId,
+        Tab currentTab = mTabSupplier.get();
+        WebFeedBridge.followFromId(mWebFeedId,
                 results -> mWebFeedFollowIntroView.hideLoadingUI(new LoadingView.Observer() {
                     @Override
                     public void onShowLoadingUIComplete() {}
@@ -233,7 +234,7 @@ public class WebFeedFollowIntroController {
                         }
                         byte[] followId = results.metadata != null ? results.metadata.id : null;
                         mWebFeedSnackbarController.showPostFollowHelp(
-                                results, followId, mUrl, mTitle);
+                                currentTab, results, followId, mUrl, mTitle);
                     }
                 }));
     }

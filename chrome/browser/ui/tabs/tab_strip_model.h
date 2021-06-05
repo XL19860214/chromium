@@ -18,7 +18,8 @@
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
-#include "base/scoped_observer.h"
+#include "base/scoped_multi_source_observation.h"
+#include "base/scoped_observation.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
 #include "build/build_config.h"
@@ -138,6 +139,18 @@ class TabStripModel : public TabGroupController {
 
     // Number of enum entries, used for UMA histogram reporting macros.
     NEW_TAB_ENUM_COUNT = 5,
+  };
+
+  // Enumerates different types of tab activation. Mainly used for
+  // comparison between classic tab strip and WebUI tab strip.
+  // KEEP IN SYNC WITH THE TabActivationTypes ENUM IN enums.xml.
+  // NEW VALUES MUST BE APPENDED AND AVOID CHANGING ANY PRE-EXISTING VALUES.
+  enum class TabActivationTypes {
+    // Switch to a tab.
+    kTab = 0,
+    // Open the context menu of a tab.
+    kContextMenu = 1,
+    kMaxValue = kContextMenu,
   };
 
   static constexpr int kNoTab = -1;
@@ -823,14 +836,27 @@ class TabStripModel : public TabGroupController {
   DISALLOW_IMPLICIT_CONSTRUCTORS(TabStripModel);
 };
 
-// Forbid construction of ScopedObserver with TabStripModel:
-// TabStripModelObserver already implements ScopedObserver's functionality
-// natively.
+// Forbid construction of ScopedObservation and ScopedMultiSourceObservation
+// with TabStripModel: TabStripModelObserver already implements their
+// functionality natively.
+namespace base {
+
 template <>
-class ScopedObserver<TabStripModel, TabStripModelObserver> {
+class ScopedObservation<TabStripModel, TabStripModelObserver> {
  public:
   // Deleting the constructor gives a clear error message traceable back to here.
-  explicit ScopedObserver(TabStripModelObserver* observer) = delete;
+  explicit ScopedObservation(TabStripModelObserver* observer) = delete;
 };
+
+template <>
+class ScopedMultiSourceObservation<TabStripModel, TabStripModelObserver> {
+ public:
+  // Deleting the constructor gives a clear error message traceable back to
+  // here.
+  explicit ScopedMultiSourceObservation(TabStripModelObserver* observer) =
+      delete;
+};
+
+}  // namespace base
 
 #endif  // CHROME_BROWSER_UI_TABS_TAB_STRIP_MODEL_H_
